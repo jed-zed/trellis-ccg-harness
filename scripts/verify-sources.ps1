@@ -100,3 +100,8 @@ Write-Output "  CCG:      $($ccgPackage.version)"
 Write-Output "  Commit:   $($manifest.ccg.commit)"
 Write-Output "  Git tree: $actualTree"
 Write-Output "  Source:   $($manifest.ccg.authoritativeRepository)"
+
+# PowerShell can propagate the last native command's non-zero status when the
+# script exits on Linux. The cat-file probes above intentionally expect
+# missing paths, so reset the native status after all assertions pass.
+$global:LASTEXITCODE = 0
