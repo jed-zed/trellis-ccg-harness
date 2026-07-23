@@ -110,6 +110,10 @@ CCG 只能从个人 fork 或已验证的本地个人 checkout 更新。不得把
 
 受控测试 fixtures 属于源码的一部分，会随个人 CCG tracked tree 保留。
 
+### Windows 安全软件提示
+
+部分 Windows 端点防护会因为文件名和安全研究内容，拒绝读取 CCG 中的 `templates/skills/domains/security/pentest.md` 和 `red-team.md`。这属于本地误报：Harness 使用提交对象中的 Git tree 做来源校验，CCG 安装器也会主动省略该安全参考目录。遇到这种情况不要把工作区里的异常读取结果重新暂存；以 `scripts/verify-sources.ps1` 的 Git tree 校验和 GitHub CI 为准。
+
 ## 许可证
 
 当前仓库是私有 Harness，集成层标记为 `UNLICENSED`。Trellis 为 AGPL-3.0，CCG 为 MIT；详见 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)。在完成组合分发审查前不要改为公开仓库。
