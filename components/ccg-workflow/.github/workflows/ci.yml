@@ -1,0 +1,90 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        node-version: [20, 22]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Type check
+        run: pnpm typecheck
+
+      - name: Run tests with coverage
+        run: pnpm test -- --coverage
+
+      - name: Upload coverage to Codecov
+        if: runner.os == 'Linux' && matrix.node-version == 22
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+      - name: Build
+        run: pnpm build
+
+      - name: Windows Grok offline security contract
+        if: runner.os == 'Windows' && matrix.node-version == 22
+        run: >-
+          pnpm vitest run
+          src/utils/__tests__/grokIntelligenceAcp.test.ts
+          src/utils/__tests__/grokIntelligenceRunner.test.ts
+          src/utils/__tests__/grokIntelligenceRouting.test.ts
+          src/utils/__tests__/grokIntelligenceDistribution.test.ts
+
+      - name: Windows PowerShell doctor JSON contract
+        if: runner.os == 'Windows' && matrix.node-version == 22
+        shell: pwsh
+        run: |
+          $doctorJson = Join-Path $env:RUNNER_TEMP 'ccg-doctor.json'
+          $codexHome = Join-Path $env:RUNNER_TEMP 'codex-home'
+          & pwsh -NoProfile -ExecutionPolicy Bypass -File ./plugins/ccg/scripts/doctor.ps1 `
+            -CodexHome $codexHome -PluginRoot ./plugins/ccg -Json 1> $doctorJson
+          $doctorExit = $LASTEXITCODE
+          $payload = Get-Content -LiteralPath $doctorJson -Raw | ConvertFrom-Json
+          if (-not $payload.counts -or -not $payload.plugin_root) {
+            throw 'PowerShell doctor did not emit the expected JSON contract.'
+          }
+          Write-Host "Doctor JSON parsed (expected clean-runner exit=$doctorExit)."
+          exit 0
+
+  go-build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Go build check
+        working-directory: codeagent-wrapper
+        run: go build .
+
+      - name: Go test
+        working-directory: codeagent-wrapper
+        run: go test -short ./...

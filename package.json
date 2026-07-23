@@ -1,0 +1,20 @@
+{
+  "name": "trellis-ccg-harness",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Personal AI development harness combining Trellis with jed-zed's customized CCG workflow.",
+  "license": "UNLICENSED",
+  "packageManager": "pnpm@10.17.1",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "bootstrap": "pwsh -NoProfile -File ./scripts/bootstrap.ps1",
+    "doctor": "pwsh -NoProfile -File ./scripts/doctor.ps1",
+    "verify:sources": "pwsh -NoProfile -File ./scripts/verify-sources.ps1",
+    "ccg:lint": "pnpm --dir ./components/ccg-workflow lint",
+    "ccg:typecheck": "pnpm --dir ./components/ccg-workflow typecheck",
+    "ccg:test": "pnpm --dir ./components/ccg-workflow test",
+    "ccg:build": "pnpm --dir ./components/ccg-workflow build"
+  }
+}

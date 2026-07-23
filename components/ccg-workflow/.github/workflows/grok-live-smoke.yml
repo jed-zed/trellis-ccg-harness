@@ -1,0 +1,163 @@
+name: Grok Live Smoke
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  grok-live:
+    runs-on: windows-latest
+    environment: grok-live-smoke
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Require the approved live secret
+        shell: pwsh
+        env:
+          XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:XAI_API_KEY)) {
+            throw 'The grok-live-smoke environment must provide secrets.XAI_API_KEY.'
+          }
+          $isolatedData = Join-Path $env:RUNNER_TEMP 'ccg-grok-live'
+          New-Item -ItemType Directory -Path $isolatedData -Force | Out-Null
+          "LOCALAPPDATA=$isolatedData" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Install dependencies and the official Grok CLI
+        run: |
+          pnpm install --frozen-lockfile
+          npm install --global @xai-official/grok
+          grok --version
+
+      - name: Configure explicit CCG consent for this approved run
+        shell: pwsh
+        run: |
+          $ccgDir = Join-Path $HOME '.claude/.ccg'
+          New-Item -ItemType Directory -Path $ccgDir -Force | Out-Null
+          @'
+          [intelligence]
+          enabled = true
+          auto_route = true
+          provider = "grok-cli"
+          transport = "acp"
+          auth_mode = "api_key"
+          legacy_search_provider = "grok-search-mcp"
+          allow_provider_fallback = false
+          require_web_search = true
+          x_search_policy = "required"
+          default_model = "grok-4.5"
+          retention_days = 7
+          exported_retention_days = 30
+          max_bundle_bytes = 16777216
+          cleanup_credential_artifacts = true
+          '@ | Set-Content -LiteralPath (Join-Path $ccgDir 'config.toml') -Encoding utf8
+
+      - name: Run the explicit paid Web and X smoke
+        shell: pwsh
+        env:
+          XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
+        run: |
+          pnpm exec tsx src/cli.ts doctor --grok
+          $raw = node templates/engine/tools/grok-intelligence/manage.mjs doctor --live --json
+          $result = $raw | ConvertFrom-Json
+          if (-not $result.ok -or -not $result.paidModelPromptSent) {
+            throw 'Grok live doctor did not report a valid paid prompt.'
+          }
+          if ($result.live.webSearches -lt 1 -or $result.live.xSearches -lt 1) {
+            throw 'Grok live doctor did not validate both Web and X events.'
+          }
+          if ($result.live.action -ne 'verify' -or $result.live.investigationMode -ne 'incident' -or $result.live.depth -ne 'normal') {
+            throw 'Grok live doctor did not preserve action, investigation mode, and depth.'
+          }
+          if ($result.live.packageStatus -ne 'valid' -or $result.live.verificationOutcome -notin @('verified', 'partially_verified')) {
+            throw 'Grok live doctor did not produce a valid, qualifying verification outcome.'
+          }
+          if ([string]::IsNullOrWhiteSpace($result.live.actualModel) -or $result.live.actualModel -ne $result.live.requestedModel) {
+            throw 'Grok live doctor did not prove the requested model was the actual ACP session model.'
+          }
+          if ($result.live.claimCount -lt 1 -or $result.live.qualifyingClaimCount -lt 1) {
+            throw 'Grok live doctor did not produce a qualifying claim envelope.'
+          }
+          if (-not $result.mcpServersEmpty -or $result.mcpToolCount -ne 0) {
+            throw 'Grok live doctor observed an unexpected MCP surface.'
+          }
+
+      - name: Prove incident to final-verify inheritance on the checked-out head
+        shell: pwsh
+        env:
+          XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
+        run: |
+          $taskDir = '.ccg/tasks/grok-live-route'
+          New-Item -ItemType Directory -Path $taskDir -Force | Out-Null
+          '{"id":"grok-live-route","status":"in_progress"}' | Set-Content -LiteralPath (Join-Path $taskDir 'task.json') -Encoding utf8
+          @'
+          Investigate the current external service-status incident for the official Grok Build CLI documentation and recent official xAI X communications. Run one official Web query and one domain-restricted X query. Return a machine-readable claim envelope; every verified claim must state exactly which bound file or platform it applies to.
+          '@ | Set-Content -LiteralPath (Join-Path $taskDir 'initial-request.md') -Encoding utf8
+          @'
+          Verify that the current official Grok Build CLI documentation evidence and official xAI X evidence apply to the assertions in live-change.diff. Run fresh Web and X searches. Return at least one applicable Tier A/B verified or partially_verified claim, or fail unresolved without claiming success.
+          '@ | Set-Content -LiteralPath (Join-Path $taskDir 'final-request.md') -Encoding utf8
+          @'
+          + The checked-out CCG head requires official Grok CLI Web evidence, official xAI X evidence, strict ACP model provenance, and an applicable claim envelope.
+          '@ | Set-Content -LiteralPath (Join-Path $taskDir 'live-change.diff') -Encoding utf8
+          $stateFile = Join-Path $taskDir 'intelligence-route.json'
+          $initialRaw = node templates/engine/tools/grok-intelligence/route.mjs --workflow grok-live-smoke --phase intake --task-file (Join-Path $taskDir 'initial-request.md') --state-file $stateFile --official-domain x.ai --force-refresh
+          if ($LASTEXITCODE -ne 0) { throw "Initial incident route failed: $initialRaw" }
+          $initial = $initialRaw | ConvertFrom-Json
+          if ($initial.decision.action -ne 'intel' -or $initial.decision.investigation_mode -ne 'incident' -or $initial.decision.depth -ne 'normal' -or $initial.decision.effective_x_policy -ne 'required') {
+            throw 'Initial paid route did not preserve incident intelligence semantics.'
+          }
+          $finalRaw = node templates/engine/tools/grok-intelligence/route.mjs --workflow grok-live-smoke --phase final-verify --task-file (Join-Path $taskDir 'final-request.md') --state-file $stateFile --trigger final_diff_verify --diff (Join-Path $taskDir 'live-change.diff') --official-domain x.ai --force-refresh
+          if ($LASTEXITCODE -ne 0) { throw "Final verification route failed: $finalRaw" }
+          $final = $finalRaw | ConvertFrom-Json
+          if ($final.decision.action -ne 'verify' -or $final.decision.investigation_mode -ne 'incident' -or $final.decision.depth -ne 'normal' -or $final.decision.effective_x_policy -ne 'required') {
+            throw 'Final paid route lost inherited incident, depth, or X-policy semantics.'
+          }
+          $evidence = Get-Content -Raw -LiteralPath $final.execution.evidence_path | ConvertFrom-Json
+          $manifest = Get-Content -Raw -LiteralPath $final.execution.manifest_path | ConvertFrom-Json
+          if ($evidence.evidence.action -ne 'verify' -or $evidence.evidence.investigation_mode -ne 'incident' -or $evidence.evidence.depth -ne 'normal') {
+            throw 'Final evidence action, investigation mode, or depth drifted from route state.'
+          }
+          if ($manifest.action -ne 'verify' -or $manifest.investigation_mode -ne 'incident' -or $manifest.depth -ne 'normal' -or $manifest.effective_x_policy -ne 'required') {
+            throw 'Final manifest action, investigation mode, depth, or X policy drifted from route state.'
+          }
+          if ($manifest.package_status -ne 'valid' -or $manifest.verification_outcome -notin @('verified', 'partially_verified')) {
+            throw 'Final route did not produce a qualifying verification outcome.'
+          }
+          if ($manifest.search_counts.web -lt 1 -or $manifest.search_counts.x -lt 1) {
+            throw 'Final route did not bind both Web and X search counts.'
+          }
+          if ([string]::IsNullOrWhiteSpace($evidence.evidence.model.actual) -or $evidence.evidence.model.actual -ne $evidence.evidence.model.requested -or $manifest.model -ne $evidence.evidence.model.actual) {
+            throw 'Final route did not prove the requested model was the actual ACP session model.'
+          }
+          if (@($evidence.evidence.validation.qualifying_claims).Count -lt 1) {
+            throw 'Final route did not produce an applicable qualifying claim.'
+          }
+          $task = Get-Content -Raw -LiteralPath (Join-Path $taskDir 'task.json') | ConvertFrom-Json
+          $canonical = Get-Content -Raw -LiteralPath (Join-Path $taskDir 'evidence.json') | ConvertFrom-Json
+          $item = @($canonical.items | Where-Object { $_.provider -eq 'grok' -and $_.role -eq 'external-intelligence' })[-1]
+          if ($task.intelligence.action -ne 'verify' -or $task.intelligence.investigation_mode -ne 'incident' -or $item.action -ne 'verify' -or $item.investigationMode -ne 'incident') {
+            throw 'Canonical task pointer or evidence item drifted from final verification semantics.'
+          }
+
+      - name: Prove raw run cleanup without uploading evidence
+        if: always()
+        shell: pwsh
+        run: |
+          $runParent = Join-Path $env:LOCALAPPDATA 'CCG/grok-intelligence/runs'
+          if (Test-Path -LiteralPath $runParent) {
+            $orphans = @(Get-ChildItem -LiteralPath $runParent -Directory -Filter 'ccg-grok-run-*')
+            if ($orphans.Count -gt 0) {
+              throw "Unredacted Grok run directories remain: $($orphans.FullName -join ', ')"
+            }
+          }

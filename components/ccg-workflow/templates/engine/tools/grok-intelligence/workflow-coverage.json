@@ -1,0 +1,357 @@
+{
+  "schemaVersion": 1,
+  "runtime": "tools/grok-intelligence/route.mjs",
+  "workflows": [
+    {
+      "id": "go",
+      "families": ["go-plan"],
+      "phases": ["intake", "final-verify"],
+      "surfaces": [
+        "templates/commands/go.md",
+        "plugins/ccg/commands/go.md",
+        "plugins/ccg/skills/ccg-go/SKILL.md"
+      ]
+    },
+    {
+      "id": "plan",
+      "families": ["go-plan"],
+      "phases": ["intake", "planning"],
+      "surfaces": [
+        "plugins/ccg/commands/plan.md",
+        "plugins/ccg/skills/ccg-plan/SKILL.md"
+      ]
+    },
+    {
+      "id": "workflow",
+      "families": ["go-plan"],
+      "phases": ["intake", "planning", "final-verify"],
+      "surfaces": [
+        "plugins/ccg/commands/workflow.md",
+        "plugins/ccg/skills/ccg-workflow/SKILL.md",
+        "templates/engine/strategies/full-collaborate.md"
+      ]
+    },
+    {
+      "id": "analyze",
+      "families": ["go-plan"],
+      "phases": ["intake", "analysis"],
+      "surfaces": [
+        "plugins/ccg/commands/analyze.md",
+        "plugins/ccg/skills/ccg-analyze/SKILL.md",
+        "templates/engine/strategies/deep-research.md"
+      ]
+    },
+    {
+      "id": "execute",
+      "families": ["execute-feat"],
+      "phases": ["intake", "implementation", "final-verify"],
+      "surfaces": [
+        "plugins/ccg/commands/execute.md",
+        "plugins/ccg/skills/ccg-execute/SKILL.md",
+        "plugins/ccg/skills/ccg-executor/SKILL.md"
+      ]
+    },
+    {
+      "id": "excute",
+      "families": ["execute-feat"],
+      "phases": ["intake", "final-verify"],
+      "surfaces": [
+        "plugins/ccg/commands/excute.md",
+        "plugins/ccg/skills/ccg-excute/SKILL.md"
+      ]
+    },
+    {
+      "id": "codex-exec",
+      "families": ["execute-feat"],
+      "phases": ["intake", "final-verify"],
+      "surfaces": [
+        "plugins/ccg/commands/codex-exec.md",
+        "plugins/ccg/skills/ccg-codex-exec/SKILL.md"
+      ]
+    },
+    {
+      "id": "feat",
+      "families": ["execute-feat"],
+      "phases": ["intake", "implementation", "final-verify"],
+      "surfaces": [
+        "plugins/ccg/commands/feat.md",
+        "plugins/ccg/skills/ccg-feat/SKILL.md",
+        "templates/engine/strategies/guided-develop.md",
+        "templates/engine/strategies/quick-implement.md"
+      ]
+    },
+    {
+      "id": "backend",
+      "families": ["execute-feat"],
+      "phases": ["intake", "final-verify"],
+      "surfaces": [
+        "plugins/ccg/commands/backend.md",
+        "plugins/ccg/skills/ccg-backend/SKILL.md"
+      ]
+    },
+    {
+      "id": "frontend",
+      "families": ["execute-feat"],
+      "phases": ["intake", "final-verify"],
+      "surfaces": [
+        "plugins/ccg/commands/frontend.md",
+        "plugins/ccg/skills/ccg-frontend/SKILL.md"
+      ]
+    },
+    {
+      "id": "enhance",
+      "families": ["execute-feat"],
+      "phases": ["intake"],
+      "surfaces": [
+        "plugins/ccg/commands/enhance.md",
+        "plugins/ccg/skills/ccg-enhance/SKILL.md"
+      ]
+    },
+    {
+      "id": "debug",
+      "families": ["execute-feat"],
+      "phases": ["intake", "diagnosis", "final-verify"],
+      "surfaces": [
+        "plugins/ccg/commands/debug.md",
+        "plugins/ccg/skills/ccg-debug/SKILL.md",
+        "templates/engine/strategies/debug-investigate.md",
+        "templates/engine/strategies/direct-fix.md"
+      ]
+    },
+    {
+      "id": "optimize",
+      "families": ["execute-feat"],
+      "phases": ["intake", "measurement", "final-verify"],
+      "surfaces": [
+        "plugins/ccg/commands/optimize.md",
+        "plugins/ccg/skills/ccg-optimize/SKILL.md",
+        "templates/engine/strategies/optimize-measure.md",
+        "templates/engine/strategies/refactor-safely.md"
+      ]
+    },
+    {
+      "id": "test",
+      "families": ["execute-feat"],
+      "phases": ["intake", "final-verify"],
+      "surfaces": [
+        "plugins/ccg/commands/test.md",
+        "plugins/ccg/skills/ccg-test/SKILL.md"
+      ]
+    },
+    {
+      "id": "review",
+      "families": ["review-verify"],
+      "phases": ["final-verify"],
+      "surfaces": [
+        "plugins/ccg/commands/review.md",
+        "plugins/ccg/skills/ccg-review/SKILL.md",
+        "templates/engine/strategies/review-audit.md"
+      ]
+    },
+    {
+      "id": "verify-change",
+      "families": ["review-verify", "quality-gates"],
+      "phases": ["quality-verify"],
+      "surfaces": [
+        "plugins/ccg/commands/verify-change.md",
+        "plugins/ccg/skills/verify-change/SKILL.md"
+      ]
+    },
+    {
+      "id": "verify-module",
+      "families": ["review-verify", "quality-gates"],
+      "phases": ["quality-verify"],
+      "surfaces": [
+        "plugins/ccg/commands/verify-module.md",
+        "plugins/ccg/skills/verify-module/SKILL.md"
+      ]
+    },
+    {
+      "id": "verify-quality",
+      "families": ["review-verify", "quality-gates"],
+      "phases": ["quality-verify"],
+      "surfaces": [
+        "plugins/ccg/commands/verify-quality.md",
+        "plugins/ccg/skills/verify-quality/SKILL.md"
+      ]
+    },
+    {
+      "id": "verify-security",
+      "families": ["review-verify", "quality-gates"],
+      "phases": ["quality-verify"],
+      "surfaces": [
+        "plugins/ccg/commands/verify-security.md",
+        "plugins/ccg/skills/verify-security/SKILL.md"
+      ]
+    },
+    {
+      "id": "team",
+      "families": ["team"],
+      "phases": ["team-intake", "final-verify"],
+      "surfaces": [
+        "plugins/ccg/commands/team.md",
+        "plugins/ccg/skills/ccg-team/SKILL.md"
+      ]
+    },
+    {
+      "id": "team-research",
+      "families": ["team"],
+      "phases": ["team-intake"],
+      "surfaces": [
+        "plugins/ccg/commands/team-research.md",
+        "plugins/ccg/skills/ccg-team-research/SKILL.md"
+      ]
+    },
+    {
+      "id": "team-plan",
+      "families": ["team"],
+      "phases": ["team-intake", "planning"],
+      "surfaces": [
+        "plugins/ccg/commands/team-plan.md",
+        "plugins/ccg/skills/ccg-team-plan/SKILL.md"
+      ]
+    },
+    {
+      "id": "team-exec",
+      "families": ["team"],
+      "phases": ["team-intake", "implementation", "final-verify"],
+      "surfaces": [
+        "plugins/ccg/commands/team-exec.md",
+        "plugins/ccg/skills/ccg-team-exec/SKILL.md"
+      ]
+    },
+    {
+      "id": "team-review",
+      "families": ["team", "review-verify"],
+      "phases": ["team-intake", "final-verify"],
+      "surfaces": [
+        "plugins/ccg/commands/team-review.md",
+        "plugins/ccg/skills/ccg-team-review/SKILL.md"
+      ]
+    },
+    {
+      "id": "spec-init",
+      "families": ["spec"],
+      "phases": ["spec-intake"],
+      "surfaces": [
+        "templates/commands/spec-init.md",
+        "plugins/ccg/commands/spec-init.md",
+        "plugins/ccg/skills/ccg-spec-init/SKILL.md"
+      ]
+    },
+    {
+      "id": "spec-research",
+      "families": ["spec"],
+      "phases": ["spec-intake"],
+      "surfaces": [
+        "templates/commands/spec-research.md",
+        "plugins/ccg/commands/spec-research.md",
+        "plugins/ccg/skills/ccg-spec-research/SKILL.md"
+      ]
+    },
+    {
+      "id": "spec-plan",
+      "families": ["spec", "go-plan"],
+      "phases": ["spec-plan"],
+      "surfaces": [
+        "templates/commands/spec-plan.md",
+        "plugins/ccg/commands/spec-plan.md",
+        "plugins/ccg/skills/ccg-spec-plan/SKILL.md"
+      ]
+    },
+    {
+      "id": "spec-impl",
+      "families": ["spec", "execute-feat"],
+      "phases": ["spec-plan", "implementation", "final-verify"],
+      "surfaces": [
+        "templates/commands/spec-impl.md",
+        "plugins/ccg/commands/spec-impl.md",
+        "plugins/ccg/skills/ccg-spec-impl/SKILL.md"
+      ]
+    },
+    {
+      "id": "spec-review",
+      "families": ["spec", "review-verify"],
+      "phases": ["final-verify"],
+      "surfaces": [
+        "templates/commands/spec-review.md",
+        "plugins/ccg/commands/spec-review.md",
+        "plugins/ccg/skills/ccg-spec-review/SKILL.md"
+      ]
+    },
+    {
+      "id": "gptpro-plan",
+      "families": ["gptpro"],
+      "phases": ["intake"],
+      "surfaces": [
+        "templates/commands/gptpro-plan.md",
+        "plugins/ccg/commands/gptpro-plan.md",
+        "plugins/ccg/skills/ccg-gptpro-plan/SKILL.md"
+      ]
+    },
+    {
+      "id": "gptpro-exc",
+      "families": ["gptpro"],
+      "phases": ["intake", "final-verify"],
+      "surfaces": [
+        "templates/commands/gptpro-exc.md",
+        "plugins/ccg/commands/gptpro-exc.md",
+        "plugins/ccg/skills/ccg-gptpro-exc/SKILL.md"
+      ]
+    },
+    {
+      "id": "gptpro-review",
+      "families": ["gptpro", "review-verify"],
+      "phases": ["final-verify"],
+      "surfaces": [
+        "templates/commands/gptpro-review.md",
+        "plugins/ccg/commands/gptpro-review.md",
+        "plugins/ccg/skills/ccg-gptpro-review/SKILL.md"
+      ]
+    }
+  ],
+  "defaultSkips": ["commit", "rollback", "clean-branches", "worktree", "context"],
+  "defaultSkipSurfaces": [
+    {
+      "id": "commit",
+      "surfaces": [
+        "templates/commands/commit.md",
+        "plugins/ccg/commands/commit.md",
+        "plugins/ccg/skills/ccg-commit/SKILL.md",
+        "templates/engine/strategies/git-action.md"
+      ]
+    },
+    {
+      "id": "rollback",
+      "surfaces": [
+        "templates/commands/rollback.md",
+        "plugins/ccg/commands/rollback.md",
+        "plugins/ccg/skills/ccg-rollback/SKILL.md"
+      ]
+    },
+    {
+      "id": "clean-branches",
+      "surfaces": [
+        "templates/commands/clean-branches.md",
+        "plugins/ccg/commands/clean-branches.md",
+        "plugins/ccg/skills/ccg-clean-branches/SKILL.md"
+      ]
+    },
+    {
+      "id": "worktree",
+      "surfaces": [
+        "templates/commands/worktree.md",
+        "plugins/ccg/commands/worktree.md",
+        "plugins/ccg/skills/ccg-worktree/SKILL.md"
+      ]
+    },
+    {
+      "id": "context",
+      "surfaces": [
+        "templates/commands/context.md",
+        "plugins/ccg/commands/context.md",
+        "plugins/ccg/skills/ccg-context/SKILL.md"
+      ]
+    }
+  ]
+}
