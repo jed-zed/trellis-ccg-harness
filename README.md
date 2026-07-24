@@ -188,7 +188,8 @@ pnpm harness:uninstall
 - 秘密和运行状态排除检查。
 
 准备提交 Harness 时，使用以下命令校验**暂存区**是否精确等于
-`harness.sources.json` 声明的个人 CCG Git tree；未跟踪或残留的组件文件会阻断：
+`harness.sources.json` 声明的个人 CCG Git tree；未跟踪的组件文件会阻断。
+`-Index` 只读取暂存 Git tree，因此端点防护造成的已跟踪工作区漂移不会被误暂存，也不会污染验证结果：
 
 ```powershell
 pwsh -NoProfile -File .\scripts\verify-sources.ps1 -Index

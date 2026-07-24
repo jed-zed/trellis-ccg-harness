@@ -201,7 +201,7 @@ test("source verifier rejects authoritative and component dirty state", () => {
   }
 });
 
-test("index verification accepts an exact staged update and rejects untracked residue", () => {
+test("index verification reads the staged tree and rejects untracked residue", () => {
   const value = fixture();
   try {
     writeSourceFiles(value.sourceRoot, "updated");
@@ -219,6 +219,31 @@ test("index verification accepts an exact staged update and rejects untracked re
     assert.equal(staged.status, 0, `${staged.stdout}\n${staged.stderr}`);
 
     write(
+      path.join(
+        value.harnessRoot,
+        "components",
+        "ccg-workflow",
+        "src",
+        "commands",
+        "doctor.ts",
+      ),
+      "unstaged tracked worktree drift\n",
+    );
+    const manifestPath = path.join(value.harnessRoot, "harness.sources.json");
+    const worktreeManifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    worktreeManifest.ccg.commit = "f".repeat(40);
+    writeFileSync(
+      manifestPath,
+      `${JSON.stringify(worktreeManifest, null, 2)}\n`,
+    );
+    const stagedWithTrackedDrift = verify(value, ["-Index"]);
+    assert.equal(
+      stagedWithTrackedDrift.status,
+      0,
+      `${stagedWithTrackedDrift.stdout}\n${stagedWithTrackedDrift.stderr}`,
+    );
+
+    write(
       path.join(value.harnessRoot, "components", "ccg-workflow", "residue.txt"),
       "untracked\n",
     );
@@ -226,7 +251,7 @@ test("index verification accepts an exact staged update and rejects untracked re
     assert.notEqual(residue.status, 0);
     assert.match(
       `${residue.stdout}\n${residue.stderr}`,
-      /unstaged or untracked/i,
+      /untracked/i,
     );
   } finally {
     value.cleanup();

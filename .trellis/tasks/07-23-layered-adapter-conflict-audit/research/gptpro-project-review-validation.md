@@ -5,7 +5,7 @@
 - Remote review baseline: `aaab167a59c081a34927e3426068dfd987d5df98`
 - Local state: the same commit plus the active layered-adapter dirty tree
 - Authoritative personal CCG checkout: `I:\ai\ccg-workflow` at
-  `ff425b115410f7fc508116655825647422419b57`
+  `8198a9607ba98a8c4af1a691ab104e88a978d9aa`
 - Personal release: `jed-zed/ccg-gptpro-worflow`, tag `preset`, six wrapper
   assets with GitHub-published SHA-256 digests
 

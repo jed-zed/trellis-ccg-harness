@@ -39,6 +39,27 @@ function Invoke-Git {
   return Invoke-GitAt -WorkingTree $RepoRoot @Arguments
 }
 
+function Get-GitTreeText {
+  param(
+    [Parameter(Mandatory = $true)][string]$Treeish,
+    [Parameter(Mandatory = $true)][string]$RelativePath
+  )
+
+  $gitPath = $RelativePath.Replace('\', '/')
+  return Invoke-Git show "${Treeish}:$gitPath"
+}
+
+function Test-GitTreePath {
+  param(
+    [Parameter(Mandatory = $true)][string]$Treeish,
+    [Parameter(Mandatory = $true)][string]$RelativePath
+  )
+
+  $gitPath = $RelativePath.Replace('\', '/')
+  & git -C $RepoRoot cat-file -e "${Treeish}:$gitPath" 2>$null
+  return $LASTEXITCODE -eq 0
+}
+
 function Normalize-RepositoryUrl([string]$Url) {
   return (($Url.Trim() -replace '\\', '/') -replace '\.git$', '').TrimEnd('/').ToLowerInvariant()
 }
@@ -118,23 +139,45 @@ function Assert-AuthoritativeCommitTree {
   }
 }
 
-if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
-  throw "Harness source manifest not found: $manifestPath"
+$treeish = "HEAD"
+if ($Index) {
+  $treeish = Invoke-Git write-tree
 }
 
-$manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+if ($Index) {
+  if (-not (Test-GitTreePath -Treeish $treeish -RelativePath "harness.sources.json")) {
+    throw "Harness source manifest is missing from the staged Git tree."
+  }
+  $manifest = Get-GitTreeText -Treeish $treeish -RelativePath "harness.sources.json" | ConvertFrom-Json
+}
+else {
+  if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
+    throw "Harness source manifest not found: $manifestPath"
+  }
+  $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+}
+
 $componentRoot = Join-Path $RepoRoot ([string]$manifest.ccg.snapshotPath)
 $trellisVersionPath = Join-Path $RepoRoot ".trellis/.version"
 $ccgPackagePath = Join-Path $componentRoot "package.json"
 
-if (-not (Test-Path -LiteralPath $componentRoot -PathType Container)) {
-  throw "CCG component directory not found: $componentRoot"
+if ($Index) {
+  if (-not (Test-GitTreePath -Treeish $treeish -RelativePath ([string]$manifest.ccg.snapshotPath))) {
+    throw "CCG component directory is missing from the staged Git tree."
+  }
+  $trellisVersion = (Get-GitTreeText -Treeish $treeish -RelativePath ".trellis/.version").Trim()
+  $ccgPackage = Get-GitTreeText -Treeish $treeish -RelativePath "$([string]$manifest.ccg.snapshotPath)/package.json" | ConvertFrom-Json
+}
+else {
+  if (-not (Test-Path -LiteralPath $componentRoot -PathType Container)) {
+    throw "CCG component directory not found: $componentRoot"
+  }
+  $trellisVersion = (Get-Content -LiteralPath $trellisVersionPath -Raw).Trim()
+  $ccgPackage = Get-Content -LiteralPath $ccgPackagePath -Raw | ConvertFrom-Json
 }
 
-$trellisVersion = (Get-Content -LiteralPath $trellisVersionPath -Raw).Trim()
 Assert-Equal "Trellis project version" ([string]$manifest.trellis.version) $trellisVersion
 
-$ccgPackage = Get-Content -LiteralPath $ccgPackagePath -Raw | ConvertFrom-Json
 Assert-Equal "CCG package name" ([string]$manifest.ccg.package) ([string]$ccgPackage.name)
 Assert-Equal "CCG package version" ([string]$manifest.ccg.version) ([string]$ccgPackage.version)
 Assert-AuthoritativeCommitTree -SourceManifest $manifest.ccg -Checkout $AuthoritativeCheckout
@@ -148,19 +191,24 @@ $requiredPersonalFiles = @(
 )
 
 foreach ($relativePath in $requiredPersonalFiles) {
-  $fullPath = Join-Path $componentRoot $relativePath
-  if (-not (Test-Path -LiteralPath $fullPath -PathType Leaf)) {
-    throw "Required personal CCG file is missing: $relativePath"
+  if ($Index) {
+    $treePath = "$([string]$manifest.ccg.snapshotPath)/$relativePath"
+    if (-not (Test-GitTreePath -Treeish $treeish -RelativePath $treePath)) {
+      throw "Required personal CCG file is missing from the staged Git tree: $relativePath"
+    }
+  }
+  else {
+    $fullPath = Join-Path $componentRoot $relativePath
+    if (-not (Test-Path -LiteralPath $fullPath -PathType Leaf)) {
+      throw "Required personal CCG file is missing: $relativePath"
+    }
   }
 }
 
-$treeish = "HEAD"
 if ($Index) {
-  $treeish = Invoke-Git write-tree
-  $unstaged = Invoke-Git diff --name-only -- $manifest.ccg.snapshotPath
   $untracked = Invoke-Git ls-files --others --exclude-standard -- $manifest.ccg.snapshotPath
-  if ($unstaged -or $untracked) {
-    throw "CCG component has unstaged or untracked paths; index verification requires a clean component working tree."
+  if ($untracked) {
+    throw "CCG component has untracked paths; index verification requires an exact staged snapshot."
   }
 }
 else {
