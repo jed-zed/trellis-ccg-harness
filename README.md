@@ -2,7 +2,7 @@
 
 这是 `jed-zed` 的个人 AI 开发 Harness：用最新版 Trellis 管理任务、PRD、规范和工程记忆，用个人定制版 CCG 管理 Codex、Gemini、Claude、Grok、GPT Pro、外部证据和质量门禁。
 
-> 重要：本仓库里的 CCG 不是重新从原作者仓库下载的默认版本。权威来源是 [`jed-zed/ccg-gptpro-worflow`](https://github.com/jed-zed/ccg-gptpro-worflow) 的个人主线，快照提交为 `4565386`。原作者仓库只作为上游来源和版权归属记录。
+> 重要：本仓库里的 CCG 不是重新从原作者仓库下载的默认版本。权威来源是 [`jed-zed/ccg-gptpro-worflow`](https://github.com/jed-zed/ccg-gptpro-worflow) 的个人主线，快照提交为 `ff425b1`。原作者仓库只作为上游来源和版权归属记录。
 
 这里的 Harness 不是第三套框架或另一个依赖。**Trellis + 个人 CCG 的组合本身就是 Harness**；本仓库的脚本、来源清单和 CI 只是让这套组合可以安全安装、验证、升级和迁移。
 
@@ -11,7 +11,7 @@
 | 层 | 版本/来源 | 职责 |
 |---|---|---|
 | Trellis | `@mindfoldhq/trellis@0.6.8` | 任务、PRD、设计、实施计划、规范、上下文与完成闭环 |
-| CCG | `jed-zed/ccg-gptpro-worflow@4565386` | 多模型编排、Grok 联网证据、GPT Pro、Codex 插件与质量门禁 |
+| CCG | `jed-zed/ccg-gptpro-worflow@ff425b1` | 多模型编排、Grok 联网证据、GPT Pro、Codex 插件与质量门禁 |
 | 组合仓库 | 本仓库 | 把 Trellis + 个人 CCG 固化为一个 Harness，并提供分层适配器、来源锁定、诊断、验证、CI 与安全边界 |
 
 CCG 的完整个人 tracked 源码位于 [`components/ccg-workflow`](components/ccg-workflow)。来源和 Git tree 记录在 [`harness.sources.json`](harness.sources.json)。

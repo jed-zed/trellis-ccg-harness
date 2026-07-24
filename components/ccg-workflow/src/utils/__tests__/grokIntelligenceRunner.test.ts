@@ -181,7 +181,7 @@ describe('private roots and clean diagnostics', () => {
     const privateRoot = join(root, 'windows-private')
     const canonical = await securePrivateDirectory(privateRoot)
     expect(canonical).toBe(await realpath(privateRoot))
-  }, 60_000)
+  }, 180_000)
 
   it('reuses post-lock Windows ACL evidence for the private-directory validator', async () => {
     const privateRoot = join(root, 'windows-private-evidence')

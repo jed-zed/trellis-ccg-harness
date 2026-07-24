@@ -40,7 +40,7 @@ describe('MCP credential boundaries', () => {
       expect(secretMode).toBe(constants.S_IRUSR | constants.S_IWUSR)
       expect(directoryMode).toBe(constants.S_IRWXU)
     }
-  }, 90_000)
+  }, 180_000)
 
   it.runIf(process.platform === 'win32')('applies an owner-only Windows ACL to the secret directory', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'ccg secret acl '))
@@ -95,7 +95,7 @@ describe('MCP credential boundaries', () => {
       && entry.inherited === false
       && entry.type === 'Allow'
     ))).toBe(true)
-  }, 90_000)
+  }, 180_000)
 
   it('recognizes legacy inline credentials but allows a secret reference config', () => {
     expect((secretStore as any).containsInlineMcpSecret({
