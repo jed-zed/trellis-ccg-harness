@@ -57,8 +57,8 @@ Adopt the recommended layered-adapter architecture without losing the complete p
 - [x] `node scripts/harness-adapter.mjs conflicts` returns deterministic findings and a non-zero exit only for blocking conflicts.
 - [x] The adapter refuses Claude and never exposes API key values.
 - [x] The custom Grok API probe validates `/v1/models` and reports chat/search availability without storing credentials; missing or disabled Grok remains an optional, non-blocking state.
-- [x] Personal CCG Git tree verification returns `4e2102a6109a7641d43fdf84d09c68fcb44503ee`
-  for commit `b0f2c41ff4c99815621f1b659c1a6ed51a290a2e`.
+- [x] Personal CCG Git tree verification returns `5ac8e5ec3afbbce9921fb49caaccf5a48ad0d5a0`
+  for commit `456538636f5e8f8d19fd9b281e5fd165cfd49599`.
 - [ ] Adapter unit tests, CCG lint/typecheck/tests/build, Harness doctor, and GitHub CI pass. Local gates pass; GitHub CI awaits commit and push.
 - [x] Documentation clearly distinguishes the whole Harness from its internal integration adapter.
 - [x] A wrong wrapper digest is rejected before the candidate is executable or

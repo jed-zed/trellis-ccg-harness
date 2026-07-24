@@ -24,6 +24,7 @@ test("root CI owns the cross-platform Node, Go, PowerShell, and offline gates", 
   assert.match(workflow, /harness-adapter\.mjs conflicts --ci/)
   assert.match(workflow, /verify-sources\.ps1/)
   assert.match(workflow, /setup-go@v6/)
+  assert.match(workflow, /go-version:\s*"1\.26\.5"/)
   assert.match(workflow, /go build \./)
   assert.match(workflow, /go test -short \.\/\.\.\./)
   assert.match(workflow, /bootstrap\.ps1.*-SkipInstall/)

@@ -49,15 +49,19 @@ function assertTaskCommandSucceeded(result) {
     return;
   }
   const detail = result.stderr || result.stdout;
+  const noActiveTask =
+    (result.status === 1 && !detail && !result.error) ||
+    /no (?:active|current) task/i.test(detail);
   const error = new Error(
     detail
       ? redactString(detail)
-      : "Trellis has no active task for this session.",
+      : noActiveTask
+        ? "Trellis has no active task for this session."
+        : "Trellis task resolution failed without diagnostics.",
   );
-  error.code =
-    /no (?:active|current) task|not found/i.test(detail)
-      ? "NO_ACTIVE_TASK"
-      : "TASK_RESOLUTION_FAILED";
+  error.code = noActiveTask
+    ? "NO_ACTIVE_TASK"
+    : "TASK_RESOLUTION_FAILED";
   throw error;
 }
 

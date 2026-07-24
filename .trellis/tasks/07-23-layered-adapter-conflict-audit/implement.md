@@ -69,8 +69,8 @@ security reference files.
 - Local conflict audit: 0 blocking, 0 warnings, 3 information findings, 15
   checks passed.
 - Harness doctor and personal source verification passed against
-  `b0f2c41ff4c99815621f1b659c1a6ed51a290a2e` and Git tree
-  `4e2102a6109a7641d43fdf84d09c68fcb44503ee`.
+  `456538636f5e8f8d19fd9b281e5fd165cfd49599` and Git tree
+  `5ac8e5ec3afbbce9921fb49caaccf5a48ad0d5a0`.
 - Personal CCG lint, typecheck, 413 tests across 26 files, build, diff check,
   change analysis, quality scan, and production security scan passed.
 - Native Go wrapper test and build passed.

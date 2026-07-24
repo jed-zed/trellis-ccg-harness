@@ -14,7 +14,7 @@
     "verify:sources": "pwsh -NoProfile -File ./scripts/verify-sources.ps1",
     "harness:context": "node ./scripts/harness-adapter.mjs context",
     "harness:conflicts": "node ./scripts/harness-adapter.mjs conflicts",
-    "harness:test": "node --test ./tests/*.test.mjs",
+    "harness:test": "node ./scripts/run-tests.mjs",
     "harness:update": "node ./scripts/harness-lifecycle.mjs update",
     "harness:rollback": "node ./scripts/harness-lifecycle.mjs rollback",
     "harness:uninstall": "node ./scripts/harness-lifecycle.mjs uninstall",

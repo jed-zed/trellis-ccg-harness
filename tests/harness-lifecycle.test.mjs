@@ -134,5 +134,5 @@ test("root package exposes all Harness lifecycle and aggregate test commands", a
   assert.equal(pkg.scripts["harness:update"], "node ./scripts/harness-lifecycle.mjs update");
   assert.equal(pkg.scripts["harness:rollback"], "node ./scripts/harness-lifecycle.mjs rollback");
   assert.equal(pkg.scripts["harness:uninstall"], "node ./scripts/harness-lifecycle.mjs uninstall");
-  assert.equal(pkg.scripts["harness:test"], "node --test ./tests/*.test.mjs");
+  assert.equal(pkg.scripts["harness:test"], "node ./scripts/run-tests.mjs");
 });

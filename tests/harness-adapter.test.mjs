@@ -473,26 +473,28 @@ test("guarded global Trellis hook yields to the project hook", () => {
 test("an idle repository without an active task remains doctor-safe", () => {
   const fixture = createFixture();
   try {
-    const runner = (command, args, options) => {
-      if (command === "python" || command === "python3") {
-        return {
-          status: 1,
-          stdout: "",
-          stderr: "No active task found.",
-        };
-      }
-      return fixture.runner(command, args, options);
-    };
-    const report = auditConflicts(fixture.repoRoot, {
-      runner,
-      homeDir: fixture.homeDir,
-    });
-    const taskAuthority = report.findings.find(
-      (item) => item.id === "task-authority",
-    );
-    assert.equal(taskAuthority.severity, "info");
-    assert.equal(taskAuthority.status, "info");
-    assert.equal(conflictExitCode(report), 0);
+    for (const stderr of ["No active task found.", ""]) {
+      const runner = (command, args, options) => {
+        if (command === "python" || command === "python3") {
+          return {
+            status: 1,
+            stdout: "",
+            stderr,
+          };
+        }
+        return fixture.runner(command, args, options);
+      };
+      const report = auditConflicts(fixture.repoRoot, {
+        runner,
+        homeDir: fixture.homeDir,
+      });
+      const taskAuthority = report.findings.find(
+        (item) => item.id === "task-authority",
+      );
+      assert.equal(taskAuthority.severity, "info");
+      assert.equal(taskAuthority.status, "info");
+      assert.equal(conflictExitCode(report), 0);
+    }
   } finally {
     fixture.cleanup();
   }
