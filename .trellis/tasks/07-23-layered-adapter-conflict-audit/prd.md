@@ -59,7 +59,10 @@ Adopt the recommended layered-adapter architecture without losing the complete p
 - [x] The custom Grok API probe validates `/v1/models` and reports chat/search availability without storing credentials; missing or disabled Grok remains an optional, non-blocking state.
 - [x] Personal CCG Git tree verification returns `65997b917a3d24bd24cd06d272661f3137c8fd46`
   for commit `ff425b115410f7fc508116655825647422419b57`.
-- [ ] Adapter unit tests, CCG lint/typecheck/tests/build, Harness doctor, and GitHub CI pass. Local gates pass; GitHub CI awaits commit and push.
+- [x] Adapter unit tests, CCG lint/typecheck/tests/build, Harness doctor, and
+  GitHub CI pass. Personal CCG run `30095082023` and Harness run
+  `30095603243` passed across their full Linux, Windows, macOS, Node, Go,
+  bootstrap, doctor, provenance, and offline-security matrices.
 - [x] Documentation clearly distinguishes the whole Harness from its internal integration adapter.
 - [x] A wrong wrapper digest is rejected before the candidate is executable or
   invoked; all six personal release digests are covered by tests.

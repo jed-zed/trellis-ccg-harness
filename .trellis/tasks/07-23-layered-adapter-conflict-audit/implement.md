@@ -63,9 +63,9 @@ security reference files.
 
 ## Completion evidence
 
-- Harness root tests: 30 passed, 0 failed, including source residue rejection,
+- Harness root tests: 32 passed, 0 failed, including source residue rejection,
   lifecycle interruption recovery, CI ownership, and all three `harness-init`
-  contracts.
+  contracts, plus Windows package-manager launcher resolution.
 - Local conflict audit: 0 blocking, 0 warnings, 3 information findings, 15
   checks passed.
 - Harness doctor and personal source verification passed against
@@ -80,7 +80,11 @@ security reference files.
 - Windows endpoint protection never entered the trusted tree: final source
   verification used the exact staged Git tree with the two blocked paths left
   unmaterialized, while their authoritative index blobs remained unchanged.
-- GitHub CI remains pending until the reviewed commits are pushed.
+- Personal CCG GitHub CI run `30095082023` passed its full Node 20/22 Linux
+  and Windows matrix plus both Go jobs.
+- Harness GitHub CI run `30095603243` passed all ten jobs: Node 20/22 on
+  Linux and Windows, Go on Linux/Windows/macOS, and bootstrap/doctor on
+  Linux/Windows/macOS.
 - Grok and Claude were not invoked.
 
 ### Additional repairs
@@ -92,3 +96,6 @@ security reference files.
   duplicate as a warning.
 - Rollback interruption now restores both the current component and its current
   source manifest before surfacing the failed post-restore gate.
+- Windows lifecycle transactions launch `npm` and `pnpm` through their
+  trusted JavaScript entry points beside Node.js, avoiding `.cmd` resolution
+  failures without enabling a command shell.
