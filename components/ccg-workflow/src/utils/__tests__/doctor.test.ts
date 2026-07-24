@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { buildGrokDoctorArguments, execSafe, formatGrokDoctorFailure, getGrokDoctorTimeout, validateIntelligenceDoctorConfig } from '../../commands/doctor'
+import { buildGrokDoctorArguments, execFileSafe, formatGrokDoctorFailure, getGrokDoctorTimeout, validateIntelligenceDoctorConfig } from '../../commands/doctor'
 
 describe('doctor command helpers', () => {
   it('executes child commands from the ESM CLI', () => {
-    expect(execSafe(`"${process.execPath}" --version`)).toBe(process.version)
+    expect(execFileSafe(process.execPath, ['--version'])).toBe(process.version)
   })
 
   it('keeps local and paid Grok doctor modes explicitly split', () => {

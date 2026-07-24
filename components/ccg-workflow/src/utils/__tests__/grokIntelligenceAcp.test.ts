@@ -335,7 +335,10 @@ describe('Grok intelligence ACP transport', () => {
   })
 
   it('accepts the correlated session/prompt response when the optional turn notification is absent', async () => {
-    const result = await makeClient('no-turn').run(runOptions())
+    // Process startup on loaded Windows hosts can consume most of the default
+    // 3-second production budget. Keep runtime behavior unchanged while giving
+    // this integration fixture enough CI scheduling headroom.
+    const result = await makeClient('no-turn').run(runOptions({ timeoutMs: 6000 }))
     expect(result.completion).toEqual({ promptResponse: true, turnCompleted: false })
   })
 

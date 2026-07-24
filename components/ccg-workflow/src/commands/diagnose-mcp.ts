@@ -2,11 +2,72 @@
  * Diagnose MCP configuration issues
  */
 
+import type { McpSmokeReport } from '../utils/mcp-smoke'
 import ansis from 'ansis'
 import { diagnoseMcpConfig, fixWindowsMcpConfig, readClaudeCodeConfig, writeClaudeCodeConfig } from '../utils/mcp'
+import { smokeMcpServer } from '../utils/mcp-smoke'
 import { isWindows } from '../utils/platform'
 
-export async function diagnoseMcp(): Promise<void> {
+export interface DiagnoseMcpOptions {
+  smoke?: boolean
+  timeout?: string | number
+}
+
+export interface DiagnoseMcpResult {
+  success: boolean
+  issues: string[]
+  smoke: McpSmokeReport[]
+}
+
+function printIssue(issue: string): void {
+  if (issue.startsWith('✅'))
+    console.log(ansis.green(`  ${issue}`))
+  else if (issue.startsWith('⚠️'))
+    console.log(ansis.yellow(`  ${issue}`))
+  else if (issue.startsWith('❌'))
+    console.log(ansis.red(`  ${issue}`))
+  else
+    console.log(`  ${issue}`)
+}
+
+function resolveSmokeTimeout(value: DiagnoseMcpOptions['timeout']): number {
+  const timeoutMs = value === undefined ? 3_000 : Number(value)
+  if (!Number.isInteger(timeoutMs) || timeoutMs < 50 || timeoutMs > 15_000)
+    throw new Error('MCP smoke timeout must be an integer between 50 and 15000 ms.')
+  return timeoutMs
+}
+
+function printSmokeReport(report: McpSmokeReport): void {
+  if (report.status === 'passed') {
+    console.log(ansis.green(
+      `  ✅ ${report.name}: initialize ${report.protocolVersion} (${report.durationMs}ms)`,
+    ))
+  }
+  else if (report.status === 'skipped') {
+    console.log(ansis.yellow(`  ⚠️  ${report.name}: ${report.error}`))
+  }
+  else {
+    console.log(ansis.red(`  ❌ ${report.name}: ${report.error}`))
+  }
+}
+
+async function runConfiguredMcpSmokes(timeoutMs: number): Promise<McpSmokeReport[]> {
+  console.log()
+  console.log(ansis.bold('  Opt-in bounded MCP stdio smoke:'))
+  console.log(ansis.gray('  Starts each configured stdio server, performs initialize, then terminates it.'))
+  const config = await readClaudeCodeConfig()
+  const reports: McpSmokeReport[] = []
+  for (const [name, server] of Object.entries(config?.mcpServers ?? {})) {
+    const report = await smokeMcpServer(name, server, { timeoutMs })
+    reports.push(report)
+    printSmokeReport(report)
+  }
+  if (reports.length === 0)
+    console.log(ansis.yellow('  ⚠️  No configured MCP servers were available to smoke.'))
+  return reports
+}
+
+export async function diagnoseMcp(options: DiagnoseMcpOptions = {}): Promise<DiagnoseMcpResult> {
   console.log()
   console.log(ansis.cyan.bold('  🔍 MCP Configuration Diagnostics'))
   console.log()
@@ -17,20 +78,7 @@ export async function diagnoseMcp(): Promise<void> {
   console.log(ansis.bold('  Diagnostic Results:'))
   console.log()
 
-  for (const issue of issues) {
-    if (issue.startsWith('✅')) {
-      console.log(ansis.green(`  ${issue}`))
-    }
-    else if (issue.startsWith('⚠️')) {
-      console.log(ansis.yellow(`  ${issue}`))
-    }
-    else if (issue.startsWith('❌')) {
-      console.log(ansis.red(`  ${issue}`))
-    }
-    else {
-      console.log(`  ${issue}`)
-    }
-  }
+  issues.forEach(printIssue)
 
   // Offer to fix Windows issues
   if (isWindows() && issues.some(i => i.includes('not properly wrapped'))) {
@@ -39,7 +87,14 @@ export async function diagnoseMcp(): Promise<void> {
     console.log(ansis.gray('     npx ccg fix-mcp'))
   }
 
+  const smokeReports = options.smoke
+    ? await runConfiguredMcpSmokes(resolveSmokeTimeout(options.timeout))
+    : []
+
   console.log()
+  const success = !issues.some(issue => issue.startsWith('❌'))
+    && !smokeReports.some(report => report.status === 'failed')
+  return { success, issues, smoke: smokeReports }
 }
 
 /**

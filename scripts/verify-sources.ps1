@@ -1,7 +1,8 @@
 [CmdletBinding()]
 param(
   [string]$RepoRoot = (Split-Path -Parent $PSScriptRoot),
-  [switch]$Index
+  [switch]$Index,
+  [string]$AuthoritativeCheckout = $env:HARNESS_CCG_SOURCE_CHECKOUT
 )
 
 $ErrorActionPreference = "Stop"
@@ -20,14 +21,101 @@ function Assert-Equal {
   }
 }
 
-function Invoke-Git {
-  param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Arguments)
+function Invoke-GitAt {
+  param(
+    [Parameter(Mandatory = $true)][string]$WorkingTree,
+    [Parameter(ValueFromRemainingArguments = $true)][string[]]$Arguments
+  )
 
-  $output = & git -C $RepoRoot @Arguments 2>&1
+  $output = & git -C $WorkingTree @Arguments 2>&1
   if ($LASTEXITCODE -ne 0) {
     throw "git $($Arguments -join ' ') failed: $($output -join [Environment]::NewLine)"
   }
   return ($output -join [Environment]::NewLine).Trim()
+}
+
+function Invoke-Git {
+  param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Arguments)
+  return Invoke-GitAt -WorkingTree $RepoRoot @Arguments
+}
+
+function Normalize-RepositoryUrl([string]$Url) {
+  return (($Url.Trim() -replace '\\', '/') -replace '\.git$', '').TrimEnd('/').ToLowerInvariant()
+}
+
+function Assert-AuthoritativeCommitTree {
+  param(
+    [Parameter(Mandatory = $true)][pscustomobject]$SourceManifest,
+    [string]$Checkout
+  )
+
+  $repository = [string]$SourceManifest.authoritativeRepository
+  $commit = [string]$SourceManifest.commit
+  $expectedTree = [string]$SourceManifest.gitTree
+  if ($commit -notmatch '^[0-9a-f]{40}$') {
+    throw "CCG authoritative commit must be a full 40-character SHA-1."
+  }
+  if ($expectedTree -notmatch '^[0-9a-f]{40}$') {
+    throw "CCG authoritative Git tree must be a full 40-character SHA-1."
+  }
+  $uri = [Uri]$repository
+  if ($uri.Scheme -ne "https" -or $uri.UserInfo) {
+    throw "CCG authoritative repository must be a credential-free HTTPS URL."
+  }
+
+  $verificationRoot = $null
+  $sourceRoot = $Checkout
+  try {
+    if (-not $sourceRoot) {
+      $sibling = Join-Path (Split-Path -Parent $RepoRoot) "ccg-workflow"
+      if (Test-Path -LiteralPath (Join-Path $sibling ".git")) {
+        $sourceRoot = $sibling
+      }
+    }
+
+    if ($sourceRoot) {
+      $sourceRoot = [System.IO.Path]::GetFullPath($sourceRoot)
+      if (-not (Test-Path -LiteralPath (Join-Path $sourceRoot ".git"))) {
+        throw "Authoritative CCG checkout is not a Git repository: $sourceRoot"
+      }
+      $remoteName = [string]$SourceManifest.authoritativeRemoteNameInSourceCheckout
+      if (-not $remoteName) {
+        $remoteName = "origin"
+      }
+      $remoteUrl = Invoke-GitAt -WorkingTree $sourceRoot remote get-url $remoteName
+      Assert-Equal "CCG authoritative checkout remote" (Normalize-RepositoryUrl $repository) (Normalize-RepositoryUrl $remoteUrl)
+      $head = Invoke-GitAt -WorkingTree $sourceRoot rev-parse HEAD
+      Assert-Equal "CCG authoritative checkout HEAD" $commit $head
+      $dirty = Invoke-GitAt -WorkingTree $sourceRoot status --porcelain --untracked-files=normal
+      if ($dirty) {
+        throw "Authoritative CCG checkout is dirty; commit and clean it before updating the Harness snapshot."
+      }
+    }
+    else {
+      $tempBase = [System.IO.Path]::GetFullPath([System.IO.Path]::GetTempPath())
+      $verificationRoot = Join-Path $tempBase "trellis-ccg-source-$([Guid]::NewGuid().ToString('N'))"
+      New-Item -ItemType Directory -Path $verificationRoot | Out-Null
+      Invoke-GitAt -WorkingTree $verificationRoot init | Out-Null
+      Invoke-GitAt -WorkingTree $verificationRoot remote add origin $repository | Out-Null
+      Invoke-GitAt -WorkingTree $verificationRoot fetch --no-tags --depth=1 origin $commit | Out-Null
+      $fetched = Invoke-GitAt -WorkingTree $verificationRoot rev-parse FETCH_HEAD
+      Assert-Equal "Fetched CCG authoritative commit" $commit $fetched
+      $sourceRoot = $verificationRoot
+    }
+
+    $actualCommitTree = Invoke-GitAt -WorkingTree $sourceRoot rev-parse "$commit`^{tree}"
+    Assert-Equal "Authoritative commit to Git tree" $expectedTree $actualCommitTree
+  }
+  finally {
+    if ($verificationRoot) {
+      $resolved = [System.IO.Path]::GetFullPath($verificationRoot)
+      $tempBase = [System.IO.Path]::GetFullPath([System.IO.Path]::GetTempPath())
+      if (-not $resolved.StartsWith($tempBase, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Refusing to remove source verification directory outside the system temp root: $resolved"
+      }
+      Remove-Item -LiteralPath $resolved -Recurse -Force
+    }
+  }
 }
 
 if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
@@ -49,6 +137,7 @@ Assert-Equal "Trellis project version" ([string]$manifest.trellis.version) $trel
 $ccgPackage = Get-Content -LiteralPath $ccgPackagePath -Raw | ConvertFrom-Json
 Assert-Equal "CCG package name" ([string]$manifest.ccg.package) ([string]$ccgPackage.name)
 Assert-Equal "CCG package version" ([string]$manifest.ccg.version) ([string]$ccgPackage.version)
+Assert-AuthoritativeCommitTree -SourceManifest $manifest.ccg -Checkout $AuthoritativeCheckout
 
 $requiredPersonalFiles = @(
   "plugins/ccg/.codex-plugin/plugin.json",
@@ -68,9 +157,20 @@ foreach ($relativePath in $requiredPersonalFiles) {
 $treeish = "HEAD"
 if ($Index) {
   $treeish = Invoke-Git write-tree
+  $unstaged = Invoke-Git diff --name-only -- $manifest.ccg.snapshotPath
+  $untracked = Invoke-Git ls-files --others --exclude-standard -- $manifest.ccg.snapshotPath
+  if ($unstaged -or $untracked) {
+    throw "CCG component has unstaged or untracked paths; index verification requires a clean component working tree."
+  }
 }
 else {
   Invoke-Git rev-parse --verify HEAD | Out-Null
+  $staged = Invoke-Git diff --cached --name-only -- $manifest.ccg.snapshotPath
+  $unstaged = Invoke-Git diff --name-only -- $manifest.ccg.snapshotPath
+  $untracked = Invoke-Git ls-files --others --exclude-standard -- $manifest.ccg.snapshotPath
+  if ($staged -or $unstaged -or $untracked) {
+    throw "CCG component is dirty (staged, unstaged, or untracked); source verification requires an exact committed snapshot."
+  }
 }
 
 $treeRef = "${treeish}:$([string]$manifest.ccg.snapshotPath)"

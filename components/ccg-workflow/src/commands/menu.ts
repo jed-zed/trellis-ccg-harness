@@ -16,6 +16,7 @@ import { readCcgConfig, writeCcgConfig } from '../utils/config'
 import { init } from './init'
 import { update } from './update'
 import { isWindows } from '../utils/platform'
+import { npmSelector } from '../utils/third-party-sources'
 
 const execAsync = promisify(exec)
 
@@ -590,12 +591,9 @@ async function configModelRouting(): Promise<void> {
   // Reinstall templates with new config
   const spinner = ora(i18n.t('init:model.reinstalling')).start()
   try {
-    const { execSync } = await import('node:child_process')
-    execSync('npx --yes ccg-workflow init --force --skip-prompt --skip-mcp', {
-      timeout: 300000,
-      stdio: 'pipe',
-      env: { ...process.env, CCG_UPDATE_MODE: 'true' },
-    })
+    const result = await init({ force: true, skipPrompt: true, skipMcp: true })
+    if (!result.success)
+      throw new Error(result.errors.join('; '))
     spinner.succeed(i18n.t('init:model.reinstallDone'))
   }
   catch {
@@ -792,7 +790,7 @@ async function handleInstallClaude(): Promise<void> {
     console.log()
     console.log(ansis.yellow(`  ⏳ ${i18n.t('menu:claude.uninstalling')}`))
     try {
-      const uninstallCmd = isWindows() ? 'npm uninstall -g @anthropic-ai/claude-code' : 'sudo npm uninstall -g @anthropic-ai/claude-code'
+      const uninstallCmd = 'npm uninstall -g @anthropic-ai/claude-code'
       await execAsync(uninstallCmd, { timeout: 60000 })
       console.log(ansis.green(`  ✓ ${i18n.t('menu:claude.uninstallSuccess')}`))
     }
@@ -831,7 +829,7 @@ async function handleInstallClaude(): Promise<void> {
 
   try {
     if (method === 'npm') {
-      const installCmd = isWindows() ? 'npm install -g @anthropic-ai/claude-code' : 'sudo npm install -g @anthropic-ai/claude-code'
+      const installCmd = `npm install -g ${npmSelector('@anthropic-ai/claude-code')}`
       await execAsync(installCmd, { timeout: 300000 })
     }
     else if (method === 'homebrew') {
@@ -994,11 +992,12 @@ async function handleTools(): Promise<void> {
 async function runCcusage(): Promise<void> {
   console.log()
   console.log(ansis.cyan(`  📊 ${i18n.t('menu:tools.runningCcusage')}`))
-  console.log(ansis.gray('  $ npx ccusage@latest'))
+  const selector = npmSelector('ccusage')
+  console.log(ansis.gray(`  $ npx ${selector}`))
   console.log()
 
   return new Promise((resolve) => {
-    const child = spawn('npx', ['ccusage@latest'], {
+    const child = spawn('npx', [selector], {
       stdio: 'inherit',
       shell: true,
     })
@@ -1038,7 +1037,7 @@ async function installCCometixLine(): Promise<void> {
   console.log(ansis.yellow(`  ⏳ ${i18n.t('menu:tools.cclineInstalling')}`))
 
   try {
-    const installCmd = isWindows() ? 'npm install -g @cometix/ccline' : 'sudo npm install -g @cometix/ccline'
+    const installCmd = `npm install -g ${npmSelector('@cometix/ccline')}`
     await execAsync(installCmd, { timeout: 120000 })
     console.log(ansis.green(`  ✓ ${i18n.t('menu:tools.cclineInstallSuccess')}`))
 
@@ -1082,7 +1081,7 @@ async function uninstallCCometixLine(): Promise<void> {
       console.log(ansis.green(`  ✓ ${i18n.t('menu:tools.cclineConfigRemoved')}`))
     }
 
-    const uninstallCmd = isWindows() ? 'npm uninstall -g @cometix/ccline' : 'sudo npm uninstall -g @cometix/ccline'
+    const uninstallCmd = 'npm uninstall -g @cometix/ccline'
     await execAsync(uninstallCmd, { timeout: 60000 })
     console.log(ansis.green(`  ✓ ${i18n.t('menu:tools.cclineUninstalled')}`))
   }

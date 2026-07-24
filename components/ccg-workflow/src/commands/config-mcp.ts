@@ -4,6 +4,7 @@ import fs from 'fs-extra'
 import { homedir } from 'node:os'
 import { join } from 'pathe'
 import { installAceTool, installAceToolRs, installContextWeaver, installFastContext, installMcpServer, removeFastContextPrompt, syncMcpToCodex, syncMcpToGemini, uninstallAceTool, uninstallContextWeaver, uninstallFastContext, uninstallMcpServer, writeFastContextPrompt } from '../utils/installer'
+import { gitExecutableSource, npmSelector } from '../utils/third-party-sources'
 
 /**
  * Sync MCP mirrors to Codex & Gemini after any install/uninstall.
@@ -292,7 +293,7 @@ async function handleGrokSearch(): Promise<void> {
   const result = await installMcpServer(
     'grok-search',
     'uvx',
-    ['--from', 'git+https://github.com/GuDaStudio/GrokSearch@grok-with-tavily', 'grok-search'],
+    ['--from', gitExecutableSource('grokSearch').selector, 'grok-search'],
     env,
   )
 
@@ -311,10 +312,10 @@ async function handleGrokSearch(): Promise<void> {
 
 // 辅助工具 MCP 配置
 const AUXILIARY_MCPS = [
-  { id: 'context7', name: 'Context7', desc: '获取最新库文档', command: 'npx', args: ['-y', '@upstash/context7-mcp@latest'] },
-  { id: 'Playwright', name: 'Playwright', desc: '浏览器自动化/测试', command: 'npx', args: ['-y', '@playwright/mcp@latest'] },
-  { id: 'mcp-deepwiki', name: 'DeepWiki', desc: '知识库查询', command: 'npx', args: ['-y', 'mcp-deepwiki@latest'] },
-  { id: 'exa', name: 'Exa', desc: '搜索引擎（需 API Key）', command: 'npx', args: ['-y', 'exa-mcp-server@latest'], requiresApiKey: true, apiKeyEnv: 'EXA_API_KEY' },
+  { id: 'context7', name: 'Context7', desc: '获取最新库文档', command: 'npx', args: ['-y', npmSelector('@upstash/context7-mcp')] },
+  { id: 'Playwright', name: 'Playwright', desc: '浏览器自动化/测试', command: 'npx', args: ['-y', npmSelector('@playwright/mcp')] },
+  { id: 'mcp-deepwiki', name: 'DeepWiki', desc: '知识库查询', command: 'npx', args: ['-y', npmSelector('mcp-deepwiki')] },
+  { id: 'exa', name: 'Exa', desc: '搜索引擎（需 API Key）', command: 'npx', args: ['-y', npmSelector('exa-mcp-server')], requiresApiKey: true, apiKeyEnv: 'EXA_API_KEY' },
 ]
 
 async function handleAuxiliary(): Promise<void> {

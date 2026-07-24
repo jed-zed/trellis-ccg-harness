@@ -4,7 +4,7 @@
  */
 
 import { homedir } from 'node:os'
-import { join } from 'pathe'
+import { dirname, join } from 'pathe'
 import fs from 'fs-extra'
 import { getMcpCommand, isWindows } from './platform'
 
@@ -48,19 +48,19 @@ export function getClaudeCodeConfigPath(): string {
  * Read Claude Code config from ~/.claude.json
  */
 export async function readClaudeCodeConfig(): Promise<ClaudeCodeConfig | null> {
-  const configPath = getClaudeCodeConfigPath()
+  return readClaudeCodeConfigAt(getClaudeCodeConfigPath())
+}
+
+export async function readClaudeCodeConfigAt(configPath: string): Promise<ClaudeCodeConfig | null> {
+  if (!(await fs.pathExists(configPath)))
+    return null
 
   try {
-    if (!(await fs.pathExists(configPath))) {
-      return null
-    }
-
     const content = await fs.readFile(configPath, 'utf-8')
     return JSON.parse(content) as ClaudeCodeConfig
   }
   catch (error) {
-    console.error('Failed to read Claude Code config:', error)
-    return null
+    throw new Error(`Failed to parse Claude Code config at ${configPath}; original bytes were preserved: ${error}`)
   }
 }
 
@@ -68,13 +68,31 @@ export async function readClaudeCodeConfig(): Promise<ClaudeCodeConfig | null> {
  * Write Claude Code config to ~/.claude.json
  */
 export async function writeClaudeCodeConfig(config: ClaudeCodeConfig): Promise<void> {
-  const configPath = getClaudeCodeConfigPath()
+  return writeClaudeCodeConfigAt(getClaudeCodeConfigPath(), config)
+}
 
+export async function writeClaudeCodeConfigAt(
+  configPath: string,
+  config: ClaudeCodeConfig,
+): Promise<void> {
+  const temporary = `${configPath}.tmp-${process.pid}-${Date.now()}`
   try {
-    await fs.writeFile(configPath, JSON.stringify(config, null, 2), 'utf-8')
+    await fs.ensureDir(dirname(configPath))
+    await fs.writeFile(temporary, `${JSON.stringify(config, null, 2)}\n`, {
+      encoding: 'utf8',
+      mode: 0o600,
+    })
+    if (process.platform !== 'win32')
+      await fs.chmod(temporary, 0o600)
+    await fs.move(temporary, configPath, { overwrite: true })
+    if (process.platform !== 'win32')
+      await fs.chmod(configPath, 0o600)
   }
   catch (error) {
     throw new Error(`Failed to write Claude Code config: ${error}`)
+  }
+  finally {
+    await fs.remove(temporary)
   }
 }
 
@@ -250,23 +268,32 @@ export async function backupClaudeCodeConfig(): Promise<string | null> {
   const configPath = getClaudeCodeConfigPath()
 
   try {
-    if (!(await fs.pathExists(configPath))) {
-      return null
-    }
-
     const backupDir = join(homedir(), '.claude', 'backup')
-    await fs.ensureDir(backupDir)
-
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
-    const backupPath = join(backupDir, `claude-config-${timestamp}.json`)
-
-    await fs.copy(configPath, backupPath)
-    return backupPath
+    return await backupClaudeCodeConfigAt(configPath, backupDir)
   }
   catch (error) {
     console.error('Failed to backup Claude Code config:', error)
     return null
   }
+}
+
+export async function backupClaudeCodeConfigAt(
+  configPath: string,
+  backupDir: string,
+): Promise<string | null> {
+  if (!(await fs.pathExists(configPath)))
+    return null
+
+  await fs.ensureDir(backupDir, 0o700)
+  if (process.platform !== 'win32')
+    await fs.chmod(backupDir, 0o700)
+
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
+  const backupPath = join(backupDir, `claude-config-${timestamp}.json`)
+  await fs.copy(configPath, backupPath)
+  if (process.platform !== 'win32')
+    await fs.chmod(backupPath, 0o600)
+  return backupPath
 }
 
 /**
@@ -284,7 +311,14 @@ export async function diagnoseMcpConfig(): Promise<string[]> {
   }
 
   // Try to read and parse config
-  const config = await readClaudeCodeConfig()
+  let config: ClaudeCodeConfig | null
+  try {
+    config = await readClaudeCodeConfig()
+  }
+  catch {
+    issues.push('❌ Failed to parse ~/.claude.json')
+    return issues
+  }
   if (!config) {
     issues.push('❌ Failed to parse ~/.claude.json')
     return issues

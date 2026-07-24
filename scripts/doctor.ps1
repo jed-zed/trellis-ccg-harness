@@ -52,18 +52,14 @@ else {
   Add-Pass "Node.js $nodeVersion"
 }
 
-$pythonVersion = Read-Version "python"
-if (-not $pythonVersion) {
-  Add-Failure "Python 3.9+ is missing."
-}
-elseif ($pythonVersion -notmatch 'Python\s+(\d+)\.(\d+)') {
-  Add-Failure "Could not parse Python version: $pythonVersion"
-}
-elseif ([int]$Matches[1] -lt 3 -or ([int]$Matches[1] -eq 3 -and [int]$Matches[2] -lt 9)) {
-  Add-Failure "Python 3.9+ is required; found $pythonVersion."
+$pythonResolver = Join-Path $PSScriptRoot "python-resolver.mjs"
+$pythonJson = & node $pythonResolver 2>&1
+if ($LASTEXITCODE -ne 0) {
+  Add-Failure "Python 3.9+ resolution failed: $($pythonJson -join [Environment]::NewLine)"
 }
 else {
-  Add-Pass $pythonVersion
+  $python = ($pythonJson -join [Environment]::NewLine) | ConvertFrom-Json
+  Add-Pass "Python $($python.version) ($($python.command))"
 }
 
 $trellisVersion = Read-Version "trellis"
@@ -91,6 +87,21 @@ try {
 }
 catch {
   Add-Failure $_.Exception.Message
+}
+
+$adapterScript = Join-Path $PSScriptRoot "harness-adapter.mjs"
+$adapterArguments = @($adapterScript, "conflicts")
+if ($Index) {
+  $adapterArguments += "--index"
+}
+$adapterOutput = & node @adapterArguments 2>&1
+$adapterExitCode = $LASTEXITCODE
+$adapterOutput | ForEach-Object { Write-Output $_ }
+if ($adapterExitCode -eq 0) {
+  Add-Pass "Layered adapter conflict audit"
+}
+else {
+  Add-Failure "Layered adapter conflict audit exited with code $adapterExitCode."
 }
 
 $origin = (& git -C $RepoRoot remote get-url origin 2>$null).Trim()
@@ -133,3 +144,5 @@ if ($failures.Count -gt 0) {
 
 Write-Output ""
 Write-Output "Harness doctor passed."
+$global:LASTEXITCODE = 0
+exit 0

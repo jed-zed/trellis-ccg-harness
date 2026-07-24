@@ -9,6 +9,7 @@ import { i18n, initI18n } from '../i18n'
 import { createDefaultConfig, ensureCcgDir, readCcgConfig, resolveNonInteractiveIntelligenceConsent, writeCcgConfig } from '../utils/config'
 import { getAllCommandIds, getCoreCommandIds, installAceTool, installContextWeaver, installFastContext, installMcpServer, installWorkflows, showBinaryDownloadWarning, syncMcpToCodex, syncMcpToGemini, writeFastContextPrompt } from '../utils/installer'
 import { migrateToV1_4_0, needsMigration } from '../utils/migration'
+import { gitExecutableSource, npmSelector } from '../utils/third-party-sources'
 
 /**
  * Auto-approve codeagent-wrapper Bash commands in settings.json.
@@ -177,12 +178,19 @@ async function installGrokSearchMcp(keys: {
   return installMcpServer(
     'grok-search',
     'uvx',
-    ['--from', 'git+https://github.com/GuDaStudio/GrokSearch@grok-with-tavily', 'grok-search'],
+    ['--from', gitExecutableSource('grokSearch').selector, 'grok-search'],
     env,
   )
 }
 
-export async function init(options: InitOptions = {}): Promise<void> {
+export interface InitResult {
+  success: boolean
+  cancelled: boolean
+  errors: string[]
+  installDir?: string
+}
+
+export async function init(options: InitOptions = {}): Promise<InitResult> {
   console.log()
   console.log(ansis.cyan.bold(`  CCG - Claude + Codex + Gemini`))
   console.log(ansis.gray(`  Multi-Model Collaboration Workflow`))
@@ -884,7 +892,7 @@ export async function init(options: InitOptions = {}): Promise<void> {
 
         if (result === 'cancel') {
           console.log(ansis.yellow(i18n.t('init:installCancelled')))
-          return
+          return { success: false, cancelled: true, errors: [] }
         }
         if (result === 'back') {
           stepIdx = Math.max(0, stepIdx - 1)
@@ -909,7 +917,7 @@ export async function init(options: InitOptions = {}): Promise<void> {
         }
         if (summaryAction === 'cancel') {
           console.log(ansis.yellow(i18n.t('init:installCancelled')))
-          return
+          return { success: false, cancelled: true, errors: [] }
         }
         // Jump to the requested step, then return to summary
         jumpingToSummary = true
@@ -958,6 +966,8 @@ export async function init(options: InitOptions = {}): Promise<void> {
 
   // Install
   const spinner = ora(i18n.t('init:installing')).start()
+  const componentErrors: string[] = []
+  const installDir = options.installDir || join(homedir(), '.claude')
 
   try {
     // v1.4.0: Auto-migrate from old directory structure
@@ -1011,13 +1021,24 @@ export async function init(options: InitOptions = {}): Promise<void> {
     await writeCcgConfig(config)
 
     // Install workflows and commands
-    const installDir = options.installDir || join(homedir(), '.claude')
     const result = await installWorkflows(selectedWorkflows, installDir, options.force, {
       routing,
       liteMode,
       mcpProvider,
       skipImpeccable,
     })
+
+    if (!result.success) {
+      spinner.fail(ansis.red(i18n.t('init:installFailed')))
+      for (const error of result.errors)
+        console.error(`  ${ansis.red('✗')} ${error}`)
+      return {
+        success: false,
+        cancelled: false,
+        errors: [...result.errors],
+        installDir,
+      }
+    }
 
     // Install selected MCP tools (multiple can be installed)
     spinner.succeed(ansis.green(i18n.t('init:installSuccess')))
@@ -1030,6 +1051,7 @@ export async function init(options: InitOptions = {}): Promise<void> {
         console.log(`    ${ansis.green('✓')} ace-tool MCP ${ansis.gray(`→ ${aceResult.configPath}`)}`)
       }
       else {
+        componentErrors.push(`ace-tool: ${aceResult.message}`)
         console.log(`    ${ansis.yellow('⚠')} ace-tool: ${ansis.gray(aceResult.message)}`)
       }
     }
@@ -1047,6 +1069,7 @@ export async function init(options: InitOptions = {}): Promise<void> {
         console.log(`    ${ansis.green('✓')} ${i18n.t('init:mcp.fcPromptInjected')} ${ansis.gray('→ ~/.claude/rules/ + ~/.codex/ + ~/.gemini/')}`)
       }
       else {
+        componentErrors.push(`fast-context: ${fcResult.message}`)
         console.log(`    ${ansis.yellow('⚠')} fast-context: ${ansis.gray(fcResult.message)}`)
       }
     }
@@ -1059,6 +1082,7 @@ export async function init(options: InitOptions = {}): Promise<void> {
         console.log(`    ${ansis.green('✓')} ContextWeaver MCP ${ansis.gray(`→ ${cwResult.configPath}`)}`)
       }
       else {
+        componentErrors.push(`ContextWeaver: ${cwResult.message}`)
         console.log(`    ${ansis.yellow('⚠')} ContextWeaver: ${ansis.gray(cwResult.message)}`)
       }
     }
@@ -1128,6 +1152,7 @@ export async function init(options: InitOptions = {}): Promise<void> {
         console.log(`    ${ansis.green('✓')} ${i18n.t('init:grok.promptAppended')} ${ansis.gray('→ ~/.claude/rules/ccg-grok-search.md')}`)
       }
       else {
+        componentErrors.push(`grok-search MCP: ${grokResult.message}`)
         console.log()
         console.log(`    ${ansis.yellow('⚠')} grok-search MCP ${i18n.t('init:grok.installFailed')}`)
         console.log(ansis.gray(`      ${grokResult.message}`))
@@ -1139,13 +1164,14 @@ export async function init(options: InitOptions = {}): Promise<void> {
       const cgResult = await installMcpServer(
         'codegraph',
         'npx',
-        ['-y', '@colbymchenry/codegraph@latest', 'serve', '--mcp'],
+        ['-y', npmSelector('@colbymchenry/codegraph'), 'serve', '--mcp'],
       )
       if (cgResult.success) {
         console.log()
         console.log(`    ${ansis.green('✓')} CodeGraph MCP ${ansis.gray('→ ~/.claude.json')}`)
       }
       else {
+        componentErrors.push(`CodeGraph: ${cgResult.message}`)
         console.log()
         console.log(`    ${ansis.yellow('⚠')} CodeGraph: ${ansis.gray(cgResult.message)}`)
       }
@@ -1156,13 +1182,14 @@ export async function init(options: InitOptions = {}): Promise<void> {
       const context7Result = await installMcpServer(
         'context7',
         'npx',
-        ['-y', '@upstash/context7-mcp@latest'],
+        ['-y', npmSelector('@upstash/context7-mcp')],
       )
       if (context7Result.success) {
         console.log()
         console.log(`    ${ansis.green('✓')} context7 MCP ${ansis.gray('→ ~/.claude.json')}`)
       }
       else {
+        componentErrors.push(`context7 MCP: ${context7Result.message}`)
         console.log()
         console.log(`    ${ansis.yellow('⚠')} context7 MCP install failed`)
         console.log(ansis.gray(`      ${context7Result.message}`))
@@ -1178,6 +1205,7 @@ export async function init(options: InitOptions = {}): Promise<void> {
         console.log(`    ${ansis.green('✓')} Codex MCP sync: ${codexSyncResult.synced.join(', ')} ${ansis.gray('→ ~/.codex/config.toml')}`)
       }
       else if (!codexSyncResult.success) {
+        componentErrors.push(`Codex MCP sync: ${codexSyncResult.message}`)
         console.log()
         console.log(`    ${ansis.yellow('⚠')} Codex MCP sync failed`)
         console.log(ansis.gray(`      ${codexSyncResult.message}`))
@@ -1192,6 +1220,7 @@ export async function init(options: InitOptions = {}): Promise<void> {
         console.log(`    ${ansis.green('✓')} Gemini MCP sync: ${geminiSyncResult.synced.join(', ')} ${ansis.gray('→ ~/.gemini/settings.json')}`)
       }
       else if (!geminiSyncResult.success) {
+        componentErrors.push(`Gemini MCP sync: ${geminiSyncResult.message}`)
         console.log()
         console.log(`    ${ansis.yellow('⚠')} Gemini MCP sync failed`)
         console.log(ansis.gray(`      ${geminiSyncResult.message}`))
@@ -1258,7 +1287,7 @@ export async function init(options: InitOptions = {}): Promise<void> {
       if (!result.success) {
         console.log()
         console.log(ansis.yellow(`  尝试修复 / Try to fix:`))
-        console.log(ansis.cyan(`    npx ccg-workflow@latest init --force`))
+        console.log(ansis.cyan(`    ccg init --force`))
         console.log(ansis.gray(`    如仍失败，请提交 issue 并附上以上错误信息`))
         console.log(ansis.gray(`    If still failing, report an issue with the errors above`))
       }
@@ -1357,9 +1386,29 @@ export async function init(options: InitOptions = {}): Promise<void> {
     }
 
     console.log()
+    if (componentErrors.length > 0) {
+      return {
+        success: false,
+        cancelled: false,
+        errors: componentErrors,
+        installDir,
+      }
+    }
+    return {
+      success: true,
+      cancelled: false,
+      errors: [],
+      installDir,
+    }
   }
   catch (error) {
     spinner.fail(ansis.red(i18n.t('init:installFailed')))
     console.error(error)
+    return {
+      success: false,
+      cancelled: false,
+      errors: [error instanceof Error ? error.message : String(error)],
+      installDir,
+    }
   }
 }

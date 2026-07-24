@@ -4,11 +4,13 @@ import { tmpdir } from 'node:os'
 import { afterAll, describe, expect, it } from 'vitest'
 import fs from 'fs-extra'
 import {
+  EXPECTED_BINARY_SHA256,
   EXPECTED_BINARY_VERSION,
   getAllCommandIds,
   getWorkflowById,
   getWorkflowConfigs,
   injectConfigVariables,
+  buildNodeHookCommand,
   installWorkflows,
   promoteBinaryCandidate,
   uninstallWorkflows,
@@ -397,8 +399,22 @@ describe('installWorkflows — binary installation', () => {
     expect(sourceVersion).toBe(EXPECTED_BINARY_VERSION)
   })
 
-  it('preserves the installed binary when a downloaded candidate has the wrong version', async () => {
-    const candidateDir = join(tmpDir, 'candidate-version-mismatch')
+  it('pins a trusted SHA-256 digest for every personal release asset', () => {
+    expect(Object.keys(EXPECTED_BINARY_SHA256).sort()).toEqual([
+      'codeagent-wrapper-darwin-amd64',
+      'codeagent-wrapper-darwin-arm64',
+      'codeagent-wrapper-linux-amd64',
+      'codeagent-wrapper-linux-arm64',
+      'codeagent-wrapper-windows-amd64.exe',
+      'codeagent-wrapper-windows-arm64.exe',
+    ])
+    for (const digest of Object.values(EXPECTED_BINARY_SHA256)) {
+      expect(digest).toMatch(/^[a-f0-9]{64}$/)
+    }
+  })
+
+  it('rejects a downloaded candidate by digest before executing its version command', async () => {
+    const candidateDir = join(tmpDir, 'candidate-digest-mismatch')
     const binaryName = process.platform === 'win32' ? 'candidate.exe' : 'candidate'
     const candidatePath = join(candidateDir, binaryName)
     const installedPath = join(candidateDir, 'installed-binary')
@@ -407,13 +423,64 @@ describe('installWorkflows — binary installation', () => {
     await fs.copy(process.execPath, candidatePath)
     await fs.writeFile(installedPath, 'known-good-installed-binary')
 
-    const result = await promoteBinaryCandidate(candidatePath, installedPath, 'definitely-not-the-node-version')
+    const result = await promoteBinaryCandidate(
+      candidatePath,
+      installedPath,
+      process.version,
+      '0'.repeat(64),
+    )
 
     expect(result.promoted).toBe(false)
-    expect(result.actualVersion).toBe(process.version)
+    expect(result.actualVersion).toBeNull()
+    expect(result.reason).toBe('integrity-mismatch')
     expect(await fs.readFile(installedPath, 'utf8')).toBe('known-good-installed-binary')
     expect(await fs.pathExists(candidatePath)).toBe(false)
   }, 20_000)
+})
+
+describe('hook settings safety', () => {
+  const tmpDir = join(tmpdir(), `ccg hook path 中文 ${Date.now()}`)
+
+  afterAll(async () => {
+    await fs.remove(tmpDir)
+  })
+
+  it('quotes Windows paths containing spaces and non-ASCII characters', () => {
+    const command = buildNodeHookCommand(
+      String.raw`C:\Users\Jane Doe\钩子\workflow-state.js`,
+      'win32',
+    )
+    expect(command).toBe(String.raw`node "C:\Users\Jane Doe\钩子\workflow-state.js"`)
+  })
+
+  it('installs every generated hook command with a quoted absolute script path', async () => {
+    const result = await installWorkflows(['workflow'], tmpDir, true, { skipBinary: true })
+    expect(result.success).toBe(true)
+    const settings = JSON.parse(await fs.readFile(join(tmpDir, 'settings.json'), 'utf8'))
+    const commands = Object.values(settings.hooks)
+      .flatMap((groups: any) => groups)
+      .flatMap((group: any) => group.hooks)
+      .map((hook: any) => hook.command)
+    expect(commands).toHaveLength(4)
+    for (const command of commands)
+      expect(command).toMatch(/^node ".+"$/)
+  })
+
+  it('fails closed without replacing malformed settings.json', async () => {
+    const installDir = join(tmpdir(), `ccg malformed settings ${Date.now()}`)
+    const settingsPath = join(installDir, 'settings.json')
+    await fs.ensureDir(installDir)
+    await fs.writeFile(settingsPath, '{"hooks":')
+    try {
+      const result = await installWorkflows(['workflow'], installDir, true, { skipBinary: true })
+      expect(result.success).toBe(false)
+      expect(result.errors.join('\n')).toMatch(/settings\.json|parse|malformed/i)
+      expect(await fs.readFile(settingsPath, 'utf8')).toBe('{"hooks":')
+    }
+    finally {
+      await fs.remove(installDir)
+    }
+  })
 })
 
 // ─────────────────────────────────────────────────────────────

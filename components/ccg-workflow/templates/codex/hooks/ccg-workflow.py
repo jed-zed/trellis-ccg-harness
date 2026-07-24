@@ -12,6 +12,8 @@ import os
 import sys
 import glob
 import subprocess
+import queue
+import threading
 from pathlib import Path
 from datetime import datetime
 
@@ -30,16 +32,97 @@ def _is_terminal_status(status):
 
 
 def find_project_root():
-    """Walk up to find .ccg/ or .git/"""
+    """Walk up, preferring a Trellis root over CCG/Git fallbacks."""
     d = os.environ.get("CODEX_PROJECT_DIR", os.getcwd())
+    fallback = None
     for _ in range(20):
-        if os.path.isdir(os.path.join(d, ".ccg")) or os.path.isdir(os.path.join(d, ".git")):
+        if os.path.isdir(os.path.join(d, ".trellis")):
             return d
+        if fallback is None and (
+            os.path.isdir(os.path.join(d, ".ccg"))
+            or os.path.exists(os.path.join(d, ".git"))
+        ):
+            fallback = d
         parent = os.path.dirname(d)
         if parent == d:
             break
         d = parent
-    return None
+    return fallback
+
+
+def _read_hook_input(timeout=0.25):
+    """Read the original hook payload without blocking on hosts that keep stdin open."""
+    result = queue.Queue(maxsize=1)
+
+    def _read():
+        try:
+            result.put(sys.stdin.buffer.read())
+        except Exception as exc:
+            result.put(exc)
+
+    reader = threading.Thread(target=_read, daemon=True)
+    reader.start()
+    try:
+        value = result.get(timeout=timeout)
+    except queue.Empty:
+        return b""
+    return b"" if isinstance(value, Exception) else value
+
+
+def _emit_trellis_fallback(detail):
+    context = (
+        "<trellis-delegation>\n"
+        f"{detail}\n"
+        "Trellis remains the only task lifecycle authority in this repository. "
+        "Do not create or update any parallel CCG task state.\n"
+        "</trellis-delegation>"
+    )
+    print(json.dumps({
+        "hookSpecificOutput": {
+            "hookEventName": "UserPromptSubmit",
+            "additionalContext": context,
+        }
+    }))
+
+
+def delegate_to_trellis(root):
+    """Run the project's Trellis breadcrumb hook and forward its exact output."""
+    if os.environ.get("TRELLIS_HOOKS") == "0" or os.environ.get("TRELLIS_DISABLE_HOOKS") == "1":
+        return
+
+    script = Path(root, ".codex", "hooks", "inject-workflow-state.py")
+    try:
+        root_path = Path(root).resolve()
+        script_path = script.resolve(strict=True)
+        script_path.relative_to(root_path)
+        if not script_path.is_file():
+            raise FileNotFoundError(str(script_path))
+    except Exception:
+        _emit_trellis_fallback(
+            "The project Trellis hook is missing or unsafe; repair .codex/hooks/inject-workflow-state.py."
+        )
+        return
+
+    payload = _read_hook_input()
+    try:
+        execution = subprocess.run(
+            [sys.executable, "-X", "utf8", str(script_path)],
+            cwd=root,
+            input=payload,
+            capture_output=True,
+            timeout=12,
+            env={**os.environ, "CCG_TRELLIS_DELEGATED": "1"},
+        )
+    except Exception:
+        _emit_trellis_fallback("The project Trellis hook could not be started.")
+        return
+
+    if execution.returncode == 0 and execution.stdout.strip():
+        sys.stdout.buffer.write(execution.stdout)
+        if not execution.stdout.endswith(b"\n"):
+            sys.stdout.buffer.write(b"\n")
+        return
+    _emit_trellis_fallback("The project Trellis hook returned no usable workflow state.")
 
 
 def get_active_task(root):
@@ -229,6 +312,9 @@ def main():
     try:
         root = find_project_root()
         if not root:
+            return
+        if os.path.isdir(os.path.join(root, ".trellis")):
+            delegate_to_trellis(root)
             return
         if not os.path.isdir(os.path.join(root, ".ccg")):
             return

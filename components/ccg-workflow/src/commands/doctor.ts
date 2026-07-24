@@ -1,9 +1,10 @@
 import ansis from 'ansis'
 import fs from 'fs-extra'
-import { execFileSync, execSync } from 'node:child_process'
+import { execFileSync } from 'node:child_process'
 import { homedir } from 'node:os'
 import { join } from 'pathe'
 import { readCcgConfig } from '../utils/config'
+import { EXPECTED_BINARY_VERSION, verifyBinaryVersion } from '../utils/installer'
 import { PACKAGE_ROOT } from '../utils/installer-template'
 import { version as packageVersion } from '../../package.json'
 
@@ -20,9 +21,13 @@ async function dirFiles(p: string): Promise<string[]> {
   return (await fs.readdir(p)).filter(f => !f.startsWith('.'))
 }
 
-export function execSafe(cmd: string): string | null {
+export function execFileSafe(command: string, args: string[] = []): string | null {
   try {
-    return execSync(cmd, { stdio: 'pipe', timeout: 10000 }).toString().trim()
+    return execFileSync(command, args, {
+      stdio: 'pipe',
+      timeout: 10_000,
+      windowsHide: true,
+    }).toString().trim()
   }
   catch { return null }
 }
@@ -31,6 +36,18 @@ export interface DoctorOptions {
   grok?: boolean
   grokLive?: boolean
   grokCleanup?: boolean
+}
+
+export interface DoctorCheck {
+  label: string
+  status: string
+  detail: string
+}
+
+export interface DoctorResult {
+  ok: boolean
+  failures: DoctorCheck[]
+  checks: DoctorCheck[]
 }
 
 export function buildGrokDoctorArguments(options: DoctorOptions, intelligence?: Partial<NonNullable<Awaited<ReturnType<typeof readCcgConfig>>>['intelligence']>): string[] {
@@ -103,9 +120,9 @@ async function grokManagerPath(): Promise<string> {
   return join(PACKAGE_ROOT, 'templates', 'engine', 'tools', 'grok-intelligence', 'manage.mjs')
 }
 
-export async function doctor(options: DoctorOptions = {}): Promise<void> {
+export async function doctor(options: DoctorOptions = {}): Promise<DoctorResult> {
   const installDir = join(homedir(), '.claude')
-  const checks: { label: string, status: string, detail: string }[] = []
+  const checks: DoctorCheck[] = []
 
   // 1. Node version
   const nodeVer = process.version
@@ -171,14 +188,17 @@ export async function doctor(options: DoctorOptions = {}): Promise<void> {
   const wrapperName = process.platform === 'win32' ? 'codeagent-wrapper.exe' : 'codeagent-wrapper'
   const wrapperPath = join(installDir, 'bin', wrapperName)
   let binaryVer: string | null = null
-  if (await fileExists(wrapperPath)) {
-    binaryVer = execSafe(`"${wrapperPath}" --version`)
-    if (binaryVer) binaryVer = binaryVer.replace(/^.*version\s*/, '')
-  }
+  const binaryExists = await fileExists(wrapperPath)
+  if (binaryExists && await verifyBinaryVersion(installDir))
+    binaryVer = EXPECTED_BINARY_VERSION
   checks.push({
     label: 'Binary',
     status: binaryVer ? OK : FAIL,
-    detail: binaryVer ? `v${binaryVer}` : `Not found (${wrapperPath})`,
+    detail: binaryVer
+      ? `v${binaryVer}; pinned digest verified`
+      : binaryExists
+        ? `Integrity/version mismatch (${wrapperPath})`
+        : `Not found (${wrapperPath})`,
   })
 
   // 7. Skills
@@ -271,7 +291,8 @@ export async function doctor(options: DoctorOptions = {}): Promise<void> {
   if (routingModels.includes('grok')) {
     const grokName = process.platform === 'win32' ? 'grok.exe' : 'grok'
     const grokFallback = join(homedir(), '.grok', 'bin', grokName)
-    const grokVer = execSafe('grok --version') || (await fileExists(grokFallback) ? execSafe(`"${grokFallback}" --version`) : null)
+    const grokVer = execFileSafe('grok', ['--version'])
+      || (await fileExists(grokFallback) ? execFileSafe(grokFallback, ['--version']) : null)
     const grokAuth = await fileExists(join(homedir(), '.grok', 'auth.json'))
     checks.push({
       label: 'Grok CLI',
@@ -296,9 +317,14 @@ export async function doctor(options: DoctorOptions = {}): Promise<void> {
     console.log(ansis.green('  All checks passed.'))
   }
   else {
-    console.log(ansis.red(`  ${failures.length} issue(s) found. Run ${ansis.cyan('npx ccg-workflow')} to reinstall.`))
+    console.log(ansis.red(`  ${failures.length} issue(s) found. Run ${ansis.cyan('ccg init --force')} to reinstall.`))
   }
   console.log()
+  return {
+    ok: failures.length === 0,
+    failures,
+    checks,
+  }
 }
 
 export async function status(): Promise<void> {
@@ -307,7 +333,7 @@ export async function status(): Promise<void> {
   // Version
   const config = await readCcgConfig()
   const installedVer = config?.general?.version || 'unknown'
-  const latestVer = execSafe('npm view ccg-workflow version') || 'unknown'
+  const latestVer = packageVersion
 
   // Commands
   const cmds = (await dirFiles(join(installDir, 'commands', 'ccg'))).filter(f => f.endsWith('.md'))
@@ -319,10 +345,8 @@ export async function status(): Promise<void> {
   const wrapperName = process.platform === 'win32' ? 'codeagent-wrapper.exe' : 'codeagent-wrapper'
   const wrapperPath = join(installDir, 'bin', wrapperName)
   let binaryVer = '—'
-  if (await fileExists(wrapperPath)) {
-    const raw = execSafe(`"${wrapperPath}" --version`)
-    if (raw) binaryVer = raw.replace(/^.*version\s*/, 'v')
-  }
+  if (await fileExists(wrapperPath) && await verifyBinaryVersion(installDir))
+    binaryVer = `v${EXPECTED_BINARY_VERSION}`
 
   // Model routing
   const frontend = config?.routing?.frontend?.primary || '—'

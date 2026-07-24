@@ -1,0 +1,99 @@
+{
+  "schemaVersion": 1,
+  "status": "draft",
+  "project": {
+    "name": null,
+    "purpose": null,
+    "repositoryRoot": ".",
+    "adoptionMode": null
+  },
+  "authorities": {
+    "lifecycle": "trellis",
+    "tasks": ".trellis/tasks",
+    "requirements": ".trellis/tasks",
+    "specifications": ".trellis/spec",
+    "intelligence": "ccg",
+    "workspaceWriter": "codex"
+  },
+  "workflow": {
+    "dispatchMode": "inline",
+    "planningApprovalRequired": true,
+    "taskLifecycle": [],
+    "managedProjectPaths": [],
+    "ignoredRuntimePaths": [],
+    "forbiddenTrackedPaths": []
+  },
+  "toolchain": {
+    "languages": [],
+    "runtimes": [],
+    "packageManagers": [],
+    "platforms": [],
+    "commands": {
+      "install": [],
+      "build": [],
+      "lint": [],
+      "format": [],
+      "typecheck": [],
+      "test": [],
+      "package": []
+    }
+  },
+  "qualityGates": {
+    "requiredLocalCommands": [],
+    "requiredCiChecks": [],
+    "definitionOfDone": []
+  },
+  "security": {
+    "dataClassification": null,
+    "secretPolicy": "environment-or-owned-secret-store",
+    "networkPolicy": null,
+    "credentialFieldsForbidden": true,
+    "forbiddenTrackedPaths": []
+  },
+  "providers": {
+    "codex": {
+      "enabled": true,
+      "workspaceWrite": true
+    },
+    "gemini": {
+      "enabled": false,
+      "workspaceWrite": false
+    },
+    "claude": {
+      "enabled": false,
+      "workspaceWrite": false
+    },
+    "grok": {
+      "enabled": false,
+      "manualOnly": true,
+      "workspaceWrite": false
+    },
+    "gptPro": {
+      "enabled": false,
+      "manualOnly": true,
+      "workspaceWrite": false
+    }
+  },
+  "hooks": {
+    "projectAuthorities": [],
+    "globalMutationAllowed": false,
+    "ownershipManifest": null
+  },
+  "source": {
+    "repositories": [],
+    "dependencyPolicy": null,
+    "updatePolicy": null,
+    "rollbackPolicy": null,
+    "uninstallPolicy": null
+  },
+  "ci": {
+    "platforms": [],
+    "runtimeMatrix": [],
+    "offlineByDefault": true
+  },
+  "unresolvedDecisions": [],
+  "approval": {
+    "approvedAt": null,
+    "approvedBy": null
+  }
+}

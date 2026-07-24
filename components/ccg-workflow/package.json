@@ -5,16 +5,16 @@
   "type": "module",
   "packageManager": "pnpm@10.17.1",
   "author": {
-    "name": "CCG Contributors"
+    "name": "jed-zed"
   },
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/fengshao1227/ccg-workflow.git"
+    "url": "https://github.com/jed-zed/ccg-gptpro-worflow.git"
   },
-  "homepage": "https://ccg.fengshao1227.com",
+  "homepage": "https://github.com/jed-zed/ccg-gptpro-worflow#readme",
   "bugs": {
-    "url": "https://github.com/fengshao1227/ccg-workflow/issues"
+    "url": "https://github.com/jed-zed/ccg-gptpro-worflow/issues"
   },
   "engines": {
     "node": ">=20"
@@ -37,6 +37,7 @@
   "types": "dist/index.d.mts",
   "files": [
     "bin/ccg.mjs",
+    "third-party-sources.json",
     "dist",
     "templates/commands/",
     "templates/commands-legacy/",

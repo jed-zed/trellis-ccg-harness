@@ -20,6 +20,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 🐛 Fixes
 
+- **Personal-source supply-chain hardening** — Restrict wrapper downloads to the
+  `jed-zed/ccg-gptpro-worflow` release, verify pinned SHA-256 bytes before
+  execution, pin executable npm/Git dependencies in
+  `third-party-sources.json`, and disable the public npm self-updater in favor
+  of the Harness transaction with a full personal commit.
+- **Ownership-safe Codex mode** — Merge only a managed AGENTS block and
+  structured hook group, record digest-bound ownership and collision backups,
+  quote cross-platform hook paths, resolve Python 3.9+ portably, and preserve
+  user-modified or unrelated global files during uninstall.
+- **MCP credential and diagnostics boundary** — Move MCP credentials out of
+  process arguments into owner-only launcher specs, fail closed on malformed
+  config, stop mirroring credentials across runtimes, and add an explicit,
+  bounded, redacted stdio `initialize` smoke with process-tree cleanup.
+- **Trellis hook delegation** — Detect Trellis projects before CCG task state,
+  delegate through the active Python interpreter, and fail closed to
+  Trellis-only guidance so `.ccg/tasks` is never created in a Trellis-owned
+  project.
 - **External-intelligence review hardening** — Require non-empty claim envelopes, execute and fingerprint the selected normal/deep Grok model, validate every manifest member before fresh publication or reuse, constrain route-state paths, bind verification to a real diff plus tracked and untracked Git state, preserve and validate all config fields at both installer and runtime entrypoints, sanitize credential-bearing URLs, and make official provenance task-specific.
 - **Cross-platform isolation** — Accept Windows short/long path aliases only when file identity matches, serialize shared Grok credential-home mutations, terminate complete ACP/diagnostic process trees, and avoid reclassifying a completed Go wrapper process when its context expires during output drain.
 - **Fork-safe binary CI** — Build binaries on feature branches without replacing the preset release or requiring unavailable Cloudflare R2 secrets; publishing remains restricted to `main`.

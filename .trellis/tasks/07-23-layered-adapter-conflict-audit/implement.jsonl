@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/guides/personal-source-provenance.md", "reason": "Preserve the exact personal CCG snapshot while integrating only the matching installed runtime."}
+{"file": ".trellis/spec/guides/layered-harness-adapter.md", "reason": "Implement the canonical Trellis context and deterministic Harness policy boundary."}

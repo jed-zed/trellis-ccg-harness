@@ -10,9 +10,117 @@ permissions:
   contents: read
 
 jobs:
-  verify:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
+  node-gates:
+    name: Node ${{ matrix.node-version }} / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        node-version: [20, 22]
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Enable pinned pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.17.1 --activate
+
+      - name: Install personal CCG dependencies
+        run: pnpm --dir ./components/ccg-workflow install --frozen-lockfile
+
+      - name: Run all offline Harness contracts
+        run: pnpm harness:test
+
+      - name: Audit Trellis and CCG conflicts
+        run: node scripts/harness-adapter.mjs conflicts --ci
+
+      - name: Verify personal source provenance
+        shell: pwsh
+        run: ./scripts/verify-sources.ps1
+
+      - name: Lint personal CCG
+        run: pnpm --dir ./components/ccg-workflow lint
+
+      - name: Typecheck personal CCG
+        run: pnpm --dir ./components/ccg-workflow typecheck
+
+      - name: Test personal CCG
+        run: pnpm --dir ./components/ccg-workflow test
+
+      - name: Build personal CCG
+        run: pnpm --dir ./components/ccg-workflow build
+
+      - name: Windows Grok offline security contract
+        if: runner.os == 'Windows' && matrix.node-version == 22
+        run: >-
+          pnpm --dir ./components/ccg-workflow exec vitest run
+          src/utils/__tests__/grokIntelligenceAcp.test.ts
+          src/utils/__tests__/grokIntelligenceRunner.test.ts
+          src/utils/__tests__/grokIntelligenceRouting.test.ts
+          src/utils/__tests__/grokIntelligenceDistribution.test.ts
+
+      - name: Windows CCG PowerShell doctor JSON contract
+        if: runner.os == 'Windows' && matrix.node-version == 22
+        shell: pwsh
+        run: |
+          $doctorJson = Join-Path $env:RUNNER_TEMP 'ccg-doctor.json'
+          $codexHome = Join-Path $env:RUNNER_TEMP 'codex-home'
+          & pwsh -NoProfile -ExecutionPolicy Bypass `
+            -File ./components/ccg-workflow/plugins/ccg/scripts/doctor.ps1 `
+            -CodexHome $codexHome `
+            -PluginRoot ./components/ccg-workflow/plugins/ccg `
+            -Json 1> $doctorJson
+          $doctorExit = $LASTEXITCODE
+          $payload = Get-Content -LiteralPath $doctorJson -Raw | ConvertFrom-Json
+          if (-not $payload.counts -or -not $payload.plugin_root) {
+            throw 'PowerShell doctor did not emit the expected JSON contract.'
+          }
+          Write-Host "Doctor JSON parsed (expected clean-runner exit=$doctorExit)."
+          exit 0
+
+  go-gates:
+    name: Go / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.21"
+
+      - name: Go build
+        working-directory: components/ccg-workflow/codeagent-wrapper
+        run: go build .
+
+      - name: Go test
+        working-directory: components/ccg-workflow/codeagent-wrapper
+        run: go test -short ./...
+
+  platform-doctor:
+    name: Bootstrap and doctor / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
 
     steps:
       - uses: actions/checkout@v7
@@ -21,26 +129,15 @@ jobs:
         with:
           node-version: 22
 
-      - name: Enable pnpm
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Enable pinned pnpm
         run: |
           corepack enable
           corepack prepare pnpm@10.17.1 --activate
 
-      - name: Verify personal source provenance
+      - name: Bootstrap paths and run Harness doctor
         shell: pwsh
-        run: ./scripts/verify-sources.ps1
-
-      - name: Install CCG dependencies
-        run: pnpm --dir components/ccg-workflow install --frozen-lockfile
-
-      - name: Lint
-        run: pnpm --dir components/ccg-workflow lint
-
-      - name: Typecheck
-        run: pnpm --dir components/ccg-workflow typecheck
-
-      - name: Test
-        run: pnpm --dir components/ccg-workflow test
-
-      - name: Build
-        run: pnpm --dir components/ccg-workflow build
+        run: ./scripts/bootstrap.ps1 -SkipInstall

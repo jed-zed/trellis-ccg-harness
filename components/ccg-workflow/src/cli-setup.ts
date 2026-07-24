@@ -122,7 +122,9 @@ export async function setupCommands(cli: CAC): Promise<void> {
       if (options.lang) {
         await initI18n(options.lang)
       }
-      await init(options)
+      const result = await init(options)
+      if (!result.success && !result.cancelled)
+        process.exitCode = 1
     })
 
   // CAC assigns `true` by default to every negated option. Intelligence is
@@ -135,8 +137,12 @@ export async function setupCommands(cli: CAC): Promise<void> {
   // Diagnose MCP command
   cli
     .command('diagnose-mcp', i18n.t('cli:help.commandDescriptions.diagnoseMcp'))
-    .action(async () => {
-      await diagnoseMcp()
+    .option('--smoke', 'Explicitly start configured stdio MCP servers and perform a bounded initialize handshake')
+    .option('--timeout <ms>', 'Per-server MCP smoke timeout in milliseconds (50-15000)')
+    .action(async (options: { smoke?: boolean, timeout?: string }) => {
+      const result = await diagnoseMcp(options)
+      if (!result.success)
+        process.exitCode = 1
     })
 
   // Fix MCP command (Windows only)
@@ -165,7 +171,11 @@ export async function setupCommands(cli: CAC): Promise<void> {
     .option('--grok', 'Run local-only Grok intelligence diagnostics (no model prompt)')
     .option('--grok-live', 'Run explicit paid Grok Web/X smoke diagnostics')
     .option('--grok-cleanup', 'Remove expired Grok evidence and orphan private roots')
-    .action(async (options: { grok?: boolean, grokLive?: boolean, grokCleanup?: boolean }) => { await doctor(options) })
+    .action(async (options: { grok?: boolean, grokLive?: boolean, grokCleanup?: boolean }) => {
+      const result = await doctor(options)
+      if (!result.ok)
+        process.exitCode = 1
+    })
 
   cli
     .command('grok <action>', 'Manage the isolated Grok intelligence login')

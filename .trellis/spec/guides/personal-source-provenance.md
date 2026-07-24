@@ -19,7 +19,11 @@ The Harness is the combined Trellis workflow layer and the user's personal CCG i
 - Verify the personal remote URL, commit, and Git tree before accepting an update.
 - Refresh `harness.sources.json` whenever either component version changes.
 - Keep runtime evidence, model state, credentials, caches, build output, and nested Git metadata out of the repository.
+- Use the installed personal CCG CLI/plugin as runtime integration. The exact component tree is provenance and update input, not a direct runtime helper path.
 - Run source verification, project tests, quality checks, security checks, and the Harness doctor before publishing.
+- Never weaken clean-tree or residue checks to accommodate locally protected
+  files. Leave those worktree paths untouched and validate the intended index
+  through a temporary detached worktree created from the exact Git tree.
 
 ## Fail-closed conditions
 

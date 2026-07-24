@@ -4,7 +4,9 @@ import fs from 'fs-extra'
 import { join } from 'pathe'
 import { parse as parseToml, stringify as stringifyToml } from 'smol-toml'
 import { type McpServerConfig, backupClaudeCodeConfig, buildMcpServerConfig, fixWindowsMcpConfig, mergeMcpServers, readClaudeCodeConfig, writeClaudeCodeConfig } from './mcp'
+import { containsInlineMcpSecret, createSecretBackedMcpConfig, removeSecretBackedMcpConfig } from './mcp-secrets'
 import { isWindows } from './platform'
+import { npmSelector, verifyPinnedExecutableCommand, verifyPinnedNpmCommand } from './third-party-sources'
 
 // ═══════════════════════════════════════════════════════
 // Shared types & helpers
@@ -67,6 +69,35 @@ async function configureMcpInClaude(
   }
 }
 
+async function configureExecutableMcpInClaude(
+  serverId: string,
+  command: string,
+  args: string[],
+  env: Record<string, string>,
+  label: string,
+): Promise<McpInstallResult> {
+  let secretSpecCreated = false
+  try {
+    await verifyPinnedExecutableCommand(command, args)
+    const serverConfig = Object.keys(env).length > 0
+      ? await createSecretBackedMcpConfig({ serverId, command, args, env })
+      : buildMcpServerConfig({ type: 'stdio', command, args })
+    secretSpecCreated = Object.keys(env).length > 0
+    const result = await configureMcpInClaude(serverId, serverConfig, label)
+    if (!result.success && secretSpecCreated)
+      await removeSecretBackedMcpConfig(serverId)
+    return result
+  }
+  catch (error) {
+    if (secretSpecCreated)
+      await removeSecretBackedMcpConfig(serverId)
+    return {
+      success: false,
+      message: `Failed to verify ${label}: ${error}`,
+    }
+  }
+}
+
 // ═══════════════════════════════════════════════════════
 // ace-tool MCP
 // ═══════════════════════════════════════════════════════
@@ -101,14 +132,11 @@ export async function uninstallAceTool(): Promise<{ success: boolean, message: s
  * Install and configure ace-tool MCP for Claude Code.
  */
 export async function installAceTool(config: AceToolConfig): Promise<McpInstallResult> {
-  const { baseUrl, token } = config
-
-  const args = ['-y', 'ace-tool@latest']
-  if (baseUrl) args.push('--base-url', baseUrl)
-  if (token) args.push('--token', token)
-
-  const serverConfig = buildMcpServerConfig({ type: 'stdio', command: 'npx', args })
-  return configureMcpInClaude('ace-tool', serverConfig, 'ace-tool MCP')
+  void config
+  return {
+    success: false,
+    message: 'ace-tool only supports token transport in command-line argv, which is unsafe. CCG refuses to persist or launch it until upstream supports environment or secret-file authentication.',
+  }
 }
 
 /**
@@ -116,19 +144,11 @@ export async function installAceTool(config: AceToolConfig): Promise<McpInstallR
  * ace-tool-rs is a Rust implementation — more lightweight and faster.
  */
 export async function installAceToolRs(config: AceToolConfig): Promise<McpInstallResult> {
-  const { baseUrl, token } = config
-
-  const args = ['ace-tool-rs']
-  if (baseUrl) args.push('--base-url', baseUrl)
-  if (token) args.push('--token', token)
-
-  const serverConfig = buildMcpServerConfig({
-    type: 'stdio',
-    command: 'npx',
-    args,
-    env: { RUST_LOG: 'info' },
-  })
-  return configureMcpInClaude('ace-tool', serverConfig, 'ace-tool-rs MCP')
+  void config
+  return {
+    success: false,
+    message: 'ace-tool-rs forwards the token through command-line argv, which is unsafe. CCG refuses to configure it until upstream supports environment or secret-file authentication.',
+  }
 }
 
 // ═══════════════════════════════════════════════════════
@@ -150,56 +170,29 @@ export async function installContextWeaver(config: ContextWeaverConfig): Promise
   const { siliconflowApiKey } = config
 
   try {
-    // 0. Install contextweaver CLI globally
-    console.log('  ⏳ 正在安装 ContextWeaver CLI...')
-    const { execSync } = await import('node:child_process')
-    try {
-      execSync('npm install -g @hsingjui/contextweaver', { stdio: 'pipe' })
-      console.log('  ✓ ContextWeaver CLI 安装成功')
-    }
-    catch {
-      if (process.platform !== 'win32') {
-        try {
-          execSync('sudo npm install -g @hsingjui/contextweaver', { stdio: 'pipe' })
-          console.log('  ✓ ContextWeaver CLI 安装成功 (sudo)')
-        }
-        catch {
-          console.log('  ⚠ ContextWeaver CLI 安装失败，请手动运行: npm install -g @hsingjui/contextweaver')
-        }
-      }
-      else {
-        console.log('  ⚠ ContextWeaver CLI 安装失败，请手动运行: npm install -g @hsingjui/contextweaver')
-      }
-    }
+    const command = 'npx'
+    const args = ['-y', npmSelector('@hsingjui/contextweaver'), 'mcp']
+    await verifyPinnedNpmCommand(command, args)
 
-    // 1. Create ContextWeaver config directory and .env file
-    const contextWeaverDir = join(homedir(), '.contextweaver')
-    await fs.ensureDir(contextWeaverDir)
-
-    const envContent = `# ContextWeaver 配置 (由 CCG 自动生成)
-
-# Embedding API - 硅基流动
-EMBEDDINGS_API_KEY=${siliconflowApiKey}
-EMBEDDINGS_BASE_URL=https://api.siliconflow.cn/v1/embeddings
-EMBEDDINGS_MODEL=Qwen/Qwen3-Embedding-8B
-EMBEDDINGS_MAX_CONCURRENCY=10
-EMBEDDINGS_DIMENSIONS=1024
-
-# Reranker - 硅基流动
-RERANK_API_KEY=${siliconflowApiKey}
-RERANK_BASE_URL=https://api.siliconflow.cn/v1/rerank
-RERANK_MODEL=Qwen/Qwen3-Reranker-8B
-RERANK_TOP_N=20
-`
-    await fs.writeFile(join(contextWeaverDir, '.env'), envContent, 'utf-8')
-
-    // 2. Configure MCP via shared pipeline
-    const serverConfig = buildMcpServerConfig({
-      type: 'stdio',
-      command: 'contextweaver',
-      args: ['mcp'],
-    })
-    return await configureMcpInClaude('contextweaver', serverConfig, 'ContextWeaver MCP')
+    // Keep the API key in the shared owner-only secret launcher rather than
+    // writing a second provider-specific .env file.
+    return await configureExecutableMcpInClaude(
+      'contextweaver',
+      command,
+      args,
+      {
+        EMBEDDINGS_API_KEY: siliconflowApiKey,
+        EMBEDDINGS_BASE_URL: 'https://api.siliconflow.cn/v1/embeddings',
+        EMBEDDINGS_MODEL: 'Qwen/Qwen3-Embedding-8B',
+        EMBEDDINGS_MAX_CONCURRENCY: '10',
+        EMBEDDINGS_DIMENSIONS: '1024',
+        RERANK_API_KEY: siliconflowApiKey,
+        RERANK_BASE_URL: 'https://api.siliconflow.cn/v1/rerank',
+        RERANK_MODEL: 'Qwen/Qwen3-Reranker-8B',
+        RERANK_TOP_N: '20',
+      },
+      'ContextWeaver MCP',
+    )
   }
   catch (error) {
     return { success: false, message: `Failed to configure ContextWeaver: ${error}` }
@@ -228,13 +221,8 @@ export async function installFastContext(config: FastContextConfig): Promise<Mcp
   if (apiKey) env.WINDSURF_API_KEY = apiKey
   if (includeSnippets) env.FC_INCLUDE_SNIPPETS = 'true'
 
-  const serverConfig = buildMcpServerConfig({
-    type: 'stdio',
-    command: 'npx',
-    args: ['-y', '--prefer-online', 'fast-context-mcp@latest'],
-    ...(Object.keys(env).length > 0 ? { env } : {}),
-  })
-  return configureMcpInClaude('fast-context', serverConfig, 'fast-context MCP')
+  const args = ['-y', '--prefer-online', npmSelector('fast-context-mcp')]
+  return configureExecutableMcpInClaude('fast-context', 'npx', args, env, 'fast-context MCP')
 }
 
 /**
@@ -258,8 +246,7 @@ export async function installMcpServer(
   args: string[],
   env: Record<string, string> = {},
 ): Promise<{ success: boolean, message: string }> {
-  const serverConfig = buildMcpServerConfig({ type: 'stdio', command, args, env })
-  return configureMcpInClaude(id, serverConfig, id)
+  return configureExecutableMcpInClaude(id, command, args, env, id)
 }
 
 /**
@@ -272,6 +259,7 @@ export async function uninstallMcpServer(id: string): Promise<{ success: boolean
       delete existingConfig.mcpServers[id]
       await writeClaudeCodeConfig(existingConfig)
     }
+    await removeSecretBackedMcpConfig(id)
     return { success: true, message: `${id} MCP uninstalled successfully` }
   }
   catch (error) {
@@ -309,7 +297,18 @@ async function getCcgMcpServersFromClaude(): Promise<Record<string, any>> {
       serversToSync[id] = config
     }
   }
-  return serversToSync
+  return filterSecretSafeMcpServers(serversToSync)
+}
+
+export function filterSecretSafeMcpServers(
+  servers: Record<string, McpServerConfig>,
+): Record<string, McpServerConfig> {
+  const safe: Record<string, McpServerConfig> = {}
+  for (const [id, config] of Object.entries(servers)) {
+    if (!containsInlineMcpSecret(config))
+      safe[id] = config
+  }
+  return safe
 }
 
 /**

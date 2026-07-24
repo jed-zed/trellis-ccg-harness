@@ -1,0 +1,120 @@
+{
+  "schemaVersion": 1,
+  "harness": {
+    "definition": "Trellis plus the personal CCG implementation",
+    "adapterRole": "Internal integration boundary; not a third framework"
+  },
+  "authorities": {
+    "lifecycle": "trellis",
+    "taskRoot": ".trellis/tasks",
+    "requirements": "trellis-task-directory",
+    "intelligence": "ccg",
+    "workspaceOwner": "codex"
+  },
+  "runtime": {
+    "ccg": {
+      "mode": "installed-cli-plugin",
+      "command": "ccg",
+      "sourceSnapshotExecutable": false
+    }
+  },
+  "state": {
+    "ignoredRuntimePaths": [
+      ".ccg",
+      ".codex/ccg"
+    ],
+    "forbiddenTrackedPaths": [
+      ".ccg",
+      ".codex/ccg",
+      "components/ccg-workflow/.ccg",
+      "components/ccg-workflow/.codex/ccg",
+      "components/ccg-workflow/node_modules",
+      "components/ccg-workflow/output",
+      "components/ccg-workflow/tmp"
+    ]
+  },
+  "models": {
+    "codex": {
+      "enabled": true,
+      "workspaceWrite": true
+    },
+    "gemini": {
+      "enabled": true,
+      "workspaceWrite": false
+    },
+    "claude": {
+      "enabled": false,
+      "workspaceWrite": false
+    },
+    "grok": {
+      "enabled": false,
+      "optional": true,
+      "autoRoute": false,
+      "workspaceWrite": false
+    },
+    "gptpro": {
+      "enabled": true,
+      "manualOnly": true,
+      "workspaceWrite": false
+    }
+  },
+  "dispatch": {
+    "codex": "inline"
+  },
+  "hooks": {
+    "projectAuthority": ".codex/hooks.json",
+    "promptEvent": "UserPromptSubmit",
+    "userOverlapPolicy": "project-local-precedence",
+    "globalYieldMarker": "TRELLIS_PROJECT_HOOK_PRECEDENCE_V1"
+  },
+  "commands": {
+    "namespaces": {
+      "trellis": "trellis",
+      "ccg": "ccg"
+    }
+  },
+  "packageManager": {
+    "name": "pnpm",
+    "version": "10.17.1"
+  },
+  "providers": {
+    "officialGrokCliAcp": {
+      "enabled": false,
+      "optional": true,
+      "transport": "grok-cli-acp",
+      "credentialEnv": "XAI_API_KEY",
+      "browserLoginAllowed": true
+    },
+    "openAICompatibleGrok": {
+      "enabled": false,
+      "optional": true,
+      "manualProbeAllowed": true,
+      "protocol": "openai-compatible",
+      "baseUrlEnv": "HARNESS_GROK_BASE_URL",
+      "apiKeyEnv": "HARNESS_GROK_API_KEY",
+      "modelEnv": "HARNESS_GROK_MODEL",
+      "defaultModel": "grok-4.5",
+      "modelsPath": "/v1/models",
+      "chatPath": "/v1/chat/completions",
+      "responsesPath": "/v1/responses",
+      "timeoutMs": 180000,
+      "requireSourceBackedEvidence": true
+    },
+    "gptPro": {
+      "enabled": true,
+      "manualOnly": true,
+      "protocol": "ccg-gptpro-bridge",
+      "baseUrlEnv": "HARNESS_GPTPRO_BASE_URL",
+      "apiKeyEnv": "HARNESS_GPTPRO_API_KEY",
+      "modelEnv": "HARNESS_GPTPRO_MODEL"
+    }
+  },
+  "conflicts": {
+    "blockingExitCode": 2,
+    "severities": [
+      "blocking",
+      "warning",
+      "info"
+    ]
+  }
+}

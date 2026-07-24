@@ -1,0 +1,104 @@
+{
+  "schemaVersion": 1,
+  "reviewedAt": "2026-07-23",
+  "npmExecutables": {
+    "ace-tool": {
+      "package": "ace-tool",
+      "version": "0.2.3",
+      "selector": "ace-tool@0.2.3",
+      "integrity": "sha512-j/4p11jXqEIOgWdh+U633UlBw8eoOmPTWwm3UM5UbJZoJftW6YisIdLJCBxbvKljIJGIbJCKI9fseEpwJ4Wjsw==",
+      "bin": "ace-tool"
+    },
+    "ace-tool-rs": {
+      "package": "ace-tool-rs",
+      "version": "0.1.16",
+      "selector": "ace-tool-rs@0.1.16",
+      "integrity": "sha512-0JEds/ljuFB2L2ltXQwmlt8oVjN+/HsvIu+xeLNmDTs4XNtHTto9Lct6mn7PWc9WwqCfLLh8OQp+To0Ekgl+8Q==",
+      "bin": "ace-tool-rs"
+    },
+    "@hsingjui/contextweaver": {
+      "package": "@hsingjui/contextweaver",
+      "version": "0.0.7",
+      "selector": "@hsingjui/contextweaver@0.0.7",
+      "integrity": "sha512-eDIYVfH41lP0aiDc4Gc24QQ3RGpPhtqzfJB8cxi4zEigMdGSa79QLWA3THsmfCI+URMGRJalxdeAyqu05LOZyw==",
+      "bin": "contextweaver"
+    },
+    "fast-context-mcp": {
+      "package": "fast-context-mcp",
+      "version": "1.5.2",
+      "selector": "fast-context-mcp@1.5.2",
+      "integrity": "sha512-xgq94v7XAD7HLljtUXPjPvZAc599pExrLZLhnn2CoTxVK4PR8dNy4gjE5kGqgc0O8PRIw54WcE9h6zBcaoJiWA==",
+      "bin": "fast-context-mcp"
+    },
+    "@colbymchenry/codegraph": {
+      "package": "@colbymchenry/codegraph",
+      "version": "1.5.0",
+      "selector": "@colbymchenry/codegraph@1.5.0",
+      "integrity": "sha512-/l1JMVOQ9WGQLrc/IIuAg7Igr944t79/oNCJTcnGkYtIeQx2XFIqI0ho+9Les/Yu4zKfmPU17hIUshD6yP1fKw==",
+      "bin": "codegraph"
+    },
+    "@upstash/context7-mcp": {
+      "package": "@upstash/context7-mcp",
+      "version": "3.2.4",
+      "selector": "@upstash/context7-mcp@3.2.4",
+      "integrity": "sha512-w2Vg6MkF4Qojp8X1fdmJ6NrjZ8Ip/9lflybtqfDKaqOsUV9iVaXeRbyGTqARdn1O8teIPm7Bt+nfVqFiUcZvjQ==",
+      "bin": "context7-mcp"
+    },
+    "@playwright/mcp": {
+      "package": "@playwright/mcp",
+      "version": "0.0.78",
+      "selector": "@playwright/mcp@0.0.78",
+      "integrity": "sha512-XLTUeA6mEN9sQ+hJ4dfG8EIkDbxS0K3Trc2RBkUJuf02TgE2FQRNTMtq/aJfhyRMINsRl/Ybc4sxcWLtFn4/TQ==",
+      "bin": "playwright-mcp"
+    },
+    "mcp-deepwiki": {
+      "package": "mcp-deepwiki",
+      "version": "0.0.10",
+      "selector": "mcp-deepwiki@0.0.10",
+      "integrity": "sha512-EV+qPuFnAusuwmaTMJKmUfdaIxcgoCCVbkji6Q8UbUE0zOZPt1+QtMEnu38Pj7VDQj5kYYl6gBIuQ9DVXpsB1A==",
+      "bin": "mcp-instruct"
+    },
+    "exa-mcp-server": {
+      "package": "exa-mcp-server",
+      "version": "3.2.1",
+      "selector": "exa-mcp-server@3.2.1",
+      "integrity": "sha512-JUcqdfvOh/szKM8iZk//Bm2De4eDiNOud3tZqHSOBK8EgMKJQoXRcLKzWzHLroTwVEfxGL1aB9UdFUiXibV/5A==",
+      "bin": "exa-mcp-server"
+    },
+    "@fission-ai/openspec": {
+      "package": "@fission-ai/openspec",
+      "version": "1.6.0",
+      "selector": "@fission-ai/openspec@1.6.0",
+      "integrity": "sha512-7yFTQ3hrrk11mQ2ACClNv2gtAN0o116vCgwoiQKmreoB6ambSnrZh7wf2FNFoSDBXHBi9iiCQ7G16fG71ZNppA==",
+      "bin": "openspec"
+    },
+    "ccusage": {
+      "package": "ccusage",
+      "version": "20.0.18",
+      "selector": "ccusage@20.0.18",
+      "integrity": "sha512-/81kwSZg487xoHQadEdcP4hqw9GICkaPtVjSM1HHJ4nBplUByX9tSZF7YIaQQWMcWZ5Gzt0cD2yDEFrgcAkrZg==",
+      "bin": "ccusage"
+    },
+    "@cometix/ccline": {
+      "package": "@cometix/ccline",
+      "version": "1.1.2",
+      "selector": "@cometix/ccline@1.1.2",
+      "integrity": "sha512-ftX1Hlhuy9HITDY0nV9j2PdFwnJPceOiiYz64EsXGVCyQNKvveaqXsps3yI8AXsGw0gLkcuRQTuLhzJ6srCENw==",
+      "bin": "ccline"
+    },
+    "@anthropic-ai/claude-code": {
+      "package": "@anthropic-ai/claude-code",
+      "version": "2.1.218",
+      "selector": "@anthropic-ai/claude-code@2.1.218",
+      "integrity": "sha512-BHV951ruIa6QXaZFDF1wRhwxAOkAiafB2AOWG6wGRUJ4apaJ9mlzp1BFLAhGfG0SknwAyqBenqeT6nit6at4uQ==",
+      "bin": "claude"
+    }
+  },
+  "gitExecutables": {
+    "grokSearch": {
+      "repository": "https://github.com/GuDaStudio/GrokSearch.git",
+      "commit": "8f0ae3c7f25ec419631ade7e431fa2531503433e",
+      "selector": "git+https://github.com/GuDaStudio/GrokSearch.git@8f0ae3c7f25ec419631ade7e431fa2531503433e"
+    }
+  }
+}

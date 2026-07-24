@@ -1,0 +1,7 @@
+interface:
+  display_name: "Harness Init"
+  short_description: "Discover constraints before initializing the Harness"
+  default_prompt: "Use $harness-init to discover this project's constraints and initialize its Harness safely."
+
+policy:
+  allow_implicit_invocation: true
