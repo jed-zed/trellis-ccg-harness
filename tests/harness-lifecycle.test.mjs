@@ -8,6 +8,7 @@ import {
   buildBootstrapOwnership,
   buildRestoreAction,
   parseLifecycleArgs,
+  resolvePackageManagerInvocation,
   validateUpdateSource,
 } from "../scripts/lib/harness-lifecycle.mjs";
 
@@ -126,6 +127,66 @@ test("restore actions preserve a previous package or remove a new owned install"
       operation: "uninstall",
       spec: "ccg-workflow",
     },
+  );
+});
+
+test("Windows package-manager shims run through their Node.js entry points", () => {
+  const execPath = String.raw`C:\hostedtoolcache\windows\node\22\x64\node.exe`;
+  const observed = [];
+  const fileExists = (candidate) => {
+    observed.push(candidate);
+    return true;
+  };
+
+  assert.deepEqual(
+    resolvePackageManagerInvocation("npm", ["ls", "-g"], {
+      platform: "win32",
+      execPath,
+      fileExists,
+    }),
+    {
+      command: execPath,
+      args: [
+        String.raw`C:\hostedtoolcache\windows\node\22\x64\node_modules\npm\bin\npm-cli.js`,
+        "ls",
+        "-g",
+      ],
+    },
+  );
+  assert.deepEqual(
+    resolvePackageManagerInvocation("pnpm", ["test"], {
+      platform: "win32",
+      execPath,
+      fileExists,
+    }),
+    {
+      command: execPath,
+      args: [
+        String.raw`C:\hostedtoolcache\windows\node\22\x64\node_modules\corepack\dist\pnpm.js`,
+        "test",
+      ],
+    },
+  );
+  assert.equal(observed.length, 2);
+  assert.deepEqual(
+    resolvePackageManagerInvocation("git", ["status"], {
+      platform: "win32",
+      execPath,
+      fileExists,
+    }),
+    { command: "git", args: ["status"] },
+  );
+});
+
+test("Windows package-manager resolution fails closed when a CLI is missing", () => {
+  assert.throws(
+    () =>
+      resolvePackageManagerInvocation("npm", ["--version"], {
+        platform: "win32",
+        execPath: String.raw`C:\node\node.exe`,
+        fileExists: () => false,
+      }),
+    /Could not locate the Windows npm CLI/i,
   );
 });
 

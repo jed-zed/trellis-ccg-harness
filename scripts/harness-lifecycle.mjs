@@ -16,6 +16,7 @@ import {
   buildBootstrapOwnership,
   buildRestoreAction,
   parseLifecycleArgs,
+  resolvePackageManagerInvocation,
   validateUpdateSource,
 } from "./lib/harness-lifecycle.mjs";
 import { runCcgGates, runHarnessTests } from "./lib/harness-gates.mjs";
@@ -27,7 +28,8 @@ import {
 
 function run(command, args, options = {}) {
   const capture = options.capture === true;
-  const result = spawnSync(command, args, {
+  const invocation = resolvePackageManagerInvocation(command, args);
+  const result = spawnSync(invocation.command, invocation.args, {
     cwd: options.cwd,
     env: options.env ?? process.env,
     encoding: "utf8",

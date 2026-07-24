@@ -1,6 +1,11 @@
+import { existsSync } from "node:fs";
 import path from "node:path";
 
 const FULL_SHA1 = /^[a-f0-9]{40}$/;
+const WINDOWS_NODE_LAUNCHERS = Object.freeze({
+  npm: ["node_modules", "npm", "bin", "npm-cli.js"],
+  pnpm: ["node_modules", "corepack", "dist", "pnpm.js"],
+});
 const LIFECYCLE_COMMANDS = new Set([
   "update",
   "rollback",
@@ -9,6 +14,34 @@ const LIFECYCLE_COMMANDS = new Set([
   "bootstrap-complete",
   "bootstrap-abort",
 ]);
+
+export function resolvePackageManagerInvocation(
+  command,
+  args,
+  options = {},
+) {
+  const platform = options.platform ?? process.platform;
+  const execPath = options.execPath ?? process.execPath;
+  const fileExists = options.fileExists ?? existsSync;
+  const launcher = WINDOWS_NODE_LAUNCHERS[command];
+  if (platform !== "win32" || !launcher) {
+    return { command, args };
+  }
+
+  const cliPath = path.win32.join(
+    path.win32.dirname(execPath),
+    ...launcher,
+  );
+  if (!fileExists(cliPath)) {
+    throw new Error(
+      `Could not locate the Windows ${command} CLI beside Node.js: ${cliPath}`,
+    );
+  }
+  return {
+    command: execPath,
+    args: [cliPath, ...args],
+  };
+}
 
 function requireValue(argv, index, option) {
   const value = argv[index + 1];
