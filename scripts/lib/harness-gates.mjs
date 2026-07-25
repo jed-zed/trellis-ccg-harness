@@ -1,4 +1,6 @@
+import { mkdtempSync, rmSync } from "node:fs";
 import { readdir } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 
 export function runCcgGates(checkout, execute) {
@@ -15,14 +17,25 @@ export function runCcgGates(checkout, execute) {
   }
   const wrapperRoot = path.join(checkout, "codeagent-wrapper");
   execute("go", ["test", "./..."], { cwd: wrapperRoot });
-  execute("go", ["build", "./..."], { cwd: wrapperRoot });
+  const buildOutputRoot = mkdtempSync(
+    path.join(tmpdir(), "harness-go-build-"),
+  );
+  try {
+    execute(
+      "go",
+      ["build", "-o", buildOutputRoot, "./..."],
+      { cwd: wrapperRoot },
+    );
+  } finally {
+    rmSync(buildOutputRoot, { recursive: true, force: true });
+  }
   return [
     "go version",
     ...commands.map(
       ([command, commandArgs]) => `${command} ${commandArgs.join(" ")}`,
     ),
     "go test ./...",
-    "go build ./...",
+    "go build -o <temporary-directory> ./...",
   ];
 }
 
