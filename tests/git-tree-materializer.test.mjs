@@ -22,6 +22,7 @@ function execute(command, args, options = {}) {
     env: options.env ?? process.env,
     encoding: options.encoding === null ? null : "utf8",
     input: options.input,
+    maxBuffer: options.maxBuffer,
     shell: false,
   });
   if (result.error) throw result.error;
@@ -54,6 +55,7 @@ function fixture() {
     chmodSync(path.join(repo, "bin", "tool.mjs"), 0o755);
   }
   writeFileSync(path.join(repo, "keep.txt"), "tracked\n");
+  writeFileSync(path.join(repo, "large.bin"), Buffer.alloc(2 * 1024 * 1024, 7));
   git(repo, ["add", "."]);
   git(repo, ["commit", "-m", "fixture"]);
   return {
@@ -76,7 +78,7 @@ test("Git tree materialization is path, blob, and mode bound", async () => {
       destination,
       execute,
     });
-    assert.equal(materialized.files, 3);
+    assert.equal(materialized.files, 4);
     assert.match(materialized.manifestSha256, /^[a-f0-9]{64}$/);
 
     writeFileSync(path.join(destination, "keep.txt"), "changed\n");
@@ -127,7 +129,7 @@ test("materialization excludes protected literal paths before checkout", async (
       materialized.entries.some((entry) => entry.path === "keep.txt"),
       false,
     );
-    assert.equal(materialized.files, 2);
+    assert.equal(materialized.files, 3);
   } finally {
     value.cleanup();
   }

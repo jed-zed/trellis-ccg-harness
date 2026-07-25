@@ -57,6 +57,7 @@ function run(command, args, options = {}) {
     encoding,
     shell: false,
     input: options.input,
+    maxBuffer: options.maxBuffer ?? 256 * 1024 * 1024,
     stdio: capture
       ? [options.input === undefined ? "ignore" : "pipe", "pipe", "pipe"]
       : options.input === undefined

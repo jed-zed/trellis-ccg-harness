@@ -242,6 +242,7 @@ export async function materializeGitTree({
     {
       capture: true,
       encoding: null,
+      maxBuffer: 256 * 1024 * 1024,
       input: `${entries.map((entry) => entry.objectId).join("\n")}\n`,
     },
   );
