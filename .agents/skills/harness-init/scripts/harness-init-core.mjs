@@ -294,6 +294,7 @@ function validateSkillRepositoryProfile(profile) {
 export async function loadSkillRepositoryProfile({
   homeDir = homedir(),
 } = {}) {
+  const canonicalHome = await realpath(path.resolve(homeDir));
   const target = skillRepositoryProfilePath(homeDir);
   await ensureSafeDirectoryChain(
     path.resolve(homeDir),
@@ -311,7 +312,7 @@ export async function loadSkillRepositoryProfile({
     return null;
   }
   const profile = validateSkillRepositoryProfile(await readJson(target));
-  assertDedicatedSkillRepository(profile.repositoryPath, homeDir);
+  assertDedicatedSkillRepository(profile.repositoryPath, canonicalHome);
   return profile;
 }
 
@@ -330,6 +331,7 @@ export async function saveSkillRepositoryProfile({
     );
   }
   assertString(repositoryPath, "Skill repository path");
+  const canonicalHome = await realpath(path.resolve(homeDir));
   const canonicalRepository = await realpath(path.resolve(repositoryPath));
   const repositoryStat = await stat(canonicalRepository);
   if (!repositoryStat.isDirectory()) {
@@ -337,7 +339,7 @@ export async function saveSkillRepositoryProfile({
       `Skill repository path is not a directory: ${canonicalRepository}`,
     );
   }
-  assertDedicatedSkillRepository(canonicalRepository, homeDir);
+  assertDedicatedSkillRepository(canonicalRepository, canonicalHome);
   const profile = {
     schemaVersion: 1,
     repositoryPath: canonicalRepository,

@@ -178,11 +178,17 @@ test("approved first-run Skill refinement persists and is reused by inspection",
       "skills",
     );
     mkdirSync(activeGlobalRoot, { recursive: true });
+    const homeAlias = path.join(value.root, "home-alias");
+    symlinkSync(
+      value.homeDir,
+      homeAlias,
+      process.platform === "win32" ? "junction" : "dir",
+    );
     await assert.rejects(
       saveSkillRepositoryProfile({
         approved: true,
         globalEssentialSkills: ["harness-init", "grill-me"],
-        homeDir: value.homeDir,
+        homeDir: homeAlias,
         repositoryPath: activeGlobalRoot,
       }),
       /dedicated|active global/i,
