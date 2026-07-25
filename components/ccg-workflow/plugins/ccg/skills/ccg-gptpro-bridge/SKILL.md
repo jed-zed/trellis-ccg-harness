@@ -31,6 +31,19 @@ executor or implementation owner.
 - GPT Pro is fourth evidence and must not replace routed models.
 - GPT Pro is a risk-triggered external reviewer; code sketches are advisory / illustrative only.
 
+## Task Authority Adapter
+
+Resolve one existing canonical task directory and pass it through `--task-dir`:
+
+- Native CCG task: `.ccg/tasks/<task-id>`.
+- Trellis-owned task: `.trellis/tasks/<task-id>`.
+
+For a Trellis-owned task, the bridge stores all CCG/GPT Pro artifacts under
+`.trellis/tasks/<task-id>/.ccg-evidence/`. It must not create a parallel `.ccg/tasks/<task-id>`,
+must not write CCG gate fields into Trellis `task.json`, and must not become a second lifecycle
+authority. Trellis remains authoritative for task status; bridge `status.json` is authoritative
+only for the manual GPT Pro handoff.
+
 ## Manual Question Budget
 
 Each GPT Pro bridge command is designed to complete in one manual ChatGPT Pro question.

@@ -14,6 +14,7 @@ tmp/
 .codex/ccg/
 **/.ccg/
 **/.codex/ccg/
+**/.ccg-evidence/
 
 # Local configuration and credentials
 .env

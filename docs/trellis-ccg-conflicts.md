@@ -6,7 +6,7 @@ implementation; the adapter is only their internal boundary.
 
 | Conflict | Severity | Evidence | Disposition |
 |---|---|---|---|
-| Dual task and plan authority | Blocking | Trellis stores lifecycle state under `.trellis/tasks/`; CCG can create `.ccg/tasks/` and `.codex/ccg/` evidence | Fixed: Trellis is canonical; CCG paths are ignored runtime evidence |
+| Dual task and plan authority | Blocking | Trellis stores lifecycle state under `.trellis/tasks/`; older CCG bridges only accepted `.ccg/tasks/` | Fixed: Trellis is canonical; the bridge accepts the Trellis task directly and isolates helper evidence under task-local `.ccg-evidence/` without mutating Trellis lifecycle fields |
 | Personal source versus runtime implementation | Blocking | `components/ccg-workflow/` is an exact personal Git tree, while installed CLI/plugin state is user-local | Fixed: the snapshot is provenance; runtime must use the matching installed CLI/plugin |
 | Claude parity rules versus project policy | Blocking | CCG can use Claude as a helper, but this Harness explicitly forbids it | Fixed: Codex is the sole writer and Claude is disabled by the adapter contract |
 | Grok credential and transport ambiguity | Blocking | Official ACP uses `XAI_API_KEY`; compatible gateways use different authentication and capabilities | Fixed: official ACP and compatible API adapters use distinct environment namespaces |

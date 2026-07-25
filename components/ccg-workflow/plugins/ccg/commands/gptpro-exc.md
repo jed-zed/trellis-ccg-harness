@@ -57,14 +57,23 @@ Hard boundaries:
 
 ## Required Inputs
 
-1. Locate the active task under `.ccg/tasks/<task-id>/task.json`.
+Resolve `<task-dir>` and `<evidence-root>` before continuing:
+
+- Native CCG: `<task-dir> = .ccg/tasks/<task-id>` and `<evidence-root> = <task-dir>`.
+- Trellis authority: `<task-dir> = .trellis/tasks/<task-id>` and
+  `<evidence-root> = <task-dir>/.ccg-evidence`.
+
+For Trellis authority, never create a parallel `.ccg/tasks/<task-id>` and never write CCG gate
+fields into Trellis `task.json`.
+
+1. Locate the active task at `<task-dir>/task.json`.
 2. Resolve execution scope from `$ARGUMENTS`, the active plan, changed files, or task context.
 3. Run `/ccg:grok-intel <execution-contract> --mode contract` when required and validate canonical
    artifact/manifest hashes plus the task pointer. After implementation, run `/ccg:grok-verify` if
    plan, diff, dependency, or external-contract digests changed.
 4. Run ordinary `/ccg:execute` preflight and model routing up to the point where implementation
    advice can still change the path safely. Write a concise routing evidence file, for example
-   `.ccg/tasks/<task-id>/evidence/routing.md`, plus a routing summary file. The routing evidence
+   `<evidence-root>/evidence/routing.md`, plus a routing summary file. The routing evidence
    must identify the current orchestrator, the routed model evidence that actually exists, the
    `claudeEvidenceStatus: automatic|manual_handoff|skipped_by_user|blocked`, ordinary execute
    conclusion so far, and any skipped/failed model steps.
@@ -104,7 +113,7 @@ For backend/tooling-only execution route review:
 python ~/.claude/.ccg/engine/tools/gptpro/gptpro_bridge.py \
   --mode exc \
   --workdir "$WORKDIR" \
-  --task-dir ".ccg/tasks/<task-id>" \
+  --task-dir "<task-dir>" \
   --source-command "/ccg:gptpro-exc" \
   --prompt-file "<prompt-file>" \
   --slug "<task-id>-exc" \
@@ -133,15 +142,15 @@ For frontend/full-stack execution route review with Gemini evidence, also pass:
 Expected artifacts:
 
 ```text
-.ccg/tasks/<task-id>/gptpro/<session-id>/status.json
-.ccg/tasks/<task-id>/gptpro/<session-id>/round-1/prompt.md
-.ccg/tasks/<task-id>/gptpro/<session-id>/round-1/response.md
-.ccg/tasks/<task-id>/evidence.json
+<evidence-root>/gptpro/<session-id>/status.json
+<evidence-root>/gptpro/<session-id>/round-1/prompt.md
+<evidence-root>/gptpro/<session-id>/round-1/response.md
+<evidence-root>/evidence.json
 ```
 
 ## Manual Wait State
 
-After bridge creation, update the active task:
+After bridge creation, update the active task only when native CCG owns lifecycle:
 
 ```json
 {
@@ -151,6 +160,9 @@ After bridge creation, update the active task:
 }
 ```
 
+For a Trellis task, do not write those CCG gate fields into `task.json`; preserve Trellis lifecycle
+state and use bridge `status.json` for the manual wait state.
+
 Report only the preview URL and artifact paths, then stop the current turn.
 
 Continue only after:
@@ -158,7 +170,7 @@ Continue only after:
 - `status.json` shows the current round response saved;
 - `response.md` is non-empty;
 - `response_sha256` is present for the saved round;
-- `.ccg/tasks/<task-id>/evidence.json` contains the GPT Pro item.
+- `<evidence-root>/evidence.json` contains the GPT Pro item.
 
 ## Round Budget
 

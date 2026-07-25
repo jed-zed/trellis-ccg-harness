@@ -69,6 +69,7 @@
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "pnpm build",
     "test": "vitest run",
+    "audit:prod": "pnpm audit --prod --audit-level high",
     "lint": "eslint",
     "lint:fix": "eslint --fix",
     "docs:dev": "vitepress dev docs",
@@ -80,11 +81,10 @@
     "cac": "^6.7.14",
     "fs-extra": "^11.3.2",
     "i18next": "^25.5.2",
-    "i18next-fs-backend": "^2.6.0",
     "inquirer": "^12.9.6",
     "ora": "^9.0.0",
     "pathe": "^2.0.3",
-    "smol-toml": "^1.4.2"
+    "smol-toml": "^1.7.0"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

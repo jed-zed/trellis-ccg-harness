@@ -95,6 +95,9 @@ channel:
   worker_guard:
     idle_timeout: 5m
     max_live_workers: 6
+  # trusted_context_dirs:
+  #   - /work/user/trellis_workspace
+  # auto_trust_trellis_symlinks: false
 
 #-------------------------------------------------------------------------------
 # Codex (dispatch behavior)
@@ -110,3 +113,13 @@ channel:
 #
 codex:
   dispatch_mode: inline
+
+# Bound task-context injection to avoid oversized or binary prompt payloads.
+context_injection:
+  max_file_bytes: 32768
+  max_artifact_bytes: 65536
+  max_total_bytes: 131072
+
+# Per-turn escape hatch; does not disable session or sub-agent context.
+prompt_injection:
+  skip_keyword: "no-trellis"

@@ -2,7 +2,7 @@
 
 这是 `jed-zed` 的个人 AI 开发 Harness：用最新版 Trellis 管理任务、PRD、规范和工程记忆，用个人定制版 CCG 管理 Codex、Gemini、Claude、Grok、GPT Pro、外部证据和质量门禁。
 
-> 重要：本仓库里的 CCG 不是重新从原作者仓库下载的默认版本。权威来源是 [`jed-zed/ccg-gptpro-worflow`](https://github.com/jed-zed/ccg-gptpro-worflow) 的个人主线，快照提交为 `ff425b1`。原作者仓库只作为上游来源和版权归属记录。
+> 重要：本仓库里的 CCG 不是重新从原作者仓库下载的默认版本。权威来源是 [`jed-zed/ccg-gptpro-worflow`](https://github.com/jed-zed/ccg-gptpro-worflow) 的个人主线，快照提交为 `94e9b90`。原作者仓库只作为上游来源和版权归属记录。
 
 这里的 Harness 不是第三套框架或另一个依赖。**Trellis + 个人 CCG 的组合本身就是 Harness**；本仓库的脚本、来源清单和 CI 只是让这套组合可以安全安装、验证、升级和迁移。
 
@@ -10,8 +10,8 @@
 
 | 层 | 版本/来源 | 职责 |
 |---|---|---|
-| Trellis | `@mindfoldhq/trellis@0.6.8` | 任务、PRD、设计、实施计划、规范、上下文与完成闭环 |
-| CCG | `jed-zed/ccg-gptpro-worflow@ff425b1` | 多模型编排、Grok 联网证据、GPT Pro、Codex 插件与质量门禁 |
+| Trellis | `@mindfoldhq/trellis@0.6.9` | 任务、PRD、设计、实施计划、规范、上下文与完成闭环 |
+| CCG | `jed-zed/ccg-gptpro-worflow@94e9b90` | 多模型编排、Grok 联网证据、GPT Pro、Codex 插件与质量门禁 |
 | 组合仓库 | 本仓库 | 把 Trellis + 个人 CCG 固化为一个 Harness，并提供分层适配器、来源锁定、诊断、验证、CI 与安全边界 |
 
 CCG 的完整个人 tracked 源码位于 [`components/ccg-workflow`](components/ccg-workflow)。来源和 Git tree 记录在 [`harness.sources.json`](harness.sources.json)。
@@ -33,7 +33,7 @@ CCG 智能层
 
 ## 为什么采用个人源码快照
 
-个人 CCG 主线相对捕获时的原上游 merge base 有 20 个个人独有提交和 369 个差异文件，其中包含：
+个人 CCG 主线相对捕获时的原上游 merge base 有 26 个个人独有提交和 387 个差异文件，其中包含：
 
 - Grok Build CLI 隔离 ACP 外部情报层；
 - Web/X 证据、缓存、保留和导出；
@@ -113,7 +113,8 @@ pnpm --dir .\components\ccg-workflow build
 
 1. Trellis 创建任务并沉淀 `prd.md`、`design.md` 和 `implement.md`。
 2. Codex 作为主编排器在当前会话 inline 执行。
-3. CCG 可按项目策略调用只读 Gemini 或手动 GPT Pro；Claude 被 Harness 禁用。
+3. CCG 可按项目策略调用只读 Gemini 或手动 GPT Pro；Claude 被 Harness 禁用。GPT Pro
+   证据直接写入 Trellis task 内的 `.ccg-evidence/`，不会创建第二套 `.ccg/tasks` 生命周期。
 4. Grok 当前是默认关闭的可选提供方，不阻塞普通工作；将来重新启用时，联网证据仍需 fail-closed。
 5. CCG 质量门禁与 Trellis check 共同验证。
 6. Trellis 更新规范、提交并归档任务。
@@ -199,6 +200,7 @@ pwsh -NoProfile -File .\scripts\verify-sources.ps1 -Index
 
 - `.ccg/` 任务与证据状态；
 - `.codex/ccg/` Grok/GPT Pro 状态；
+- Trellis task 内的 `.ccg-evidence/` 适配器证据；
 - OAuth、浏览器 profile、API key、token 和 `.env`；
 - `output/`、`tmp/`、日志、coverage、dist、node_modules；
 - Trellis runtime、备份、开发者身份和缓存。
