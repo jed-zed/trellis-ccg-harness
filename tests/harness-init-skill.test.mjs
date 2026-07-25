@@ -74,3 +74,20 @@ test('harness-init covers the complete constraint contract and safe handoff', as
   assert.ok(template.providers)
   assert.ok(template.source)
 })
+
+test('harness-init delegates contract mutation to the executable validator', async () => {
+  const skill = await readSkillFile('SKILL.md')
+  const schema = JSON.parse(
+    await readSkillFile('assets', 'project-contract.schema.json'),
+  )
+  const core = await readSkillFile('scripts', 'harness-init-core.mjs')
+
+  assert.match(skill, /harness-init\.mjs inspect/)
+  assert.match(skill, /harness-init\.mjs validate/)
+  assert.match(skill, /harness-init\.mjs apply/)
+  assert.match(skill, /status.*approved/is)
+  assert.match(core, /validateProjectContract/)
+  assert.match(core, /Credential or secret/)
+  assert.equal(schema.properties.authorities.properties.lifecycle.const, 'trellis')
+  assert.equal(schema.properties.workflow.properties.dispatchMode.const, 'inline')
+})

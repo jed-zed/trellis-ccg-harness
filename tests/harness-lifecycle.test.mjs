@@ -105,6 +105,13 @@ test("sparse source exclusions are literal, bounded, and unchanged across the up
   );
 });
 
+test("recovery is an explicit lifecycle command without update arguments", () => {
+  const parsed = parseLifecycleArgs(["recover", "--repo-root", "C:/harness"]);
+  assert.equal(parsed.command, "recover");
+  assert.equal(parsed.repoRoot, path.resolve("C:/harness"));
+  assert.equal(parsed.ccgCommit, null);
+});
+
 test("bootstrap ownership records only globals actually changed by Harness", () => {
   const ownership = buildBootstrapOwnership({
     repoRoot: "C:/harness",
@@ -227,6 +234,8 @@ test("root package exposes all Harness lifecycle and aggregate test commands", a
   const pkg = JSON.parse(await readFile(path.join(ROOT, "package.json"), "utf8"));
   assert.equal(pkg.scripts["harness:update"], "node ./scripts/harness-lifecycle.mjs update");
   assert.equal(pkg.scripts["harness:rollback"], "node ./scripts/harness-lifecycle.mjs rollback");
+  assert.equal(pkg.scripts["harness:recover"], "node ./scripts/harness-lifecycle.mjs recover");
+  assert.equal(pkg.scripts["harness:init"], "node ./scripts/harness-init.mjs");
   assert.equal(pkg.scripts["harness:uninstall"], "node ./scripts/harness-lifecycle.mjs uninstall");
   assert.equal(pkg.scripts["harness:test"], "node ./scripts/run-tests.mjs");
 });

@@ -44,6 +44,17 @@ Resolve the real repository root and classify the adoption mode:
 - partially initialized Harness;
 - existing Harness requiring repair or re-baselining.
 
+When the repository contains this Harness executable, begin with its read-only
+inspection command:
+
+```powershell
+node scripts/harness-init.mjs inspect --repo-root "<repository>"
+```
+
+An exported standalone Skill can run the same command through
+`.agents/skills/harness-init/scripts/harness-init-core.mjs`. This inspection
+must not create `.harness/` or modify any project file.
+
 Inspect only relevant, non-secret evidence:
 
 - `git status`, remotes, worktrees, tracked files, and ignore rules;
@@ -123,10 +134,22 @@ After approval:
 1. Recheck Git state and repository instructions. Stop on unexpected drift.
 2. Initialize or reconcile Trellis using the installed CLI's current help and
    supported commands. Do not guess CLI flags.
-3. Create `.harness/project.json` from
+3. Create an approved contract candidate from
    [assets/project-contract.template.json](assets/project-contract.template.json).
-   Replace draft values with approved facts, keep
-   `unresolvedDecisions` empty, and do not include credentials.
+   Replace draft values with approved facts, set `status` to `approved`, fill
+   `approval.approvedAt` and `approval.approvedBy`, keep
+   `unresolvedDecisions` empty, and do not include credentials. Validate it,
+   then use the executable to apply it atomically:
+
+   ```powershell
+   node scripts/harness-init.mjs validate --contract "<approved-contract.json>"
+   node scripts/harness-init.mjs apply --repo-root "<repository>" --contract "<approved-contract.json>"
+   ```
+
+   The apply command refuses draft contracts, credentials, unsafe authorities,
+   non-inline dispatch, Claude enablement, and collisions with user-owned
+   `.harness/` state. It creates `.harness/project.json`, its JSON Schema, and
+   an ownership manifest only after approval.
 4. Reconcile project-local Skills, instructions, hooks, ignores, and adapter
    files through managed blocks or ownership-aware copies. Do not mutate global
    configuration unless it was listed and explicitly approved.
@@ -137,7 +160,7 @@ After approval:
    second task/plan authority. Trellis remains lifecycle authority unless the
    approved contract explicitly says otherwise.
 7. Run only the approved offline install, doctor, conflict, source, and quality
-   checks. A failed required gate leaves the contract in `draft` status.
+   checks. A failed required gate leaves the contract in `approved` status.
 8. Change the contract status to `ready` only after all required gates pass and
    record the gate commands, not transient logs or secrets.
 

@@ -81,6 +81,30 @@ else {
   Add-Pass "pnpm $pnpmVersion"
 }
 
+$transactionState = Join-Path $RepoRoot ".harness-cache"
+$transactionJournal = Join-Path $transactionState "transaction-journal.json"
+$transactionLock = Join-Path $transactionState "transaction.lock"
+if (Test-Path -LiteralPath $transactionJournal) {
+  Add-Failure "Interrupted transaction journal found. Run pnpm harness:recover."
+}
+else {
+  Add-Pass "No interrupted transaction journal"
+}
+if (Test-Path -LiteralPath $transactionLock) {
+  Add-Failure "Transaction lock residue found. Run pnpm harness:recover."
+}
+else {
+  Add-Pass "No transaction lock residue"
+}
+foreach ($runtimeDirectory in @("staging", "discard")) {
+  $runtimePath = Join-Path $transactionState $runtimeDirectory
+  $residue = Get-ChildItem -LiteralPath $runtimePath -Force -ErrorAction SilentlyContinue |
+    Select-Object -First 1
+  if ($residue) {
+    Add-Failure "Transaction $runtimeDirectory residue found. Run pnpm harness:recover."
+  }
+}
+
 try {
   & (Join-Path $PSScriptRoot "verify-sources.ps1") -RepoRoot $RepoRoot -Index:$Index
   Add-Pass "Personal source provenance and Git tree"

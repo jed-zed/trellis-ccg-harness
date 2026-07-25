@@ -9,6 +9,7 @@ const WINDOWS_NODE_LAUNCHERS = Object.freeze({
 const LIFECYCLE_COMMANDS = new Set([
   "update",
   "rollback",
+  "recover",
   "uninstall",
   "bootstrap-begin",
   "bootstrap-complete",

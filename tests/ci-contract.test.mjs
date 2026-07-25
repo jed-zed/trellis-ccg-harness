@@ -34,3 +34,13 @@ test("root CI owns the cross-platform Node, Go, PowerShell, and offline gates", 
   assert.doesNotMatch(workflow, /grok-probe --live|doctor --grok-live/)
   assert.doesNotMatch(workflow, /\$\{\{\s*secrets\./)
 })
+
+test("doctor blocks on interrupted transaction residue", async () => {
+  const doctor = await readFile(
+    path.join(ROOT, "scripts", "doctor.ps1"),
+    "utf8",
+  )
+  assert.match(doctor, /transaction-journal\.json/)
+  assert.match(doctor, /transaction\.lock/)
+  assert.match(doctor, /harness:recover/)
+})

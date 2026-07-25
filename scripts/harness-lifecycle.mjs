@@ -24,6 +24,7 @@ import {
 import { runCcgGates, runHarnessTests } from "./lib/harness-gates.mjs";
 import {
   buildOwnedUninstallPlan,
+  recoverInterruptedTransaction,
   replaceComponentTransaction,
   rollbackLastTransaction,
 } from "./lib/harness-transaction.mjs";
@@ -532,6 +533,22 @@ async function rollbackHarness(args) {
   );
 }
 
+async function recoverHarness(args) {
+  const result = await recoverInterruptedTransaction({
+    repoRoot: args.repoRoot,
+    afterRecover: () => runHarnessTests(args.repoRoot, run),
+  });
+  process.stdout.write(
+    `${JSON.stringify({
+      status: "recovered",
+      operation: result.operation,
+      outcome: result.outcome,
+      transaction: result.transaction,
+      next: "Review Git state, then run pnpm doctor.",
+    }, null, 2)}\n`,
+  );
+}
+
 async function uninstallHarness(args) {
   const ownershipPath = cachePath(args.repoRoot, "ownership.json");
   let ownership;
@@ -581,6 +598,7 @@ async function main() {
   if (args.command === "bootstrap-abort") return abortBootstrap(args);
   if (args.command === "update") return updateHarness(args);
   if (args.command === "rollback") return rollbackHarness(args);
+  if (args.command === "recover") return recoverHarness(args);
   return uninstallHarness(args);
 }
 

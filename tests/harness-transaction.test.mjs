@@ -1,21 +1,30 @@
 import assert from "node:assert/strict";
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
+import { spawn } from "node:child_process";
+import { once } from "node:events";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { pathToFileURL } from "node:url";
 
 import {
   acquireTransactionLock,
   buildOwnedUninstallPlan,
+  recoverInterruptedTransaction,
   replaceComponentTransaction,
   rollbackLastTransaction,
 } from "../scripts/lib/harness-transaction.mjs";
+
+const TRANSACTION_MODULE = pathToFileURL(
+  path.resolve("scripts", "lib", "harness-transaction.mjs"),
+).href;
 
 function writeJson(filePath, value) {
   mkdirSync(path.dirname(filePath), { recursive: true });
@@ -49,6 +58,51 @@ function fixture() {
     candidate,
     cleanup: () => rmSync(repoRoot, { recursive: true, force: true }),
   };
+}
+
+async function waitForFile(filePath, child) {
+  const deadline = Date.now() + 10_000;
+  while (!existsSync(filePath)) {
+    if (child.exitCode !== null) {
+      throw new Error(`Crash fixture exited before creating ${filePath}.`);
+    }
+    if (Date.now() >= deadline) {
+      child.kill();
+      throw new Error(`Timed out waiting for ${filePath}.`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+}
+
+function spawnInterruptedTransaction({ operation, repoRoot, candidate, marker }) {
+  const source = `
+    const api = await import(${JSON.stringify(TRANSACTION_MODULE)});
+    const pause = async () => {
+      (await import("node:fs/promises")).writeFile(
+        ${JSON.stringify(marker)},
+        "ready\\n",
+      );
+      setInterval(() => {}, 1000);
+      await new Promise(() => {});
+    };
+    if (${JSON.stringify(operation)} === "replace") {
+      await api.replaceComponentTransaction({
+        repoRoot: ${JSON.stringify(repoRoot)},
+        candidateDir: ${JSON.stringify(candidate)},
+        commit: ${JSON.stringify("c".repeat(40))},
+        gitTree: ${JSON.stringify("d".repeat(40))},
+        afterReplace: pause,
+      });
+    } else {
+      await api.rollbackLastTransaction({
+        repoRoot: ${JSON.stringify(repoRoot)},
+        afterRestore: pause,
+      });
+    }
+  `;
+  return spawn(process.execPath, ["--input-type=module", "-e", source], {
+    stdio: ["ignore", "pipe", "pipe"],
+  });
 }
 
 test("component replacement rolls back every owned path after interruption", async () => {
@@ -211,6 +265,147 @@ test("transaction lock is exclusive and explicitly released", async () => {
     await first.release();
     const second = await acquireTransactionLock(value.repoRoot);
     await second.release();
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("explicit recovery restores the previous component after process death", async () => {
+  const value = fixture();
+  const marker = path.join(value.repoRoot, "replace-ready");
+  try {
+    const manifestBefore = readFileSync(
+      path.join(value.repoRoot, "harness.sources.json"),
+      "utf8",
+    );
+    const child = spawnInterruptedTransaction({
+      operation: "replace",
+      repoRoot: value.repoRoot,
+      candidate: value.candidate,
+      marker,
+    });
+    await waitForFile(marker, child);
+    child.kill();
+    await once(child, "exit");
+
+    assert.ok(
+      existsSync(
+        path.join(
+          value.repoRoot,
+          ".harness-cache",
+          "transaction-journal.json",
+        ),
+      ),
+    );
+    const result = await recoverInterruptedTransaction({
+      repoRoot: value.repoRoot,
+      isProcessAlive: () => false,
+    });
+
+    assert.equal(result.operation, "replacement");
+    assert.equal(result.outcome, "rolled-back");
+    assert.equal(
+      readFileSync(
+        path.join(value.repoRoot, "components", "ccg-workflow", "version.txt"),
+        "utf8",
+      ),
+      "old\n",
+    );
+    assert.equal(
+      readFileSync(path.join(value.repoRoot, "harness.sources.json"), "utf8"),
+      manifestBefore,
+    );
+    assert.equal(
+      existsSync(
+        path.join(
+          value.repoRoot,
+          ".harness-cache",
+          "transaction-journal.json",
+        ),
+      ),
+      false,
+    );
+    assert.equal(
+      existsSync(
+        path.join(value.repoRoot, ".harness-cache", "transaction.lock"),
+      ),
+      false,
+    );
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("explicit recovery reverses an interrupted rollback after process death", async () => {
+  const value = fixture();
+  const marker = path.join(value.repoRoot, "rollback-ready");
+  try {
+    await replaceComponentTransaction({
+      repoRoot: value.repoRoot,
+      candidateDir: value.candidate,
+      commit: "c".repeat(40),
+      gitTree: "d".repeat(40),
+    });
+    const manifestBeforeRollback = readFileSync(
+      path.join(value.repoRoot, "harness.sources.json"),
+      "utf8",
+    );
+
+    const child = spawnInterruptedTransaction({
+      operation: "rollback",
+      repoRoot: value.repoRoot,
+      candidate: value.candidate,
+      marker,
+    });
+    await waitForFile(marker, child);
+    child.kill();
+    await once(child, "exit");
+
+    const result = await recoverInterruptedTransaction({
+      repoRoot: value.repoRoot,
+      isProcessAlive: () => false,
+    });
+    assert.equal(result.operation, "rollback");
+    assert.equal(result.outcome, "rolled-back");
+    assert.equal(
+      readFileSync(
+        path.join(value.repoRoot, "components", "ccg-workflow", "version.txt"),
+        "utf8",
+      ),
+      "new\n",
+    );
+    assert.equal(
+      readFileSync(path.join(value.repoRoot, "harness.sources.json"), "utf8"),
+      manifestBeforeRollback,
+    );
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("explicit recovery clears a stale lock but refuses a live owner", async () => {
+  const value = fixture();
+  const lockPath = path.join(
+    value.repoRoot,
+    ".harness-cache",
+    "transaction.lock",
+  );
+  try {
+    mkdirSync(path.dirname(lockPath), { recursive: true });
+    writeJson(lockPath, { pid: 424242, createdAt: new Date().toISOString() });
+    await assert.rejects(
+      recoverInterruptedTransaction({
+        repoRoot: value.repoRoot,
+        isProcessAlive: () => true,
+      }),
+      /still running/i,
+    );
+    const result = await recoverInterruptedTransaction({
+      repoRoot: value.repoRoot,
+      isProcessAlive: () => false,
+    });
+    assert.equal(result.outcome, "stale-lock-cleared");
+    assert.equal(existsSync(lockPath), false);
   } finally {
     value.cleanup();
   }
