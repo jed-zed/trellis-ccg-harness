@@ -15,6 +15,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 import {
+  assertBootstrapOwnershipContinuity,
   buildBootstrapOwnership,
   buildRestoreAction,
   assertSparseExclusionsUnchanged,
@@ -40,7 +41,7 @@ function filesystemEntryIdentity(target) {
 }
 
 function packageSnapshot(overrides = {}) {
-  return {
+  const snapshot = {
     version: "1.0.0",
     entryPath: path.resolve("C:/npm/root/example"),
     entryIdentity: {
@@ -49,8 +50,17 @@ function packageSnapshot(overrides = {}) {
       birthtimeNs: "3",
     },
     packageJsonSha256: "a".repeat(64),
+    contentIdentity: {
+      algorithm: "sha256-tree-v1",
+      digest: "b".repeat(64),
+      entryCount: 2,
+    },
     ...overrides,
   };
+  if (snapshot.sourcePath !== undefined) {
+    delete snapshot.contentIdentity;
+  }
+  return snapshot;
 }
 
 function runPackageManager(command, args) {
@@ -199,7 +209,7 @@ test("source validation binds credential-free personal repo, commit, and tree", 
   );
 });
 
-test("sparse source exclusions are literal, bounded, and unchanged across the update", () => {
+test("sparse source exclusions are literal, bounded, and fail closed for replacement", () => {
   const exclusions = parseSparseArchiveExclusions([
     "/*",
     "!/templates/skills/domains/security/pentest.md",
@@ -209,16 +219,16 @@ test("sparse source exclusions are literal, bounded, and unchanged across the up
     "templates/skills/domains/security/pentest.md",
     "templates/skills/domains/security/red-team.md",
   ]);
-  assert.deepEqual(
-    assertSparseExclusionsUnchanged(exclusions, ["package.json"]),
-    exclusions,
+  assert.throws(
+    () => assertSparseExclusionsUnchanged(exclusions, ["package.json"]),
+    /cannot preserve|full component replacement|refusing/i,
   );
   assert.throws(
     () =>
       assertSparseExclusionsUnchanged(exclusions, [
         "templates/skills/domains/security/red-team.md",
       ]),
-    /changed in the target commit/i,
+    /cannot preserve|full component replacement|refusing/i,
   );
   assert.throws(
     () => parseSparseArchiveExclusions("!/templates/**/secret.md"),
@@ -227,6 +237,21 @@ test("sparse source exclusions are literal, bounded, and unchanged across the up
   assert.throws(
     () => parseSparseArchiveExclusions("!/../outside.txt"),
     /escape/i,
+  );
+});
+
+test("CCG replacement refuses any ignored live component state", async () => {
+  const lifecycle = await import("../scripts/lib/harness-lifecycle.mjs");
+  assert.equal(
+    typeof lifecycle.assertNoIgnoredComponentState,
+    "function",
+  );
+  assert.throws(
+    () =>
+      lifecycle.assertNoIgnoredComponentState([
+        "components/ccg-workflow/node_modules/tool/index.js",
+      ]),
+    /ignored.*component|refusing/i,
   );
 });
 
@@ -243,7 +268,7 @@ test("bootstrap ownership records only globals actually changed by Harness", () 
     ccgSourcePath: "C:/harness/components/ccg-workflow",
     managed: { trellis: true, ccg: false },
     before: {
-      trellis: packageSnapshot({ version: "0.6.7" }),
+      trellis: null,
       ccg: packageSnapshot({
         version: "3.3.0",
         sourcePath: path.resolve("C:/personal/ccg"),
@@ -269,26 +294,47 @@ test("bootstrap ownership records only globals actually changed by Harness", () 
     "0.6.8",
   );
   assert.equal(
-    ownership.entries[0].originalBeforeFirstManagement.version,
-    "0.6.7",
+    ownership.entries[0].originalBeforeFirstManagement,
+    null,
+  );
+});
+
+test("first bootstrap refuses a pre-existing ordinary global package", () => {
+  const repoRoot = path.resolve("C:/harness");
+  const emptyOwnership = {
+    schemaVersion: 2,
+    repoRoot,
+    updatedAt: new Date(0).toISOString(),
+    entries: [],
+  };
+  assert.throws(
+    () =>
+      assertBootstrapOwnershipContinuity(
+        emptyOwnership,
+        {
+          trellis: packageSnapshot({ version: "0.6.7" }),
+          ccg: null,
+        },
+        { trellis: true, ccg: false },
+        repoRoot,
+      ),
+    /pre-existing|exactly restore|refusing/i,
   );
 });
 
 test("restore actions preserve a previous package or remove a new owned install", () => {
-  assert.deepEqual(
-    buildRestoreAction({
-      id: "trellis-global",
-      kind: "npm-global-package",
-      package: "@mindfoldhq/trellis",
-      originalBeforeFirstManagement: packageSnapshot({
-        version: "0.6.7",
+  assert.throws(
+    () =>
+      buildRestoreAction({
+        id: "trellis-global",
+        kind: "npm-global-package",
+        package: "@mindfoldhq/trellis",
+        originalBeforeFirstManagement: packageSnapshot({
+          version: "0.6.7",
+        }),
+        installedByHarness: packageSnapshot({ version: "0.6.8" }),
       }),
-      installedByHarness: packageSnapshot({ version: "0.6.8" }),
-    }),
-    {
-      operation: "install",
-      spec: "@mindfoldhq/trellis@0.6.7",
-    },
+    /cannot exactly restore|refusing/i,
   );
   assert.deepEqual(
     buildRestoreAction({
@@ -358,6 +404,39 @@ test("global package identity resolves the real npm entry target with spaces", a
       filesystemEntryIdentity(source),
     );
     assert.match(observed.packageJsonSha256, /^[a-f0-9]{64}$/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("ordinary global package identity detects non-manifest file changes", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "npm package identity-"));
+  const globalRoot = path.join(root, "lib", "node_modules");
+  const packageRoot = path.join(
+    globalRoot,
+    "@mindfoldhq",
+    "trellis",
+  );
+  try {
+    mkdirSync(packageRoot, { recursive: true });
+    writeFileSync(
+      path.join(packageRoot, "package.json"),
+      `${JSON.stringify({
+        name: "@mindfoldhq/trellis",
+        version: "0.6.9",
+      })}\n`,
+    );
+    writeFileSync(path.join(packageRoot, "runtime.mjs"), "old-runtime\n");
+    const before = await inspectGlobalPackage(
+      globalRoot,
+      "@mindfoldhq/trellis",
+    );
+    writeFileSync(path.join(packageRoot, "runtime.mjs"), "new-runtime\n");
+    const after = await inspectGlobalPackage(
+      globalRoot,
+      "@mindfoldhq/trellis",
+    );
+    assert.equal(globalPackageSnapshotsEqual(before, after), false);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

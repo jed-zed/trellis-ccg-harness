@@ -63,15 +63,16 @@ security reference files.
 
 ## Completion evidence
 
-- Harness root tests: 32 passed, 0 failed, including source residue rejection,
-  lifecycle interruption recovery, CI ownership, and all three `harness-init`
-  contracts, plus Windows package-manager launcher resolution.
+- Harness root tests: 98 passed, 0 failed, including three real replacement
+  hard-kill boundaries, source residue rejection, snapshot rotation, full-tree
+  npm identity, linked Skill-export rejection, exact contract idempotence, and
+  shared Windows `py -3` resolution.
 - Local conflict audit: 0 blocking, 0 warnings, 3 information findings, 15
   checks passed.
-- Harness doctor and personal source verification passed against
-  `88222edd298dc4254d7fd7151f48682618063139` and Git tree
-  `8fcfd2b70efa6a2aa07b692911cbafc85616522c`.
-- Personal CCG lint, typecheck, 413 tests across 26 files, build, diff check,
+- The imported personal CCG source is bound to commit
+  `f4e728ff5f027270873b0e9df86125c553eda921` and Git tree
+  `bb951ec316f2294fc9b9de1628809bd655fb2eb4`.
+- Personal CCG lint, typecheck, 453 tests across 30 files, build, diff check,
   change analysis, quality scan, and production security scan passed.
 - Native Go wrapper test and build passed.
 - Harness script quality scan passed with 0 errors and 0 warnings; security
@@ -99,3 +100,17 @@ security reference files.
 - Windows lifecycle transactions launch `npm` and `pnpm` through their
   trusted JavaScript entry points beside Node.js, avoiding `.cmd` resolution
   failures without enabling a command shell.
+
+### Secondary review repairs
+
+- [x] Add real hard-kill boundaries before the replacement journal, during
+  staged copy, and before the first live rename; recover deterministically.
+- [x] Refuse sparse exclusions and ignored live component state before update.
+- [x] Rotate superseded rollback snapshots.
+- [x] Fingerprint complete ordinary global package trees and refuse inexact
+  first adoption/restoration.
+- [x] Reject linked/junction Skill export parents and verify staged copies.
+- [x] Reuse the shared Python resolver for adapter task context.
+- [x] Validate exact contract ownership and schema identity on repeat apply.
+- [x] Recheck Windows MCP secret ACLs at launch and terminate child trees.
+- [ ] Run final Harness/CCG gates, source verification, doctor, and CI.

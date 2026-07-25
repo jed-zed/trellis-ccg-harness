@@ -113,6 +113,18 @@ The root Harness, not embedded CCG npm update code, owns component upgrades:
 Uninstall removes only Harness-owned installed state. Rollback restores the last
 verified snapshot and never rewrites unrelated user configuration.
 
+The replacement journal is durable before any snapshot/staging side effect.
+Recovery distinguishes live-only, snapshot-only, and live-plus-snapshot states
+from content identities instead of requiring a snapshot that may not exist yet.
+Sparse exclusions and any ignored live component path are unsupported and fail
+closed before replacement. Once a newer transaction commits, its predecessor's
+snapshot is no longer rollback-eligible and is removed.
+
+Ordinary global npm packages are fingerprinted by their full content tree.
+Harness will not first-adopt a pre-existing ordinary Trellis package because a
+version selector cannot reproduce local patches byte-for-byte. CCG links remain
+restorable by canonical source path.
+
 ## Project initialization Skill
 
 `.agents/skills/harness-init` is the project-owned adoption entry point. It is
@@ -135,6 +147,12 @@ toolchain, quality gates, security boundaries, provider policy, provenance,
 update, rollback, and CI requirements. Credentials and secret values are never
 contract fields. Grok, Claude, GPT Pro, paid calls, network calls, and global
 configuration changes require separate explicit authorization.
+
+Idempotent contract apply requires the exact Harness owner, managed path set,
+contract digest, and installed schema digest. Skill export validates each
+directory component beneath `.agents/skills`, copies a bounded link-free
+snapshot, verifies the staged tree identity, and rechecks the target before its
+atomic rename.
 
 ## CI boundary
 

@@ -15,33 +15,43 @@ import {
   redactString,
   redactValue,
 } from "./redaction.mjs";
+import { resolvePython } from "../python-resolver.mjs";
 
 function runCurrentTaskCommand(
   repoRoot,
   runner,
   env,
   pythonCandidates,
+  platform,
 ) {
   const configuredPython = env.HARNESS_PYTHON?.trim();
-  const candidates = pythonCandidates ?? [
-    ...(configuredPython ? [configuredPython] : []),
-    "python",
-    "python3",
-  ];
+  const python = resolvePython({
+    configuredCommand: configuredPython,
+    platform,
+    ...(pythonCandidates
+      ? {
+          candidates: pythonCandidates.map((command) => ({
+            command,
+            argsPrefix: [],
+          })),
+        }
+      : {}),
+    runner: (command, args) =>
+      runCommand(command, args, { repoRoot, runner, env }),
+  });
   const scriptPath = path.join(repoRoot, ".trellis", "scripts", "task.py");
-  for (const candidate of [...new Set(candidates)]) {
-    const result = runCommand(
-      candidate,
-      [scriptPath, "current"],
-      { repoRoot, runner, env },
-    );
-    if (result.error?.code !== "ENOENT") {
-      return { result, usedPython: candidate };
-    }
-  }
-  const error = new Error("Python executable was not found.");
-  error.code = "PYTHON_MISSING";
-  throw error;
+  const result = runCommand(
+    python.command,
+    [...python.argsPrefix, scriptPath, "current"],
+    { repoRoot, runner, env },
+  );
+  return {
+    result,
+    usedPython: [
+      python.command,
+      ...python.argsPrefix,
+    ].join(" "),
+  };
 }
 
 function assertTaskCommandSucceeded(result) {
@@ -91,6 +101,7 @@ export function resolveCurrentTask(
     runner = defaultRunner,
     env = process.env,
     pythonCandidates,
+    platform = process.platform,
   } = {},
 ) {
   const { result, usedPython } = runCurrentTaskCommand(
@@ -98,6 +109,7 @@ export function resolveCurrentTask(
     runner,
     env,
     pythonCandidates,
+    platform,
   );
   assertTaskCommandSucceeded(result);
   return loadTask(repoRoot, result.stdout, usedPython);
@@ -136,12 +148,17 @@ export function buildCanonicalContext(
   {
     runner = defaultRunner,
     env = process.env,
+    pythonPlatform = process.platform,
     taskResolver = resolveCurrentTask,
   } = {},
 ) {
   const contract = readJson(path.join(repoRoot, ".harness", "adapter.json"));
   const sources = readJson(path.join(repoRoot, "harness.sources.json"));
-  const task = taskResolver(repoRoot, { runner, env });
+  const task = taskResolver(repoRoot, {
+    runner,
+    env,
+    platform: pythonPlatform,
+  });
   const context = {
     schemaVersion: contract.schemaVersion,
     harness: contract.harness.definition,

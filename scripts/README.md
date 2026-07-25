@@ -27,8 +27,8 @@ runtime model policy, and provider boundaries deterministic.
 - `lib/harness-gates.mjs`: runs the exact CCG, Go, and root test commands used
   by lifecycle transactions.
 - `lib/harness-transaction.mjs`: provides exclusive locking, durable journals,
-  component and managed-file snapshots, candidate validation, rollback, and
-  hard-process-interruption recovery.
+  component and managed-file snapshots, candidate validation, rollback,
+  hard-process-interruption recovery, and superseded-snapshot rotation.
 - `python-resolver.mjs` / `python-hook-runner.mjs`: resolve Python 3.9+ across
   `python3`, `python`, and Windows `py -3` without shell interpolation.
 
@@ -82,3 +82,15 @@ runs before mutation; frozen install, build, local/global CLI smoke, source-tree
 validation, and root tests run again from the final component path. Trellis update accepts only
 an exact semantic version, verifies its npm integrity, generates in a sparse
 temporary worktree, and applies only the bounded Trellis-managed surface.
+
+CCG replacement fails closed when the live component contains ignored state or
+the authoritative source declares sparse exclusions. Only the rollback snapshot
+referenced by the latest transaction is retained. Ordinary global npm packages
+use full content-tree identities and a pre-existing ordinary Trellis package is
+never adopted on first bootstrap because version-only reinstall cannot restore
+local patches exactly.
+
+Project-contract reapplication validates strict ownership, contract, and schema
+digests. Standalone Skill export validates every target directory component and
+copies a bounded, link-free tree, so `.agents/skills` links or junctions cannot
+redirect writes outside the selected repository.

@@ -4,6 +4,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   renameSync,
   rmSync,
   symlinkSync,
@@ -95,7 +96,13 @@ async function waitForFile(filePath, child) {
   }
 }
 
-function spawnInterruptedTransaction({ operation, repoRoot, candidate, marker }) {
+function spawnInterruptedTransaction({
+  operation,
+  repoRoot,
+  candidate,
+  marker,
+  boundary = null,
+}) {
   const source = `
     const api = await import(${JSON.stringify(TRANSACTION_MODULE)});
     const pause = async () => {
@@ -106,13 +113,31 @@ function spawnInterruptedTransaction({ operation, repoRoot, candidate, marker })
       setInterval(() => {}, 1000);
       await new Promise(() => {});
     };
+    const onTransactionBoundary = async (name, details) => {
+      if (name !== ${JSON.stringify(boundary)}) return;
+      if (name === "copy-in-progress") {
+        const fs = await import("node:fs/promises");
+        await fs.mkdir(details.stagedComponent, { recursive: true });
+        await fs.writeFile(
+          (await import("node:path")).join(
+            details.stagedComponent,
+            "partial-copy.txt",
+          ),
+          "partial\\n",
+        );
+      }
+      await pause();
+    };
     if (${JSON.stringify(operation)} === "replace") {
       await api.replaceComponentTransaction({
         repoRoot: ${JSON.stringify(repoRoot)},
         candidateDir: ${JSON.stringify(candidate)},
         commit: ${JSON.stringify("c".repeat(40))},
         gitTree: ${JSON.stringify("d".repeat(40))},
-        afterReplace: pause,
+        onTransactionBoundary,
+        ...(${JSON.stringify(boundary)} === null
+          ? { afterReplace: pause }
+          : {}),
       });
     } else {
       await api.rollbackLastTransaction({
@@ -448,6 +473,46 @@ test("replacement removes stale comparison counters and rollback restores them",
   }
 });
 
+test("a successful replacement prunes the superseded rollback snapshot", async () => {
+  const value = fixture();
+  try {
+    await replaceComponentTransaction({
+      repoRoot: value.repoRoot,
+      candidateDir: value.candidate,
+      commit: "c".repeat(40),
+      gitTree: "d".repeat(40),
+    });
+    await replaceComponentTransaction({
+      repoRoot: value.repoRoot,
+      candidateDir: value.candidate,
+      commit: "e".repeat(40),
+      gitTree: "f".repeat(40),
+    });
+
+    const record = JSON.parse(
+      readFileSync(
+        path.join(
+          value.repoRoot,
+          ".harness-cache",
+          "last-transaction.json",
+        ),
+        "utf8",
+      ),
+    );
+    const snapshotsRoot = path.join(
+      value.repoRoot,
+      ".harness-cache",
+      "snapshots",
+    );
+    assert.deepEqual(
+      readdirSync(snapshotsRoot).sort(),
+      [path.basename(record.snapshotPath)],
+    );
+  } finally {
+    value.cleanup();
+  }
+});
+
 for (const dirtyCase of [
   {
     name: "modified tracked file",
@@ -724,6 +789,85 @@ test("explicit recovery restores the previous component after process death", as
     value.cleanup();
   }
 });
+
+for (const boundary of [
+  "before-journal",
+  "copy-in-progress",
+  "before-current-rename",
+]) {
+  test(`replacement recovery is deterministic after hard kill at ${boundary}`, async () => {
+    const value = fixture();
+    const marker = path.join(value.repoRoot, `${boundary}-ready`);
+    try {
+      const manifestBefore = readFileSync(
+        path.join(value.repoRoot, "harness.sources.json"),
+        "utf8",
+      );
+      const child = spawnInterruptedTransaction({
+        operation: "replace",
+        repoRoot: value.repoRoot,
+        candidate: value.candidate,
+        marker,
+        boundary,
+      });
+      await waitForFile(marker, child);
+      child.kill();
+      await once(child, "exit");
+
+      const result = await recoverInterruptedTransaction({
+        repoRoot: value.repoRoot,
+        isProcessAlive: () => false,
+      });
+      assert.equal(
+        result.outcome,
+        boundary === "before-journal"
+          ? "stale-lock-cleared"
+          : "rolled-back",
+      );
+      assert.equal(
+        readFileSync(
+          path.join(
+            value.repoRoot,
+            "components",
+            "ccg-workflow",
+            "version.txt",
+          ),
+          "utf8",
+        ),
+        "old\n",
+      );
+      assert.equal(
+        readFileSync(
+          path.join(value.repoRoot, "harness.sources.json"),
+          "utf8",
+        ),
+        manifestBefore,
+      );
+      assert.equal(
+        existsSync(
+          path.join(
+            value.repoRoot,
+            ".harness-cache",
+            "transaction-journal.json",
+          ),
+        ),
+        false,
+      );
+      assert.equal(
+        existsSync(
+          path.join(
+            value.repoRoot,
+            ".harness-cache",
+            "transaction.lock",
+          ),
+        ),
+        false,
+      );
+    } finally {
+      value.cleanup();
+    }
+  });
+}
 
 test("explicit recovery reverses an interrupted rollback after process death", async () => {
   const value = fixture();
@@ -1142,13 +1286,22 @@ test("managed file updates reject paths outside the Trellis-owned surface", asyn
 
 test("uninstall planning only selects unchanged Harness-owned global state", () => {
   const repoRoot = path.resolve("C:/harness");
-  const snapshot = (overrides = {}) => ({
-    version: "1.0.0",
-    entryPath: path.resolve("C:/npm/root/package"),
-    entryIdentity: { dev: "1", ino: "2", birthtimeNs: "3" },
-    packageJsonSha256: "a".repeat(64),
-    ...overrides,
-  });
+  const snapshot = (overrides = {}) => {
+    const value = {
+      version: "1.0.0",
+      entryPath: path.resolve("C:/npm/root/package"),
+      entryIdentity: { dev: "1", ino: "2", birthtimeNs: "3" },
+      packageJsonSha256: "a".repeat(64),
+      contentIdentity: {
+        algorithm: "sha256-tree-v1",
+        digest: "b".repeat(64),
+        entryCount: 2,
+      },
+      ...overrides,
+    };
+    if (value.sourcePath !== undefined) delete value.contentIdentity;
+    return value;
+  };
   const ccgInstalled = snapshot({
     version: "3.3.0",
     sourcePath: path.resolve("C:/personal/ccg"),

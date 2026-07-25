@@ -26,17 +26,21 @@ inject command and Fetch implementations, so CI never requires paid providers.
 Lifecycle mutation is a separate transaction boundary:
 
 1. acquire an exclusive Harness lock;
-2. persist a phase journal before the first mutating rename or file copy;
+2. persist a phase journal before creating transaction snapshots/staging or
+   performing the first mutating rename/file copy;
 3. verify either the personal CCG commit/tree or exact Trellis version/integrity;
-4. materialize a sparse candidate directly from selected Git blobs, then bind
-   every path, type, blob SHA and executable mode before mutation;
-5. run the source-specific and root Harness gates;
+4. reject any sparse source exclusions, then materialize the complete candidate
+   directly from Git blobs and bind every path, type, blob SHA and executable
+   mode before mutation;
+5. reject ignored live CCG component state, then run source-specific and root
+   Harness gates;
 6. snapshot the current component or exact Trellis-managed files;
 7. apply the candidate, update the source manifest, then rerun frozen install,
    CCG/Go gates, tracked-tree validation, local CLI and any Harness-owned global
    CLI smoke from the final component path;
 8. commit the transaction record only after success, otherwise restore the
-   snapshot automatically.
+   snapshot automatically;
+9. remove the rollback snapshot superseded by the newly committed transaction.
 
 Rollback restores only a Harness-created snapshot and only while the current
 component or managed-file fingerprints still match what Harness installed.
@@ -46,8 +50,11 @@ normal exception handling, doctor blocks on the journal/lock and
 `harness:recover` either finishes committed cleanup or deterministically
 restores the pre-transaction state. Uninstall changes global state only when
 its strict ownership record and filesystem fingerprint still match; the
-original-before-first-management baseline is immutable across repeat bootstrap.
-User edits are preserved and reported for manual handling.
+ordinary-package fingerprint includes the complete content tree. First-time
+adoption of a pre-existing ordinary Trellis global package is refused because a
+version-only reinstall cannot restore local patches exactly. Link baselines are
+restored by exact source path. User edits are preserved and reported for manual
+handling.
 
 Project Skill provisioning is a separate approval and ownership boundary:
 
@@ -61,6 +68,11 @@ Project Skill provisioning is a separate approval and ownership boundary:
    owned `.agents/skills/<name>` target;
 5. installation copies a bounded, link-free snapshot and records profile,
    source, and copied-tree digests in `.harness/project-skills.json`.
+
+Standalone `harness-init` export applies the same real-directory-chain checks to
+`.agents/skills`, stages a bounded link-free tree, verifies the staged identity,
+and rechecks the target before rename. Project-contract idempotence requires an
+exact ownership schema plus matching contract and schema digests.
 
 Only `harness-init` and `grill-me` are required global defaults. Removing or
 moving pre-existing global Skills is deliberately outside initialization and
@@ -118,6 +130,22 @@ is not exposed to untrusted task input.
   the Harness adapter.
 
 ## Change History
+
+### 2026-07-25 - Secondary adversarial review closure
+
+**Change:** Added pre-side-effect replacement journaling, live-only crash
+recovery, sparse/ignored-state fail-closed gates, rollback snapshot rotation,
+full ordinary-package identities, first-adoption refusal, shared Windows
+`py -3` resolution, strict contract ownership verification, and safe Skill
+export directory traversal.
+
+**Reason:** PR #1 secondary review found unrecoverable early kill windows,
+silent sparse/ignored-state loss, inexact global-package rollback, junction
+write escape, snapshot accumulation, resolver drift, and weak idempotence.
+
+**Impact:** Harness lifecycle, rollback/recovery, bootstrap ownership,
+initialization/export, adapter context, documentation, and offline regression
+tests.
 
 ### 2026-07-25 - Reusable project Skill provisioning
 

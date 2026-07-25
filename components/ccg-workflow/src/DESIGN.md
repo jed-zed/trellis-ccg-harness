@@ -61,6 +61,10 @@ distribution with public upstream.
 - MCP children receive only a minimal platform environment and the variables
   explicitly approved for that server; unrelated parent credentials are not
   inherited.
+- The installed launcher revalidates owner-only Windows ACL evidence for the
+  secret directory and selected spec immediately before reading the spec.
+- Launcher shutdown targets the complete MCP process tree: a detached process
+  group on Unix and `taskkill /T /F` on Windows.
 - Claude, Codex, and Gemini MCP entries are tracked independently. Unowned
   same-name collisions are refused unless the interactive user explicitly
   adopts them; the first original entry is restored on uninstall.
@@ -95,6 +99,17 @@ fails closed to Trellis-only guidance and never creates `.ccg/tasks`.
   scans exclude test fixtures and must have zero Critical/High findings.
 
 ## Change History
+
+### 2026-07-25 - MCP launch-time boundary verification
+
+**Change:** Closed the Windows ACL check/use gap and added complete child-tree
+termination to the deployed secret launcher.
+
+**Reason:** Secondary adversarial review showed that install-time ACL checks and
+direct-child signals did not cover later permission drift or grandchildren.
+
+**Impact:** MCP secret launch, signal handling, Windows ACL regression tests,
+and template security documentation.
 
 ### 2026-07-25 - Transaction, ownership, and environment closure
 

@@ -109,6 +109,10 @@ function assertInside(root, target, label) {
 async function ensureSafeDirectoryChain(root, target, label, { create } = {}) {
   const resolvedRoot = path.resolve(root);
   const resolvedTarget = path.resolve(target);
+  const rootDetails = await lstat(resolvedRoot);
+  if (rootDetails.isSymbolicLink() || !rootDetails.isDirectory()) {
+    throw new Error(`${label} root must be a real directory: ${resolvedRoot}`);
+  }
   assertInside(resolvedRoot, resolvedTarget, label);
   const relative = path.relative(resolvedRoot, resolvedTarget);
   let current = resolvedRoot;
@@ -1313,6 +1317,44 @@ function sha256(value) {
   return createHash("sha256").update(value).digest("hex");
 }
 
+const PROJECT_MANAGED_PATHS = Object.freeze([
+  ".harness/ownership.json",
+  ".harness/project.json",
+  ".harness/project.schema.json",
+]);
+
+function validateProjectOwnership(
+  ownership,
+  { contractSha256, schemaSha256 },
+) {
+  assertObject(ownership, "Harness project ownership");
+  const expectedKeys = [
+    "schemaVersion",
+    "owner",
+    "contractSha256",
+    "schemaSha256",
+    "managedPaths",
+  ];
+  if (
+    Object.keys(ownership).sort().join(",") !==
+      expectedKeys.sort().join(",") ||
+    ownership.schemaVersion !== 1 ||
+    ownership.owner !== "trellis-ccg-harness" ||
+    ownership.contractSha256 !== contractSha256 ||
+    ownership.schemaSha256 !== schemaSha256 ||
+    !Array.isArray(ownership.managedPaths) ||
+    ownership.managedPaths.length !== PROJECT_MANAGED_PATHS.length ||
+    ownership.managedPaths.some(
+      (entry, index) => entry !== PROJECT_MANAGED_PATHS[index],
+    )
+  ) {
+    throw new Error(
+      "Harness project ownership identity is invalid or changed.",
+    );
+  }
+  return ownership;
+}
+
 async function readJson(target) {
   return JSON.parse(await readFile(target, "utf8"));
 }
@@ -1329,20 +1371,53 @@ export async function applyProjectContract({
   const contractBytes = canonicalJson(contract);
   const harnessDir = path.join(root, ".harness");
   const projectPath = path.join(harnessDir, "project.json");
+  const ownershipPath = path.join(harnessDir, "ownership.json");
+  const installedSchemaPath = path.join(
+    harnessDir,
+    "project.schema.json",
+  );
+  const schemaPath = path.join(
+    sourceSkill,
+    "assets",
+    "project-contract.schema.json",
+  );
+  const schemaBytes = await readFile(schemaPath);
+  const contractSha256 = sha256(contractBytes);
+  const schemaSha256 = sha256(schemaBytes);
   assertInside(root, harnessDir, "Harness contract directory");
 
-  if (await exists(harnessDir)) {
-    if (await exists(projectPath)) {
+  if (await pathEntryExists(harnessDir)) {
+    await ensureSafeDirectoryChain(
+      root,
+      harnessDir,
+      "Harness contract directory",
+    );
+    if (await pathEntryExists(projectPath)) {
+      await assertSafeRegularFile(
+        projectPath,
+        "Harness project contract",
+      );
+      await assertSafeRegularFile(
+        ownershipPath,
+        "Harness project ownership",
+      );
+      await assertSafeRegularFile(
+        installedSchemaPath,
+        "Harness project schema",
+      );
       const currentBytes = canonicalJson(await readJson(projectPath));
-      const ownershipPath = path.join(harnessDir, "ownership.json");
       if (
         currentBytes === contractBytes &&
-        await exists(ownershipPath)
+        sha256(await readFile(installedSchemaPath)) === schemaSha256
       ) {
+        validateProjectOwnership(
+          await readJson(ownershipPath),
+          { contractSha256, schemaSha256 },
+        );
         return {
           status: "unchanged",
           projectPath,
-          contractSha256: sha256(contractBytes),
+          contractSha256,
         };
       }
     }
@@ -1351,23 +1426,14 @@ export async function applyProjectContract({
     );
   }
 
-  const schemaPath = path.join(
-    sourceSkill,
-    "assets",
-    "project-contract.schema.json",
-  );
-  const schemaBytes = await readFile(schemaPath);
   const stageDir = path.join(root, `.harness-init-${randomUUID()}`);
   assertInside(root, stageDir, "Harness initialization staging directory");
   const ownership = {
     schemaVersion: 1,
     owner: "trellis-ccg-harness",
-    contractSha256: sha256(contractBytes),
-    managedPaths: [
-      ".harness/ownership.json",
-      ".harness/project.json",
-      ".harness/project.schema.json",
-    ],
+    contractSha256,
+    schemaSha256,
+    managedPaths: [...PROJECT_MANAGED_PATHS],
   };
 
   try {
@@ -1460,13 +1526,16 @@ export async function exportHarnessInitSkill({
 }) {
   const source = path.resolve(sourceSkillRoot);
   const root = path.resolve(targetRepo);
-  if (!(await exists(path.join(source, "SKILL.md")))) {
-    throw new Error(`Harness Init Skill source is invalid: ${source}`);
-  }
   const targetParent = path.join(root, ".agents", "skills");
   const target = path.join(targetParent, "harness-init");
   assertInside(root, target, "Harness Init Skill target");
-  if (await exists(target)) {
+  await ensureSafeDirectoryChain(
+    root,
+    targetParent,
+    "Harness Init Skill target",
+    { create: true },
+  );
+  if (await pathEntryExists(target)) {
     throw new Error(
       `Harness Init Skill target already exists; refusing collision: ${target}`,
     );
@@ -1475,14 +1544,23 @@ export async function exportHarnessInitSkill({
     targetParent,
     `.harness-init-export-${randomUUID()}`,
   );
-  await mkdir(targetParent, { recursive: true, mode: 0o700 });
+  const sourceSnapshot = await snapshotSkillTree(source);
   try {
-    await cp(source, stage, {
-      recursive: true,
-      errorOnExist: true,
-      force: false,
-      preserveTimestamps: true,
-    });
+    await snapshotSkillTree(source, { copyTo: stage });
+    const stagedSnapshot = await snapshotSkillTree(stage);
+    if (stagedSnapshot.treeSha256 !== sourceSnapshot.treeSha256) {
+      throw new Error("Harness Init Skill staged export identity changed.");
+    }
+    await ensureSafeDirectoryChain(
+      root,
+      targetParent,
+      "Harness Init Skill target",
+    );
+    if (await pathEntryExists(target)) {
+      throw new Error(
+        `Harness Init Skill target already exists; refusing collision: ${target}`,
+      );
+    }
     await rename(stage, target);
   } catch (error) {
     await rm(stage, { recursive: true, force: true });

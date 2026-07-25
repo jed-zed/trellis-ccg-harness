@@ -132,6 +132,20 @@ async function writeJournal(context, phase) {
   );
 }
 
+async function notifyTransactionBoundary(options, name, context) {
+  if (options.onTransactionBoundary === undefined) return;
+  if (typeof options.onTransactionBoundary !== "function") {
+    throw new Error("Transaction boundary observer must be a function.");
+  }
+  await options.onTransactionBoundary(name, {
+    transaction: context.id,
+    componentDir: context.componentDir,
+    snapshotDir: context.snapshotDir,
+    stagingDir: context.stagingDir,
+    stagedComponent: context.stagedComponent,
+  });
+}
+
 async function removeJournal(repoRoot, journalPath) {
   await safeRemove(repoRoot, journalPath, "Transaction journal");
 }
@@ -291,7 +305,7 @@ async function loadReplacementContext(options, repoRoot, candidateDir, id) {
   };
 }
 
-async function stageReplacement(context) {
+async function stageReplacement(context, options) {
   await safeCreateDirectory(
     context.repoRoot,
     context.snapshotDir,
@@ -309,6 +323,7 @@ async function stageReplacement(context) {
     "Replacement snapshot manifest",
   );
   await writeJournal(context, "preparing");
+  await notifyTransactionBoundary(options, "copy-in-progress", context);
   await cp(context.candidateDir, context.stagedComponent, {
     recursive: true,
     errorOnExist: true,
@@ -318,8 +333,13 @@ async function stageReplacement(context) {
   await writeJournal(context, "staged");
 }
 
-async function activateReplacement(context, state) {
+async function activateReplacement(context, state, options) {
   await writeJournal(context, "moving-current");
+  await notifyTransactionBoundary(
+    options,
+    "before-current-rename",
+    context,
+  );
   await safeRename(
     context.repoRoot,
     context.componentDir,
@@ -442,8 +462,8 @@ async function performReplacement(context, options) {
   const state = { componentMoved: false, candidateActivated: false };
   let record;
   try {
-    await stageReplacement(context);
-    await activateReplacement(context, state);
+    await stageReplacement(context, options);
+    await activateReplacement(context, state, options);
     const previous = await writeReplacementManifest(context, options);
     if (options.afterReplace) await options.afterReplace();
     record = await buildReplacementRecord(context, options, previous);
@@ -480,6 +500,57 @@ async function performReplacement(context, options) {
   return record;
 }
 
+async function readLastTransactionIfPresent(repoRoot) {
+  const recordPath = path.join(
+    repoRoot,
+    ".harness-cache",
+    "last-transaction.json",
+  );
+  const present = await assertSafeRegularFileOrAbsent(
+    repoRoot,
+    recordPath,
+    "Last transaction record",
+  );
+  if (!present) return null;
+  return validateTransactionRecord(
+    JSON.parse(await readFile(recordPath, "utf8")),
+  );
+}
+
+async function pruneSupersededSnapshot(
+  repoRoot,
+  previousRecord,
+  currentRecord,
+) {
+  if (
+    !previousRecord ||
+    previousRecord.id === currentRecord.id ||
+    previousRecord.snapshotPath === currentRecord.snapshotPath
+  ) {
+    return;
+  }
+  const snapshot = resolveJournalPath(
+    repoRoot,
+    previousRecord.snapshotPath,
+    "Superseded rollback snapshot",
+  );
+  const family = previousRecord.operation === "component"
+    ? "snapshots"
+    : "file-snapshots";
+  assertExpectedCachePath(
+    snapshot.relative,
+    family,
+    previousRecord.id,
+    "Superseded rollback snapshot",
+  );
+  await safeRemove(
+    repoRoot,
+    snapshot.target,
+    "Superseded rollback snapshot",
+    { recursive: true },
+  );
+}
+
 export async function replaceComponentTransaction(options) {
   const repoRoot = path.resolve(options.repoRoot);
   const candidateDir = path.resolve(options.candidateDir);
@@ -489,6 +560,7 @@ export async function replaceComponentTransaction(options) {
   const lock = await acquireTransactionLock(repoRoot);
   try {
     await assertNoPendingJournal(repoRoot);
+    const previousRecord = await readLastTransactionIfPresent(repoRoot);
     const id = transactionId();
     const context = await loadReplacementContext(
       options,
@@ -497,7 +569,11 @@ export async function replaceComponentTransaction(options) {
       id,
     );
     context.id = id;
-    return await performReplacement(context, options);
+    await notifyTransactionBoundary(options, "before-journal", context);
+    await writeJournal(context, "created");
+    const record = await performReplacement(context, options);
+    await pruneSupersededSnapshot(repoRoot, previousRecord, record);
+    return record;
   } finally {
     await lock.release();
   }
@@ -1089,6 +1165,7 @@ export async function replaceManagedFilesTransaction(options) {
   const lock = await acquireTransactionLock(repoRoot);
   try {
     await assertNoPendingJournal(repoRoot);
+    const previousRecord = await readLastTransactionIfPresent(repoRoot);
     const id = transactionId();
     const context = await buildManagedFilesContext(options, repoRoot, id);
     let record;
@@ -1131,6 +1208,7 @@ export async function replaceManagedFilesTransaction(options) {
     }
     await writeJournal(context, "committed");
     await removeJournal(context.repoRoot, context.journalPath);
+    await pruneSupersededSnapshot(repoRoot, previousRecord, record);
     return record;
   } finally {
     await lock.release();
@@ -2005,13 +2083,44 @@ async function recoverReplacement(context) {
     };
   }
 
-  if (!(await exists(context.snapshotManifest))) {
-    throw new Error(
-      "Replacement recovery cannot find the preserved source manifest.",
+  const snapshotExists = await exists(context.snapshotComponent);
+  const liveExists = await exists(context.componentDir);
+  if (!snapshotExists) {
+    if (
+      !liveExists ||
+      !contentIdentitiesEqual(
+        await buildContentIdentity(context.componentDir),
+        context.journal.previousContentIdentity,
+      ) ||
+      sha256(await readFile(context.manifestPath)) !==
+        context.journal.previousManifestSha256
+    ) {
+      throw new Error(
+        "Replacement recovery live component identity is invalid.",
+      );
+    }
+    await safeRemove(
+      context.repoRoot,
+      context.stagingDir,
+      "Replacement recovery staging",
+      { recursive: true },
     );
+    await safeRemove(
+      context.repoRoot,
+      context.snapshotDir,
+      "Replacement recovery snapshot",
+      { recursive: true },
+    );
+    await removeJournal(context.repoRoot, context.journalPath);
+    return {
+      operation: "replacement",
+      outcome: "rolled-back",
+      transaction: context.journal.id,
+    };
   }
+
   if (
-    !(await exists(context.snapshotComponent)) ||
+    !(await exists(context.snapshotManifest)) ||
     !contentIdentitiesEqual(
       await buildContentIdentity(context.snapshotComponent),
       context.journal.previousContentIdentity,
@@ -2022,42 +2131,36 @@ async function recoverReplacement(context) {
     throw new Error("Replacement recovery snapshot identity is invalid.");
   }
   let preservedCandidate = null;
-  if (await exists(context.snapshotComponent)) {
-    if (await exists(context.componentDir)) {
-      const recoveryDiscard = path.join(
-        context.repoRoot,
-        ".harness-cache",
-        "recovery-discard",
-        context.journal.id,
-      );
-      const preserved = path.join(recoveryDiscard, "component");
-      await safeCreateDirectory(
-        context.repoRoot,
-        recoveryDiscard,
-        "Replacement recovery discard",
-      );
-      await safeRename(
-        context.repoRoot,
-        context.componentDir,
-        preserved,
-        "Replacement recovery candidate preservation",
-      );
-      preservedCandidate = path
-        .relative(context.repoRoot, preserved)
-        .split(path.sep)
-        .join("/");
-    }
+  if (liveExists) {
+    const recoveryDiscard = path.join(
+      context.repoRoot,
+      ".harness-cache",
+      "recovery-discard",
+      context.journal.id,
+    );
+    const preserved = path.join(recoveryDiscard, "component");
+    await safeCreateDirectory(
+      context.repoRoot,
+      recoveryDiscard,
+      "Replacement recovery discard",
+    );
     await safeRename(
       context.repoRoot,
-      context.snapshotComponent,
       context.componentDir,
-      "Replacement recovery snapshot activation",
+      preserved,
+      "Replacement recovery candidate preservation",
     );
-  } else if (!(await exists(context.componentDir))) {
-    throw new Error(
-      "Replacement recovery found neither the live nor preserved component.",
-    );
+    preservedCandidate = path
+      .relative(context.repoRoot, preserved)
+      .split(path.sep)
+      .join("/");
   }
+  await safeRename(
+    context.repoRoot,
+    context.snapshotComponent,
+    context.componentDir,
+    "Replacement recovery snapshot activation",
+  );
 
   await atomicWrite(
     context.repoRoot,

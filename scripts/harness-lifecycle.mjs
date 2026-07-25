@@ -17,6 +17,7 @@ import {
   buildOwnedUninstallPlan,
   buildRestoreAction,
   assertBootstrapOwnershipContinuity,
+  assertNoIgnoredComponentState,
   assertSparseExclusionsUnchanged,
   compareSemanticVersions,
   globalPackageSnapshotsEqual,
@@ -605,6 +606,29 @@ function assertVersionOutput(output, expected, label) {
   }
 }
 
+function assertNoIgnoredCcgComponentState(repoRoot, manifest) {
+  const componentPath = String(manifest.ccg?.snapshotPath ?? "");
+  if (componentPath !== "components/ccg-workflow") {
+    throw new Error(
+      "CCG component path must be components/ccg-workflow before update.",
+    );
+  }
+  const output = git(
+    repoRoot,
+    [
+      "ls-files",
+      "--others",
+      "--ignored",
+      "--exclude-standard",
+      "-z",
+      "--",
+      componentPath,
+    ],
+    { capture: true },
+  );
+  return assertNoIgnoredComponentState(output.split("\0"));
+}
+
 async function runFinalCcgVerification(args, manifest, prepared) {
   const componentRoot = path.resolve(
     args.repoRoot,
@@ -963,6 +987,7 @@ function writeUpdateReceipt(source, record) {
 }
 
 async function updateCcgHarness(args, manifest) {
+  assertNoIgnoredCcgComponentState(args.repoRoot, manifest);
   const resolved = await resolveUpdateCheckout(args, manifest);
   const exportTemporary = await mkdtemp(
     path.join(tmpdir(), "trellis-ccg-export-"),

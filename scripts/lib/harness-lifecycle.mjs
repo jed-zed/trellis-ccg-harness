@@ -3,6 +3,11 @@ import { existsSync } from "node:fs";
 import { lstat, readFile, realpath } from "node:fs/promises";
 import path from "node:path";
 
+import {
+  buildContentIdentity,
+  contentIdentitiesEqual,
+} from "./harness-fs.mjs";
+
 const FULL_SHA1 = /^[a-f0-9]{40}$/;
 const NUMERIC_IDENTIFIER = String.raw`(?:0|[1-9]\d*)`;
 const TEXT_IDENTIFIER =
@@ -64,6 +69,12 @@ export function parseSparseArchiveExclusions(value) {
 }
 
 export function assertSparseExclusionsUnchanged(exclusions, changedPaths) {
+  if (exclusions.length > 0) {
+    throw new Error(
+      "Full component replacement cannot preserve sparse archive "
+      + `exclusions; refusing update: ${exclusions.join(", ")}.`,
+    );
+  }
   const changed = new Set(
     (changedPaths ?? [])
       .map((value) => String(value).trim().replaceAll("\\", "/"))
@@ -80,6 +91,25 @@ export function assertSparseExclusionsUnchanged(exclusions, changedPaths) {
     );
   }
   return [...exclusions];
+}
+
+export function assertNoIgnoredComponentState(paths) {
+  const ignored = [...new Set(
+    (paths ?? [])
+      .map((value) => String(value).trim().replaceAll("\\", "/"))
+      .filter(Boolean),
+  )].sort();
+  if (ignored.length > 0) {
+    const preview = ignored.slice(0, 10).join(", ");
+    const suffix = ignored.length > 10
+      ? `, and ${ignored.length - 10} more`
+      : "";
+    throw new Error(
+      "Refusing CCG replacement because ignored live component state "
+      + `cannot be preserved transactionally: ${preview}${suffix}.`,
+    );
+  }
+  return ignored;
 }
 
 export function resolvePackageManagerInvocation(
@@ -397,12 +427,17 @@ export async function inspectGlobalPackage(globalRoot, packageName) {
   const isLink =
     entryDetails.isSymbolicLink() ||
     normalizedPath(canonicalPath) !== normalizedPath(entryPath);
+  const contentIdentity = isLink
+    ? null
+    : await buildContentIdentity(canonicalPath);
   return {
     version: manifest.version,
     entryPath: path.resolve(entryPath),
     entryIdentity: filesystemIdentity(entryDetails),
     packageJsonSha256: createHash("sha256").update(packageBytes).digest("hex"),
-    ...(isLink ? { sourcePath: path.resolve(canonicalPath) } : {}),
+    ...(isLink
+      ? { sourcePath: path.resolve(canonicalPath) }
+      : { contentIdentity }),
   };
 }
 
@@ -438,7 +473,7 @@ export function validateGlobalPackageSnapshot(value, label = "Global package") {
   assertExactKeys(
     value,
     ["version", "entryPath", "entryIdentity", "packageJsonSha256"],
-    ["sourcePath"],
+    ["sourcePath", "contentIdentity"],
     label,
   );
   assertExactKeys(
@@ -457,6 +492,28 @@ export function validateGlobalPackageSnapshot(value, label = "Global package") {
     !/^[a-f0-9]{64}$/.test(value.packageJsonSha256)
   ) {
     throw new Error(`${label} fingerprint is invalid.`);
+  }
+  if (value.sourcePath !== undefined) {
+    if (value.contentIdentity !== undefined) {
+      throw new Error(
+        `${label} link fingerprint cannot include a copied tree identity.`,
+      );
+    }
+  } else {
+    assertExactKeys(
+      value.contentIdentity,
+      ["algorithm", "digest", "entryCount"],
+      [],
+      `${label} content identity`,
+    );
+    if (
+      value.contentIdentity.algorithm !== "sha256-tree-v1" ||
+      !/^[a-f0-9]{64}$/.test(value.contentIdentity.digest) ||
+      !Number.isSafeInteger(value.contentIdentity.entryCount) ||
+      value.contentIdentity.entryCount < 1
+    ) {
+      throw new Error(`${label} content identity is invalid.`);
+    }
   }
   return value;
 }
@@ -482,7 +539,8 @@ export function globalPackageSnapshotsEqual(left, right) {
   return (
     sameEntry &&
     left.version === right.version &&
-    left.packageJsonSha256 === right.packageJsonSha256
+    left.packageJsonSha256 === right.packageJsonSha256 &&
+    contentIdentitiesEqual(left.contentIdentity, right.contentIdentity)
   );
 }
 
@@ -530,6 +588,16 @@ export function buildBootstrapOwnership(options) {
     ]),
   );
   if (options.managed?.trellis) {
+    if (
+      options.before?.trellis &&
+      !previousById.has("trellis-global")
+    ) {
+      throw new Error(
+        "Refusing first-time adoption of a pre-existing ordinary Trellis "
+        + "global package because Harness cannot exactly restore a patched "
+        + "baseline.",
+      );
+    }
     entries.push(buildOwnershipEntry({
       id: "trellis-global",
       kind: "npm-global-package",
@@ -576,10 +644,10 @@ export function buildRestoreAction(entry) {
     };
   }
   if (original?.version) {
-    return {
-      operation: "install",
-      spec: `${entry.package}@${original.version}`,
-    };
+    throw new Error(
+      `Harness cannot exactly restore the pre-existing ordinary package `
+      + `${entry.package}; refusing version-only rollback.`,
+    );
   }
   return {
     operation: "uninstall",
@@ -669,6 +737,16 @@ export function assertBootstrapOwnershipContinuity(
     ...(managed?.trellis ? ["trellis-global"] : []),
     ...(managed?.ccg ? ["ccg-link"] : []),
   ]);
+  if (
+    managed?.trellis &&
+    before?.trellis &&
+    !ownership.entries.some((entry) => entry.id === "trellis-global")
+  ) {
+    throw new Error(
+      "Refusing first-time adoption of a pre-existing ordinary Trellis "
+      + "global package because Harness cannot exactly restore its baseline.",
+    );
+  }
   for (const entry of ownership.entries) {
     if (
       selected.has(entry.id) &&

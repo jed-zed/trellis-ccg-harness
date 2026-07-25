@@ -84,6 +84,17 @@ Adopt the recommended layered-adapter architecture without losing the complete p
 - [x] Harness initialization writes no project/global state until explicit
   approval, produces a complete secret-free project contract, and finishes
   with offline doctor/conflict verification plus a clear residual-risk handoff.
+- [x] Replacement recovery passes real hard-kill tests before journal creation,
+  during staged copy, and immediately before the first live-component rename.
+- [x] Sparse exclusions and ignored live component state fail closed before
+  replacement; only the latest rollback snapshot remains after repeated update.
+- [x] Ordinary global package identity covers the complete tree and first-time
+  adoption refuses an inexact pre-existing baseline.
+- [x] `harness-init` export rejects linked target parents, and repeated contract
+  apply verifies exact ownership plus contract/schema digests.
+- [x] Adapter context reuses the shared Python resolver including Windows
+  `py -3`; the CCG MCP launcher rechecks Windows ACLs and terminates full child
+  trees.
 
 ## Constraints
 

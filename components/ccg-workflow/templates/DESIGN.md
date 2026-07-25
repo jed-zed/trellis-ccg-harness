@@ -31,10 +31,13 @@ The MCP launcher:
 
 - accepts only an absolute path under the expected owner-only CCG secret area;
 - validates the JSON shape before process creation;
+- rechecks the owner-only Windows ACL on both the secret directory and selected
+  spec immediately before reading credentials;
 - passes the child command and arguments as an argv array with no shell;
 - injects secrets only into the child environment;
 - does not print the spec, credentials, or child arguments;
-- propagates child exit status and signals.
+- propagates child exit status and terminates the complete child process tree
+  through a detached Unix process group or Windows `taskkill /T /F`.
 
 ## Known Risks
 
@@ -45,6 +48,17 @@ The MCP launcher:
   Harness conflict doctor and delegation regression tests detect drift.
 
 ## Change History
+
+### 2026-07-25 - Launch-time ACL and process-tree closure
+
+**Change:** Added Windows ACL revalidation at launch and complete process-tree
+signal forwarding for the MCP secret launcher.
+
+**Reason:** Secondary adversarial review identified an ACL time-of-check gap and
+the possibility of leaving MCP grandchildren running after launcher shutdown.
+
+**Impact:** Secret launcher runtime, Windows ACL tests, and signal-forwarding
+tests.
 
 ### 2026-07-24 - Ownership and credential boundary
 

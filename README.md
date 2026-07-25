@@ -229,8 +229,20 @@ pnpm harness:uninstall
 `pnpm doctor` 会阻断并引导运行 `pnpm harness:recover`。回滚前会覆盖 tracked、
 staged、untracked、ignored、rename 等全部 live 组件内容；只要更新后发生任何
 变化就拒绝回滚，且不修改组件、索引、manifest、snapshot 或 transaction record。
-全局 ownership 永久保留第一次接管前的基线；重复 bootstrap 只有在当前状态仍
-匹配上次 Harness fingerprint 时才允许续管。
+更新前如果 live CCG 组件存在 ignored 文件，或来源仓库声明任何 sparse 排除，
+替换会在首个组件变更前失败关闭；Harness 不会把这类状态静默移入快照。成功更新
+只保留当前 `last-transaction.json` 引用的一个回滚快照，并清理已被新事务取代的
+旧快照。
+
+全局 ownership 对普通 npm 包记录完整内容树身份，而不只比较
+`package.json`。Harness 只会首次接管原本不存在的普通 Trellis 全局包；如果已有
+普通包，因无法保证逐字节恢复其中的本地补丁，会在安装前拒绝接管。CCG 全局链接
+仍可按其精确 source path 恢复。重复 bootstrap 只有在当前状态仍匹配上次 Harness
+fingerprint 时才允许续管。
+
+`harness-init` 重复应用时会同时验证 project contract、schema 和严格 ownership
+摘要；`export-skill` 会逐段拒绝 `.agents/skills` 中的 symlink、junction 或
+reparse point，避免把 Skill 写出目标仓库。
 
 每次更新必须同步：
 

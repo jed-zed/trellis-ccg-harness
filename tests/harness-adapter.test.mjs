@@ -203,6 +203,16 @@ function createFixture() {
     taskPath: ".trellis/tasks/fixture-task",
   };
   const runner = (command, args) => {
+    if (
+      (command === "python" || command === "python3") &&
+      args.includes("--version")
+    ) {
+      return {
+        status: 0,
+        stdout: "Python 3.12.4",
+        stderr: "",
+      };
+    }
     if (command === "python" || command === "python3") {
       return { status: 0, stdout: state.taskPath, stderr: "" };
     }
@@ -342,6 +352,56 @@ test("builds canonical context from the active Trellis task", () => {
   }
 });
 
+test("canonical context uses the shared Windows py -3 resolver", () => {
+  const fixture = createFixture();
+  const calls = [];
+  const launcher = "C:\\Windows\\py.exe";
+  try {
+    const runner = (command, args, options) => {
+      calls.push([command, args]);
+      if (command === "py" && args.join(" ") === "-3 --version") {
+        return {
+          status: 0,
+          stdout: "Python 3.12.4",
+          stderr: "",
+        };
+      }
+      if (command === "where.exe" && args[0] === "py") {
+        return { status: 0, stdout: `${launcher}\n`, stderr: "" };
+      }
+      if (
+        command === launcher &&
+        args[0] === "-3" &&
+        args.at(-1) === "current"
+      ) {
+        return {
+          status: 0,
+          stdout: fixture.state.taskPath,
+          stderr: "",
+        };
+      }
+      return fixture.runner(command, args, options);
+    };
+
+    const context = buildCanonicalContext(fixture.repoRoot, {
+      runner,
+      pythonPlatform: "win32",
+    });
+    assert.equal(context.task.id, "fixture-task");
+    assert.equal(
+      calls.some(
+        ([command, args]) =>
+          command === launcher &&
+          args[0] === "-3" &&
+          args.at(-1) === "current",
+      ),
+      true,
+    );
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test("clean fixture has no blocking conflicts", () => {
   const fixture = createFixture();
   try {
@@ -475,7 +535,10 @@ test("an idle repository without an active task remains doctor-safe", () => {
   try {
     for (const stderr of ["No active task found.", ""]) {
       const runner = (command, args, options) => {
-        if (command === "python" || command === "python3") {
+        if (
+          (command === "python" || command === "python3") &&
+          !args.includes("--version")
+        ) {
           return {
             status: 1,
             stdout: "",

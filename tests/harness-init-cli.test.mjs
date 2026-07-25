@@ -5,6 +5,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { readFile } from "node:fs/promises";
@@ -161,6 +162,7 @@ test("approved contracts atomically create the owned Harness contract", async ()
       ".harness/project.schema.json",
     ]);
     assert.match(ownership.contractSha256, /^[a-f0-9]{64}$/);
+    assert.match(ownership.schemaSha256, /^[a-f0-9]{64}$/);
     assert.equal(
       existsSync(
         path.join(value.repoRoot, ".harness", "project.schema.json"),
@@ -174,6 +176,57 @@ test("approved contracts atomically create the owned Harness contract", async ()
       skillRoot: SKILL_ROOT,
     });
     assert.equal(repeated.status, "unchanged");
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("idempotent contract apply verifies ownership and schema identities", async () => {
+  const value = fixture();
+  try {
+    const contractPath = writeContract(
+      value.repoRoot,
+      approvedContract(),
+    );
+    await applyProjectContract({
+      repoRoot: value.repoRoot,
+      contractPath,
+      skillRoot: SKILL_ROOT,
+    });
+    const harnessDir = path.join(value.repoRoot, ".harness");
+    const ownershipPath = path.join(harnessDir, "ownership.json");
+    const schemaPath = path.join(
+      harnessDir,
+      "project.schema.json",
+    );
+    const ownershipBytes = readFileSync(ownershipPath, "utf8");
+    const schemaBytes = readFileSync(schemaPath);
+
+    const ownership = JSON.parse(ownershipBytes);
+    ownership.owner = "untrusted-owner";
+    writeFileSync(
+      ownershipPath,
+      `${JSON.stringify(ownership, null, 2)}\n`,
+    );
+    await assert.rejects(
+      applyProjectContract({
+        repoRoot: value.repoRoot,
+        contractPath,
+        skillRoot: SKILL_ROOT,
+      }),
+      /ownership|owner|collision/i,
+    );
+
+    writeFileSync(ownershipPath, ownershipBytes);
+    writeFileSync(schemaPath, `${schemaBytes}\n{"tampered":true}\n`);
+    await assert.rejects(
+      applyProjectContract({
+        repoRoot: value.repoRoot,
+        contractPath,
+        skillRoot: SKILL_ROOT,
+      }),
+      /schema|identity|collision/i,
+    );
   } finally {
     value.cleanup();
   }
@@ -269,5 +322,33 @@ test("skill export is portable and refuses to overwrite a collision", async () =
     );
   } finally {
     value.cleanup();
+  }
+});
+
+test("skill export rejects a linked target parent without escaping the repo", async () => {
+  const value = fixture();
+  const outside = mkdtempSync(path.join(tmpdir(), "harness-init-outside-"));
+  const sentinel = path.join(outside, "sentinel.txt");
+  try {
+    writeFileSync(sentinel, "unchanged\n");
+    mkdirSync(path.join(value.repoRoot, ".agents"), { recursive: true });
+    symlinkSync(
+      outside,
+      path.join(value.repoRoot, ".agents", "skills"),
+      process.platform === "win32" ? "junction" : "dir",
+    );
+
+    await assert.rejects(
+      exportHarnessInitSkill({
+        sourceSkillRoot: SKILL_ROOT,
+        targetRepo: value.repoRoot,
+      }),
+      /symbolic link|junction|reparse point|outside/i,
+    );
+    assert.equal(readFileSync(sentinel, "utf8"), "unchanged\n");
+    assert.equal(existsSync(path.join(outside, "harness-init")), false);
+  } finally {
+    value.cleanup();
+    rmSync(outside, { recursive: true, force: true });
   }
 });

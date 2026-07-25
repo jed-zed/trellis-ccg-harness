@@ -43,17 +43,23 @@ function locate(command, platform, runner) {
 export function resolvePython(options = {}) {
   const platform = options.platform ?? process.platform;
   const runner = options.runner ?? defaultRunner;
-  const candidates =
-    platform === "win32"
-      ? [
-          { command: "py", argsPrefix: ["-3"] },
-          { command: "python", argsPrefix: [] },
-          { command: "python3", argsPrefix: [] },
-        ]
-      : [
-          { command: "python3", argsPrefix: [] },
-          { command: "python", argsPrefix: [] },
-        ];
+  const configuredCommand = String(
+    options.configuredCommand ?? "",
+  ).trim();
+  const defaults = platform === "win32"
+    ? [
+        { command: "py", argsPrefix: ["-3"] },
+        { command: "python", argsPrefix: [] },
+        { command: "python3", argsPrefix: [] },
+      ]
+    : [
+        { command: "python3", argsPrefix: [] },
+        { command: "python", argsPrefix: [] },
+      ];
+  const configured = configuredCommand
+    ? [{ command: configuredCommand, argsPrefix: [] }]
+    : [];
+  const candidates = options.candidates ?? [...configured, ...defaults];
 
   for (const candidate of candidates) {
     const result = runner(candidate.command, [
