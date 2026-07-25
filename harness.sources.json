@@ -3,7 +3,7 @@
   "capturedAt": "2026-07-25T17:54:55.463Z",
   "harness": {
     "repository": "https://github.com/jed-zed/trellis-ccg-harness",
-    "visibility": "private"
+    "visibility": "public"
   },
   "trellis": {
     "package": "@mindfoldhq/trellis",

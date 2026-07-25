@@ -8,6 +8,8 @@ Adopt the recommended layered-adapter architecture without losing the complete p
 
 - Keep `components/ccg-workflow/` byte-identical to the recorded personal CCG Git tree.
 - Add a committed, secret-free Harness adapter contract with explicit ownership, state, model, hook, and provider policies.
+- Keep GitHub visibility `public` as explicitly chosen by the repository owner,
+  and validate that live state against `harness.sources.json`.
 - Treat `.trellis/tasks/<task>/` as the canonical task and plan authority.
 - Treat `.ccg/tasks/` and `.codex/ccg/` as ignored runtime evidence only.
 - Run CCG from the installed CLI/plugin version matching `harness.sources.json`; do not execute source-tree helper scripts as the runtime integration path.
@@ -131,6 +133,20 @@ Adopt the recommended layered-adapter architecture without losing the complete p
   ownership schema v2; a user-edited managed block still fails closed.
 - [x] Direct cross-repository apply, without exporting the Skill first, creates
   the local canonical path named by the generated `AGENTS.md` block.
+- [x] Completed transaction, rollback, and lock directories enter an atomic
+  tombstone state before recursive deletion; interrupted cleanup resumes
+  without requiring partially deleted internal metadata.
+- [x] Project-policy CAS detects POSIX mode, ctime, uid, and gid drift and
+  preserves concurrent permission tightening; unsupported ACL/xattr metadata
+  boundaries are explicit.
+- [x] Existing `project.json` and `project.schema.json` fingerprints are
+  journaled as read-only transaction preconditions and revalidated before
+  replacement, before commit, and during finalization.
+- [x] Policy upgrades are monotonic: older supported versions may upgrade only
+  from intact projections, same-version digest conflicts fail closed, and an
+  initializer never downgrades a newer project policy.
+- [ ] PR #2 description, review threads, verification evidence, and Ready state
+  match the final post-fix Head.
 
 ## Constraints
 
@@ -142,7 +158,7 @@ Adopt the recommended layered-adapter architecture without losing the complete p
 
 ## Out of Scope
 
-- Removing the personal CCG snapshot from the private repository.
+- Removing the personal CCG snapshot from the public repository.
 - Replacing the CCG official Grok CLI/ACP implementation.
 - Mutating unrelated user-level Codex content outside ownership-aware managed
   blocks and manifest entries.

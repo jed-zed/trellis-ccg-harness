@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import {
+  chmodSync,
   cpSync,
   existsSync,
   mkdirSync,
@@ -105,6 +106,36 @@ function transactionResidue(repoRoot) {
   );
 }
 
+function setOwnedPolicyProjection(repoRoot, policy, policyVersion) {
+  const policyBytes = Buffer.from(policy);
+  const block = `${POLICY_START}\n${policy.trim()}\n${POLICY_END}`;
+  const agentsPath = path.join(repoRoot, "AGENTS.md");
+  const currentAgents = readFileSync(agentsPath, "utf8");
+  const start = currentAgents.indexOf(POLICY_START);
+  const end = currentAgents.indexOf(POLICY_END, start);
+  assert.notEqual(start, -1);
+  assert.notEqual(end, -1);
+  writeFileSync(
+    agentsPath,
+    `${currentAgents.slice(0, start)}${block}${currentAgents.slice(end + POLICY_END.length)}`,
+  );
+  writeFileSync(path.join(repoRoot, PROJECT_POLICY_PATH), policyBytes);
+
+  const ownershipPath = path.join(
+    repoRoot,
+    ".harness",
+    "ownership.json",
+  );
+  const ownership = JSON.parse(readFileSync(ownershipPath, "utf8"));
+  const renderedBlockSha256 = sha256(block);
+  ownership.policy.policyVersion = policyVersion;
+  ownership.policy.sourceSha256 = sha256(policyBytes);
+  ownership.policy.renderedBlockSha256 = renderedBlockSha256;
+  ownership.managedBlocks[0].renderedBlockSha256 =
+    renderedBlockSha256;
+  writeFileSync(ownershipPath, canonicalJson(ownership));
+}
+
 async function waitForFile(filePath, child) {
   const deadline = Date.now() + 10_000;
   while (!existsSync(filePath)) {
@@ -117,6 +148,50 @@ async function waitForFile(filePath, child) {
     }
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
+}
+
+async function hardKillApplyAtPhase({
+  repoRoot,
+  contractPath,
+  phase,
+  rollback = false,
+}) {
+  const marker = path.join(
+    repoRoot,
+    `hard-kill-${phase.replaceAll(/[^a-z0-9]+/gi, "-")}`,
+  );
+  const source = `
+    const api = await import(${JSON.stringify(CORE_MODULE)});
+    await api.applyProjectContract({
+      repoRoot: ${JSON.stringify(repoRoot)},
+      contractPath: ${JSON.stringify(contractPath)},
+      skillRoot: ${JSON.stringify(SKILL_ROOT)},
+      faultInjector: async (currentPhase) => {
+        if (
+          ${JSON.stringify(rollback)} &&
+          currentPhase === "after-target:AGENTS.md"
+        ) {
+          throw new Error("force rollback before cleanup");
+        }
+        if (currentPhase === ${JSON.stringify(phase)}) {
+          await (await import("node:fs/promises")).writeFile(
+            ${JSON.stringify(marker)},
+            "ready\\n",
+          );
+          setInterval(() => {}, 1000);
+          await new Promise(() => {});
+        }
+      },
+    });
+  `;
+  const child = spawn(
+    process.execPath,
+    ["--input-type=module", "-e", source],
+    { stdio: ["ignore", "pipe", "pipe"] },
+  );
+  await waitForFile(marker, child);
+  child.kill("SIGKILL");
+  await once(child, "exit");
 }
 
 function skillFixture(policy) {
@@ -240,7 +315,7 @@ test("approved contracts atomically create the owned Harness contract", async ()
       },
     ]);
     assert.deepEqual(ownership.policy, {
-      policyVersion: 1,
+      policyVersion: 2,
       markerFormatVersion: 1,
       sourcePath: ".harness/policies/collaboration-policy.md",
       sourceSha256: sha256(readFileSync(POLICY_PATH)),
@@ -327,6 +402,7 @@ test("every project-policy commit phase rolls back and cleans residue", async (t
     "after-target:.harness/project.schema.json",
     "after-target:.harness/ownership.json",
     "before-commit-marker",
+    "after-commit-marker",
   ]) {
     await t.test(phase, async () => {
       const value = fixture();
@@ -405,6 +481,128 @@ test("a hard-killed apply is recovered before the next apply", async () => {
   }
 });
 
+test("hard kills during terminal cleanup leave only recoverable tombstones", async (t) => {
+  for (const scenario of [
+    {
+      name: "committed transaction cleanup",
+      phase: "after-commit-terminalize",
+      rollback: false,
+      expectedStatus: "unchanged",
+    },
+    {
+      name: "rolled-back transaction cleanup",
+      phase: "after-rollback-terminalize",
+      rollback: true,
+      expectedStatus: "applied",
+    },
+    {
+      name: "lock release cleanup",
+      phase: "after-lock-terminalize",
+      rollback: false,
+      expectedStatus: "unchanged",
+    },
+  ]) {
+    await t.test(scenario.name, async () => {
+      const value = fixture();
+      try {
+        const agentsPath = path.join(value.repoRoot, "AGENTS.md");
+        writeFileSync(agentsPath, "user rules\n");
+        const contractPath = writeContract(
+          value.repoRoot,
+          approvedContract(),
+        );
+        await hardKillApplyAtPhase({
+          repoRoot: value.repoRoot,
+          contractPath,
+          phase: scenario.phase,
+          rollback: scenario.rollback,
+        });
+
+        assert.match(
+          transactionResidue(value.repoRoot).join("\n"),
+          /\.harness-init-gc-/,
+        );
+        const result = await applyProjectContract({
+          repoRoot: value.repoRoot,
+          contractPath,
+          skillRoot: SKILL_ROOT,
+        });
+        assert.equal(result.status, scenario.expectedStatus);
+        assert.match(readFileSync(agentsPath, "utf8"), /user rules/);
+        assert.match(
+          readFileSync(agentsPath, "utf8"),
+          /HARNESS-COLLABORATION/,
+        );
+        assert.deepEqual(transactionResidue(value.repoRoot), []);
+      } finally {
+        value.cleanup();
+      }
+    });
+  }
+});
+
+test("partial terminal-cleanup tombstones are removed without ownership metadata", async () => {
+  const value = fixture();
+  try {
+    const contractPath = writeContract(value.repoRoot, approvedContract());
+    for (const name of [
+      ".harness-init-gc-transaction-11111111-1111-4111-8111-111111111111",
+      ".harness-init-gc-lock-22222222-2222-4222-8222-222222222222",
+      ".harness-init-gc-candidate-33333333-3333-4333-8333-333333333333",
+    ]) {
+      const directory = path.join(value.repoRoot, name);
+      mkdirSync(directory);
+      writeFileSync(path.join(directory, "partial"), "interrupted\n");
+    }
+
+    const result = await applyProjectContract({
+      repoRoot: value.repoRoot,
+      contractPath,
+      skillRoot: SKILL_ROOT,
+    });
+    assert.equal(result.status, "applied");
+    assert.deepEqual(transactionResidue(value.repoRoot), []);
+  } finally {
+    value.cleanup();
+  }
+});
+
+test(
+  "AGENTS permission drift aborts compare-and-swap without changing content or mode",
+  { skip: process.platform === "win32" },
+  async () => {
+    const value = fixture();
+    try {
+      const agentsPath = path.join(value.repoRoot, "AGENTS.md");
+      writeFileSync(agentsPath, "user rules\n", { mode: 0o644 });
+      const contractPath = writeContract(
+        value.repoRoot,
+        approvedContract(),
+      );
+
+      await assert.rejects(
+        applyProjectContract({
+          repoRoot: value.repoRoot,
+          contractPath,
+          skillRoot: SKILL_ROOT,
+          faultInjector: async (phase) => {
+            if (phase === "before-target:AGENTS.md") {
+              chmodSync(agentsPath, 0o600);
+            }
+          },
+        }),
+        /drift|changed|compare|AGENTS/i,
+      );
+      assert.equal(readFileSync(agentsPath, "utf8"), "user rules\n");
+      assert.equal(statSync(agentsPath).mode & 0o777, 0o600);
+      assert.equal(existsSync(path.join(value.repoRoot, ".harness")), false);
+      assert.deepEqual(transactionResidue(value.repoRoot), []);
+    } finally {
+      value.cleanup();
+    }
+  },
+);
+
 test("the project initializer lock rejects a concurrent apply", async () => {
   const value = fixture();
   let releaseFirst;
@@ -444,6 +642,63 @@ test("the project initializer lock rejects a concurrent apply", async () => {
   } finally {
     releaseFirst?.();
     value.cleanup();
+  }
+});
+
+test("existing project and schema are transaction preconditions", async (t) => {
+  for (const scenario of [
+    {
+      name: "project contract",
+      relativePath: path.join(".harness", "project.json"),
+    },
+    {
+      name: "project schema",
+      relativePath: path.join(".harness", "project.schema.json"),
+    },
+  ]) {
+    await t.test(scenario.name, async () => {
+      const value = fixture();
+      try {
+        const contractPath = writeContract(
+          value.repoRoot,
+          approvedContract(),
+        );
+        await applyProjectContract({
+          repoRoot: value.repoRoot,
+          contractPath,
+          skillRoot: SKILL_ROOT,
+        });
+        const oldPolicy = readFileSync(POLICY_PATH, "utf8").replace(
+          "# Harness Collaboration Policy",
+          "# Harness Collaboration Policy v1",
+        );
+        setOwnedPolicyProjection(value.repoRoot, oldPolicy, 1);
+        const target = path.join(value.repoRoot, scenario.relativePath);
+        const concurrentBytes = `${readFileSync(target, "utf8")}\n`;
+
+        await assert.rejects(
+          applyProjectContract({
+            repoRoot: value.repoRoot,
+            contractPath,
+            skillRoot: SKILL_ROOT,
+            faultInjector: async (phase) => {
+              if (phase === "after-journal") {
+                writeFileSync(target, concurrentBytes);
+              }
+            },
+          }),
+          /precondition|drift|changed|project|schema/i,
+        );
+        assert.equal(readFileSync(target, "utf8"), concurrentBytes);
+        assert.match(
+          readFileSync(path.join(value.repoRoot, "AGENTS.md"), "utf8"),
+          /Collaboration Policy v1/,
+        );
+        assert.deepEqual(transactionResidue(value.repoRoot), []);
+      } finally {
+        value.cleanup();
+      }
+    });
   }
 });
 
@@ -630,14 +885,14 @@ test("an untouched older policy projection upgrades to the current asset", async
     "# Harness Collaboration Policy",
     "# Harness Collaboration Policy v1",
   );
-  const oldSkill = skillFixture(oldPolicy);
   try {
     const contractPath = writeContract(value.repoRoot, approvedContract());
     await applyProjectContract({
       repoRoot: value.repoRoot,
       contractPath,
-      skillRoot: oldSkill.skillRoot,
+      skillRoot: SKILL_ROOT,
     });
+    setOwnedPolicyProjection(value.repoRoot, oldPolicy, 1);
     const result = await applyProjectContract({
       repoRoot: value.repoRoot,
       contractPath,
@@ -652,7 +907,115 @@ test("an untouched older policy projection upgrades to the current asset", async
       readFileSync(POLICY_PATH, "utf8"),
     );
   } finally {
-    oldSkill.cleanup();
+    value.cleanup();
+  }
+});
+
+test("a future policy projection is never downgraded by an older initializer", async () => {
+  const value = fixture();
+  try {
+    const contractPath = writeContract(value.repoRoot, approvedContract());
+    await applyProjectContract({
+      repoRoot: value.repoRoot,
+      contractPath,
+      skillRoot: SKILL_ROOT,
+    });
+    const ownershipPath = path.join(
+      value.repoRoot,
+      ".harness",
+      "ownership.json",
+    );
+    const ownership = JSON.parse(readFileSync(ownershipPath, "utf8"));
+    ownership.policy.policyVersion = 999;
+    writeFileSync(ownershipPath, canonicalJson(ownership));
+    const before = {
+      agents: readFileSync(path.join(value.repoRoot, "AGENTS.md"), "utf8"),
+      policy: readFileSync(
+        path.join(value.repoRoot, PROJECT_POLICY_PATH),
+        "utf8",
+      ),
+      ownership: readFileSync(ownershipPath, "utf8"),
+    };
+
+    await assert.rejects(
+      applyProjectContract({
+        repoRoot: value.repoRoot,
+        contractPath,
+        skillRoot: SKILL_ROOT,
+      }),
+      /newer|future|downgrade|policy version/i,
+    );
+    assert.equal(
+      readFileSync(path.join(value.repoRoot, "AGENTS.md"), "utf8"),
+      before.agents,
+    );
+    assert.equal(
+      readFileSync(
+        path.join(value.repoRoot, PROJECT_POLICY_PATH),
+        "utf8",
+      ),
+      before.policy,
+    );
+    assert.equal(readFileSync(ownershipPath, "utf8"), before.ownership);
+    assert.deepEqual(transactionResidue(value.repoRoot), []);
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("policy content cannot change without a policy version bump", async () => {
+  const value = fixture();
+  try {
+    const contractPath = writeContract(value.repoRoot, approvedContract());
+    await applyProjectContract({
+      repoRoot: value.repoRoot,
+      contractPath,
+      skillRoot: SKILL_ROOT,
+    });
+    const differentPolicy = readFileSync(POLICY_PATH, "utf8").replace(
+      "# Harness Collaboration Policy",
+      "# Harness Collaboration Policy without version bump",
+    );
+    setOwnedPolicyProjection(value.repoRoot, differentPolicy, 2);
+    const before = {
+      agents: readFileSync(path.join(value.repoRoot, "AGENTS.md"), "utf8"),
+      policy: readFileSync(
+        path.join(value.repoRoot, PROJECT_POLICY_PATH),
+        "utf8",
+      ),
+      ownership: readFileSync(
+        path.join(value.repoRoot, ".harness", "ownership.json"),
+        "utf8",
+      ),
+    };
+
+    await assert.rejects(
+      applyProjectContract({
+        repoRoot: value.repoRoot,
+        contractPath,
+        skillRoot: SKILL_ROOT,
+      }),
+      /content differs|bump the policy version/i,
+    );
+    assert.equal(
+      readFileSync(path.join(value.repoRoot, "AGENTS.md"), "utf8"),
+      before.agents,
+    );
+    assert.equal(
+      readFileSync(
+        path.join(value.repoRoot, PROJECT_POLICY_PATH),
+        "utf8",
+      ),
+      before.policy,
+    );
+    assert.equal(
+      readFileSync(
+        path.join(value.repoRoot, ".harness", "ownership.json"),
+        "utf8",
+      ),
+      before.ownership,
+    );
+  } finally {
     value.cleanup();
   }
 });

@@ -35,13 +35,23 @@ state under `.ccg/` and `.codex/ccg/` is evidence only and must remain ignored.
   source and rendered digests in schema-v2 `.harness/ownership.json`.
 - Missing `AGENTS.md` is created. Malformed, duplicate, conflicting, missing,
   or user-modified managed blocks fail closed instead of being overwritten.
-- The apply transaction uses an owned project lock, original digest and file
-  identity, a pending journal, verified backups, final CAS checks, and
-  ownership-last commit order. A later run rolls back an interrupted pending
-  transaction or finalizes a verified committed one.
+- The apply transaction uses an owned project lock, original digest, identity,
+  permission mode, a pending journal, verified backups, read-only
+  contract/schema preconditions, final CAS checks, and ownership-last commit
+  order. It rechecks preconditions before installation, before commit, and
+  during committed finalization.
+- Completed transactions and released locks are atomically renamed to a strict
+  `.harness-init-gc-*` tombstone namespace before recursive removal. A later
+  run may delete a structurally valid tombstone without relying on partially
+  deleted internal metadata, rolls back an interrupted pending transaction,
+  or finalizes a verified committed one.
 - PR #1 ownership without `managedBlocks` migrates only when no collaboration
-  markers exist. A policy revision upgrades only when the current block still
-  matches the previously recorded rendered digest.
+  markers exist. A lower policy revision upgrades only when the current block
+  and pinned source match their recorded digests; a newer version is never
+  downgraded, and same-version content drift fails closed.
+- Portable CAS identity includes POSIX mode, change time, UID, and GID where
+  the platform exposes them. ACLs, extended attributes, and Windows security
+  descriptors require separate platform-specific verification.
 - The policy's authority order resolves Trellis/CCG/Ponytail/Caveman overlap,
   and its search router selects `rg`, CodeGraph, or fast-context by question
   type without creating a CodeGraph index.

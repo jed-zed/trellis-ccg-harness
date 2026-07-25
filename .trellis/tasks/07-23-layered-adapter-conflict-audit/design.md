@@ -200,12 +200,30 @@ owner triggers deterministic cleanup: committed transactions are verified and
 finalized; pending transactions restore verified backups in reverse order.
 Unexpected target bytes are preserved and reported instead of being deleted.
 
+Successful commit, completed rollback, and lock release never recursively
+delete an active directory in place. They first atomically rename it to a
+strict UUID-bearing Harness GC tombstone; recursive deletion is then
+idempotent, and the next initializer removes partial tombstones without
+depending on files inside them. Candidate, transaction, and lock namespaces
+remain distinct so recovery cannot reinterpret a tombstone as active state.
+
+File fingerprints bind content plus POSIX mode, ctime, uid, and gid in addition
+to inode/device/size/timestamps. Existing project contracts and installed
+schemas are journaled as read-only preconditions during policy migration and
+upgrade. Preconditions are checked while preparing the journal, before the
+first replacement, before the commit marker, and again before committed
+finalization; drift rolls back changed targets while preserving the concurrent
+file. ACLs, extended attributes, and Windows security descriptors are outside
+the portable projection guarantee and are documented as unsupported metadata.
+
 Ownership schema v2 records the project policy version, marker format version,
 the pinned source path and SHA-256, and the rendered block SHA-256. Migration
 accepts PR #1 ownership only when it is Harness-owned, the contract matches,
 and no collaboration marker exists. Later policy upgrades are allowed only
 when the current block still matches the digest recorded by the previous
-ownership manifest. Any mismatch remains a user-edit conflict.
+ownership manifest. Policy versions are monotonic: a lower intact version may
+upgrade, an equal-version digest conflict is rejected, and a version newer than
+the initializer is never downgraded. Any mismatch remains a user-edit conflict.
 
 The distribution asset remains the upstream policy source. Every initialized
 project receives an owned pinned copy at

@@ -152,7 +152,26 @@ security reference files.
 - [x] Reuse the shared Python resolver for adapter task context.
 - [x] Validate exact contract ownership and schema identity on repeat apply.
 - [x] Recheck Windows MCP secret ACLs at launch and terminate child trees.
-- [x] Run final Harness/CCG gates, source verification, doctor, and CI.
+- [ ] Run final Harness/CCG gates, source verification, doctor, and CI.
+
+### Final review repair: terminal cleanup and monotonic policy state
+
+- [x] Add failing hard-kill tests for commit finalization, completed rollback
+  cleanup, and lock release after atomic tombstoning; add partial-tombstone
+  recovery coverage.
+- [x] Replace in-place recursive deletion of active transaction/lock state with
+  strict atomic GC tombstones and idempotent startup cleanup.
+- [x] Add a POSIX chmod race regression, then bind mode, ctime, uid, and gid in
+  discovery/CAS comparisons without weakening content preservation.
+- [x] Journal existing project and schema fingerprints as read-only
+  preconditions; revalidate at prepare, pre-install, pre-commit, and committed
+  finalization, rolling back targets on drift.
+- [x] Make policy version direction authoritative: migrate intact older
+  versions, reject same-version content conflicts, and reject future-version
+  downgrade attempts without mutation.
+- [ ] Update initializer documentation and PR #2 description, rerun focused and
+  full Trellis/CCG gates plus CI, reply to and resolve the GitHub review
+  threads, then return the PR to Ready.
 
 - The ordered collaboration policy is canonical in
   `.agents/skills/harness-init/assets/collaboration-policy.md`; root and newly
@@ -212,3 +231,20 @@ security reference files.
 - The automatic external-intelligence pre-route was intentionally skipped:
   the accepted Trellis task forbids Grok for this work, while the local route
   is enabled and could invoke it. All CCG verification ran locally.
+- Final-review local repair passed 43 focused initializer tests on Windows
+  (42 passed and the POSIX-only `chmod 0600` case skipped), plus the complete
+  Harness suite with 135 tests (134 passed, the same POSIX case skipped).
+- CCG lint, typecheck, build, and 453 tests across 30 files passed. Native Go
+  `go test -short ./...` and `go build` passed.
+- CCG change analysis passed. Structural quality passed with 0 errors and 39
+  non-blocking complexity warnings; the added transaction/version validation
+  branches were retained instead of weakening the reviewed safety gates.
+  Security scans for both `harness-init` and `scripts/` reported zero findings.
+- Source verification, task-bound context, doctor, and conflict audit passed;
+  the audit reports 0 blocking, 0 warning, 3 informational findings, and 15
+  passed checks. Trellis 0.6.9 has no `trellis check` command, so the
+  repository's context, doctor, tests, and source gates provide the supported
+  equivalent validation.
+- Repository visibility is now declared as `public` in
+  `harness.sources.json` and checked against live GitHub state by doctor,
+  matching the repository owner's explicit decision.
