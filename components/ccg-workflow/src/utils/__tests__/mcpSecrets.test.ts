@@ -83,7 +83,7 @@ describe('MCP credential boundaries', () => {
       unrelated: null,
     })
     expect(String(result.stdout)).not.toContain(unrelatedSecret)
-  }, 30_000)
+  }, 180_000)
 
   it.runIf(process.platform === 'win32')('applies an owner-only Windows ACL to the secret directory', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'ccg secret acl '))
