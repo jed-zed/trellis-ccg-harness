@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import {
   mkdirSync,
   mkdtempSync,
-  realpathSync,
   rmSync,
+  statSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -30,6 +30,14 @@ import {
 } from "../scripts/lib/harness-lifecycle.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+
+function filesystemEntryIdentity(target) {
+  const details = statSync(target, { bigint: true });
+  return {
+    dev: String(details.dev),
+    ino: String(details.ino),
+  };
+}
 
 function packageSnapshot(overrides = {}) {
   return {
@@ -344,9 +352,10 @@ test("global package identity resolves the real npm entry target with spaces", a
       "ccg-workflow",
     );
     assert.equal(observed.version, "3.3.0");
-    assert.equal(
-      path.resolve(observed.sourcePath),
-      realpathSync(path.join(globalRoot, "ccg-workflow")),
+    assert.equal(path.isAbsolute(observed.sourcePath), true);
+    assert.deepEqual(
+      filesystemEntryIdentity(observed.sourcePath),
+      filesystemEntryIdentity(source),
     );
     assert.match(observed.packageJsonSha256, /^[a-f0-9]{64}$/);
   } finally {
@@ -396,9 +405,10 @@ test("an isolated npm prefix keeps a local global link and CLI working with spac
       globalRoot,
       "ccg-workflow",
     );
-    assert.equal(
-      path.resolve(observed.sourcePath),
-      realpathSync(path.join(globalRoot, "ccg-workflow")),
+    assert.equal(path.isAbsolute(observed.sourcePath), true);
+    assert.deepEqual(
+      filesystemEntryIdentity(observed.sourcePath),
+      filesystemEntryIdentity(source),
     );
 
     const command =
