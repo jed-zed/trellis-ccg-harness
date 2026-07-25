@@ -145,7 +145,11 @@ Adopt the recommended layered-adapter architecture without losing the complete p
 - [x] Policy upgrades are monotonic: older supported versions may upgrade only
   from intact projections, same-version digest conflicts fail closed, and an
   initializer never downgrades a newer project policy.
-- [x] PR #2 description, review threads, verification evidence, and Ready state
+- [x] Repository-authored transaction residue cannot authenticate as Harness
+  recovery state and is rejected before project files are replayed.
+- [x] Lock and transaction owners bind PID to a process-instance identity so a
+  reused live PID does not block hard-interruption recovery.
+- [ ] PR #2 description, review threads, verification evidence, and Ready state
   match the final post-fix Head.
 
 ## Constraints

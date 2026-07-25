@@ -214,13 +214,19 @@ After approval:
    Ownership is committed last. Existing Trellis, Harness, and user content
    outside that block is preserved.
 
-   A later apply recovers a dead initializer deterministically: active
-   transaction or lock directories are atomically renamed to dedicated
-   cleanup tombstones before recursive removal, so partially deleted internal
-   metadata is never needed for recovery. An uncommitted journal restores
-   verified backups, while a committed journal is finalized only when every
-   installed target and read-only precondition still matches. PR #1 ownership
-   without block metadata migrates only when no collaboration marker exists.
+	   A later apply recovers a dead initializer deterministically: active
+	   transaction or lock directories are atomically renamed to dedicated
+	   cleanup tombstones before recursive removal, so partially deleted internal
+	   metadata is never needed for recovery. An uncommitted journal restores
+	   verified backups, while a committed journal is finalized only when every
+	   installed target and read-only precondition still matches. Transaction
+	   owners, journals, and commit markers carry authenticated provenance derived
+	   from the user-scoped key at
+	   `~/.harness-init/project-transaction.key`; residue without valid provenance
+	   is preserved for manual review and must never be replayed against project
+	   files. Owner records bind both PID and process-instance identity, so a
+	   reused PID does not keep dead initializer state locked. PR #1 ownership
+	   without block metadata migrates only when no collaboration marker exists.
    A lower policy version upgrades only when the current block and pinned
    source still match their previous ownership digests. A newer version is
    never downgraded, and content changes at the current version require an
@@ -228,8 +234,8 @@ After approval:
 
    Portable metadata protection covers the content digest, file identity,
    POSIX permission mode, change time, owner UID, and group GID exposed by
-   Node's filesystem APIs. ACLs, extended attributes, and Windows security
-   descriptors are outside this portable transaction guarantee; repositories
+	   Node's filesystem APIs. ACLs, extended attributes, and Windows security
+	   descriptors are outside this portable transaction guarantee; repositories
    that depend on them must verify and restore them with platform-specific
    tooling.
 4. Re-read the saved catalog, ensure it still matches the approved selection,

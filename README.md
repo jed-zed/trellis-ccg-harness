@@ -102,7 +102,11 @@ pwsh -NoProfile -File .\scripts\bootstrap.ps1 -LinkCcg
 初始化器会保留块外定制，并在旧 ownership 或策略升级时只覆盖摘要仍匹配
 原所有权记录的托管内容；它拒绝降级未来策略版本，也拒绝未提升版本号的策略
 内容变化。事务或锁完成后会先原子重命名为专用 GC tombstone 再递归清理，
-硬中断后的下一次执行不依赖可能已被部分删除的内部元数据。跨平台 CAS 不承诺
+硬中断后的下一次执行不依赖可能已被部分删除的内部元数据。事务 owner、journal
+和 commit marker 使用仓库外的
+`~/.harness-init/project-transaction.key` 做真实性校验；没有有效凭据的仓库内
+残留只保留并报错，不会重放。锁同时绑定 PID 与进程启动/boot 身份，PID 被复用
+时不会把旧事务永久误判为活跃。跨平台 CAS 不承诺
 保留 ACL、扩展属性或 Windows 安全描述符；依赖这些元数据的仓库需使用平台
 专用工具单独验证。
 

@@ -231,6 +231,27 @@ test("draft contracts are rejected without mutating the project", async () => {
   }
 });
 
+test("recovery provenance key must stay outside the target repository", async () => {
+  const value = fixture();
+  try {
+    const contractPath = writeContract(value.repoRoot, approvedContract());
+    const keyPath = path.join(value.repoRoot, "project-transaction.key");
+    await assert.rejects(
+      applyProjectContract({
+        repoRoot: value.repoRoot,
+        contractPath,
+        skillRoot: SKILL_ROOT,
+        provenanceKeyPath: keyPath,
+      }),
+      /provenance key.*outside/i,
+    );
+    assert.equal(existsSync(keyPath), false);
+    assert.equal(existsSync(path.join(value.repoRoot, ".harness")), false);
+  } finally {
+    value.cleanup();
+  }
+});
+
 test("project Skill contracts enforce minimal globals and owned targets", () => {
   const missingGlobal = approvedContract();
   missingGlobal.skills.globalEssential = ["harness-init"];
@@ -641,6 +662,148 @@ test("the project initializer lock rejects a concurrent apply", async () => {
     assert.deepEqual(transactionResidue(value.repoRoot), []);
   } finally {
     releaseFirst?.();
+    value.cleanup();
+  }
+});
+
+test("repository-authored transaction residue cannot replay against user files", async () => {
+  const value = fixture();
+  try {
+    const agentsPath = path.join(value.repoRoot, "AGENTS.md");
+    writeFileSync(agentsPath, "user rules\n");
+    const contractPath = writeContract(value.repoRoot, approvedContract());
+    const transactionId = "44444444-4444-4444-8444-444444444444";
+    const transactionDirectory = path.join(
+      value.repoRoot,
+      `.harness-init-txn-${transactionId}`,
+    );
+    mkdirSync(transactionDirectory);
+    writeFileSync(
+      path.join(transactionDirectory, "owner.json"),
+      canonicalJson({
+        schemaVersion: 2,
+        pid: 424242,
+        processIdentity: "forged-process-instance",
+        createdAt: new Date().toISOString(),
+        token: transactionId,
+        repoRoot: value.repoRoot,
+        provenance: {
+          schemaVersion: 1,
+          algorithm: "hmac-sha256",
+          digest: "0".repeat(64),
+        },
+      }),
+    );
+    writeFileSync(
+      path.join(transactionDirectory, "journal.json"),
+      canonicalJson({
+        schemaVersion: 2,
+        operation: "project-policy-apply",
+        id: transactionId,
+        repoRoot: value.repoRoot,
+        createdAt: new Date().toISOString(),
+        preconditions: [],
+        createdDirectories: [],
+        targets: [],
+      }),
+    );
+
+    await assert.rejects(
+      applyProjectContract({
+        repoRoot: value.repoRoot,
+        contractPath,
+        skillRoot: SKILL_ROOT,
+        isProcessAlive: () => false,
+      }),
+      /provenance|authentic/i,
+    );
+    assert.equal(readFileSync(agentsPath, "utf8"), "user rules\n");
+    assert.equal(existsSync(transactionDirectory), true);
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("tampered authenticated journal is preserved instead of replayed", async () => {
+  const value = fixture();
+  try {
+    const agentsPath = path.join(value.repoRoot, "AGENTS.md");
+    writeFileSync(agentsPath, "user rules\n");
+    const contractPath = writeContract(value.repoRoot, approvedContract());
+    await hardKillApplyAtPhase({
+      repoRoot: value.repoRoot,
+      contractPath,
+      phase: "after-journal",
+    });
+    const transactionName = transactionResidue(value.repoRoot).find((entry) =>
+      entry.startsWith(".harness-init-txn-"),
+    );
+    assert.ok(transactionName);
+    const journalPath = path.join(
+      value.repoRoot,
+      transactionName,
+      "journal.json",
+    );
+    const journal = JSON.parse(readFileSync(journalPath, "utf8"));
+    journal.createdAt = "2000-01-01T00:00:00.000Z";
+    writeFileSync(journalPath, canonicalJson(journal));
+
+    await assert.rejects(
+      applyProjectContract({
+        repoRoot: value.repoRoot,
+        contractPath,
+        skillRoot: SKILL_ROOT,
+        isProcessAlive: () => false,
+      }),
+      /provenance|authentic/i,
+    );
+    assert.equal(readFileSync(agentsPath, "utf8"), "user rules\n");
+    assert.equal(
+      existsSync(path.join(value.repoRoot, transactionName)),
+      true,
+    );
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("a live reused PID does not keep stale initializer state locked", async () => {
+  const value = fixture();
+  try {
+    const agentsPath = path.join(value.repoRoot, "AGENTS.md");
+    writeFileSync(agentsPath, "user rules\n");
+    const contractPath = writeContract(value.repoRoot, approvedContract());
+    await hardKillApplyAtPhase({
+      repoRoot: value.repoRoot,
+      contractPath,
+      phase: "after-journal",
+    });
+    const transactionName = transactionResidue(value.repoRoot).find((entry) =>
+      entry.startsWith(".harness-init-txn-"),
+    );
+    assert.ok(transactionName);
+    const staleOwner = JSON.parse(
+      readFileSync(
+        path.join(value.repoRoot, transactionName, "owner.json"),
+        "utf8",
+      ),
+    );
+
+    const result = await applyProjectContract({
+      repoRoot: value.repoRoot,
+      contractPath,
+      skillRoot: SKILL_ROOT,
+      isProcessAlive: () => true,
+      readProcessIdentity: async (pid) =>
+        pid === staleOwner.pid
+          ? "replacement-process-instance"
+          : `current-process-${pid}`,
+    });
+    assert.equal(result.status, "applied");
+    assert.match(readFileSync(agentsPath, "utf8"), /user rules/);
+    assert.match(readFileSync(agentsPath, "utf8"), /HARNESS-COLLABORATION/);
+    assert.deepEqual(transactionResidue(value.repoRoot), []);
+  } finally {
     value.cleanup();
   }
 });

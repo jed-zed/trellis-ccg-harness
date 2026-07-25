@@ -78,6 +78,17 @@ Trellis task. Codex owns the final plan, edits, tests, and review.
   check, CCG change/quality/security gates, doctor, conflict audit, source
   verification, and CI before requesting another review.
 
+## PR #2 final-review repair: authenticated recovery ownership
+
+- [x] Add red regressions proving repository-authored transaction residue cannot
+  replay against user files and a reused live PID cannot pin dead state.
+- [x] Authenticate transaction owners, journals, and commit markers with an
+  user-scoped key outside the target repository.
+- [x] Bind owner liveness to PID plus process-instance identity on Linux,
+  Windows, and macOS, with conservative fallback on unsupported platforms.
+- [ ] Rerun the full Harness and CCG quality/security gates, push the final Head,
+  resolve the new review threads, and wait for all CI jobs.
+
 ## Verification
 
 ```powershell
@@ -252,6 +263,14 @@ security reference files.
   `80a7ece`: Node 20/22 on Linux and Windows, Go on Linux/Windows/macOS, and
   bootstrap/doctor on Linux/Windows/macOS. The Linux jobs executed the POSIX
   permission-race regression; both Windows jobs passed the ACL-safe CCG suite.
-- PR #2 now targets `main`, has an updated non-stacked description, is Ready
-  for review, and both review threads have a commit-linked reply and resolved
-  state.
+- PR #2 targets `main` and is Ready. The two review threads addressed by
+  `80a7ece` are resolved; a later review on `9a8e47f` added one P1 about
+  unauthenticated repository-authored recovery residue and one P2 about PID
+  reuse, so the PR remains non-mergeable until this follow-up is pushed and
+  reviewed.
+- The follow-up local suite passes 139 Harness tests (138 passed, the
+  Windows-hosted POSIX chmod case skipped), CCG lint/typecheck/build and
+  453/453 tests, Go short tests/build, change analysis, and security scan with
+  zero findings. Structural quality passes with 0 errors and 41 non-blocking
+  complexity warnings; doctor, task context, source verification, and conflict
+  audit also pass with 0 blocking and 0 warnings.

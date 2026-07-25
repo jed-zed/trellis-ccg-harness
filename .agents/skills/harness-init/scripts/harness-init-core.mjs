@@ -1,4 +1,11 @@
-import { createHash, randomUUID } from "node:crypto";
+import {
+  createHash,
+  createHmac,
+  randomBytes,
+  randomUUID,
+  timingSafeEqual,
+} from "node:crypto";
+import { execFile as execFileCallback } from "node:child_process";
 import {
   chmod,
   cp,
@@ -18,6 +25,7 @@ import { homedir } from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 
 const CONTRACT_STATUSES = new Set(["draft", "approved", "ready"]);
 const MANIFEST_CANDIDATES = [
@@ -65,6 +73,15 @@ const PROJECT_LOCK_CANDIDATE_PREFIX = ".harness-init-lock-";
 const PROJECT_GC_PREFIX = ".harness-init-gc-";
 const PROJECT_GC_PATTERN =
   /^\.harness-init-gc-(?:transaction|lock|candidate)-[a-f0-9-]{36}$/i;
+const PROJECT_PROVENANCE_SCHEMA_VERSION = 1;
+const PROJECT_OWNER_SCHEMA_VERSION = 2;
+const PROJECT_JOURNAL_SCHEMA_VERSION = 3;
+const PROJECT_COMMIT_MARKER_SCHEMA_VERSION = 2;
+const CURRENT_PROCESS_FALLBACK_IDENTITY =
+  `fallback:${process.platform}:${process.pid}:` +
+  `${Math.round((Date.now() - process.uptime() * 1000) / 100)}`;
+const execFile = promisify(execFileCallback);
+let currentProcessIdentityPromise;
 const LEGACY_AGENTS_STAGE_PATTERN =
   /^\.AGENTS\.md\.harness-init-[a-f0-9-]{36}$/i;
 const PROJECT_TRANSACTION_TARGETS = new Set([
@@ -1536,6 +1553,103 @@ async function assertFingerprintUnchanged(target, expected, label) {
   return current;
 }
 
+function assertOutside(root, target, label) {
+  const relative = path.relative(path.resolve(root), path.resolve(target));
+  if (
+    !relative ||
+    (!relative.startsWith("..") && !path.isAbsolute(relative))
+  ) {
+    throw new Error(`${label} must stay outside the target repository.`);
+  }
+}
+
+async function loadProjectProvenanceKey(root, configuredPath) {
+  const keyPath = path.resolve(
+    configuredPath ??
+      process.env.HARNESS_INIT_PROVENANCE_KEY_PATH ??
+      path.join(homedir(), ".harness-init", "project-transaction.key"),
+  );
+  assertOutside(root, keyPath, "Harness recovery provenance key");
+  const parent = path.dirname(keyPath);
+  await mkdir(parent, { recursive: true, mode: 0o700 });
+  const parentDetails = await lstat(parent);
+  if (parentDetails.isSymbolicLink() || !parentDetails.isDirectory()) {
+    throw new Error(
+      `Harness recovery provenance directory is unsafe: ${parent}`,
+    );
+  }
+  if (
+    process.platform !== "win32" &&
+    (parentDetails.mode & 0o077) !== 0
+  ) {
+    throw new Error(
+      "Harness recovery provenance directory must not be accessible by group or other users.",
+    );
+  }
+  try {
+    await writeFile(keyPath, randomBytes(32).toString("hex"), {
+      flag: "wx",
+      mode: 0o600,
+    });
+  } catch (error) {
+    if (error?.code !== "EEXIST") throw error;
+  }
+  await assertSafeRegularFile(keyPath, "Harness recovery provenance key");
+  const details = await lstat(keyPath);
+  if (process.platform !== "win32" && (details.mode & 0o077) !== 0) {
+    throw new Error(
+      "Harness recovery provenance key must not be accessible by group or other users.",
+    );
+  }
+  const encoded = (await readFile(keyPath, "utf8")).trim();
+  if (!/^[a-f0-9]{64}$/i.test(encoded)) {
+    throw new Error("Harness recovery provenance key is invalid.");
+  }
+  return Buffer.from(encoded, "hex");
+}
+
+function provenanceDigest(key, domain, payload) {
+  return createHmac("sha256", key)
+    .update(`harness-init:${domain}\n`)
+    .update(canonicalJson(payload))
+    .digest("hex");
+}
+
+function authenticateProjectRecord(key, domain, payload) {
+  return {
+    ...payload,
+    provenance: {
+      schemaVersion: PROJECT_PROVENANCE_SCHEMA_VERSION,
+      algorithm: "hmac-sha256",
+      digest: provenanceDigest(key, domain, payload),
+    },
+  };
+}
+
+function verifyProjectRecordProvenance(key, domain, record, label) {
+  const { provenance, ...payload } = record ?? {};
+  if (
+    provenance?.schemaVersion !== PROJECT_PROVENANCE_SCHEMA_VERSION ||
+    provenance?.algorithm !== "hmac-sha256" ||
+    !/^[a-f0-9]{64}$/i.test(String(provenance?.digest ?? ""))
+  ) {
+    throw new Error(
+      `${label} lacks authenticated recovery provenance; manual review is required.`,
+    );
+  }
+  const expected = Buffer.from(provenanceDigest(key, domain, payload), "hex");
+  const actual = Buffer.from(provenance.digest, "hex");
+  if (
+    expected.length !== actual.length ||
+    !timingSafeEqual(expected, actual)
+  ) {
+    throw new Error(
+      `${label} recovery provenance is not authentic; preserving residue for manual review.`,
+    );
+  }
+  return payload;
+}
+
 function defaultIsProcessAlive(pid) {
   try {
     process.kill(pid, 0);
@@ -1564,22 +1678,38 @@ async function assertSafeDirectory(target, label, { allowMissing } = {}) {
   }
 }
 
-function validateTransactionOwner(owner, root, label) {
+function validateTransactionOwner(owner, root, label, provenanceKey) {
+  if (owner?.schemaVersion !== PROJECT_OWNER_SCHEMA_VERSION) {
+    throw new Error(
+      `${label} lacks authenticated recovery provenance; manual review is required.`,
+    );
+  }
+  const payload = verifyProjectRecordProvenance(
+    provenanceKey,
+    "owner",
+    owner,
+    `${label} owner`,
+  );
   if (
-    !owner ||
-    owner.schemaVersion !== 1 ||
-    !Number.isSafeInteger(owner.pid) ||
-    owner.pid <= 0 ||
-    typeof owner.createdAt !== "string" ||
-    !/^[a-f0-9-]{36}$/i.test(String(owner.token ?? "")) ||
-    normalizeResolvedPath(owner.repoRoot) !== normalizeResolvedPath(root)
+    !Number.isSafeInteger(payload.pid) ||
+    payload.pid <= 0 ||
+    typeof payload.processIdentity !== "string" ||
+    !payload.processIdentity ||
+    typeof payload.createdAt !== "string" ||
+    !/^[a-f0-9-]{36}$/i.test(String(payload.token ?? "")) ||
+    normalizeResolvedPath(payload.repoRoot) !== normalizeResolvedPath(root)
   ) {
     throw new Error(`${label} ownership metadata is invalid.`);
   }
   return owner;
 }
 
-async function readOwnedDirectoryOwner(directory, root, label) {
+async function readOwnedDirectoryOwner(
+  directory,
+  root,
+  label,
+  provenanceKey,
+) {
   await assertSafeDirectory(directory, label);
   const ownerPath = path.join(directory, "owner.json");
   await assertSafeRegularFile(ownerPath, `${label} owner`);
@@ -1587,6 +1717,7 @@ async function readOwnedDirectoryOwner(directory, root, label) {
     JSON.parse(await readFile(ownerPath, "utf8")),
     root,
     label,
+    provenanceKey,
   );
 }
 
@@ -1609,6 +1740,97 @@ async function cleanupProjectGcTombstones(root) {
   }
 }
 
+async function readPlatformProcessIdentity(pid) {
+  if (!Number.isSafeInteger(pid) || pid <= 0) return null;
+  if (process.platform === "linux") {
+    try {
+      const [bootId, statLine] = await Promise.all([
+        readFile("/proc/sys/kernel/random/boot_id", "utf8"),
+        readFile(`/proc/${pid}/stat`, "utf8"),
+      ]);
+      const commandEnd = statLine.lastIndexOf(")");
+      if (commandEnd < 0) return undefined;
+      const fields = statLine.slice(commandEnd + 2).trim().split(/\s+/);
+      const startTicks = fields[19];
+      if (!startTicks) return undefined;
+      return `linux:${bootId.trim()}:${startTicks}`;
+    } catch (error) {
+      if (error?.code === "ENOENT" || error?.code === "ESRCH") return null;
+      return undefined;
+    }
+  }
+  if (process.platform === "win32") {
+    try {
+      const { stdout } = await execFile(
+        "powershell.exe",
+        [
+          "-NoLogo",
+          "-NoProfile",
+          "-NonInteractive",
+          "-Command",
+          `$p = Get-Process -Id ${pid} -ErrorAction Stop; ` +
+            "[Console]::Out.Write($p.StartTime.ToUniversalTime().Ticks)",
+        ],
+        { windowsHide: true, timeout: 5_000, maxBuffer: 4_096 },
+      );
+      const ticks = stdout.trim();
+      if (/^\d+$/.test(ticks)) return `win32:${pid}:${ticks}`;
+      return undefined;
+    } catch {
+      return undefined;
+    }
+  }
+  if (process.platform === "darwin") {
+    try {
+      const { stdout } = await execFile(
+        "/bin/ps",
+        ["-p", String(pid), "-o", "lstart="],
+        {
+          timeout: 5_000,
+          maxBuffer: 4_096,
+          env: { ...process.env, LANG: "C", LC_ALL: "C" },
+        },
+      );
+      const startedAt = stdout.trim().replace(/\s+/g, " ");
+      if (startedAt) return `darwin:${pid}:${startedAt}`;
+      return undefined;
+    } catch {
+      return undefined;
+    }
+  }
+  return undefined;
+}
+
+async function defaultReadProcessIdentity(pid) {
+  if (pid === process.pid) {
+    currentProcessIdentityPromise ??= readPlatformProcessIdentity(pid).then(
+      (identity) => identity ?? CURRENT_PROCESS_FALLBACK_IDENTITY,
+    );
+    return currentProcessIdentityPromise;
+  }
+  return readPlatformProcessIdentity(pid);
+}
+
+async function transactionOwnerIsAlive(
+  owner,
+  {
+    isProcessAlive = defaultIsProcessAlive,
+    readProcessIdentity = defaultReadProcessIdentity,
+    identityIsAuthoritative = true,
+  } = {},
+) {
+  if (!(await isProcessAlive(owner.pid))) return false;
+  const observed = await readProcessIdentity(owner.pid);
+  if (owner.processIdentity.startsWith("fallback:")) {
+    return owner.pid !== process.pid;
+  }
+  if (typeof observed === "string") {
+    return observed === owner.processIdentity;
+  }
+  if (observed === null && identityIsAuthoritative) return false;
+  return true;
+}
+
 async function terminalizeOwnedDirectory(
   root,
   directory,
@@ -1628,15 +1850,20 @@ async function terminalizeOwnedDirectory(
   await rm(tombstone, { recursive: true, force: true });
 }
 
-async function clearStaleProjectLock(root, isProcessAlive) {
+async function clearStaleProjectLock(
+  root,
+  provenanceKey,
+  processOptions,
+) {
   const lockDirectory = path.join(root, PROJECT_LOCK_PATH);
   if (!(await pathEntryExists(lockDirectory))) return;
   const owner = await readOwnedDirectoryOwner(
     lockDirectory,
     root,
     "Harness initialization lock",
+    provenanceKey,
   );
-  if (isProcessAlive(owner.pid)) {
+  if (await transactionOwnerIsAlive(owner, processOptions)) {
     throw new Error(
       `Another Harness initializer is running with PID ${owner.pid}.`,
     );
@@ -1648,24 +1875,40 @@ async function acquireProjectLock(
   root,
   {
     isProcessAlive = defaultIsProcessAlive,
+    readProcessIdentity = defaultReadProcessIdentity,
+    provenanceKey,
     faultInjector,
   } = {},
 ) {
   await cleanupProjectGcTombstones(root);
-  await clearStaleProjectLock(root, isProcessAlive);
+  const processOptions = {
+    isProcessAlive,
+    readProcessIdentity,
+    identityIsAuthoritative:
+      readProcessIdentity !== defaultReadProcessIdentity ||
+      isProcessAlive === defaultIsProcessAlive,
+  };
+  await clearStaleProjectLock(root, provenanceKey, processOptions);
   const token = randomUUID();
   const candidate = path.join(
     root,
     `${PROJECT_LOCK_CANDIDATE_PREFIX}${token}`,
   );
   const lockDirectory = path.join(root, PROJECT_LOCK_PATH);
-  const owner = {
-    schemaVersion: 1,
+  const processIdentity = await readProcessIdentity(process.pid);
+  if (typeof processIdentity !== "string" || !processIdentity) {
+    throw new Error(
+      "Harness initializer could not determine its process instance identity.",
+    );
+  }
+  const owner = authenticateProjectRecord(provenanceKey, "owner", {
+    schemaVersion: PROJECT_OWNER_SCHEMA_VERSION,
     pid: process.pid,
+    processIdentity,
     createdAt: new Date().toISOString(),
     token,
     repoRoot: root,
-  };
+  });
   await mkdir(candidate, { mode: 0o700 });
   try {
     await writeFile(
@@ -1683,6 +1926,7 @@ async function acquireProjectLock(
         lockDirectory,
         root,
         "Harness initialization lock",
+        provenanceKey,
       );
       throw new Error(
         `Another Harness initializer is running or owns the project lock with PID ${current.pid}.`,
@@ -1699,6 +1943,7 @@ async function acquireProjectLock(
         lockDirectory,
         root,
         "Harness initialization lock",
+        provenanceKey,
       );
       if (current.token !== token) {
         throw new Error(
@@ -1767,6 +2012,7 @@ async function prepareProjectTransaction({
   lock,
   targets,
   preconditions = [],
+  provenanceKey,
 }) {
   const id = randomUUID();
   const stageDirectory = path.join(root, `${PROJECT_TRANSACTION_PREFIX}${id}`);
@@ -1774,13 +2020,16 @@ async function prepareProjectTransaction({
   await mkdir(stageDirectory, { mode: 0o700 });
   await writeFile(
     path.join(stageDirectory, "owner.json"),
-    canonicalJson({
-      schemaVersion: 1,
-      pid: process.pid,
-      createdAt: new Date().toISOString(),
-      token: id,
-      repoRoot: root,
-    }),
+    canonicalJson(
+      authenticateProjectRecord(provenanceKey, "owner", {
+        schemaVersion: PROJECT_OWNER_SCHEMA_VERSION,
+        pid: process.pid,
+        processIdentity: lock.owner.processIdentity,
+        createdAt: new Date().toISOString(),
+        token: id,
+        repoRoot: root,
+      }),
+    ),
     { flag: "wx", mode: 0o600 },
   );
 
@@ -1888,8 +2137,8 @@ async function prepareProjectTransaction({
     });
   }
 
-  const journal = {
-    schemaVersion: 2,
+  const journal = authenticateProjectRecord(provenanceKey, "journal", {
+    schemaVersion: PROJECT_JOURNAL_SCHEMA_VERSION,
     operation: "project-policy-apply",
     id,
     repoRoot: root,
@@ -1898,7 +2147,7 @@ async function prepareProjectTransaction({
     createdDirectories: await collectMissingTargetDirectories(root, targets),
     preconditions: journalPreconditions,
     targets: journalTargets,
-  };
+  });
   const journalBytes = canonicalJson(journal);
   await writeFile(
     path.join(stageDirectory, "journal.json"),
@@ -1930,10 +2179,25 @@ function validJournalFingerprint(fingerprint) {
   );
 }
 
-function validateProjectTransactionJournal(journal, root, stageDirectory) {
+function validateProjectTransactionJournal(
+  journal,
+  root,
+  stageDirectory,
+  provenanceKey,
+) {
+  if (journal?.schemaVersion !== PROJECT_JOURNAL_SCHEMA_VERSION) {
+    throw new Error(
+      "Harness project transaction journal lacks authenticated recovery provenance; manual review is required.",
+    );
+  }
+  verifyProjectRecordProvenance(
+    provenanceKey,
+    "journal",
+    journal,
+    "Harness project transaction journal",
+  );
   if (
     !journal ||
-    ![1, 2].includes(journal.schemaVersion) ||
     journal.operation !== "project-policy-apply" ||
     !/^[a-f0-9-]{36}$/i.test(String(journal.id ?? "")) ||
     normalizeResolvedPath(journal.repoRoot) !== normalizeResolvedPath(root) ||
@@ -1941,8 +2205,7 @@ function validateProjectTransactionJournal(journal, root, stageDirectory) {
     !Array.isArray(journal.targets) ||
     journal.targets.length === 0 ||
     !Array.isArray(journal.createdDirectories) ||
-    (journal.schemaVersion === 2 &&
-      !Array.isArray(journal.preconditions))
+    !Array.isArray(journal.preconditions)
   ) {
     throw new Error("Harness project transaction journal is invalid.");
   }
@@ -2216,7 +2479,11 @@ async function verifyCommittedProjectTransaction(
 
 async function recoverProjectTransactions(
   root,
-  { isProcessAlive = defaultIsProcessAlive } = {},
+  {
+    isProcessAlive = defaultIsProcessAlive,
+    readProcessIdentity = defaultReadProcessIdentity,
+    provenanceKey,
+  } = {},
 ) {
   await cleanupProjectGcTombstones(root);
   const entries = await readdir(root, { withFileTypes: true });
@@ -2239,8 +2506,17 @@ async function recoverProjectTransactions(
       directory,
       root,
       "Harness initializer residue",
+      provenanceKey,
     );
-    if (isProcessAlive(owner.pid)) {
+    if (
+      await transactionOwnerIsAlive(owner, {
+        isProcessAlive,
+        readProcessIdentity,
+        identityIsAuthoritative:
+          readProcessIdentity !== defaultReadProcessIdentity ||
+          isProcessAlive === defaultIsProcessAlive,
+      })
+    ) {
       throw new Error(
         `Harness initializer residue still belongs to live PID ${owner.pid}.`,
       );
@@ -2262,6 +2538,7 @@ async function recoverProjectTransactions(
       JSON.parse(await readFile(journalPath, "utf8")),
       root,
       directory,
+      provenanceKey,
     );
     const committedPath = path.join(directory, "committed.json");
     if (await pathEntryExists(committedPath)) {
@@ -2270,8 +2547,19 @@ async function recoverProjectTransactions(
         "Harness project transaction commit marker",
       );
       const marker = JSON.parse(await readFile(committedPath, "utf8"));
+      if (marker?.schemaVersion !== PROJECT_COMMIT_MARKER_SCHEMA_VERSION) {
+        throw new Error(
+          "Harness project transaction commit marker lacks authenticated " +
+            "recovery provenance; manual review is required.",
+        );
+      }
+      verifyProjectRecordProvenance(
+        provenanceKey,
+        "commit-marker",
+        marker,
+        "Harness project transaction commit marker",
+      );
       if (
-        marker?.schemaVersion !== 1 ||
         marker.id !== journal.id ||
         marker.journalSha256 !==
           sha256(canonicalJson(journal))
@@ -2298,6 +2586,7 @@ async function runProjectTransaction({
   lock,
   targets,
   preconditions = [],
+  provenanceKey,
   faultInjector,
 }) {
   let prepared;
@@ -2308,6 +2597,7 @@ async function runProjectTransaction({
       lock,
       targets,
       preconditions,
+      provenanceKey,
     });
     if (faultInjector) await faultInjector("after-journal");
     await verifyProjectTransactionPreconditions(root, prepared.journal);
@@ -2329,11 +2619,13 @@ async function runProjectTransaction({
     await verifyProjectTransactionPreconditions(root, prepared.journal);
     await writeFile(
       path.join(prepared.stageDirectory, "committed.json"),
-      canonicalJson({
-        schemaVersion: 1,
-        id: prepared.journal.id,
-        journalSha256: prepared.journalSha256,
-      }),
+      canonicalJson(
+        authenticateProjectRecord(provenanceKey, "commit-marker", {
+          schemaVersion: PROJECT_COMMIT_MARKER_SCHEMA_VERSION,
+          id: prepared.journal.id,
+          journalSha256: prepared.journalSha256,
+        }),
+      ),
       { flag: "wx", mode: 0o600 },
     );
     if (faultInjector) await faultInjector("after-commit-marker");
@@ -2367,6 +2659,7 @@ async function runProjectTransaction({
           directory,
           root,
           "Failed Harness transaction staging",
+          provenanceKey,
         );
         if (owner.pid === process.pid) {
           await terminalizeOwnedDirectory(
@@ -2558,6 +2851,8 @@ export async function applyProjectContract({
   skillRoot,
   faultInjector,
   isProcessAlive,
+  readProcessIdentity,
+  provenanceKeyPath,
 }) {
   const root = path.resolve(repoRoot);
   const sourceSkill = path.resolve(skillRoot);
@@ -2606,12 +2901,22 @@ export async function applyProjectContract({
   if (!schemaFingerprint.exists) {
     throw new Error("Harness project contract schema asset does not exist.");
   }
+  const provenanceKey = await loadProjectProvenanceKey(
+    root,
+    provenanceKeyPath,
+  );
   const lock = await acquireProjectLock(root, {
     isProcessAlive,
+    readProcessIdentity,
+    provenanceKey,
     faultInjector,
   });
   try {
-    await recoverProjectTransactions(root, { isProcessAlive });
+    await recoverProjectTransactions(root, {
+      isProcessAlive,
+      readProcessIdentity,
+      provenanceKey,
+    });
     await assertFingerprintUnchanged(
       resolvedContractPath,
       contractFingerprint,
@@ -2908,6 +3213,7 @@ export async function applyProjectContract({
       lock,
       targets,
       preconditions,
+      provenanceKey,
       faultInjector,
     });
     if (legacyAgentsStage) {

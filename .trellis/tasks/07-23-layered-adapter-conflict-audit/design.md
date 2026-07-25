@@ -193,6 +193,15 @@ owned project lock serializes initializers. Immediately before replacement the
 initializer re-reads the target and compares both digest and identity; drift
 fails closed without overwriting the concurrent content.
 
+Project-local recovery metadata is not trusted by itself. The initializer
+creates a user-scoped key outside the target repository at
+`~/.harness-init/project-transaction.key` and authenticates each owner, journal,
+and commit marker. Missing, legacy, or modified provenance stops recovery before
+any target replay and preserves the residue for manual review. Owner metadata
+also records a process-instance identity: Linux uses boot ID plus `/proc` start
+ticks, Windows uses process creation ticks, and macOS uses process start time.
+PID liveness is accepted only when that identity still matches.
+
 Each target is installed without overwrite, and
 `.harness/ownership.json` is committed last. A committed marker distinguishes
 a complete transaction from a pending one. On the next apply, a dead lock

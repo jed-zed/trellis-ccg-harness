@@ -40,6 +40,12 @@ state under `.ccg/` and `.codex/ccg/` is evidence only and must remain ignored.
   contract/schema preconditions, final CAS checks, and ownership-last commit
   order. It rechecks preconditions before installation, before commit, and
   during committed finalization.
+- Transaction owners, journals, and commit markers are authenticated with a
+  user-scoped key outside the target repository at
+  `~/.harness-init/project-transaction.key`. Repository-authored or legacy
+  residue without valid provenance is preserved and rejected before any replay.
+  Owner liveness binds PID to the process start/boot identity where the platform
+  exposes it, preventing PID reuse from making stale state permanently live.
 - Completed transactions and released locks are atomically renamed to a strict
   `.harness-init-gc-*` tombstone namespace before recursive removal. A later
   run may delete a structurally valid tombstone without relying on partially
