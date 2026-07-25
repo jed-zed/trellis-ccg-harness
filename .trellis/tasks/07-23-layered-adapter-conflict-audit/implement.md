@@ -86,7 +86,7 @@ Trellis task. Codex owns the final plan, edits, tests, and review.
   user-scoped key outside the target repository.
 - [x] Bind owner liveness to PID plus process-instance identity on Linux,
   Windows, and macOS, with conservative fallback on unsupported platforms.
-- [ ] Rerun the full Harness and CCG quality/security gates, push the final Head,
+- [x] Rerun the full Harness and CCG quality/security gates, push the final Head,
   resolve the new review threads, and wait for all CI jobs.
 
 ## Verification
@@ -274,3 +274,6 @@ security reference files.
   zero findings. Structural quality passes with 0 errors and 41 non-blocking
   complexity warnings; doctor, task context, source verification, and conflict
   audit also pass with 0 blocking and 0 warnings.
+- Harness CI run `30173637878` passed all ten jobs on Head `291e16a`,
+  including Linux process/permission coverage and both Windows ACL-safe Node
+  matrices. Both new review threads have commit-linked replies and are resolved.

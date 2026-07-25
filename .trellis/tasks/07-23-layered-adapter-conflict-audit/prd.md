@@ -149,7 +149,7 @@ Adopt the recommended layered-adapter architecture without losing the complete p
   recovery state and is rejected before project files are replayed.
 - [x] Lock and transaction owners bind PID to a process-instance identity so a
   reused live PID does not block hard-interruption recovery.
-- [ ] PR #2 description, review threads, verification evidence, and Ready state
+- [x] PR #2 description, review threads, verification evidence, and Ready state
   match the final post-fix Head.
 
 ## Constraints
