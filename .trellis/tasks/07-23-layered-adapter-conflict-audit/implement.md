@@ -152,7 +152,7 @@ security reference files.
 - [x] Reuse the shared Python resolver for adapter task context.
 - [x] Validate exact contract ownership and schema identity on repeat apply.
 - [x] Recheck Windows MCP secret ACLs at launch and terminate child trees.
-- [ ] Run final Harness/CCG gates, source verification, doctor, and CI.
+- [x] Run final Harness/CCG gates, source verification, doctor, and CI.
 
 - The ordered collaboration policy is canonical in
   `.agents/skills/harness-init/assets/collaboration-policy.md`; root and newly
