@@ -7,7 +7,7 @@ import { homedir } from 'node:os'
 import { join } from 'pathe'
 import { i18n, initI18n } from '../i18n'
 import { createDefaultConfig, ensureCcgDir, readCcgConfig, resolveNonInteractiveIntelligenceConsent, writeCcgConfig } from '../utils/config'
-import { getAllCommandIds, getCoreCommandIds, installAceTool, installContextWeaver, installFastContext, installMcpServer, installWorkflows, showBinaryDownloadWarning, syncMcpToCodex, syncMcpToGemini, writeFastContextPrompt } from '../utils/installer'
+import { getAllCommandIds, getCoreCommandIds, installAceTool, installContextWeaver, installFastContext, installMcpServer, installWorkflows, showBinaryInstallFailure, syncMcpToCodex, syncMcpToGemini, writeFastContextPrompt } from '../utils/installer'
 import { migrateToV1_4_0, needsMigration } from '../utils/migration'
 import { gitExecutableSource, npmSelector } from '../utils/third-party-sources'
 
@@ -1032,6 +1032,12 @@ export async function init(options: InitOptions = {}): Promise<InitResult> {
       spinner.fail(ansis.red(i18n.t('init:installFailed')))
       for (const error of result.errors)
         console.error(`  ${ansis.red('✗')} ${error}`)
+      if (
+        !result.binInstalled
+        && result.errors.some(error => /codeagent-wrapper|binary/i.test(error))
+      ) {
+        showBinaryInstallFailure(join(installDir, 'bin'))
+      }
       return {
         success: false,
         cancelled: false,
@@ -1359,11 +1365,6 @@ export async function init(options: InitOptions = {}): Promise<InitResult> {
         }
       }
     }
-    else {
-      // Binary download failed — show prominent warning with manual fix instructions
-      showBinaryDownloadWarning(join(installDir, 'bin'))
-    }
-
     // Show MCP resources if user skipped installation
     if (mcpProvider === 'skip' || ((mcpProvider === 'ace-tool' || mcpProvider === 'ace-tool-rs') && !aceToolToken) || (mcpProvider === 'contextweaver' && !contextWeaverApiKey)) {
       console.log()

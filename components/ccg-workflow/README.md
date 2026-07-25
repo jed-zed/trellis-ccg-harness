@@ -239,6 +239,7 @@ node bin/ccg.mjs doctor                   # Environment health check
 node bin/ccg.mjs status                   # Installation overview
 node bin/ccg.mjs codex-mode install       # Install Codex-Led mode
 node bin/ccg.mjs codex-mode uninstall     # Uninstall Codex-Led mode
+node bin/ccg.mjs codex-mode recover       # Recover an interrupted Codex transaction
 node bin/ccg.mjs uninstall                # Uninstall CCG
 node bin/ccg.mjs config mcp               # Configure MCP tokens
 node bin/ccg.mjs diagnose-mcp             # Static MCP diagnosis
@@ -282,11 +283,22 @@ Set in `~/.claude/settings.json` under `"env"`:
   `third-party-sources.json`; mutable `@latest` selectors are not used.
 - MCP secrets are stored in owner-only files and loaded by a local launcher, so
   they are not placed in process arguments or mirrored into other runtimes.
-- Codex mode uses a digest-bound ownership manifest and managed blocks. Install,
-  update, and uninstall preserve unrelated user files and fail closed on
-  malformed configuration or modified managed state.
+  MCP children receive a minimal allowlisted base environment plus only the
+  variables approved for that server.
+- MCP entries are managed per target (`Claude`, `Codex`, and `Gemini`) in a
+  strict ownership ledger. Same-name user entries require explicit adoption,
+  retain their first exact structured baseline, and are restored on uninstall;
+  post-install user edits are preserved and block mutation.
+- Codex mode uses strict digest-bound ownership and transaction manifests.
+  Install and uninstall reject linked/junction path components, preserve
+  unrelated user files, and fail closed on malformed or modified state. A
+  process crash leaves a durable journal; run `ccg codex-mode recover` before
+  another lifecycle operation.
+- Wrapper acquisition is fail-closed: a download, digest, version, or platform
+  failure makes initialization fail until the pinned binary verifies.
 - `diagnose-mcp --smoke` is explicit, stdio-only, time/output bounded, redacted,
-  and terminates the complete child process tree.
+  runs only after static validation succeeds, and terminates the complete child
+  process tree. CLI failures always return a nonzero exit status.
 
 ## Update / Rollback / Uninstall
 

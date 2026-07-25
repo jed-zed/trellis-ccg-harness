@@ -42,6 +42,40 @@ describe('MCP credential boundaries', () => {
     }
   }, 180_000)
 
+  it('launcher passes only its approved secret environment to the MCP child', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'ccg isolated launcher '))
+    roots.push(homeDir)
+    const approvedSecret = 'approved-launcher-secret'
+    const unrelatedSecret = 'must-not-reach-mcp'
+    const config = await (secretStore as any).createSecretBackedMcpConfig({
+      homeDir,
+      serverId: 'environment-test',
+      command: process.execPath,
+      args: [
+        '-e',
+        'process.stdout.write(JSON.stringify({ approved: process.env.APPROVED_SECRET, unrelated: process.env.UNRELATED_SECRET || null }))',
+      ],
+      env: { APPROVED_SECRET: approvedSecret },
+    })
+    const result = spawnSync(config.command, config.args, {
+      encoding: 'utf8',
+      windowsHide: true,
+      env: {
+        ...process.env,
+        HOME: homeDir,
+        USERPROFILE: homeDir,
+        UNRELATED_SECRET: unrelatedSecret,
+      },
+    })
+
+    expect(result.status, String(result.stderr)).toBe(0)
+    expect(JSON.parse(String(result.stdout))).toEqual({
+      approved: approvedSecret,
+      unrelated: null,
+    })
+    expect(String(result.stdout)).not.toContain(unrelatedSecret)
+  }, 30_000)
+
   it.runIf(process.platform === 'win32')('applies an owner-only Windows ACL to the secret directory', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'ccg secret acl '))
     roots.push(homeDir)

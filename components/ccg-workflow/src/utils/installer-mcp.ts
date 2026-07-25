@@ -3,8 +3,34 @@ import { homedir } from 'node:os'
 import fs from 'fs-extra'
 import { join } from 'pathe'
 import { parse as parseToml, stringify as stringifyToml } from 'smol-toml'
-import { type McpServerConfig, backupClaudeCodeConfig, buildMcpServerConfig, fixWindowsMcpConfig, mergeMcpServers, readClaudeCodeConfig, writeClaudeCodeConfig } from './mcp'
-import { containsInlineMcpSecret, createSecretBackedMcpConfig, removeSecretBackedMcpConfig } from './mcp-secrets'
+import {
+  type ClaudeCodeConfig,
+  type McpServerConfig,
+  buildMcpServerConfig,
+  fixWindowsMcpConfig,
+  readClaudeCodeConfigAt,
+} from './mcp'
+import {
+  type JsonValue,
+  type McpOwnershipLedger,
+  claimMcpOwnership,
+  readMcpOwnershipLedger,
+  releaseMcpOwnership,
+  writeMcpOwnershipLedger,
+} from './mcp-ownership'
+import {
+  containsInlineMcpSecret,
+  createSecretBackedMcpConfig,
+  mcpSecretSpecPath,
+  removeSecretBackedMcpConfig,
+} from './mcp-secrets'
+import {
+  assertManagedPath,
+  ensureManagedRoot,
+  safeManagedAtomicWrite,
+  safeManagedRead,
+  safeManagedRemoveFile,
+} from './managed-path'
 import { isWindows } from './platform'
 import { npmSelector, verifyPinnedExecutableCommand, verifyPinnedNpmCommand } from './third-party-sources'
 
@@ -14,9 +40,83 @@ import { npmSelector, verifyPinnedExecutableCommand, verifyPinnedNpmCommand } fr
 
 type McpInstallResult = { success: boolean, message: string, configPath?: string }
 
+export interface McpInstallOptions {
+  adoptExisting?: boolean
+  homeDir?: string
+}
+
+function homeRelative(homeDir: string, path: string): string {
+  const normalizedHome = homeDir.replace(/\\/g, '/').replace(/\/+$/u, '')
+  const normalizedPath = path.replace(/\\/g, '/')
+  if (!normalizedPath.startsWith(`${normalizedHome}/`))
+    throw new Error(`MCP path is outside the configured home directory: ${path}`)
+  return normalizedPath.slice(normalizedHome.length + 1)
+}
+
+async function fileSnapshot(
+  homeDir: string,
+  path: string,
+): Promise<Buffer | null> {
+  await ensureManagedRoot(homeDir)
+  await assertManagedPath(
+    homeDir,
+    homeRelative(homeDir, path),
+    'missing-or-file',
+    true,
+  )
+  return safeManagedRead(homeDir, homeRelative(homeDir, path))
+}
+
+async function restoreFileSnapshot(
+  homeDir: string,
+  path: string,
+  content: Buffer | null,
+): Promise<void> {
+  const relativePath = homeRelative(homeDir, path)
+  if (content === null) {
+    await safeManagedRemoveFile(homeDir, relativePath)
+    return
+  }
+  await safeManagedAtomicWrite(homeDir, relativePath, content)
+}
+
+async function backupClaudeConfig(
+  homeDir: string,
+  configPath: string,
+): Promise<string | null> {
+  const content = await fileSnapshot(homeDir, configPath)
+  if (!content)
+    return null
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
+  const relativePath = `.claude/backup/claude-config-${timestamp}.json`
+  await safeManagedAtomicWrite(homeDir, relativePath, content)
+  return join(homeDir, relativePath)
+}
+
+async function commitConfigAndOwnership(
+  homeDir: string,
+  configPath: string,
+  config: ClaudeCodeConfig,
+  ledger: ReturnType<typeof claimMcpOwnership>['ledger'],
+): Promise<void> {
+  const before = await fileSnapshot(homeDir, configPath)
+  try {
+    await safeManagedAtomicWrite(
+      homeDir,
+      homeRelative(homeDir, configPath),
+      `${JSON.stringify(config, null, 2)}\n`,
+    )
+    await writeMcpOwnershipLedger(homeDir, ledger)
+  }
+  catch (error) {
+    await restoreFileSnapshot(homeDir, configPath, before)
+    throw error
+  }
+}
+
 /**
  * Common pipeline for installing an MCP server into ~/.claude.json:
- * read → backup → merge → Windows fix → write.
+ * read → ownership check → backup → write config + ownership ledger.
  *
  * All MCP installers funnel through this to avoid duplication.
  */
@@ -24,41 +124,66 @@ async function configureMcpInClaude(
   serverId: string,
   serverConfig: McpServerConfig,
   label: string,
+  options: McpInstallOptions = {},
 ): Promise<McpInstallResult> {
+  const homeDir = options.homeDir ?? homedir()
+  const configPath = join(homeDir, '.claude.json')
   try {
-    let existingConfig = await readClaudeCodeConfig()
-    if (!existingConfig) {
-      existingConfig = { mcpServers: {} }
-    }
+    await ensureManagedRoot(homeDir)
+    await assertManagedPath(
+      homeDir,
+      '.claude.json',
+      'missing-or-file',
+      true,
+    )
+    const ledger = await readMcpOwnershipLedger(homeDir)
+    const existingConfig = await readClaudeCodeConfigAt(configPath)
+    const workingConfig: ClaudeCodeConfig = existingConfig
+      ? JSON.parse(JSON.stringify(existingConfig))
+      : { mcpServers: {} }
+    if (!workingConfig.mcpServers)
+      workingConfig.mcpServers = {}
 
-    // Backup before modifying (if config exists)
-    if (existingConfig.mcpServers && Object.keys(existingConfig.mcpServers).length > 0) {
-      const backupPath = await backupClaudeCodeConfig()
-      if (backupPath) {
-        console.log(`  ✓ Backup created: ${backupPath}`)
-      }
-    }
-
-    // Merge new server into existing config
-    let mergedConfig = mergeMcpServers(existingConfig, {
-      [serverId]: serverConfig,
-    })
+    workingConfig.mcpServers[serverId] = serverConfig
 
     // Apply Windows fixes if needed
+    let installedConfig = workingConfig
     if (isWindows()) {
-      mergedConfig = fixWindowsMcpConfig(mergedConfig)
+      installedConfig = fixWindowsMcpConfig(workingConfig)
       console.log('  ✓ Applied Windows MCP configuration fixes')
     }
+    const installedEntry = installedConfig.mcpServers?.[serverId]
+    if (!installedEntry)
+      throw new Error('MCP entry disappeared during platform normalization.')
 
-    // Write config back (preserve all other fields)
-    await writeClaudeCodeConfig(mergedConfig)
+    const claimed = claimMcpOwnership({
+      ledger,
+      target: 'claude',
+      serverId,
+      current: existingConfig?.mcpServers?.[serverId],
+      installed: installedEntry,
+      adoptExisting: options.adoptExisting,
+    })
+
+    // Ownership is proven before any backup or configuration mutation.
+    if (existingConfig?.mcpServers && Object.keys(existingConfig.mcpServers).length > 0) {
+      const backupPath = await backupClaudeConfig(homeDir, configPath)
+      if (backupPath)
+        console.log(`  ✓ Backup created: ${backupPath}`)
+    }
+    await commitConfigAndOwnership(
+      homeDir,
+      configPath,
+      installedConfig,
+      claimed.ledger,
+    )
 
     return {
       success: true,
       message: isWindows()
         ? `${label} configured successfully with Windows compatibility`
         : `${label} configured successfully`,
-      configPath: join(homedir(), '.claude.json'),
+      configPath,
     }
   }
   catch (error) {
@@ -75,22 +200,43 @@ async function configureExecutableMcpInClaude(
   args: string[],
   env: Record<string, string>,
   label: string,
+  options: McpInstallOptions = {},
 ): Promise<McpInstallResult> {
-  let secretSpecCreated = false
+  const homeDir = options.homeDir ?? homedir()
+  const secretPath = mcpSecretSpecPath(serverId, homeDir)
+  let secretBefore: Buffer | null = null
+  let secretSnapshotReady = false
   try {
+    secretBefore = await fileSnapshot(homeDir, secretPath)
+    secretSnapshotReady = true
     await verifyPinnedExecutableCommand(command, args)
     const serverConfig = Object.keys(env).length > 0
-      ? await createSecretBackedMcpConfig({ serverId, command, args, env })
+      ? await createSecretBackedMcpConfig({
+          serverId,
+          command,
+          args,
+          env,
+          homeDir,
+        })
       : buildMcpServerConfig({ type: 'stdio', command, args })
-    secretSpecCreated = Object.keys(env).length > 0
-    const result = await configureMcpInClaude(serverId, serverConfig, label)
-    if (!result.success && secretSpecCreated)
-      await removeSecretBackedMcpConfig(serverId)
+    const result = await configureMcpInClaude(
+      serverId,
+      serverConfig,
+      label,
+      options,
+    )
+    if (
+      !result.success
+      && Object.keys(env).length > 0
+      && secretSnapshotReady
+    ) {
+      await restoreFileSnapshot(homeDir, secretPath, secretBefore)
+    }
     return result
   }
   catch (error) {
-    if (secretSpecCreated)
-      await removeSecretBackedMcpConfig(serverId)
+    if (Object.keys(env).length > 0 && secretSnapshotReady)
+      await restoreFileSnapshot(homeDir, secretPath, secretBefore)
     return {
       success: false,
       message: `Failed to verify ${label}: ${error}`,
@@ -106,26 +252,7 @@ async function configureExecutableMcpInClaude(
  * Uninstall ace-tool MCP configuration from ~/.claude.json
  */
 export async function uninstallAceTool(): Promise<{ success: boolean, message: string }> {
-  try {
-    const existingConfig = await readClaudeCodeConfig()
-
-    if (!existingConfig) {
-      return { success: true, message: 'No ~/.claude.json found, nothing to remove' }
-    }
-
-    if (!existingConfig.mcpServers || !existingConfig.mcpServers['ace-tool']) {
-      return { success: true, message: 'ace-tool MCP not found in config' }
-    }
-
-    await backupClaudeCodeConfig()
-    delete existingConfig.mcpServers['ace-tool']
-    await writeClaudeCodeConfig(existingConfig)
-
-    return { success: true, message: 'ace-tool MCP removed from ~/.claude.json' }
-  }
-  catch (error) {
-    return { success: false, message: `Failed to uninstall ace-tool: ${error}` }
-  }
+  return uninstallMcpServer('ace-tool')
 }
 
 /**
@@ -166,7 +293,10 @@ export interface ContextWeaverConfig {
  * Install and configure ContextWeaver MCP for Claude Code.
  * ContextWeaver is a local-first semantic code search engine with hybrid search + rerank.
  */
-export async function installContextWeaver(config: ContextWeaverConfig): Promise<McpInstallResult> {
+export async function installContextWeaver(
+  config: ContextWeaverConfig,
+  options: McpInstallOptions = {},
+): Promise<McpInstallResult> {
   const { siliconflowApiKey } = config
 
   try {
@@ -192,6 +322,7 @@ export async function installContextWeaver(config: ContextWeaverConfig): Promise
         RERANK_TOP_N: '20',
       },
       'ContextWeaver MCP',
+      options,
     )
   }
   catch (error) {
@@ -214,7 +345,10 @@ export function uninstallContextWeaver(): Promise<{ success: boolean, message: s
 /**
  * Install and configure Fast Context (Windsurf) MCP for Claude Code.
  */
-export async function installFastContext(config: FastContextConfig): Promise<McpInstallResult> {
+export async function installFastContext(
+  config: FastContextConfig,
+  options: McpInstallOptions = {},
+): Promise<McpInstallResult> {
   const { apiKey, includeSnippets } = config
 
   const env: Record<string, string> = {}
@@ -222,7 +356,14 @@ export async function installFastContext(config: FastContextConfig): Promise<Mcp
   if (includeSnippets) env.FC_INCLUDE_SNIPPETS = 'true'
 
   const args = ['-y', '--prefer-online', npmSelector('fast-context-mcp')]
-  return configureExecutableMcpInClaude('fast-context', 'npx', args, env, 'fast-context MCP')
+  return configureExecutableMcpInClaude(
+    'fast-context',
+    'npx',
+    args,
+    env,
+    'fast-context MCP',
+    options,
+  )
 }
 
 /**
@@ -245,21 +386,54 @@ export async function installMcpServer(
   command: string,
   args: string[],
   env: Record<string, string> = {},
+  options: McpInstallOptions = {},
 ): Promise<{ success: boolean, message: string }> {
-  return configureExecutableMcpInClaude(id, command, args, env, id)
+  return configureExecutableMcpInClaude(id, command, args, env, id, options)
 }
 
 /**
  * Uninstall a generic MCP server from Claude Code
  */
-export async function uninstallMcpServer(id: string): Promise<{ success: boolean, message: string }> {
+export async function uninstallMcpServer(
+  id: string,
+  options: Pick<McpInstallOptions, 'homeDir'> = {},
+): Promise<{ success: boolean, message: string }> {
+  const homeDir = options.homeDir ?? homedir()
+  const configPath = join(homeDir, '.claude.json')
   try {
-    const existingConfig = await readClaudeCodeConfig()
-    if (existingConfig?.mcpServers?.[id]) {
-      delete existingConfig.mcpServers[id]
-      await writeClaudeCodeConfig(existingConfig)
-    }
-    await removeSecretBackedMcpConfig(id)
+    await ensureManagedRoot(homeDir)
+    await assertManagedPath(
+      homeDir,
+      '.claude.json',
+      'missing-or-file',
+      true,
+    )
+    const ledger = await readMcpOwnershipLedger(homeDir)
+    const existingConfig = await readClaudeCodeConfigAt(configPath)
+    const released = releaseMcpOwnership({
+      ledger,
+      target: 'claude',
+      serverId: id,
+      current: existingConfig?.mcpServers?.[id],
+    })
+    const workingConfig: ClaudeCodeConfig = existingConfig
+      ? JSON.parse(JSON.stringify(existingConfig))
+      : { mcpServers: {} }
+    if (!workingConfig.mcpServers)
+      workingConfig.mcpServers = {}
+    if (released.restored === undefined)
+      delete workingConfig.mcpServers[id]
+    else
+      workingConfig.mcpServers[id] = released.restored as unknown as McpServerConfig
+
+    await backupClaudeConfig(homeDir, configPath)
+    await commitConfigAndOwnership(
+      homeDir,
+      configPath,
+      workingConfig,
+      released.ledger,
+    )
+    await removeSecretBackedMcpConfig(id, homeDir)
     return { success: true, message: `${id} MCP uninstalled successfully` }
   }
   catch (error) {
@@ -283,21 +457,52 @@ const CCG_MCP_IDS = new Set([
 ])
 
 type SyncResult = { success: boolean, message: string, synced: string[], removed: string[] }
+type McpSyncOptions = McpInstallOptions
 
 /**
- * Read Claude's MCP config and filter to CCG-managed servers.
+ * Read only CCG-owned Claude MCP entries. A same-name entry without a ledger
+ * claim is user-owned and must never be mirrored or removed.
  */
-async function getCcgMcpServersFromClaude(): Promise<Record<string, any>> {
-  const claudeConfig = await readClaudeCodeConfig()
+async function getCcgMcpServersFromClaude(
+  homeDir: string,
+): Promise<{
+  ledger: McpOwnershipLedger
+  servers: Record<string, McpServerConfig>
+}> {
+  let ledger = await readMcpOwnershipLedger(homeDir)
+  await assertManagedPath(
+    homeDir,
+    '.claude.json',
+    'missing-or-file',
+    true,
+  )
+  const claudeConfig = await readClaudeCodeConfigAt(
+    join(homeDir, '.claude.json'),
+  )
   const claudeMcpServers = claudeConfig?.mcpServers || {}
 
-  const serversToSync: Record<string, any> = {}
-  for (const [id, config] of Object.entries(claudeMcpServers)) {
-    if (CCG_MCP_IDS.has(id) && config) {
-      serversToSync[id] = config
-    }
+  const serversToSync: Record<string, McpServerConfig> = {}
+  const ownedEntries = ledger.entries.filter(
+    entry => entry.target === 'claude' && CCG_MCP_IDS.has(entry.serverId),
+  )
+  for (const entry of ownedEntries) {
+    const current = claudeMcpServers[entry.serverId]
+    if (!current)
+      throw new Error(`Owned Claude MCP entry ${entry.serverId} is missing.`)
+    const verified = claimMcpOwnership({
+      ledger,
+      target: 'claude',
+      serverId: entry.serverId,
+      current,
+      installed: current,
+    })
+    ledger = verified.ledger
+    serversToSync[entry.serverId] = current
   }
-  return filterSecretSafeMcpServers(serversToSync)
+  return {
+    ledger,
+    servers: filterSecretSafeMcpServers(serversToSync),
+  }
 }
 
 export function filterSecretSafeMcpServers(
@@ -311,32 +516,59 @@ export function filterSecretSafeMcpServers(
   return safe
 }
 
-/**
- * Apply mirror logic: add/update servers from Claude, remove stale CCG servers.
- * Returns { synced, removed } arrays. Mutates targetServers in place.
- */
-function mirrorCcgServers(
-  serversToSync: Record<string, any>,
-  targetServers: Record<string, any>,
-): { synced: string[], removed: string[] } {
+function mirrorOwnedCcgServers(
+  target: 'codex' | 'gemini',
+  serversToSync: Record<string, JsonValue>,
+  targetServers: Record<string, JsonValue>,
+  originalLedger: McpOwnershipLedger,
+  adoptExisting: boolean,
+): {
+  ledger: McpOwnershipLedger
+  targetServers: Record<string, JsonValue>
+  synced: string[]
+  removed: string[]
+} {
+  let ledger = originalLedger
+  const nextServers = JSON.parse(JSON.stringify(targetServers)) as Record<
+    string,
+    JsonValue
+  >
   const synced: string[] = []
   const removed: string[] = []
 
-  // Add/update CCG servers
   for (const [id, claudeServer] of Object.entries(serversToSync)) {
-    targetServers[id] = claudeServer
+    const claimed = claimMcpOwnership({
+      ledger,
+      target,
+      serverId: id,
+      current: nextServers[id],
+      installed: claudeServer,
+      adoptExisting,
+    })
+    ledger = claimed.ledger
+    nextServers[id] = claudeServer
     synced.push(id)
   }
 
-  // Remove CCG servers that no longer exist in Claude
-  for (const id of CCG_MCP_IDS) {
-    if (!serversToSync[id] && targetServers[id]) {
-      delete targetServers[id]
-      removed.push(id)
-    }
+  const staleEntries = ledger.entries.filter(entry => (
+    entry.target === target && !(entry.serverId in serversToSync)
+  ))
+  for (const entry of staleEntries) {
+    const released = releaseMcpOwnership({
+      ledger,
+      target,
+      serverId: entry.serverId,
+      current: nextServers[entry.serverId],
+    })
+    ledger = released.ledger
+    if (released.restored === undefined)
+      delete nextServers[entry.serverId]
+    else
+      nextServers[entry.serverId] = released.restored
+    removed.push(entry.serverId)
   }
 
-  return { synced, removed }
+  return { ledger, targetServers: nextServers, synced, removed }
 }
 
 /**
@@ -356,14 +588,22 @@ function formatSyncMessage(target: string, synced: string[], removed: string[]):
  * - Only touches servers in CCG_MCP_IDS — user's custom servers untouched.
  * - Uses atomic write (temp file + rename) to prevent corruption.
  */
-export async function syncMcpToCodex(): Promise<SyncResult> {
+export async function syncMcpToCodex(
+  options: McpSyncOptions = {},
+): Promise<SyncResult> {
+  const homeDir = options.homeDir ?? homedir()
   try {
-    const serversToSync = await getCcgMcpServersFromClaude()
+    const source = await getCcgMcpServersFromClaude(homeDir)
 
     // Read or create Codex config
-    const codexConfigDir = join(homedir(), '.codex')
+    const codexConfigDir = join(homeDir, '.codex')
     const codexConfigPath = join(codexConfigDir, 'config.toml')
-    await fs.ensureDir(codexConfigDir)
+    await assertManagedPath(
+      homeDir,
+      '.codex/config.toml',
+      'missing-or-file',
+      true,
+    )
 
     let codexConfig: Record<string, any> = {}
     if (await fs.pathExists(codexConfigPath)) {
@@ -376,27 +616,44 @@ export async function syncMcpToCodex(): Promise<SyncResult> {
     }
 
     // Codex needs field-level copy (TOML compatibility: filter null/undefined)
-    const codexServersToSync: Record<string, any> = {}
-    for (const [id, server] of Object.entries(serversToSync)) {
-      const entry: Record<string, any> = {}
+    const codexServersToSync: Record<string, JsonValue> = {}
+    for (const [id, server] of Object.entries(source.servers)) {
+      const entry: Record<string, JsonValue> = {}
       for (const [key, value] of Object.entries(server as Record<string, any>)) {
         if (value !== null && value !== undefined) {
-          entry[key] = value
+          entry[key] = value as JsonValue
         }
       }
       codexServersToSync[id] = entry
     }
 
-    const { synced, removed } = mirrorCcgServers(codexServersToSync, codexConfig.mcp_servers)
+    const mirrored = mirrorOwnedCcgServers(
+      'codex',
+      codexServersToSync,
+      codexConfig.mcp_servers as Record<string, JsonValue>,
+      source.ledger,
+      options.adoptExisting === true,
+    )
+    const { synced, removed } = mirrored
 
     if (synced.length === 0 && removed.length === 0) {
       return { success: true, message: 'No CCG MCP servers to sync or remove', synced: [], removed: [] }
     }
 
-    // Atomic write: temp file + rename
-    const tmpPath = `${codexConfigPath}.tmp`
-    await fs.writeFile(tmpPath, stringifyToml(codexConfig), 'utf-8')
-    await fs.rename(tmpPath, codexConfigPath)
+    codexConfig.mcp_servers = mirrored.targetServers
+    const before = await fileSnapshot(homeDir, codexConfigPath)
+    try {
+      await safeManagedAtomicWrite(
+        homeDir,
+        '.codex/config.toml',
+        stringifyToml(codexConfig),
+      )
+      await writeMcpOwnershipLedger(homeDir, mirrored.ledger)
+    }
+    catch (error) {
+      await restoreFileSnapshot(homeDir, codexConfigPath, before)
+      throw error
+    }
 
     return { success: true, message: formatSyncMessage('Codex', synced, removed), synced, removed }
   }
@@ -409,14 +666,22 @@ export async function syncMcpToCodex(): Promise<SyncResult> {
  * Sync (mirror) CCG-managed MCP servers from Claude's ~/.claude.json
  * to Gemini CLI's ~/.gemini/settings.json
  */
-export async function syncMcpToGemini(): Promise<SyncResult> {
+export async function syncMcpToGemini(
+  options: McpSyncOptions = {},
+): Promise<SyncResult> {
+  const homeDir = options.homeDir ?? homedir()
   try {
-    const serversToSync = await getCcgMcpServersFromClaude()
+    const source = await getCcgMcpServersFromClaude(homeDir)
 
     // Read or create Gemini settings
-    const geminiDir = join(homedir(), '.gemini')
+    const geminiDir = join(homeDir, '.gemini')
     const geminiSettingsPath = join(geminiDir, 'settings.json')
-    await fs.ensureDir(geminiDir)
+    await assertManagedPath(
+      homeDir,
+      '.gemini/settings.json',
+      'missing-or-file',
+      true,
+    )
 
     let geminiSettings: Record<string, any> = {}
     if (await fs.pathExists(geminiSettingsPath)) {
@@ -427,13 +692,33 @@ export async function syncMcpToGemini(): Promise<SyncResult> {
       geminiSettings.mcpServers = {}
     }
 
-    const { synced, removed } = mirrorCcgServers(serversToSync, geminiSettings.mcpServers)
+    const mirrored = mirrorOwnedCcgServers(
+      'gemini',
+      source.servers as unknown as Record<string, JsonValue>,
+      geminiSettings.mcpServers as Record<string, JsonValue>,
+      source.ledger,
+      options.adoptExisting === true,
+    )
+    const { synced, removed } = mirrored
 
     if (synced.length === 0 && removed.length === 0) {
       return { success: true, message: 'No CCG MCP servers to sync to Gemini', synced: [], removed: [] }
     }
 
-    await fs.writeJSON(geminiSettingsPath, geminiSettings, { spaces: 2 })
+    geminiSettings.mcpServers = mirrored.targetServers
+    const before = await fileSnapshot(homeDir, geminiSettingsPath)
+    try {
+      await safeManagedAtomicWrite(
+        homeDir,
+        '.gemini/settings.json',
+        `${JSON.stringify(geminiSettings, null, 2)}\n`,
+      )
+      await writeMcpOwnershipLedger(homeDir, mirrored.ledger)
+    }
+    catch (error) {
+      await restoreFileSnapshot(homeDir, geminiSettingsPath, before)
+      throw error
+    }
 
     return { success: true, message: formatSyncMessage('Gemini', synced, removed), synced, removed }
   }

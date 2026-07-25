@@ -280,8 +280,22 @@ export async function doctor(options: DoctorOptions = {}): Promise<DoctorResult>
     status: hasCodexMode ? OK : ansis.gray('—'),
     detail: hasCodexMode ? 'Installed' : 'Not installed (optional)',
   })
+  const codexTransaction = join(
+    homedir(),
+    '.codex',
+    '.ccg',
+    'transaction.json',
+  )
+  const hasPendingCodexTransaction = await fileExists(codexTransaction)
+  checks.push({
+    label: 'Codex transaction',
+    status: hasPendingCodexTransaction ? FAIL : OK,
+    detail: hasPendingCodexTransaction
+      ? 'Interrupted operation found; run `ccg codex-mode recover`'
+      : 'No interrupted operation',
+  })
 
-  // 11. Grok CLI (only when routing uses grok)
+  // 12. Grok CLI (only when routing uses grok)
   const routingModels = [
     config?.routing?.frontend?.primary,
     config?.routing?.backend?.primary,

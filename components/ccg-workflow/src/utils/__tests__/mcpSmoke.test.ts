@@ -1,3 +1,6 @@
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { smokeMcpServer } from '../mcp-smoke'
 
@@ -114,6 +117,73 @@ describe('bounded opt-in MCP smoke', () => {
     expect(report.status).toBe('failed')
     expect(report.error).not.toContain(secret)
     expect(report.error).toContain('[REDACTED]')
+  }, 15_000)
+
+  it('does not pass unrelated parent credentials to an MCP child', async () => {
+    const key = `CCG_UNRELATED_SECRET_${Date.now()}`
+    const secret = 'unrelated-parent-secret-value'
+    process.env[key] = secret
+    try {
+      const report = await smokeMcpServer(
+        'environment-isolation',
+        {
+          type: 'stdio',
+          command: process.execPath,
+          args: [
+            '-e',
+            `if (process.env.${key}) { process.stderr.write(process.env.${key}); process.exit(2) }\n${successServer}`,
+          ],
+        },
+        { timeoutMs: 8_000 },
+      )
+
+      expect(report.status).toBe('passed')
+      expect(JSON.stringify(report)).not.toContain(secret)
+    }
+    finally {
+      delete process.env[key]
+    }
+  }, 15_000)
+
+  it('redacts launcher-backed secrets loaded from the private specification', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'ccg launcher smoke '))
+    const secret = 'launcher-private-secret-value'
+    try {
+      const secretsDir = join(homeDir, '.claude', '.ccg', 'secrets')
+      const launcherDir = join(homeDir, '.claude', '.ccg', 'engine', 'tools')
+      const launcherPath = join(launcherDir, 'mcp-secret-launcher.mjs')
+      const secretPath = join(secretsDir, 'launcher-smoke.json')
+      await mkdir(secretsDir, { recursive: true, mode: 0o700 })
+      await mkdir(launcherDir, { recursive: true, mode: 0o700 })
+      await writeFile(launcherPath, '// smoke fixture\n', { mode: 0o700 })
+      await writeFile(secretPath, `${JSON.stringify({
+        schemaVersion: 1,
+        serverId: 'launcher-smoke',
+        command: process.execPath,
+        args: [
+          '-e',
+          'process.stderr.write(process.env.LAUNCHER_PRIVATE_KEY); process.exit(2)',
+        ],
+        env: { LAUNCHER_PRIVATE_KEY: secret },
+      }, null, 2)}\n`, { mode: 0o600 })
+
+      const report = await smokeMcpServer(
+        'launcher-backed',
+        {
+          type: 'stdio',
+          command: 'node',
+          args: [launcherPath, secretPath],
+        },
+        { timeoutMs: 8_000, secretHomeDir: homeDir },
+      )
+
+      expect(report.status).toBe('failed')
+      expect(report.error).not.toContain(secret)
+      expect(report.error).toContain('[REDACTED]')
+    }
+    finally {
+      await rm(homeDir, { recursive: true, force: true })
+    }
   }, 15_000)
 
   it('skips non-stdio transports without making a network request', async () => {

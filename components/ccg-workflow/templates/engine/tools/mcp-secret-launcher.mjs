@@ -6,6 +6,23 @@ import { homedir } from 'node:os'
 import { basename, isAbsolute, relative, resolve } from 'node:path'
 
 const MAX_SPEC_BYTES = 1024 * 1024
+const BASE_ENVIRONMENT_KEYS = [
+  'PATH',
+  'PATHEXT',
+  'SystemRoot',
+  'WINDIR',
+  'ComSpec',
+  'HOME',
+  'USERPROFILE',
+  'HOMEDRIVE',
+  'HOMEPATH',
+  'TMP',
+  'TEMP',
+  'TMPDIR',
+  'LANG',
+  'LC_ALL',
+  'LC_CTYPE',
+]
 
 function fail(message) {
   process.stderr.write(`CCG MCP secret launcher: ${message}\n`)
@@ -26,6 +43,16 @@ function validateSpec(value) {
   if (Object.entries(value.env).some(([key, entry]) => !/^[A-Za-z_][A-Za-z0-9_]*$/.test(key) || typeof entry !== 'string'))
     throw new Error('invalid environment entry')
   return value
+}
+
+function buildChildEnvironment(approved) {
+  const environment = {}
+  for (const key of BASE_ENVIRONMENT_KEYS) {
+    const value = process.env[key]
+    if (typeof value === 'string' && value.length > 0)
+      environment[key] = value
+  }
+  return { ...environment, ...approved }
 }
 
 async function validateSpecPath(specPath) {
@@ -58,7 +85,7 @@ else {
     if (basename(canonicalSpec) !== `${spec.serverId}.json`)
       throw new Error('secret spec filename does not match its server id')
     const child = spawn(spec.command, spec.args, {
-      env: { ...process.env, ...spec.env },
+      env: buildChildEnvironment(spec.env),
       shell: false,
       stdio: 'inherit',
       windowsHide: true,

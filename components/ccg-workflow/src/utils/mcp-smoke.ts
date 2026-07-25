@@ -1,6 +1,8 @@
 import type { ChildProcessWithoutNullStreams } from 'node:child_process'
 import type { McpServerConfig } from './mcp'
 import { spawn, spawnSync } from 'node:child_process'
+import { buildMcpEnvironment } from './mcp-environment'
+import { resolveSecretBackedMcpConfig } from './mcp-secrets'
 
 export const MCP_SMOKE_PROTOCOL_VERSION = '2025-11-25'
 const DEFAULT_TIMEOUT_MS = 3_000
@@ -24,6 +26,7 @@ export interface McpSmokeReport {
 export interface McpSmokeOptions {
   timeoutMs?: number
   onSpawn?: (pid: number | undefined) => void
+  secretHomeDir?: string
 }
 
 type SmokeCompletion = Omit<McpSmokeReport, 'name' | 'transport' | 'durationMs'>
@@ -293,14 +296,26 @@ export async function smokeMcpServer(
   }
 
   const timeoutMs = resolveTimeout(options.timeoutMs)
-  const secrets = [
+  let secrets = [
     ...Object.values(config.env ?? {}),
     ...(config.args ?? []).filter(arg => arg.length >= 4),
   ]
   try {
-    const child = spawn(config.command, config.args ?? [], {
+    const secretLaunch = await resolveSecretBackedMcpConfig(
+      config,
+      options.secretHomeDir,
+    )
+    const command = secretLaunch?.command ?? config.command
+    const args = secretLaunch?.args ?? config.args ?? []
+    const approvedEnvironment = secretLaunch?.env ?? config.env ?? {}
+    secrets = [
+      ...secrets,
+      ...(secretLaunch?.secrets ?? []),
+      ...args.filter(arg => arg.length >= 4),
+    ]
+    const child = spawn(command, args, {
       cwd: process.cwd(),
-      env: { ...process.env, ...(config.env ?? {}) },
+      env: buildMcpEnvironment(approvedEnvironment),
       detached: process.platform !== 'win32',
       shell: false,
       stdio: ['pipe', 'pipe', 'pipe'],

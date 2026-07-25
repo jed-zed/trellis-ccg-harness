@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
 import { isAbsolute, relative, resolve } from 'node:path'
 import fs from 'fs-extra'
@@ -6,6 +6,15 @@ import { dirname, join } from 'pathe'
 import { version as packageVersion } from '../../package.json'
 import { readCcgConfig } from './config'
 import { PACKAGE_ROOT, injectConfigVariables, replaceHomePathsInTemplate } from './installer-template'
+import {
+  assertManagedPath,
+  ensureManagedRoot,
+  safeManagedAtomicWrite,
+  safeManagedEnsureDirectory,
+  safeManagedRead,
+  safeManagedRemoveDirectory,
+  safeManagedRemoveFile,
+} from './managed-path'
 import { formatPythonCommand, resolvePythonInvocation } from './python-resolver'
 
 const START_MARKER = '<!-- CCG:START'
@@ -54,6 +63,28 @@ export interface UninstallCodexModeOptions {
 
 type CodexModeResult = { success: boolean, message: string }
 type CodexModeUninstallResult = { success: boolean, removed: string[], skipped: string[] }
+type CodexModeRecoveryResult = {
+  success: boolean
+  recovered: boolean
+  message: string
+}
+
+interface CodexModeTransactionSnapshot {
+  relativePath: string
+  present: boolean
+  sha256?: string
+  snapshotPath?: string
+}
+
+interface CodexModeTransactionJournal {
+  schemaVersion: 1
+  id: string
+  operation: 'install' | 'uninstall'
+  createdAt: string
+  snapshots: CodexModeTransactionSnapshot[]
+}
+
+const TRANSACTION_JOURNAL_PATH = '.ccg/transaction.json'
 
 function sha256(value: string | Buffer): string {
   return createHash('sha256').update(value).digest('hex')
@@ -151,33 +182,236 @@ async function readJsonStrict(path: string, label: string): Promise<Record<strin
   }
 }
 
-async function atomicWrite(path: string, value: string | Buffer, mode = 0o600): Promise<void> {
-  const temporary = `${path}.tmp-${process.pid}-${Date.now()}`
-  try {
-    await fs.ensureDir(dirname(path), 0o700)
-    await fs.writeFile(temporary, value, { mode })
-    if (process.platform !== 'win32')
-      await fs.chmod(temporary, mode)
-    await fs.move(temporary, path, { overwrite: true })
-    if (process.platform !== 'win32')
-      await fs.chmod(path, mode)
-  }
-  finally {
-    await fs.remove(temporary)
-  }
+function managedRelativePath(codexHome: string, path: string): string {
+  const absolute = ownedPath(codexHome, normalizedRelative(relative(codexHome, path)))
+  return normalizedRelative(relative(codexHome, absolute))
 }
 
-async function backupBytes(
+async function atomicWrite(
+  codexHome: string,
+  path: string,
+  value: string | Buffer,
+  mode = 0o600,
+): Promise<void> {
+  await safeManagedAtomicWrite(
+    codexHome,
+    managedRelativePath(codexHome, path),
+    value,
+    mode,
+  )
+}
+
+function planBackupBytes(
   codexHome: string,
   backupRoot: string,
   relativePath: string,
   bytes: Buffer,
-): Promise<OriginalFile> {
+  plannedBackups: Map<string, Buffer>,
+): OriginalFile {
   const backupPath = join(backupRoot, relativePath)
-  await atomicWrite(backupPath, bytes)
+  const backupRelative = normalizedRelative(backupPath.slice(codexHome.length + 1))
+  plannedBackups.set(backupRelative, bytes)
   return {
     sha256: sha256(bytes),
-    backupPath: normalizedRelative(backupPath.slice(codexHome.length + 1)),
+    backupPath: backupRelative,
+  }
+}
+
+function assertPlainObject(
+  value: unknown,
+  label: string,
+): asserts value is Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value))
+    throw new Error(`${label} must be an object.`)
+}
+
+function assertKeys(
+  value: Record<string, unknown>,
+  required: readonly string[],
+  optional: readonly string[],
+  label: string,
+): void {
+  const allowed = new Set([...required, ...optional])
+  if (
+    required.some(key => !(key in value))
+    || Object.keys(value).some(key => !allowed.has(key))
+  ) {
+    throw new Error(`${label} has an invalid schema.`)
+  }
+}
+
+function validateDigest(value: unknown, label: string): string {
+  if (typeof value !== 'string' || !/^[a-f0-9]{64}$/.test(value))
+    throw new Error(`${label} has an invalid SHA-256 digest.`)
+  return value
+}
+
+function validateManagedRelativePath(value: unknown): string {
+  if (typeof value !== 'string')
+    throw new Error('Codex mode ownership path must be a string.')
+  const normalized = normalizedRelative(value)
+  const allowed = normalized === '.ccg-version'
+    || normalized === 'config.toml'
+    || /^(?:agents|hooks)\/[a-z0-9._-]+$/i.test(normalized)
+  if (!allowed || normalized.includes('..'))
+    throw new Error(`Codex mode ownership contains an unsafe path: ${value}`)
+  return normalized
+}
+
+function validateOriginalFile(
+  value: unknown,
+  managedRelative: string,
+  label: string,
+): OriginalFile {
+  assertPlainObject(value, label)
+  assertKeys(value, ['sha256', 'backupPath'], [], label)
+  if (typeof value.backupPath !== 'string')
+    throw new Error(`${label} backup path must be a string.`)
+  const backupPath = normalizedRelative(value.backupPath)
+  if (
+    !/^\.ccg\/backups\/[^/]+\/.+$/u.test(backupPath)
+    || !backupPath.endsWith(`/${managedRelative}`)
+    || backupPath.includes('/../')
+  ) {
+    throw new Error(`${label} backup path is invalid.`)
+  }
+  return {
+    sha256: validateDigest(value.sha256, label),
+    backupPath,
+  }
+}
+
+function validateManagedFile(value: unknown): ManagedFile {
+  assertPlainObject(value, 'Codex mode managed file')
+  assertKeys(
+    value,
+    ['relativePath', 'installedSha256'],
+    ['original'],
+    'Codex mode managed file',
+  )
+  const relativePath = validateManagedRelativePath(value.relativePath)
+  return {
+    relativePath,
+    installedSha256: validateDigest(
+      value.installedSha256,
+      `Codex mode managed file ${relativePath}`,
+    ),
+    ...(value.original === undefined
+      ? {}
+      : {
+          original: validateOriginalFile(
+            value.original,
+            relativePath,
+            `Codex mode managed file ${relativePath}`,
+          ),
+        }),
+  }
+}
+
+function validateAgentsBlock(value: unknown): OwnershipManifest['agentsBlock'] {
+  assertPlainObject(value, 'Codex mode agents ownership')
+  assertKeys(
+    value,
+    ['sha256'],
+    ['installedFileSha256', 'backup'],
+    'Codex mode agents ownership',
+  )
+  return {
+    sha256: validateDigest(value.sha256, 'Codex mode agents block'),
+    ...(value.installedFileSha256 === undefined
+      ? {}
+      : {
+          installedFileSha256: validateDigest(
+            value.installedFileSha256,
+            'Codex mode AGENTS.md',
+          ),
+        }),
+    ...(value.backup === undefined
+      ? {}
+      : {
+          backup: validateOriginalFile(
+            value.backup,
+            'AGENTS.md',
+            'Codex mode AGENTS.md',
+          ),
+        }),
+  }
+}
+
+function validateHookGroup(value: unknown): OwnershipManifest['hookGroup'] {
+  assertPlainObject(value, 'Codex mode hook ownership')
+  assertKeys(
+    value,
+    ['event', 'value', 'sha256', 'fileCreated'],
+    ['installedFileSha256', 'backup'],
+    'Codex mode hook ownership',
+  )
+  if (value.event !== 'UserPromptSubmit' || typeof value.fileCreated !== 'boolean')
+    throw new Error('Codex mode hook ownership metadata is invalid.')
+  assertPlainObject(value.value, 'Codex mode managed hook group')
+  const hookValue = structuredClone(value.value)
+  const hookDigest = validateDigest(value.sha256, 'Codex mode hook group')
+  if (sha256(canonical(hookValue)) !== hookDigest)
+    throw new Error('Codex mode hook ownership digest does not match its value.')
+  return {
+    event: value.event,
+    value: hookValue,
+    sha256: hookDigest,
+    fileCreated: value.fileCreated,
+    ...(value.installedFileSha256 === undefined
+      ? {}
+      : {
+          installedFileSha256: validateDigest(
+            value.installedFileSha256,
+            'Codex mode hooks.json',
+          ),
+        }),
+    ...(value.backup === undefined
+      ? {}
+      : {
+          backup: validateOriginalFile(
+            value.backup,
+            'hooks.json',
+            'Codex mode hooks.json',
+          ),
+        }),
+  }
+}
+
+function validateOwnershipManifest(value: unknown): OwnershipManifest {
+  assertPlainObject(value, 'Codex mode ownership manifest')
+  assertKeys(
+    value,
+    [
+      'schemaVersion',
+      'version',
+      'installedAt',
+      'files',
+      'agentsBlock',
+      'hookGroup',
+    ],
+    [],
+    'Codex mode ownership manifest',
+  )
+  if (
+    value.schemaVersion !== 1
+    || typeof value.version !== 'string'
+    || typeof value.installedAt !== 'string'
+    || !Array.isArray(value.files)
+    || Number.isNaN(Date.parse(value.installedAt))
+  ) {
+    throw new Error('Codex mode ownership manifest has an unsupported schema.')
+  }
+  const files = value.files.map(validateManagedFile)
+  if (new Set(files.map(file => file.relativePath)).size !== files.length)
+    throw new Error('Codex mode ownership manifest contains duplicate paths.')
+  return {
+    schemaVersion: 1,
+    version: value.version,
+    installedAt: value.installedAt,
+    files,
+    agentsBlock: validateAgentsBlock(value.agentsBlock),
+    hookGroup: validateHookGroup(value.hookGroup),
   }
 }
 
@@ -185,9 +419,244 @@ async function readOwnership(path: string): Promise<OwnershipManifest | null> {
   const parsed = await readJsonStrict(path, 'Codex mode ownership manifest')
   if (!parsed)
     return null
-  if (parsed.schemaVersion !== 1 || !Array.isArray(parsed.files))
-    throw new Error('Codex mode ownership manifest has an unsupported schema.')
-  return parsed as OwnershipManifest
+  return validateOwnershipManifest(parsed)
+}
+
+function validateTransactionTarget(value: unknown): string {
+  if (typeof value !== 'string')
+    throw new Error('Codex mode transaction target must be a string.')
+  const normalized = normalizedRelative(value)
+  const allowed = normalized === 'AGENTS.md'
+    || normalized === 'hooks.json'
+    || normalized === 'config.toml'
+    || normalized === '.ccg-version'
+    || normalized === '.ccg/ownership.json'
+    || /^(?:agents|hooks)\/[a-z0-9._-]+$/i.test(normalized)
+    || /^\.ccg\/backups\/[^/]+\/(?:AGENTS\.md|hooks\.json|config\.toml|\.ccg-version|(?:agents|hooks)\/[a-z0-9._-]+)$/i.test(normalized)
+  if (!allowed || normalized.includes('..'))
+    throw new Error(`Codex mode transaction target is invalid: ${value}`)
+  return normalized
+}
+
+function validateTransactionJournal(value: unknown): CodexModeTransactionJournal {
+  assertPlainObject(value, 'Codex mode transaction journal')
+  assertKeys(
+    value,
+    ['schemaVersion', 'id', 'operation', 'createdAt', 'snapshots'],
+    [],
+    'Codex mode transaction journal',
+  )
+  if (
+    value.schemaVersion !== 1
+    || typeof value.id !== 'string'
+    || !/^[a-f0-9-]{36}$/i.test(value.id)
+    || (value.operation !== 'install' && value.operation !== 'uninstall')
+    || typeof value.createdAt !== 'string'
+    || Number.isNaN(Date.parse(value.createdAt))
+    || !Array.isArray(value.snapshots)
+  ) {
+    throw new Error('Codex mode transaction journal has an invalid schema.')
+  }
+
+  const snapshots = value.snapshots.map((snapshot, index) => {
+    assertPlainObject(snapshot, 'Codex mode transaction snapshot')
+    assertKeys(
+      snapshot,
+      ['relativePath', 'present'],
+      ['sha256', 'snapshotPath'],
+      'Codex mode transaction snapshot',
+    )
+    const relativePath = validateTransactionTarget(snapshot.relativePath)
+    if (typeof snapshot.present !== 'boolean')
+      throw new Error('Codex mode transaction snapshot presence is invalid.')
+    if (!snapshot.present) {
+      if (snapshot.sha256 !== undefined || snapshot.snapshotPath !== undefined)
+        throw new Error('Missing Codex transaction snapshot has unexpected data.')
+      return { relativePath, present: false } satisfies CodexModeTransactionSnapshot
+    }
+    const expectedSnapshotPath = `.ccg/transactions/${value.id}/snapshots/${index}.bin`
+    if (snapshot.snapshotPath !== expectedSnapshotPath)
+      throw new Error('Codex mode transaction snapshot path is invalid.')
+    return {
+      relativePath,
+      present: true,
+      sha256: validateDigest(
+        snapshot.sha256,
+        'Codex mode transaction snapshot',
+      ),
+      snapshotPath: expectedSnapshotPath,
+    } satisfies CodexModeTransactionSnapshot
+  })
+  if (new Set(snapshots.map(entry => entry.relativePath)).size !== snapshots.length)
+    throw new Error('Codex mode transaction journal contains duplicate targets.')
+  return {
+    schemaVersion: 1,
+    id: value.id,
+    operation: value.operation,
+    createdAt: value.createdAt,
+    snapshots,
+  }
+}
+
+async function readTransactionJournal(
+  codexHome: string,
+): Promise<CodexModeTransactionJournal | null> {
+  await safeManagedEnsureDirectory(codexHome, '.ccg')
+  const bytes = await safeManagedRead(codexHome, TRANSACTION_JOURNAL_PATH)
+  if (!bytes)
+    return null
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(bytes.toString('utf8'))
+  }
+  catch (error) {
+    throw new Error(`Codex mode transaction journal is malformed: ${error}`)
+  }
+  return validateTransactionJournal(parsed)
+}
+
+async function beginCodexModeTransaction(
+  codexHome: string,
+  operation: CodexModeTransactionJournal['operation'],
+  relativePaths: string[],
+): Promise<CodexModeTransactionJournal> {
+  const pending = await readTransactionJournal(codexHome)
+  if (pending) {
+    throw new Error(
+      `Interrupted Codex mode ${pending.operation} transaction requires recovery. `
+      + 'Run `ccg codex-mode recover` first.',
+    )
+  }
+
+  const id = randomUUID()
+  const transactionRoot = `.ccg/transactions/${id}`
+  await safeManagedEnsureDirectory(codexHome, `${transactionRoot}/snapshots`)
+  const targets = [...new Set(relativePaths.map(validateTransactionTarget))].sort()
+  const snapshots: CodexModeTransactionSnapshot[] = []
+  try {
+    for (const [index, relativePath] of targets.entries()) {
+      await assertManagedPath(
+        codexHome,
+        relativePath,
+        'missing-or-file',
+        true,
+      )
+      const bytes = await safeManagedRead(codexHome, relativePath)
+      if (!bytes) {
+        snapshots.push({ relativePath, present: false })
+        continue
+      }
+      const snapshotPath = `${transactionRoot}/snapshots/${index}.bin`
+      await safeManagedAtomicWrite(codexHome, snapshotPath, bytes)
+      snapshots.push({
+        relativePath,
+        present: true,
+        sha256: sha256(bytes),
+        snapshotPath,
+      })
+    }
+    const journal: CodexModeTransactionJournal = {
+      schemaVersion: 1,
+      id,
+      operation,
+      createdAt: new Date().toISOString(),
+      snapshots,
+    }
+    await safeManagedAtomicWrite(
+      codexHome,
+      TRANSACTION_JOURNAL_PATH,
+      `${JSON.stringify(journal, null, 2)}\n`,
+    )
+    return journal
+  }
+  catch (error) {
+    await safeManagedRemoveDirectory(codexHome, transactionRoot).catch(() => {})
+    throw error
+  }
+}
+
+async function finishCodexModeTransaction(
+  codexHome: string,
+  journal: CodexModeTransactionJournal,
+): Promise<void> {
+  await safeManagedRemoveFile(codexHome, TRANSACTION_JOURNAL_PATH)
+  await safeManagedRemoveDirectory(
+    codexHome,
+    `.ccg/transactions/${journal.id}`,
+  ).catch(() => {
+    // The journal deletion is the commit point. Orphaned private snapshots are
+    // inert and can be cleaned later without rolling back a committed result.
+  })
+}
+
+function testCrashAfterMutation(mutationCount: number): void {
+  const requested = Number(process.env.CCG_CODEX_MODE_TEST_CRASH_AFTER_MUTATION)
+  if (
+    process.env.NODE_ENV === 'test'
+    && Number.isSafeInteger(requested)
+    && requested > 0
+    && mutationCount === requested
+  ) {
+    process.kill(process.pid, 'SIGKILL')
+  }
+}
+
+export async function recoverCodexModeAt(
+  options: UninstallCodexModeOptions = {},
+): Promise<CodexModeRecoveryResult> {
+  const codexHome = options.codexHome ?? join(homedir(), '.codex')
+  try {
+    await ensureManagedRoot(codexHome)
+    const journal = await readTransactionJournal(codexHome)
+    if (!journal) {
+      return {
+        success: true,
+        recovered: false,
+        message: 'No interrupted Codex mode transaction was found.',
+      }
+    }
+
+    const recovery: Array<{
+      relativePath: string
+      bytes: Buffer | null
+    }> = []
+    for (const snapshot of journal.snapshots) {
+      await assertManagedPath(
+        codexHome,
+        snapshot.relativePath,
+        'missing-or-file',
+        true,
+      )
+      if (!snapshot.present) {
+        recovery.push({ relativePath: snapshot.relativePath, bytes: null })
+        continue
+      }
+      const bytes = await safeManagedRead(codexHome, snapshot.snapshotPath!)
+      if (!bytes || sha256(bytes) !== snapshot.sha256)
+        throw new Error(`Transaction snapshot is missing or corrupt: ${snapshot.snapshotPath}`)
+      recovery.push({ relativePath: snapshot.relativePath, bytes })
+    }
+
+    for (const entry of [...recovery].reverse()) {
+      if (entry.bytes)
+        await safeManagedAtomicWrite(codexHome, entry.relativePath, entry.bytes)
+      else
+        await safeManagedRemoveFile(codexHome, entry.relativePath)
+    }
+    await finishCodexModeTransaction(codexHome, journal)
+    return {
+      success: true,
+      recovered: true,
+      message: `Recovered interrupted Codex mode ${journal.operation} transaction.`,
+    }
+  }
+  catch (error) {
+    return {
+      success: false,
+      recovered: false,
+      message: `Failed to recover Codex mode transaction: ${error}`,
+    }
+  }
 }
 
 function templateHookGroup(template: Record<string, any>, command: string): {
@@ -250,15 +719,12 @@ function removeHookGroup(
   return { changed: true, config }
 }
 
-async function restoreSnapshot(path: string, value: Buffer | null): Promise<void> {
-  if (value === null)
-    await fs.remove(path)
-  else
-    await atomicWrite(path, value)
-}
-
 async function verifiedBackup(codexHome: string, original: OriginalFile): Promise<Buffer> {
-  const backup = ownedPath(codexHome, original.backupPath)
+  const backup = await assertManagedPath(
+    codexHome,
+    original.backupPath,
+    'file',
+  )
   const bytes = await fs.readFile(backup)
   if (sha256(bytes) !== original.sha256)
     throw new Error(`Backup digest mismatch for ${original.backupPath}.`)
@@ -279,9 +745,30 @@ export async function installCodexModeAt(
   if (!(await fs.pathExists(templateDir)))
     return { success: false, message: 'Codex template directory not found' }
 
-  const snapshots = new Map<string, Buffer | null>()
-  let attemptedBackupRoot: string | null = null
+  let transaction: CodexModeTransactionJournal | null = null
+  let mutationCount = 0
   try {
+    await ensureManagedRoot(codexHome)
+    for (const relativePath of [
+      '.ccg/ownership.json',
+      'hooks.json',
+      'AGENTS.md',
+    ]) {
+      await assertManagedPath(
+        codexHome,
+        relativePath,
+        'missing-or-file',
+        true,
+      )
+    }
+    const pending = await readTransactionJournal(codexHome)
+    if (pending) {
+      throw new Error(
+        `Interrupted Codex mode ${pending.operation} transaction requires recovery. `
+        + 'Run `ccg codex-mode recover` first.',
+      )
+    }
+
     const previous = await readOwnership(ownershipPath)
     const existingHooks = (await readJsonStrict(hooksPath, 'Codex hooks.json')) ?? {}
     const existingAgents = await fs.pathExists(agentsPath) ? await fs.readFile(agentsPath, 'utf8') : ''
@@ -313,10 +800,10 @@ export async function installCodexModeAt(
 
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
     const backupRoot = join(codexHome, '.ccg', 'backups', timestamp)
-    attemptedBackupRoot = backupRoot
     const files: ManagedFile[] = []
     const previousFiles = new Map(previous?.files.map(file => [file.relativePath, file]) ?? [])
     const planned = new Map<string, Buffer>()
+    const plannedBackups = new Map<string, Buffer>()
 
     const agentsTemplateDir = join(templateDir, 'agents')
     for (const name of (await fs.readdir(agentsTemplateDir)).sort()) {
@@ -338,11 +825,22 @@ export async function installCodexModeAt(
 
     const configPath = join(codexHome, 'config.toml')
     const previousConfig = previousFiles.get('config.toml')
+    await assertManagedPath(
+      codexHome,
+      'config.toml',
+      'missing-or-file',
+      true,
+    )
     if (!(await fs.pathExists(configPath)) || previousConfig)
       planned.set('config.toml', await fs.readFile(join(templateDir, 'config.toml')))
 
     for (const [relativePath, bytes] of planned) {
-      const target = join(codexHome, relativePath)
+      const target = await assertManagedPath(
+        codexHome,
+        relativePath,
+        'missing-or-file',
+        true,
+      )
       const current = await fs.pathExists(target) ? await fs.readFile(target) : null
       const prior = previousFiles.get(relativePath)
       let original = prior?.original
@@ -351,33 +849,66 @@ export async function installCodexModeAt(
           throw new Error(`${relativePath} was modified after installation; refusing to overwrite it.`)
       }
       else if (current) {
-        original = await backupBytes(codexHome, backupRoot, relativePath, current)
+        original = planBackupBytes(
+          codexHome,
+          backupRoot,
+          relativePath,
+          current,
+          plannedBackups,
+        )
       }
       files.push({ relativePath, installedSha256: sha256(bytes), ...(original ? { original } : {}) })
     }
 
     const agentsBackup = existingAgents.length > 0 && !previous
-      ? await backupBytes(codexHome, backupRoot, 'AGENTS.md', Buffer.from(existingAgents))
+      ? planBackupBytes(
+          codexHome,
+          backupRoot,
+          'AGENTS.md',
+          Buffer.from(existingAgents),
+          plannedBackups,
+        )
       : previous?.agentsBlock.backup
     const hooksBytes = await fs.pathExists(hooksPath) ? await fs.readFile(hooksPath) : null
     const hooksBackup = hooksBytes && !previous
-      ? await backupBytes(codexHome, backupRoot, 'hooks.json', hooksBytes)
+      ? planBackupBytes(
+          codexHome,
+          backupRoot,
+          'hooks.json',
+          hooksBytes,
+          plannedBackups,
+        )
       : previous?.hookGroup.backup
 
     const touched = [
-      agentsPath,
-      hooksPath,
-      ...[...planned.keys()].map(relativePath => join(codexHome, relativePath)),
-      ownershipPath,
+      'AGENTS.md',
+      'hooks.json',
+      ...planned.keys(),
+      ...plannedBackups.keys(),
+      '.ccg/ownership.json',
     ]
-    for (const path of touched)
-      snapshots.set(path, await fs.pathExists(path) ? await fs.readFile(path) : null)
+    transaction = await beginCodexModeTransaction(
+      codexHome,
+      'install',
+      touched,
+    )
+
+    const write = async (
+      path: string,
+      value: string | Buffer,
+    ): Promise<void> => {
+      await atomicWrite(codexHome, path, value)
+      mutationCount += 1
+      testCrashAfterMutation(mutationCount)
+    }
 
     const nextHooksText = `${JSON.stringify(nextHooks, null, 2)}\n`
-    await atomicWrite(agentsPath, nextAgents)
-    await atomicWrite(hooksPath, nextHooksText)
+    for (const [relativePath, bytes] of plannedBackups)
+      await write(join(codexHome, relativePath), bytes)
+    await write(agentsPath, nextAgents)
+    await write(hooksPath, nextHooksText)
     for (const [relativePath, bytes] of planned)
-      await atomicWrite(join(codexHome, relativePath), bytes)
+      await write(join(codexHome, relativePath), bytes)
 
     const ownership: OwnershipManifest = {
       schemaVersion: 1,
@@ -398,7 +929,9 @@ export async function installCodexModeAt(
         ...(hooksBackup ? { backup: hooksBackup } : {}),
       },
     }
-    await atomicWrite(ownershipPath, `${JSON.stringify(ownership, null, 2)}\n`)
+    await write(ownershipPath, `${JSON.stringify(ownership, null, 2)}\n`)
+    await finishCodexModeTransaction(codexHome, transaction)
+    transaction = null
 
     return {
       success: true,
@@ -406,17 +939,16 @@ export async function installCodexModeAt(
     }
   }
   catch (error) {
-    for (const [path, value] of [...snapshots.entries()].reverse()) {
-      try {
-        await restoreSnapshot(path, value)
-      }
-      catch {
-        // Preserve the primary failure; doctor can report any rollback residue.
-      }
+    let recovery = ''
+    if (transaction) {
+      const result = await recoverCodexModeAt({ codexHome })
+      if (!result.success)
+        recovery = ` Automatic recovery also failed: ${result.message}`
     }
-    if (attemptedBackupRoot)
-      await fs.remove(attemptedBackupRoot).catch(() => {})
-    return { success: false, message: `Failed to install Codex mode: ${error}` }
+    return {
+      success: false,
+      message: `Failed to install Codex mode: ${error}${recovery}`,
+    }
   }
 }
 
@@ -425,8 +957,15 @@ async function restoreManagedFile(
   file: ManagedFile,
   removed: string[],
   skipped: string[],
+  write: (path: string, value: string | Buffer) => Promise<void>,
+  remove: (path: string) => Promise<void>,
 ): Promise<void> {
-  const target = ownedPath(codexHome, file.relativePath)
+  const target = await assertManagedPath(
+    codexHome,
+    file.relativePath,
+    'missing-or-file',
+    true,
+  )
   if (!(await fs.pathExists(target)))
     return
   const current = await fs.readFile(target)
@@ -437,11 +976,11 @@ async function restoreManagedFile(
 
   if (file.original) {
     const original = await verifiedBackup(codexHome, file.original)
-    await atomicWrite(target, original)
+    await write(target, original)
     removed.push(`${file.relativePath} (original restored)`)
   }
   else {
-    await fs.remove(target)
+    await remove(target)
     removed.push(file.relativePath)
   }
 }
@@ -453,8 +992,31 @@ export async function uninstallCodexModeAt(
   const ownershipPath = join(codexHome, '.ccg', 'ownership.json')
   const removed: string[] = []
   const skipped: string[] = []
+  let transaction: CodexModeTransactionJournal | null = null
+  let mutationCount = 0
 
   try {
+    if (!(await fs.pathExists(codexHome))) {
+      return {
+        success: true,
+        removed,
+        skipped: ['No CCG ownership manifest found; no global Codex files were changed.'],
+      }
+    }
+    await ensureManagedRoot(codexHome)
+    await assertManagedPath(
+      codexHome,
+      '.ccg/ownership.json',
+      'missing-or-file',
+      true,
+    )
+    const pending = await readTransactionJournal(codexHome)
+    if (pending) {
+      throw new Error(
+        `Interrupted Codex mode ${pending.operation} transaction requires recovery. `
+        + 'Run `ccg codex-mode recover` first.',
+      )
+    }
     const ownership = await readOwnership(ownershipPath)
     if (!ownership) {
       return {
@@ -462,6 +1024,50 @@ export async function uninstallCodexModeAt(
         removed,
         skipped: ['No CCG ownership manifest found; no global Codex files were changed.'],
       }
+    }
+
+    const touched = [
+      'AGENTS.md',
+      'hooks.json',
+      ...ownership.files.map(file => file.relativePath),
+      '.ccg/ownership.json',
+    ]
+    for (const relativePath of touched) {
+      await assertManagedPath(
+        codexHome,
+        relativePath,
+        'missing-or-file',
+        true,
+      )
+    }
+    const backups = [
+      ownership.agentsBlock.backup,
+      ownership.hookGroup.backup,
+      ...ownership.files.map(file => file.original),
+    ].filter((entry): entry is OriginalFile => Boolean(entry))
+    for (const backup of backups)
+      await verifiedBackup(codexHome, backup)
+
+    transaction = await beginCodexModeTransaction(
+      codexHome,
+      'uninstall',
+      touched,
+    )
+    const write = async (
+      path: string,
+      value: string | Buffer,
+    ): Promise<void> => {
+      await atomicWrite(codexHome, path, value)
+      mutationCount += 1
+      testCrashAfterMutation(mutationCount)
+    }
+    const remove = async (path: string): Promise<void> => {
+      await safeManagedRemoveFile(
+        codexHome,
+        managedRelativePath(codexHome, path),
+      )
+      mutationCount += 1
+      testCrashAfterMutation(mutationCount)
     }
 
     const agentsPath = join(codexHome, 'AGENTS.md')
@@ -472,7 +1078,7 @@ export async function uninstallCodexModeAt(
         && ownership.agentsBlock.installedFileSha256
         && sha256(existingBytes) === ownership.agentsBlock.installedFileSha256
       ) {
-        await atomicWrite(
+        await write(
           agentsPath,
           await verifiedBackup(codexHome, ownership.agentsBlock.backup),
         )
@@ -484,11 +1090,11 @@ export async function uninstallCodexModeAt(
           skipped.push('AGENTS.md (managed block was modified)')
         }
         else if (withoutBlock.length === 0) {
-          await fs.remove(agentsPath)
+          await remove(agentsPath)
           removed.push('AGENTS.md')
         }
         else {
-          await atomicWrite(agentsPath, withoutBlock)
+          await write(agentsPath, withoutBlock)
           removed.push('AGENTS.md (managed block)')
         }
       }
@@ -502,7 +1108,7 @@ export async function uninstallCodexModeAt(
         && ownership.hookGroup.installedFileSha256
         && sha256(existingBytes) === ownership.hookGroup.installedFileSha256
       ) {
-        await atomicWrite(
+        await write(
           hooksPath,
           await verifiedBackup(codexHome, ownership.hookGroup.backup),
         )
@@ -515,26 +1121,45 @@ export async function uninstallCodexModeAt(
           skipped.push('hooks.json (managed hook was modified)')
         }
         else if (Object.keys(result.config).length === 0 && ownership.hookGroup.fileCreated) {
-          await fs.remove(hooksPath)
+          await remove(hooksPath)
           removed.push('hooks.json')
         }
         else {
-          await atomicWrite(hooksPath, `${JSON.stringify(result.config, null, 2)}\n`)
+          await write(hooksPath, `${JSON.stringify(result.config, null, 2)}\n`)
           removed.push('hooks.json (managed hook)')
         }
       }
     }
 
     for (const file of [...ownership.files].reverse())
-      await restoreManagedFile(codexHome, file, removed, skipped)
+      await restoreManagedFile(
+        codexHome,
+        file,
+        removed,
+        skipped,
+        write,
+        remove,
+      )
 
     if (skipped.length === 0) {
-      await fs.remove(ownershipPath)
+      await remove(ownershipPath)
       removed.push('.ccg/ownership.json')
     }
+    await finishCodexModeTransaction(codexHome, transaction)
+    transaction = null
     return { success: true, removed, skipped }
   }
   catch (error) {
-    return { success: false, removed, skipped: [...skipped, `Error: ${error}`] }
+    let recovery = ''
+    if (transaction) {
+      const result = await recoverCodexModeAt({ codexHome })
+      if (!result.success)
+        recovery = `; automatic recovery failed: ${result.message}`
+    }
+    return {
+      success: false,
+      removed,
+      skipped: [...skipped, `Error: ${error}${recovery}`],
+    }
   }
 }

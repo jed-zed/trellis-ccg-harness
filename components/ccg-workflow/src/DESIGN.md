@@ -18,8 +18,9 @@ The installer and doctor cross several trust boundaries:
 
 The design defends against executing unverified bytes, mutable dependency
 replacement, credential exposure through argv/config/logs, destructive global
-file replacement, malformed-config data loss, process leaks, and accidental
-replacement of the personal distribution with public upstream.
+file replacement, malformed-config data loss, process leaks, linked-path
+escape, process-crash partial state, and accidental replacement of the personal
+distribution with public upstream.
 
 ## Security Decisions
 
@@ -34,6 +35,8 @@ replacement of the personal distribution with public upstream.
   rejected.
 - The built-in public npm updater is disabled. Harness update requires a full
   personal commit and a matching tree.
+- Wrapper platform, download, digest, or version failure is fatal. Initialization
+  stops and returns failure until the pinned binary verifies.
 
 ### Global ownership
 
@@ -41,6 +44,13 @@ replacement of the personal distribution with public upstream.
   listed in `~/.codex/.ccg/ownership.json`.
 - Existing collisions are backed up. Uninstall removes/restores an asset only
   when its installed digest still matches; user edits are preserved.
+- Ownership and transaction records use strict, versioned schemas with
+  allowlisted derived paths and verified SHA-256 snapshots.
+- Every existing managed path component must be a regular directory or file;
+  symbolic links, Windows junctions, and reparse traversal fail closed.
+- Install and uninstall create a durable journal before the first user-state
+  mutation. An interrupted operation blocks later lifecycle work until
+  `ccg codex-mode recover` restores all original bytes.
 - JSON and Hook configuration is parsed before mutation and written atomically.
   Malformed or ambiguous state fails closed.
 
@@ -48,9 +58,16 @@ replacement of the personal distribution with public upstream.
 
 - MCP credentials are stored in owner-only secret specs. Public MCP config
   contains only the local launcher path and secret-spec path, never the secret.
+- MCP children receive only a minimal platform environment and the variables
+  explicitly approved for that server; unrelated parent credentials are not
+  inherited.
+- Claude, Codex, and Gemini MCP entries are tracked independently. Unowned
+  same-name collisions are refused unless the interactive user explicitly
+  adopts them; the first original entry is restored on uninstall.
 - Credential-bearing MCP definitions are not mirrored across runtimes.
 - `diagnose-mcp --smoke` is opt-in, stdio-only, protocol/time/output bounded,
   redacts exact and structural secrets, and terminates the full process tree.
+  Static configuration failure skips the active smoke and returns nonzero.
 - Python hooks use a version-checked cross-platform resolver and argv arrays.
 
 ## Trellis Boundary
@@ -64,14 +81,35 @@ fails closed to Trellis-only guidance and never creates `.ccg/tasks`.
 
 - Trusted digest rotation is a reviewed source change and must accompany a
   release asset built from the intended personal commit.
-- Windows owner-only guarantees rely on the surrounding Harness/OS ACL checks;
-  POSIX modes alone are not meaningful on Windows.
+- Windows owner-only guarantees rely on verified ACL application in addition to
+  path confinement; POSIX modes alone are not meaningful on Windows.
 - An explicit MCP smoke starts configured local commands and may have provider
   side effects. It is therefore never part of default diagnosis.
+- A crash after the transaction commit point can leave inert private snapshot
+  residue. The live configuration is committed and the residue contains no new
+  authority; later cleanup may remove it without rollback.
 - Low-severity scanner findings for CLI `console.log` calls are intentional
   user-facing output, not debug logging.
+- High-severity scanner matches on synthetic credential strings under
+  `__tests__` are redaction fixtures, not production credentials. Production
+  scans exclude test fixtures and must have zero Critical/High findings.
 
 ## Change History
+
+### 2026-07-25 - Transaction, ownership, and environment closure
+
+**Change:** Added strict per-target MCP ownership, minimal child environments,
+linked-path confinement, durable Codex-mode install/uninstall recovery,
+nonzero diagnostic failure propagation, and an explicit fatal wrapper
+installation contract.
+
+**Reason:** Final adversarial review identified unowned same-name mutation,
+ambient credential inheritance, lexical-only containment, process-crash partial
+state, false-success diagnostics, and contradictory binary failure semantics.
+
+**Impact:** MCP installation/mirroring/uninstall, secret launch, Codex mode,
+doctor and CLI exit behavior, binary installation, tests, and user-facing
+security documentation.
 
 ### 2026-07-24 - GPT Pro review hardening
 

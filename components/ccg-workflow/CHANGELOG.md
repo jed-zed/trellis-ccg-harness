@@ -33,6 +33,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   process arguments into owner-only launcher specs, fail closed on malformed
   config, stop mirroring credentials across runtimes, and add an explicit,
   bounded, redacted stdio `initialize` smoke with process-tree cleanup.
+- **MCP ownership and environment isolation** — Give Claude, Codex, and Gemini
+  entries a strict per-target ownership ledger, refuse unowned same-name
+  collisions unless the interactive user explicitly adopts them, restore the
+  first original entry on uninstall, preserve post-install edits, and launch
+  every MCP child with only a minimal base environment plus server-approved
+  values.
+- **Crash-safe Codex mode** — Reject symlink/junction ancestors, validate strict
+  ownership and transaction schemas, snapshot every target before mutation,
+  block concurrent lifecycle work after interruption, and add
+  `ccg codex-mode recover` with hard-termination regression coverage.
+- **Fail-closed wrapper installation** — Treat unsupported platforms, download
+  failures, digest mismatches, and version mismatches as fatal initialization
+  errors with one explicit remediation path; remove the contradictory
+  non-blocking wording and unreachable warning branch.
+- **Reliable MCP diagnostics** — Skip paid/active smoke attempts after static
+  configuration failure, propagate top-level CLI failures through a nonzero
+  exit status, and redact launcher-loaded credentials while keeping unrelated
+  parent credentials out of MCP child environments.
 - **Trellis hook delegation** — Detect Trellis projects before CCG task state,
   delegate through the active Python interpreter, and fail closed to
   Trellis-only guidance so `.ccg/tasks` is never created in a Trellis-owned

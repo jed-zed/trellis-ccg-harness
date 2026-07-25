@@ -1,10 +1,18 @@
 import type { McpServerConfig } from './mcp'
 import { spawnSync } from 'node:child_process'
 import { homedir } from 'node:os'
+import { basename, isAbsolute, relative, resolve } from 'node:path'
 import fs from 'fs-extra'
 import { join } from 'pathe'
 import { buildMcpServerConfig } from './mcp'
 import { PACKAGE_ROOT } from './installer-template'
+import {
+  assertManagedPath,
+  ensureManagedRoot,
+  safeManagedAtomicWrite,
+  safeManagedEnsureDirectory,
+  safeManagedRemoveFile,
+} from './managed-path'
 
 interface SecretBackedMcpOptions {
   serverId: string
@@ -14,13 +22,22 @@ interface SecretBackedMcpOptions {
   homeDir?: string
 }
 
-interface SecretMcpSpec {
+export interface SecretMcpSpec {
   schemaVersion: 1
   serverId: string
   command: string
   args: string[]
   env: Record<string, string>
 }
+
+export interface ResolvedSecretMcpLaunch {
+  command: string
+  args: string[]
+  env: Record<string, string>
+  secrets: string[]
+}
+
+const MAX_SECRET_SPEC_BYTES = 1024 * 1024
 
 interface WindowsAclEntry {
   identitySid?: string
@@ -66,6 +83,99 @@ function assertServerId(serverId: string): void {
     throw new Error(`Unsafe MCP server id: ${serverId}`)
 }
 
+function validateSecretMcpSpec(value: unknown): SecretMcpSpec {
+  if (!value || typeof value !== 'object' || Array.isArray(value))
+    throw new Error('MCP secret specification root must be an object.')
+  const spec = value as Partial<SecretMcpSpec>
+  if (spec.schemaVersion !== 1)
+    throw new Error('MCP secret specification schema is unsupported.')
+  assertServerId(String(spec.serverId ?? ''))
+  if (typeof spec.command !== 'string' || spec.command.length === 0)
+    throw new Error('MCP secret specification command is missing.')
+  if (!Array.isArray(spec.args) || spec.args.some(arg => typeof arg !== 'string'))
+    throw new Error('MCP secret specification arguments are invalid.')
+  if (!spec.env || typeof spec.env !== 'object' || Array.isArray(spec.env))
+    throw new Error('MCP secret specification environment is invalid.')
+  for (const [key, entry] of Object.entries(spec.env)) {
+    if (!/^[a-z_][a-z0-9_]*$/i.test(key) || typeof entry !== 'string')
+      throw new Error('MCP secret specification environment entry is invalid.')
+  }
+  return spec as SecretMcpSpec
+}
+
+function secretSpecArgument(config: McpServerConfig): string | null {
+  const args = config.args ?? []
+  const launcherIndexes = args
+    .map((arg, index) => basename(arg) === 'mcp-secret-launcher.mjs' ? index : -1)
+    .filter(index => index >= 0)
+  if (launcherIndexes.length === 0)
+    return null
+  if (launcherIndexes.length !== 1)
+    throw new Error('MCP secret launcher configuration is ambiguous.')
+  const launcherIndex = launcherIndexes[0]
+  const direct = config.command === 'node'
+    && launcherIndex === 0
+    && args.length === 2
+  const windowsWrapped = config.command === 'cmd'
+    && launcherIndex === 2
+    && args.length === 4
+    && args[0]?.toLowerCase() === '/c'
+    && args[1]?.toLowerCase() === 'node'
+  if (!direct && !windowsWrapped)
+    throw new Error('MCP secret launcher configuration has an unsafe command shape.')
+  return args[launcherIndex + 1]
+}
+
+export async function resolveSecretBackedMcpConfig(
+  config: McpServerConfig,
+  homeDir: string = homedir(),
+): Promise<ResolvedSecretMcpLaunch | null> {
+  const specPath = secretSpecArgument(config)
+  if (specPath === null)
+    return null
+  if (!specPath || !isAbsolute(specPath))
+    throw new Error('MCP secret specification path must be absolute.')
+  await ensureManagedRoot(homeDir)
+  const relativeSpec = relative(resolve(homeDir), resolve(specPath))
+    .replace(/\\/g, '/')
+  const managedSpec = await assertManagedPath(
+    homeDir,
+    relativeSpec,
+    'file',
+  )
+  const metadata = await fs.lstat(managedSpec)
+  if (!metadata.isFile() || metadata.isSymbolicLink())
+    throw new Error('MCP secret specification must be a regular file.')
+  if (metadata.size > MAX_SECRET_SPEC_BYTES)
+    throw new Error('MCP secret specification exceeds the size limit.')
+  if (process.platform !== 'win32' && (metadata.mode & 0o077) !== 0)
+    throw new Error('MCP secret specification permissions must be 0600.')
+
+  const trustedRoot = await fs.realpath(
+    resolve(homeDir, '.claude', '.ccg', 'secrets'),
+  )
+  const canonicalSpec = await fs.realpath(managedSpec)
+  const delta = relative(trustedRoot, canonicalSpec)
+  if (
+    delta === '..'
+    || delta.startsWith(`..${process.platform === 'win32' ? '\\' : '/'}`)
+    || isAbsolute(delta)
+  ) {
+    throw new Error('MCP secret specification is outside the trusted directory.')
+  }
+  const spec = validateSecretMcpSpec(
+    JSON.parse(await fs.readFile(canonicalSpec, 'utf8')),
+  )
+  if (basename(canonicalSpec) !== `${spec.serverId}.json`)
+    throw new Error('MCP secret specification filename does not match its server id.')
+  return {
+    command: spec.command,
+    args: [...spec.args],
+    env: { ...spec.env },
+    secrets: Object.values(spec.env),
+  }
+}
+
 function secretPaths(serverId: string, homeDir: string): {
   secretsDir: string
   secretPath: string
@@ -82,6 +192,13 @@ function secretPaths(serverId: string, homeDir: string): {
     launcherDir,
     launcherPath: join(launcherDir, 'mcp-secret-launcher.mjs'),
   }
+}
+
+export function mcpSecretSpecPath(
+  serverId: string,
+  homeDir: string = homedir(),
+): string {
+  return secretPaths(serverId, homeDir).secretPath
 }
 
 function windowsPowerShellPath(): string {
@@ -151,30 +268,16 @@ function ownerOnlyWindowsAcl(path: string): void {
     throw new Error('Unable to verify the owner-only Windows ACL for the MCP secret directory.')
 }
 
-async function ensurePrivateDirectory(path: string): Promise<void> {
-  await fs.ensureDir(path, 0o700)
+async function ensurePrivateDirectory(
+  homeDir: string,
+  relativePath: string,
+): Promise<string> {
+  const path = await safeManagedEnsureDirectory(homeDir, relativePath)
   if (process.platform === 'win32')
     ownerOnlyWindowsAcl(path)
   else
     await fs.chmod(path, 0o700)
-}
-
-async function atomicPrivateJson(path: string, value: unknown): Promise<void> {
-  const temporary = `${path}.tmp-${process.pid}-${Date.now()}`
-  try {
-    await fs.writeFile(temporary, `${JSON.stringify(value, null, 2)}\n`, {
-      encoding: 'utf8',
-      mode: 0o600,
-    })
-    if (process.platform !== 'win32')
-      await fs.chmod(temporary, 0o600)
-    await fs.move(temporary, path, { overwrite: true })
-    if (process.platform !== 'win32')
-      await fs.chmod(path, 0o600)
-  }
-  finally {
-    await fs.remove(temporary)
-  }
+  return path
 }
 
 export async function createSecretBackedMcpConfig(
@@ -182,8 +285,9 @@ export async function createSecretBackedMcpConfig(
 ): Promise<McpServerConfig> {
   const homeDir = options.homeDir ?? homedir()
   const paths = secretPaths(options.serverId, homeDir)
-  await ensurePrivateDirectory(paths.secretsDir)
-  await fs.ensureDir(paths.launcherDir)
+  await ensureManagedRoot(homeDir)
+  await ensurePrivateDirectory(homeDir, '.claude/.ccg/secrets')
+  await safeManagedEnsureDirectory(homeDir, '.claude/.ccg/engine/tools')
 
   const launcherSource = join(
     PACKAGE_ROOT,
@@ -195,9 +299,12 @@ export async function createSecretBackedMcpConfig(
   if (!(await fs.pathExists(launcherSource)))
     throw new Error('MCP secret launcher is missing from the trusted CCG package.')
 
-  await fs.copy(launcherSource, paths.launcherPath, { overwrite: true })
-  if (process.platform !== 'win32')
-    await fs.chmod(paths.launcherPath, 0o700)
+  await safeManagedAtomicWrite(
+    homeDir,
+    '.claude/.ccg/engine/tools/mcp-secret-launcher.mjs',
+    await fs.readFile(launcherSource),
+    0o700,
+  )
 
   const child = buildMcpServerConfig({
     type: 'stdio',
@@ -214,7 +321,11 @@ export async function createSecretBackedMcpConfig(
     args: child.args ?? [],
     env: { ...options.env },
   }
-  await atomicPrivateJson(paths.secretPath, spec)
+  await safeManagedAtomicWrite(
+    homeDir,
+    `.claude/.ccg/secrets/${options.serverId}.json`,
+    `${JSON.stringify(spec, null, 2)}\n`,
+  )
 
   return buildMcpServerConfig({
     type: 'stdio',
@@ -227,8 +338,12 @@ export async function removeSecretBackedMcpConfig(
   serverId: string,
   homeDir: string = homedir(),
 ): Promise<void> {
-  const { secretPath } = secretPaths(serverId, homeDir)
-  await fs.remove(secretPath)
+  assertServerId(serverId)
+  await ensureManagedRoot(homeDir)
+  await safeManagedRemoveFile(
+    homeDir,
+    `.claude/.ccg/secrets/${serverId}.json`,
+  )
 }
 
 function containsCredentialUrl(value: string): boolean {

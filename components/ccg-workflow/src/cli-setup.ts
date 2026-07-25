@@ -12,7 +12,7 @@ import { init } from './commands/init'
 import { showMainMenu } from './commands/menu'
 import { i18n, initI18n } from './i18n'
 import { readCcgConfig, resolveCliIntelligenceFlag } from './utils/config'
-import { installCodexMode, uninstallCodexMode, uninstallWorkflows } from './utils/installer'
+import { installCodexMode, recoverCodexMode, uninstallCodexMode, uninstallWorkflows } from './utils/installer'
 
 function customizeHelp(sections: any[]): any[] {
   sections.unshift({
@@ -31,7 +31,7 @@ function customizeHelp(sections: any[]): any[] {
       `  ${ansis.cyan('ccg doctor')}       Check installation health`,
       `  ${ansis.cyan('ccg grok login')}   Sign in to the isolated Grok intelligence profile`,
       `  ${ansis.cyan('ccg status')}       Show installation overview`,
-      `  ${ansis.cyan('ccg codex-mode')}   Install/uninstall Codex-Led mode`,
+      `  ${ansis.cyan('ccg codex-mode')}   Install/uninstall/recover Codex-Led mode`,
       `  ${ansis.cyan('ccg uninstall')}    Uninstall CCG (non-interactive)`,
       '',
       ansis.gray(`  ${i18n.t('cli:help.shortcuts')}`),
@@ -189,7 +189,7 @@ export async function setupCommands(cli: CAC): Promise<void> {
 
   // Codex mode: non-interactive install/uninstall
   cli
-    .command('codex-mode <action>', 'Install or uninstall Codex-Led mode (non-interactive)')
+    .command('codex-mode <action>', 'Install, uninstall, or recover Codex-Led mode (non-interactive)')
     .action(async (action: string) => {
       if (action === 'install') {
         const result = await installCodexMode()
@@ -213,9 +213,24 @@ export async function setupCommands(cli: CAC): Promise<void> {
           process.exitCode = 1
         }
       }
+      else if (action === 'recover') {
+        const result = await recoverCodexMode()
+        if (result.success) {
+          console.log(ansis.green(
+            result.recovered
+              ? '✓ Codex mode transaction recovered'
+              : '✓ No Codex mode recovery was needed',
+          ))
+          console.log(result.message)
+        }
+        else {
+          console.error(ansis.red(`✗ ${result.message}`))
+          process.exitCode = 1
+        }
+      }
       else {
         console.error(ansis.red(`Unknown action: ${action}`))
-        console.log(ansis.gray('Usage: ccg codex-mode <install|uninstall>'))
+        console.log(ansis.gray('Usage: ccg codex-mode <install|uninstall|recover>'))
         process.exitCode = 1
       }
     })

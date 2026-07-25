@@ -399,6 +399,15 @@ describe('installWorkflows — binary installation', () => {
     expect(sourceVersion).toBe(EXPECTED_BINARY_VERSION)
   })
 
+  it('defines every wrapper acquisition or verification failure as fatal', async () => {
+    const installer = await import('../installer')
+    const source = readFileSync(join(PACKAGE_ROOT, 'src', 'utils', 'installer.ts'), 'utf8')
+    expect(installer.BINARY_INSTALL_FAILURE_POLICY).toBe('fatal')
+    expect(source).not.toContain('Binary verification failed (non-blocking)')
+    expect(source).not.toContain('Failed to install codeagent-wrapper (non-blocking)')
+    expect(source).toContain('recordFatalBinaryFailure')
+  })
+
   it('pins a trusted SHA-256 digest for every personal release asset', () => {
     expect(Object.keys(EXPECTED_BINARY_SHA256).sort()).toEqual([
       'codeagent-wrapper-darwin-amd64',

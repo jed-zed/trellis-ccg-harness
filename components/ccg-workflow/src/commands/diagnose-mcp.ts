@@ -87,7 +87,14 @@ export async function diagnoseMcp(options: DiagnoseMcpOptions = {}): Promise<Dia
     console.log(ansis.gray('     npx ccg fix-mcp'))
   }
 
-  const smokeReports = options.smoke
+  const hasFatalStaticIssue = issues.some(issue => issue.startsWith('❌'))
+  if (options.smoke && hasFatalStaticIssue) {
+    console.log()
+    console.log(ansis.yellow(
+      '  ⚠️  MCP smoke skipped because static configuration diagnostics failed.',
+    ))
+  }
+  const smokeReports = options.smoke && !hasFatalStaticIssue
     ? await runConfiguredMcpSmokes(resolveSmokeTimeout(options.timeout))
     : []
 

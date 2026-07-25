@@ -6,7 +6,7 @@ import fs from 'fs-extra'
 import { basename, join } from 'pathe'
 import { getLegacyCommandIds, getWorkflowById } from './installer-data'
 import { PACKAGE_ROOT, injectConfigVariables, replaceHomePathsInTemplate } from './installer-template'
-import { installCodexModeAt, uninstallCodexModeAt } from './codex-mode'
+import { installCodexModeAt, recoverCodexModeAt, uninstallCodexModeAt } from './codex-mode'
 import { installSkillCommands } from './skill-registry'
 
 // ═══════════════════════════════════════════════════════
@@ -40,7 +40,10 @@ export {
   uninstallFastContext,
   uninstallMcpServer,
 } from './installer-mcp'
-export type { ContextWeaverConfig } from './installer-mcp'
+export type {
+  ContextWeaverConfig,
+  McpInstallOptions,
+} from './installer-mcp'
 
 export {
   removeFastContextPrompt,
@@ -64,6 +67,7 @@ export type { SkillMeta } from './skill-registry'
  * When this differs from the installed binary, update triggers re-download.
  */
 export const EXPECTED_BINARY_VERSION = '5.12.2'
+export const BINARY_INSTALL_FAILURE_POLICY = 'fatal' as const
 
 /**
  * Trusted digests published by the authoritative personal fork's `preset`
@@ -626,6 +630,14 @@ export async function uninstallCodexMode(): Promise<{ success: boolean, removed:
   return uninstallCodexModeAt()
 }
 
+export async function recoverCodexMode(): Promise<{
+  success: boolean
+  recovered: boolean
+  message: string
+}> {
+  return recoverCodexModeAt()
+}
+
 /**
  * Install rule .md files from templates/rules/ → ~/.claude/rules/
  */
@@ -687,10 +699,10 @@ export async function verifyBinaryVersion(installDir: string): Promise<boolean> 
 }
 
 /**
- * Show prominent red-box warning when codeagent-wrapper binary download failed.
- * Used by both init and update flows to provide manual fix instructions.
+ * Explain how to recover after a fatal codeagent-wrapper installation failure.
+ * Initialization is not successful until a pinned binary is verified.
  */
-export function showBinaryDownloadWarning(binDir: string): void {
+export function showBinaryInstallFailure(binDir: string): void {
   const binaryExt = process.platform === 'win32' ? '.exe' : ''
   const platformLabel = process.platform === 'darwin'
     ? (process.arch === 'arm64' ? 'darwin-arm64' : 'darwin-amd64')
@@ -703,12 +715,12 @@ export function showBinaryDownloadWarning(binDir: string): void {
 
   console.log()
   console.log(ansis.red.bold(`  ╔════════════════════════════════════════════════════════════╗`))
-  console.log(ansis.red.bold(`  ║  ⚠  codeagent-wrapper 下载失败                            ║`))
-  console.log(ansis.red.bold(`  ║     Binary download failed (network issue)                 ║`))
+  console.log(ansis.red.bold(`  ║  ✗  codeagent-wrapper 安装失败，初始化已停止              ║`))
+  console.log(ansis.red.bold(`  ║     Binary verification failed; initialization stopped     ║`))
   console.log(ansis.red.bold(`  ╚════════════════════════════════════════════════════════════╝`))
   console.log()
-  console.log(ansis.yellow(`  多模型协作命令 (/ccg:workflow, /ccg:plan 等) 需要此文件才能工作。`))
-  console.log(ansis.yellow(`  Multi-model commands require this binary to work.`))
+  console.log(ansis.yellow(`  当前安装不可用；固定版本二进制通过摘要和版本校验后才算成功。`))
+  console.log(ansis.yellow(`  This installation is unusable until the pinned binary passes verification.`))
   console.log()
   console.log(ansis.cyan(`  手动修复 / Manual fix:`))
   console.log()
@@ -727,9 +739,15 @@ export function showBinaryDownloadWarning(binDir: string): void {
     console.log(ansis.cyan(`       chmod +x "${binDir}/${destFileName}"`))
     console.log()
   }
-  console.log(ansis.white(`    或重新安装 / Or re-install:`))
+  console.log(ansis.white(`    3. 重新运行并等待成功结果 / Re-run and require success:`))
   console.log(ansis.cyan(`       ccg init --force`))
   console.log()
+}
+
+function recordFatalBinaryFailure(ctx: InstallContext, message: string): void {
+  ctx.result.binInstalled = false
+  ctx.result.success = false
+  ctx.result.errors.push(`Fatal codeagent-wrapper installation failure: ${message}`)
 }
 
 /**
@@ -744,8 +762,10 @@ async function installBinaryFile(ctx: InstallContext): Promise<void> {
 
     const binaryName = getBinaryName()
     if (!binaryName) {
-      ctx.result.errors.push(`Unsupported platform: ${process.platform}`)
-      ctx.result.success = false
+      recordFatalBinaryFailure(
+        ctx,
+        `unsupported platform: ${process.platform}`,
+      )
       return
     }
 
@@ -753,8 +773,10 @@ async function installBinaryFile(ctx: InstallContext): Promise<void> {
     const destBinary = join(binDir, `codeagent-wrapper${binaryExt}`)
     const expectedSha256 = EXPECTED_BINARY_SHA256[binaryName]
     if (!expectedSha256) {
-      ctx.result.errors.push(`No trusted SHA-256 is recorded for ${binaryName}.`)
-      ctx.result.success = false
+      recordFatalBinaryFailure(
+        ctx,
+        `no trusted SHA-256 is recorded for ${binaryName}.`,
+      )
       return
     }
 
@@ -792,28 +814,38 @@ async function installBinaryFile(ctx: InstallContext): Promise<void> {
           const detail = promotion.reason === 'integrity-mismatch'
             ? `Binary integrity mismatch: expected ${expectedSha256}, got ${promotion.actualSha256 ?? 'unknown'}.`
             : `Binary version mismatch: expected ${EXPECTED_BINARY_VERSION}, got ${promotion.actualVersion ?? 'unknown'}.`
-          ctx.result.errors.push(`${detail} Existing binary was preserved.`)
+          recordFatalBinaryFailure(
+            ctx,
+            `${detail} Existing binary was preserved.`,
+          )
         }
       }
       catch (verifyError) {
-        ctx.result.errors.push(`Binary verification failed (non-blocking): ${verifyError}`)
+        recordFatalBinaryFailure(
+          ctx,
+          `binary verification failed: ${verifyError}`,
+        )
         await fs.remove(candidateBinary)
       }
     }
     else {
       const observed = [...new Set(download.observedDigests)]
       if (observed.length > 0) {
-        ctx.result.errors.push(
-          `Binary integrity mismatch: expected ${expectedSha256}, downloaded ${observed.join(', ')}. Existing binary was preserved.`,
+        recordFatalBinaryFailure(
+          ctx,
+          `binary integrity mismatch: expected ${expectedSha256}, downloaded ${observed.join(', ')}. Existing binary was preserved.`,
         )
       }
       else {
-        ctx.result.errors.push(`Failed to download binary: ${binaryName} from the personal GitHub release after bounded retries. Check network or visit https://github.com/${GITHUB_REPO}/releases/tag/${RELEASE_TAG}`)
+        recordFatalBinaryFailure(
+          ctx,
+          `failed to download ${binaryName} from the personal GitHub release after bounded retries. Check network or visit https://github.com/${GITHUB_REPO}/releases/tag/${RELEASE_TAG}`,
+        )
       }
     }
   }
   catch (error) {
-    ctx.result.errors.push(`Failed to install codeagent-wrapper (non-blocking): ${error}`)
+    recordFatalBinaryFailure(ctx, String(error))
   }
   finally {
     if (candidateBinary) await fs.remove(candidateBinary).catch(() => {})
