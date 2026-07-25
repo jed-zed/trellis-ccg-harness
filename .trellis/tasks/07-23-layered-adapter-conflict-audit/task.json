@@ -15,7 +15,7 @@
   "branch": "codex/integrate-harness-collaboration",
   "base_branch": "main",
   "worktree_path": null,
-  "commit": "80a7ece8c7f5e1b805b484507bc305bedfd6f446",
+  "commit": "d2ca6eb88c7a1e927daa67324065a341a4dab7f2",
   "pr_url": "https://github.com/jed-zed/trellis-ccg-harness/pull/2",
   "subtasks": [],
   "children": [],
