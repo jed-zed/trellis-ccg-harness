@@ -192,6 +192,23 @@ security reference files.
   warnings in the portable initializer module. Eleven warnings are added by
   the lock/journal/CAS/recovery paths required by this review; no gate,
   validation, backup, or recovery branch was removed to reduce that count.
+- After PR #1 merged as `370f1f6`, PR #2 was rebased from `5b874af` onto the
+  merged `main`. Seven overlapping initializer, task, documentation, and test
+  files were reconciled without dropping PR #1's later hardening. In
+  particular, ownership schema v2 now retains the installed project-schema
+  SHA-256, legacy ownership with or without that field migrates only after the
+  installed schema matches the distribution asset, and changed schema bytes
+  still fail closed.
+- Post-rebase local verification passed: 37 focused initializer tests, 122
+  complete Harness tests, CCG lint/typecheck/build and 453 tests across 30
+  files, source verification at CCG commit `84d9dd8` and tree `c8afbd5`,
+  doctor, and conflict audit with 0 blocking, 0 warning, 3 informational
+  findings, and 15 passed checks.
+- Post-rebase CCG change and security scans passed with zero findings. The
+  structural quality scan passed with 0 errors and 37 non-blocking complexity
+  warnings in the portable initializer module. The first full CCG test run hit
+  one Windows temporary-directory `ENOTEMPTY` cleanup race; the isolated 13-test
+  file and the complete 453-test suite both passed on immediate rerun.
 - The automatic external-intelligence pre-route was intentionally skipped:
   the accepted Trellis task forbids Grok for this work, while the local route
   is enabled and could invoke it. All CCG verification ran locally.
