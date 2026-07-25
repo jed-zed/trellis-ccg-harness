@@ -117,11 +117,10 @@ function assertProviders(providers) {
   assertObject(providers, "providers");
   for (const provider of ["codex", "gemini", "claude", "grok", "gptPro"]) {
     assertObject(providers[provider], `providers.${provider}`);
-    if (typeof providers[provider].enabled !== "boolean") {
-      throw new Error(`providers.${provider}.enabled must be boolean.`);
-    }
-    if (typeof providers[provider].workspaceWrite !== "boolean") {
-      throw new Error(`providers.${provider}.workspaceWrite must be boolean.`);
+    for (const field of ["enabled", "workspaceWrite"]) {
+      if (typeof providers[provider][field] !== "boolean") {
+        throw new Error(`providers.${provider}.${field} must be boolean.`);
+      }
     }
   }
   if (!providers.codex.enabled || !providers.codex.workspaceWrite) {
@@ -147,34 +146,28 @@ function assertProviders(providers) {
   }
 }
 
-export function validateProjectContract(
-  contract,
-  { requireApproved = false } = {},
-) {
-  assertObject(contract, "Project contract");
-  assertNoCredentials(contract);
-  if (contract.schemaVersion !== 1) {
-    throw new Error("Project contract schemaVersion must be 1.");
+function assertContractObjects(contract) {
+  for (const field of [
+    "project",
+    "authorities",
+    "workflow",
+    "toolchain",
+    "qualityGates",
+    "security",
+    "hooks",
+    "source",
+    "ci",
+    "approval",
+  ]) {
+    assertObject(contract[field], field);
   }
-  if (!CONTRACT_STATUSES.has(contract.status)) {
-    throw new Error("Project contract status is unsupported.");
-  }
-
-  assertObject(contract.project, "project");
-  assertObject(contract.authorities, "authorities");
-  assertObject(contract.workflow, "workflow");
-  assertObject(contract.toolchain, "toolchain");
-  assertObject(contract.qualityGates, "qualityGates");
-  assertObject(contract.security, "security");
-  assertObject(contract.hooks, "hooks");
-  assertObject(contract.source, "source");
-  assertObject(contract.ci, "ci");
-  assertObject(contract.approval, "approval");
   if (!Array.isArray(contract.unresolvedDecisions)) {
     throw new Error("unresolvedDecisions must be an array.");
   }
+}
 
-  const expectedAuthorities = {
+function assertContractAuthorities(authorities) {
+  const expected = {
     lifecycle: "trellis",
     tasks: ".trellis/tasks",
     requirements: ".trellis/tasks",
@@ -182,11 +175,14 @@ export function validateProjectContract(
     intelligence: "ccg",
     workspaceWriter: "codex",
   };
-  for (const [key, expected] of Object.entries(expectedAuthorities)) {
-    if (contract.authorities[key] !== expected) {
-      throw new Error(`authorities.${key} must be ${expected}.`);
+  for (const [key, value] of Object.entries(expected)) {
+    if (authorities[key] !== value) {
+      throw new Error(`authorities.${key} must be ${value}.`);
     }
   }
+}
+
+function assertContractWorkflow(contract) {
   if (contract.workflow.dispatchMode !== "inline") {
     throw new Error("workflow.dispatchMode must be inline.");
   }
@@ -211,7 +207,9 @@ export function validateProjectContract(
   ]) {
     assertStringArray(contract.qualityGates[field], `qualityGates.${field}`);
   }
-  assertProviders(contract.providers);
+}
+
+function assertContractSecurity(contract) {
   if (contract.security.credentialFieldsForbidden !== true) {
     throw new Error("Credential fields must remain forbidden.");
   }
@@ -233,46 +231,73 @@ export function validateProjectContract(
   if (contract.ci.offlineByDefault !== true) {
     throw new Error("CI must remain offline by default.");
   }
+}
 
-  if (requireApproved) {
-    if (contract.status !== "approved") {
-      throw new Error(
-        "Project contract must have status approved before initialization.",
-      );
-    }
-    if (contract.unresolvedDecisions.length !== 0) {
-      throw new Error(
-        "Approved project contract cannot contain unresolved decisions.",
-      );
-    }
-    for (const field of ["name", "purpose", "adoptionMode"]) {
-      assertString(contract.project[field], `project.${field}`);
-    }
-    if (contract.project.repositoryRoot !== ".") {
-      throw new Error("project.repositoryRoot must be '.'.");
-    }
-    assertString(contract.security.dataClassification, "security.dataClassification");
-    assertString(contract.security.networkPolicy, "security.networkPolicy");
-    for (const field of [
-      "dependencyPolicy",
-      "updatePolicy",
-      "rollbackPolicy",
-      "uninstallPolicy",
-    ]) {
-      assertString(contract.source[field], `source.${field}`);
-    }
-    assertString(contract.approval.approvedBy, "approval.approvedBy");
-    assertString(contract.approval.approvedAt, "approval.approvedAt");
-    if (Number.isNaN(Date.parse(contract.approval.approvedAt))) {
-      throw new Error("approval.approvedAt must be an ISO date-time.");
-    }
-  } else {
-    for (const field of ["name", "purpose", "adoptionMode"]) {
-      assertString(contract.project[field], `project.${field}`, {
-        allowNull: contract.status === "draft",
-      });
-    }
+function assertApprovedContract(contract) {
+  if (contract.status !== "approved") {
+    throw new Error(
+      "Project contract must have status approved before initialization.",
+    );
   }
+  if (contract.unresolvedDecisions.length !== 0) {
+    throw new Error(
+      "Approved project contract cannot contain unresolved decisions.",
+    );
+  }
+  for (const field of ["name", "purpose", "adoptionMode"]) {
+    assertString(contract.project[field], `project.${field}`);
+  }
+  if (contract.project.repositoryRoot !== ".") {
+    throw new Error("project.repositoryRoot must be '.'.");
+  }
+  assertString(
+    contract.security.dataClassification,
+    "security.dataClassification",
+  );
+  assertString(contract.security.networkPolicy, "security.networkPolicy");
+  for (const field of [
+    "dependencyPolicy",
+    "updatePolicy",
+    "rollbackPolicy",
+    "uninstallPolicy",
+  ]) {
+    assertString(contract.source[field], `source.${field}`);
+  }
+  assertString(contract.approval.approvedBy, "approval.approvedBy");
+  assertString(contract.approval.approvedAt, "approval.approvedAt");
+  if (Number.isNaN(Date.parse(contract.approval.approvedAt))) {
+    throw new Error("approval.approvedAt must be an ISO date-time.");
+  }
+}
+
+function assertDraftProjectFields(contract) {
+  for (const field of ["name", "purpose", "adoptionMode"]) {
+    assertString(contract.project[field], `project.${field}`, {
+      allowNull: contract.status === "draft",
+    });
+  }
+}
+
+export function validateProjectContract(
+  contract,
+  { requireApproved = false } = {},
+) {
+  assertObject(contract, "Project contract");
+  assertNoCredentials(contract);
+  if (contract.schemaVersion !== 1) {
+    throw new Error("Project contract schemaVersion must be 1.");
+  }
+  if (!CONTRACT_STATUSES.has(contract.status)) {
+    throw new Error("Project contract status is unsupported.");
+  }
+
+  assertContractObjects(contract);
+  assertContractAuthorities(contract.authorities);
+  assertContractWorkflow(contract);
+  assertProviders(contract.providers);
+  assertContractSecurity(contract);
+  if (requireApproved) assertApprovedContract(contract);
+  else assertDraftProjectFields(contract);
   return contract;
 }
 

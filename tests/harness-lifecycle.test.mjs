@@ -8,15 +8,17 @@ import {
   buildBootstrapOwnership,
   buildRestoreAction,
   assertSparseExclusionsUnchanged,
+  compareSemanticVersions,
   parseSparseArchiveExclusions,
   parseLifecycleArgs,
   resolvePackageManagerInvocation,
+  updateTrellisProvenanceText,
   validateUpdateSource,
 } from "../scripts/lib/harness-lifecycle.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
-test("update parsing requires a full explicit personal commit", () => {
+test("update parsing accepts exactly one explicit CCG or Trellis target", () => {
   const parsed = parseLifecycleArgs([
     "update",
     "--ccg-commit",
@@ -28,13 +30,87 @@ test("update parsing requires a full explicit personal commit", () => {
   assert.equal(parsed.ccgCommit, "a".repeat(40));
   assert.equal(parsed.sourceCheckout, path.resolve("C:/personal/ccg"));
 
+  const trellis = parseLifecycleArgs([
+    "update",
+    "--trellis-version",
+    "0.7.0",
+  ]);
+  assert.equal(trellis.trellisVersion, "0.7.0");
+  assert.equal(trellis.ccgCommit, null);
+
   assert.throws(
     () => parseLifecycleArgs(["update", "--ccg-commit", "main"]),
     /40-character/i,
   );
   assert.throws(
     () => parseLifecycleArgs(["update"]),
-    /ccg-commit/i,
+    /ccg-commit|trellis-version/i,
+  );
+  assert.throws(
+    () =>
+      parseLifecycleArgs([
+        "update",
+        "--ccg-commit",
+        "a".repeat(40),
+        "--trellis-version",
+        "0.7.0",
+      ]),
+    /one source|one target|separate transaction/i,
+  );
+  assert.throws(
+    () =>
+      parseLifecycleArgs([
+        "update",
+        "--trellis-version",
+        "latest",
+      ]),
+    /semantic version/i,
+  );
+  assert.throws(
+    () =>
+      parseLifecycleArgs([
+        "update",
+        "--trellis-version",
+        "01.2.3",
+      ]),
+    /semantic version/i,
+  );
+  assert.throws(
+    () =>
+      parseLifecycleArgs([
+        "update",
+        "--trellis-version",
+        "1.2.3-alpha..1",
+      ]),
+    /semantic version/i,
+  );
+});
+
+test("semantic version comparison follows prerelease precedence", () => {
+  assert.equal(compareSemanticVersions("0.6.9", "0.7.0"), -1);
+  assert.equal(compareSemanticVersions("1.0.0", "1.0.0-rc.1"), 1);
+  assert.equal(compareSemanticVersions("1.0.0-rc.10", "1.0.0-rc.2"), 1);
+  assert.equal(compareSemanticVersions("1.0.0-1", "1.0.0-alpha"), -1);
+  assert.equal(compareSemanticVersions("1.0.0-beta", "1.0.0-beta"), 0);
+});
+
+test("Trellis provenance replacement is exact and refuses stale README text", () => {
+  assert.equal(
+    updateTrellisProvenanceText(
+      "Use @mindfoldhq/trellis@0.6.9 here.\n",
+      "0.6.9",
+      "0.7.0",
+    ),
+    "Use @mindfoldhq/trellis@0.7.0 here.\n",
+  );
+  assert.throws(
+    () =>
+      updateTrellisProvenanceText(
+        "No version marker.\n",
+        "0.6.9",
+        "0.7.0",
+      ),
+    /exactly once/i,
   );
 });
 

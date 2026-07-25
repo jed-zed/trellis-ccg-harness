@@ -26,17 +26,22 @@ inject command and Fetch implementations, so CI never requires paid providers.
 Lifecycle mutation is a separate transaction boundary:
 
 1. acquire an exclusive Harness lock;
-2. verify the personal repository, full commit, tree, and clean checkout;
-3. export a candidate from the Git object database and reject runtime state;
-4. run CCG lint, typecheck, tests, build, Go gates, and root Harness tests;
-5. snapshot the current component and owned global installation state;
-6. replace atomically, write the source manifest, and run post-replacement gates;
-7. commit the transaction record only after success, otherwise restore the
+2. persist a phase journal before the first mutating rename or file copy;
+3. verify either the personal CCG commit/tree or exact Trellis version/integrity;
+4. generate a sparse candidate and reject runtime state, links, junctions,
+   protected-path materialization, and ownership-surface escapes;
+5. run the source-specific and root Harness gates;
+6. snapshot the current component or exact Trellis-managed files;
+7. apply the candidate, update the source manifest, and run post-apply gates;
+8. commit the transaction record only after success, otherwise restore the
    snapshot automatically.
 
-Rollback restores only a Harness-created snapshot. Uninstall changes global
-state only when its ownership record and installed digest still match; user
-edits are preserved and reported for manual handling.
+Rollback restores only a Harness-created snapshot. If the process dies outside
+normal exception handling, doctor blocks on the journal/lock and
+`harness:recover` either finishes committed cleanup or deterministically
+restores the pre-transaction state. Uninstall changes global state only when
+its ownership record and installed digest still match; user edits are
+preserved and reported for manual handling.
 
 ## Alternatives Considered
 

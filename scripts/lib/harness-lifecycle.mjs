@@ -2,6 +2,16 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 
 const FULL_SHA1 = /^[a-f0-9]{40}$/;
+const NUMERIC_IDENTIFIER = String.raw`(?:0|[1-9]\d*)`;
+const TEXT_IDENTIFIER =
+  String.raw`(?:[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)`;
+const PRERELEASE_IDENTIFIER =
+  `(?:${NUMERIC_IDENTIFIER}|${TEXT_IDENTIFIER})`;
+const SEMANTIC_VERSION = new RegExp(
+  `^(${NUMERIC_IDENTIFIER})\\.(${NUMERIC_IDENTIFIER})\\.`
+    + `(${NUMERIC_IDENTIFIER})(?:-((?:${PRERELEASE_IDENTIFIER})`
+    + `(?:\\.${PRERELEASE_IDENTIFIER})*))?$`,
+);
 const WINDOWS_NODE_LAUNCHERS = Object.freeze({
   npm: ["node_modules", "npm", "bin", "npm-cli.js"],
   pnpm: ["node_modules", "corepack", "dist", "pnpm.js"],
@@ -116,6 +126,10 @@ function applyLifecycleOption(result, args, index, command) {
     result.ccgCommit = requireValue(args, index, option).toLowerCase();
     return index + 1;
   }
+  if (option === "--trellis-version") {
+    result.trellisVersion = requireValue(args, index, option);
+    return index + 1;
+  }
   if (option === "--source-checkout") {
     result.sourceCheckout = path.resolve(requireValue(args, index, option));
     return index + 1;
@@ -131,13 +145,36 @@ function applyLifecycleOption(result, args, index, command) {
   throw new Error(`Unknown option for ${command}: ${option}`);
 }
 
-function assertUpdateArguments(result) {
-  if (!result.ccgCommit) {
-    throw new Error("update requires --ccg-commit <40-character SHA-1>.");
-  }
+function assertCcgUpdateArguments(result) {
   if (!FULL_SHA1.test(result.ccgCommit)) {
     throw new Error("CCG commit must be a full 40-character SHA-1.");
   }
+}
+
+function assertTrellisUpdateArguments(result) {
+  if (!SEMANTIC_VERSION.test(result.trellisVersion)) {
+    throw new Error("Trellis version must be an exact semantic version.");
+  }
+  if (result.sourceCheckout) {
+    throw new Error("--source-checkout is only valid for a CCG update.");
+  }
+}
+
+function assertUpdateArguments(result) {
+  const targets = [result.ccgCommit, result.trellisVersion].filter(Boolean);
+  if (targets.length === 0) {
+    throw new Error(
+      "update requires --ccg-commit <40-character SHA-1> or "
+      + "--trellis-version <semantic-version>.",
+    );
+  }
+  if (targets.length > 1) {
+    throw new Error(
+      "Update one source per separate transaction; do not combine CCG and Trellis targets.",
+    );
+  }
+  if (result.ccgCommit) return assertCcgUpdateArguments(result);
+  return assertTrellisUpdateArguments(result);
 }
 
 export function parseLifecycleArgs(argv) {
@@ -150,6 +187,7 @@ export function parseLifecycleArgs(argv) {
     command,
     repoRoot: process.cwd(),
     ccgCommit: null,
+    trellisVersion: null,
     sourceCheckout: null,
     manageTrellis: false,
     manageCcg: false,
@@ -161,6 +199,90 @@ export function parseLifecycleArgs(argv) {
   result.repoRoot = path.resolve(result.repoRoot);
   if (command === "update") assertUpdateArguments(result);
   return result;
+}
+
+function parseSemanticVersion(value) {
+  const match = SEMANTIC_VERSION.exec(String(value));
+  if (!match) {
+    throw new Error(`Invalid semantic version: ${value}.`);
+  }
+  return {
+    core: match.slice(1, 4),
+    prerelease: match[4] ? match[4].split(".") : null,
+  };
+}
+
+function compareNumericIdentifiers(left, right) {
+  if (left.length !== right.length) {
+    return left.length < right.length ? -1 : 1;
+  }
+  if (left === right) return 0;
+  return left < right ? -1 : 1;
+}
+
+function compareCoreIdentifiers(a, b) {
+  for (let index = 0; index < 3; index++) {
+    const compared = compareNumericIdentifiers(a.core[index], b.core[index]);
+    if (compared !== 0) return compared;
+  }
+  return 0;
+}
+
+function comparePrereleaseIdentifier(left, right) {
+  const leftNumeric = /^\d+$/.test(left);
+  const rightNumeric = /^\d+$/.test(right);
+  if (leftNumeric && rightNumeric) {
+    return compareNumericIdentifiers(left, right);
+  }
+  if (leftNumeric !== rightNumeric) return leftNumeric ? -1 : 1;
+  return left < right ? -1 : 1;
+}
+
+function comparePrereleaseIdentifiers(a, b) {
+  if (a.prerelease === null && b.prerelease === null) return 0;
+  if (a.prerelease === null) return 1;
+  if (b.prerelease === null) return -1;
+
+  const length = Math.max(a.prerelease.length, b.prerelease.length);
+  for (let index = 0; index < length; index++) {
+    const leftIdentifier = a.prerelease[index];
+    const rightIdentifier = b.prerelease[index];
+    if (leftIdentifier === undefined) return -1;
+    if (rightIdentifier === undefined) return 1;
+    if (leftIdentifier === rightIdentifier) continue;
+    return comparePrereleaseIdentifier(leftIdentifier, rightIdentifier);
+  }
+  return 0;
+}
+
+export function compareSemanticVersions(left, right) {
+  const a = parseSemanticVersion(left);
+  const b = parseSemanticVersion(right);
+  return compareCoreIdentifiers(a, b) || comparePrereleaseIdentifiers(a, b);
+}
+
+export function updateTrellisProvenanceText(
+  readme,
+  previousVersion,
+  nextVersion,
+) {
+  if (
+    !SEMANTIC_VERSION.test(String(previousVersion)) ||
+    !SEMANTIC_VERSION.test(String(nextVersion))
+  ) {
+    throw new Error("Trellis provenance versions must be exact semantic versions.");
+  }
+  const marker = `@mindfoldhq/trellis@${previousVersion}`;
+  const occurrences = String(readme).split(marker).length - 1;
+  if (occurrences !== 1) {
+    throw new Error(
+      `README must contain the previous Trellis provenance marker exactly once; found ${occurrences}.`,
+    );
+  }
+  return String(readme).replace(
+    marker,
+    `@mindfoldhq/trellis@${nextVersion}`,
+  );
 }
 
 function normalizeRepository(value, label) {

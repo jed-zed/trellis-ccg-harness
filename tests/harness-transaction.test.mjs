@@ -5,6 +5,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { spawn } from "node:child_process";
@@ -19,6 +20,7 @@ import {
   buildOwnedUninstallPlan,
   recoverInterruptedTransaction,
   replaceComponentTransaction,
+  replaceManagedFilesTransaction,
   rollbackLastTransaction,
 } from "../scripts/lib/harness-transaction.mjs";
 
@@ -105,6 +107,59 @@ function spawnInterruptedTransaction({ operation, repoRoot, candidate, marker })
   });
 }
 
+function managedFilesFixture() {
+  const value = fixture();
+  const candidateRoot = path.join(value.repoRoot, "trellis-candidate");
+  mkdirSync(path.join(value.repoRoot, ".trellis"), { recursive: true });
+  mkdirSync(
+    path.join(value.repoRoot, ".agents", "skills", "trellis-start"),
+    { recursive: true },
+  );
+  mkdirSync(path.join(candidateRoot, ".trellis"), { recursive: true });
+  mkdirSync(
+    path.join(candidateRoot, ".agents", "skills", "trellis-start"),
+    { recursive: true },
+  );
+  mkdirSync(path.join(candidateRoot, ".codex", "agents"), {
+    recursive: true,
+  });
+  writeFileSync(path.join(value.repoRoot, ".trellis", ".version"), "0.6.8\n");
+  writeFileSync(
+    path.join(
+      value.repoRoot,
+      ".agents",
+      "skills",
+      "trellis-start",
+      "SKILL.md",
+    ),
+    "old\n",
+  );
+  writeFileSync(path.join(candidateRoot, ".trellis", ".version"), "0.6.9\n");
+  writeFileSync(
+    path.join(
+      candidateRoot,
+      ".agents",
+      "skills",
+      "trellis-start",
+      "SKILL.md",
+    ),
+    "new\n",
+  );
+  writeFileSync(
+    path.join(candidateRoot, ".codex", "agents", "trellis-new.toml"),
+    "name = \"new\"\n",
+  );
+  return {
+    ...value,
+    candidateRoot,
+    managedPaths: [
+      ".trellis/.version",
+      ".agents/skills/trellis-start/SKILL.md",
+      ".codex/agents/trellis-new.toml",
+    ],
+  };
+}
+
 test("component replacement rolls back every owned path after interruption", async () => {
   const value = fixture();
   try {
@@ -168,6 +223,31 @@ test("component replacement rejects repository/runtime metadata before activatio
         "utf8",
       ),
       "old\n",
+    );
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("component replacement rejects symbolic links and junctions", async () => {
+  const value = fixture();
+  try {
+    const outside = path.join(value.repoRoot, "outside");
+    mkdirSync(outside);
+    writeFileSync(path.join(outside, "secret.txt"), "outside\n");
+    symlinkSync(
+      outside,
+      path.join(value.candidate, "linked-outside"),
+      process.platform === "win32" ? "junction" : "dir",
+    );
+    await assert.rejects(
+      replaceComponentTransaction({
+        repoRoot: value.repoRoot,
+        candidateDir: value.candidate,
+        commit: "c".repeat(40),
+        gitTree: "d".repeat(40),
+      }),
+      /symbolic link|junction|reparse/i,
     );
   } finally {
     value.cleanup();
@@ -406,6 +486,300 @@ test("explicit recovery clears a stale lock but refuses a live owner", async () 
     });
     assert.equal(result.outcome, "stale-lock-cleared");
     assert.equal(existsSync(lockPath), false);
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("managed Trellis files update and roll back through the shared lifecycle", async () => {
+  const value = managedFilesFixture();
+  try {
+    const record = await replaceManagedFilesTransaction({
+      repoRoot: value.repoRoot,
+      candidateRoot: value.candidateRoot,
+      paths: value.managedPaths,
+      kind: "trellis",
+      previous: { version: "0.6.8", integrity: "sha512-old" },
+      current: { version: "0.6.9", integrity: "sha512-new" },
+    });
+    assert.equal(record.operation, "managed-files");
+    assert.equal(
+      readFileSync(path.join(value.repoRoot, ".trellis", ".version"), "utf8"),
+      "0.6.9\n",
+    );
+    assert.equal(
+      readFileSync(
+        path.join(
+          value.repoRoot,
+          ".codex",
+          "agents",
+          "trellis-new.toml",
+        ),
+        "utf8",
+      ),
+      "name = \"new\"\n",
+    );
+
+    const rolledBack = await rollbackLastTransaction({
+      repoRoot: value.repoRoot,
+    });
+    assert.equal(rolledBack.status, "rolled-back");
+    assert.equal(
+      readFileSync(path.join(value.repoRoot, ".trellis", ".version"), "utf8"),
+      "0.6.8\n",
+    );
+    assert.equal(
+      existsSync(
+        path.join(
+          value.repoRoot,
+          ".codex",
+          "agents",
+          "trellis-new.toml",
+        ),
+      ),
+      false,
+    );
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("managed file recovery restores all originals after an interrupted apply", async () => {
+  const value = managedFilesFixture();
+  const marker = path.join(value.repoRoot, "managed-ready");
+  try {
+    const source = `
+      const api = await import(${JSON.stringify(TRANSACTION_MODULE)});
+      await api.replaceManagedFilesTransaction({
+        repoRoot: ${JSON.stringify(value.repoRoot)},
+        candidateRoot: ${JSON.stringify(value.candidateRoot)},
+        paths: ${JSON.stringify(value.managedPaths)},
+        kind: "trellis",
+        previous: { version: "0.6.8", integrity: "sha512-old" },
+        current: { version: "0.6.9", integrity: "sha512-new" },
+        afterApply: async () => {
+          (await import("node:fs/promises")).writeFile(
+            ${JSON.stringify(marker)},
+            "ready\\n",
+          );
+          setInterval(() => {}, 1000);
+          await new Promise(() => {});
+        },
+      });
+    `;
+    const child = spawn(
+      process.execPath,
+      ["--input-type=module", "-e", source],
+      { stdio: ["ignore", "pipe", "pipe"] },
+    );
+    await waitForFile(marker, child);
+    child.kill();
+    await once(child, "exit");
+
+    const result = await recoverInterruptedTransaction({
+      repoRoot: value.repoRoot,
+      isProcessAlive: () => false,
+    });
+    assert.equal(result.operation, "managed-files");
+    assert.equal(result.outcome, "rolled-back");
+    assert.equal(
+      readFileSync(path.join(value.repoRoot, ".trellis", ".version"), "utf8"),
+      "0.6.8\n",
+    );
+    assert.equal(
+      existsSync(
+        path.join(
+          value.repoRoot,
+          ".codex",
+          "agents",
+          "trellis-new.toml",
+        ),
+      ),
+      false,
+    );
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("managed file recovery reverses an interrupted rollback", async () => {
+  const value = managedFilesFixture();
+  const marker = path.join(value.repoRoot, "managed-rollback-ready");
+  try {
+    await replaceManagedFilesTransaction({
+      repoRoot: value.repoRoot,
+      candidateRoot: value.candidateRoot,
+      paths: value.managedPaths,
+      kind: "trellis",
+      previous: { version: "0.6.8", integrity: "sha512-old" },
+      current: { version: "0.6.9", integrity: "sha512-new" },
+    });
+    const source = `
+      const api = await import(${JSON.stringify(TRANSACTION_MODULE)});
+      await api.rollbackLastTransaction({
+        repoRoot: ${JSON.stringify(value.repoRoot)},
+        afterRestore: async () => {
+          (await import("node:fs/promises")).writeFile(
+            ${JSON.stringify(marker)},
+            "ready\\n",
+          );
+          setInterval(() => {}, 1000);
+          await new Promise(() => {});
+        },
+      });
+    `;
+    const child = spawn(
+      process.execPath,
+      ["--input-type=module", "-e", source],
+      { stdio: ["ignore", "pipe", "pipe"] },
+    );
+    await waitForFile(marker, child);
+    child.kill();
+    await once(child, "exit");
+
+    const result = await recoverInterruptedTransaction({
+      repoRoot: value.repoRoot,
+      isProcessAlive: () => false,
+    });
+    assert.equal(result.operation, "managed-files-rollback");
+    assert.equal(result.outcome, "rolled-back");
+    assert.equal(
+      readFileSync(path.join(value.repoRoot, ".trellis", ".version"), "utf8"),
+      "0.6.9\n",
+    );
+
+    await rollbackLastTransaction({ repoRoot: value.repoRoot });
+    assert.equal(
+      readFileSync(path.join(value.repoRoot, ".trellis", ".version"), "utf8"),
+      "0.6.8\n",
+    );
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("managed file updates reject candidate parent links and junctions", async () => {
+  const value = managedFilesFixture();
+  try {
+    const outside = path.join(value.repoRoot, "outside-managed");
+    mkdirSync(outside);
+    writeFileSync(
+      path.join(outside, "trellis-new.toml"),
+      "name = \"outside\"\n",
+    );
+    rmSync(path.join(value.candidateRoot, ".codex", "agents"), {
+      recursive: true,
+      force: true,
+    });
+    symlinkSync(
+      outside,
+      path.join(value.candidateRoot, ".codex", "agents"),
+      process.platform === "win32" ? "junction" : "dir",
+    );
+
+    await assert.rejects(
+      replaceManagedFilesTransaction({
+        repoRoot: value.repoRoot,
+        candidateRoot: value.candidateRoot,
+        paths: value.managedPaths,
+        kind: "trellis",
+        previous: { version: "0.6.8" },
+        current: { version: "0.6.9" },
+      }),
+      /symbolic link|junction|regular directory|path component/i,
+    );
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("managed recovery preserves a directory created after process death", async () => {
+  const value = managedFilesFixture();
+  const marker = path.join(value.repoRoot, "managed-directory-ready");
+  const managedTarget = path.join(
+    value.repoRoot,
+    ".codex",
+    "agents",
+    "trellis-new.toml",
+  );
+  try {
+    const source = `
+      const api = await import(${JSON.stringify(TRANSACTION_MODULE)});
+      await api.replaceManagedFilesTransaction({
+        repoRoot: ${JSON.stringify(value.repoRoot)},
+        candidateRoot: ${JSON.stringify(value.candidateRoot)},
+        paths: ${JSON.stringify(value.managedPaths)},
+        kind: "trellis",
+        previous: { version: "0.6.8" },
+        current: { version: "0.6.9" },
+        afterApply: async () => {
+          await (await import("node:fs/promises")).writeFile(
+            ${JSON.stringify(marker)},
+            "ready\\n",
+          );
+          setInterval(() => {}, 1000);
+          await new Promise(() => {});
+        },
+      });
+    `;
+    const child = spawn(
+      process.execPath,
+      ["--input-type=module", "-e", source],
+      { stdio: ["ignore", "pipe", "pipe"] },
+    );
+    await waitForFile(marker, child);
+    child.kill();
+    await once(child, "exit");
+
+    rmSync(managedTarget, { force: true });
+    mkdirSync(managedTarget);
+    writeFileSync(path.join(managedTarget, "keep.txt"), "user-owned\n");
+
+    await assert.rejects(
+      recoverInterruptedTransaction({
+        repoRoot: value.repoRoot,
+        isProcessAlive: () => false,
+      }),
+      /regular file|directory|managed/i,
+    );
+    assert.equal(
+      readFileSync(path.join(managedTarget, "keep.txt"), "utf8"),
+      "user-owned\n",
+    );
+    assert.equal(
+      existsSync(
+        path.join(
+          value.repoRoot,
+          ".harness-cache",
+          "transaction-journal.json",
+        ),
+      ),
+      true,
+    );
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("managed file updates reject paths outside the Trellis-owned surface", async () => {
+  const value = managedFilesFixture();
+  try {
+    mkdirSync(path.join(value.candidateRoot, "docs"), { recursive: true });
+    writeFileSync(
+      path.join(value.candidateRoot, "docs", "user-owned.md"),
+      "replace\n",
+    );
+    await assert.rejects(
+      replaceManagedFilesTransaction({
+        repoRoot: value.repoRoot,
+        candidateRoot: value.candidateRoot,
+        paths: ["docs/user-owned.md"],
+        kind: "trellis",
+        previous: { version: "0.6.8" },
+        current: { version: "0.6.9" },
+      }),
+      /managed|allowed|surface/i,
+    );
   } finally {
     value.cleanup();
   }

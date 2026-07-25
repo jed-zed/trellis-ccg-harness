@@ -11,10 +11,13 @@ async function text(relativePath) {
   return readFile(path.join(ROOT, relativePath), "utf8");
 }
 
-test("Trellis 0.6.9 keeps the Harness-owned inline and hook boundaries", async () => {
+test("recorded Trellis version keeps the Harness-owned inline and hook boundaries", async () => {
   const manifest = JSON.parse(await text("harness.sources.json"));
-  assert.equal(manifest.trellis.version, "0.6.9");
-  assert.equal((await text(".trellis/.version")).trim(), "0.6.9");
+  assert.match(manifest.trellis.version, /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/);
+  assert.equal(
+    (await text(".trellis/.version")).trim(),
+    manifest.trellis.version,
+  );
 
   const config = await text(".trellis/config.yaml");
   assert.match(config, /codex:\s*\r?\n\s+dispatch_mode:\s*inline/);

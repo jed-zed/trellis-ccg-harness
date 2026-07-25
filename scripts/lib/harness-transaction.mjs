@@ -1,8 +1,10 @@
 import {
   cp,
+  lstat,
   mkdir,
   open,
   readFile,
+  readdir,
   rename,
   rm,
   stat,
@@ -46,6 +48,30 @@ const FORBIDDEN_CANDIDATE_PATHS = [
 ];
 
 async function assertCandidateSurface(candidateDir) {
+  const pending = [candidateDir];
+  while (pending.length > 0) {
+    const current = pending.pop();
+    const details = await lstat(current);
+    const relative = path
+      .relative(candidateDir, current)
+      .split(path.sep)
+      .join("/") || ".";
+    if (details.isSymbolicLink()) {
+      throw new Error(
+        `Candidate symbolic link, junction, or reparse point is forbidden: ${relative}.`,
+      );
+    }
+    if (details.isDirectory()) {
+      const children = await readdir(current);
+      for (const child of children) {
+        pending.push(path.join(current, child));
+      }
+    } else if (!details.isFile()) {
+      throw new Error(
+        `Candidate contains a non-regular filesystem entry: ${relative}.`,
+      );
+    }
+  }
   for (const relativePath of FORBIDDEN_CANDIDATE_PATHS) {
     if (await exists(path.join(candidateDir, relativePath))) {
       throw new Error(
@@ -296,6 +322,7 @@ function buildReplacementRecord(context, options, previous) {
   return {
     schemaVersion: 1,
     id: context.id,
+    operation: "component",
     status: "committed",
     createdAt: new Date().toISOString(),
     snapshotPath: path
@@ -381,6 +408,419 @@ export async function replaceComponentTransaction(options) {
     );
     context.id = id;
     return await performReplacement(context, options);
+  } finally {
+    await lock.release();
+  }
+}
+
+function normalizeManagedPath(value) {
+  const relative = String(value ?? "").replaceAll("\\", "/");
+  if (
+    !relative ||
+    relative.startsWith("/") ||
+    /^[A-Za-z]:/.test(relative) ||
+    path.posix.normalize(relative) !== relative ||
+    relative === ".." ||
+    relative.startsWith("../")
+  ) {
+    throw new Error(`Managed file path is unsafe: ${value}.`);
+  }
+  return relative;
+}
+
+function isTrellisManagedPath(relative) {
+  if (
+    relative === "AGENTS.md" ||
+    relative === "README.md" ||
+    relative === ".gitattributes" ||
+    relative === "harness.sources.json"
+  ) {
+    return true;
+  }
+  if (relative.startsWith(".trellis/")) {
+    return ![
+      ".trellis/tasks/",
+      ".trellis/spec/",
+      ".trellis/workspace/",
+      ".trellis/.backup/",
+    ].some((prefix) => relative.startsWith(prefix));
+  }
+  return [
+    ".agents/skills/trellis-",
+    ".claude/agents/trellis-",
+    ".claude/commands/trellis/",
+    ".claude/skills/trellis-",
+    ".claude/hooks/",
+    ".claude/settings.json",
+    ".codex/agents/trellis-",
+    ".codex/hooks/",
+    ".codex/hooks.json",
+    ".codex/config.toml",
+    ".gemini/agents/trellis-",
+    ".gemini/commands/trellis/",
+    ".gemini/hooks/",
+    ".gemini/settings.json",
+  ].some((prefix) =>
+    prefix.endsWith(".json") || prefix.endsWith(".toml")
+      ? relative === prefix
+      : relative.startsWith(prefix),
+  );
+}
+
+function normalizeManagedPaths(values, kind) {
+  if (kind !== "trellis") {
+    throw new Error(`Unsupported managed file transaction kind: ${kind}.`);
+  }
+  if (!Array.isArray(values) || values.length === 0) {
+    throw new Error("Managed file transaction requires at least one path.");
+  }
+  const paths = [...new Set(values.map(normalizeManagedPath))].sort();
+  const disallowed = paths.filter((relative) =>
+    !isTrellisManagedPath(relative),
+  );
+  if (disallowed.length > 0) {
+    throw new Error(
+      `Paths are outside the allowed Trellis-managed surface: ${disallowed.join(", ")}.`,
+    );
+  }
+  return paths;
+}
+
+async function assertRegularFileOrAbsent(target, label) {
+  try {
+    const details = await lstat(target);
+    if (!details.isFile()) {
+      throw new Error(`${label} must be a regular file: ${target}`);
+    }
+    return true;
+  } catch (error) {
+    if (error?.code === "ENOENT") return false;
+    throw error;
+  }
+}
+
+async function readSafeDirectory(target, label, create) {
+  let details;
+  try {
+    details = await lstat(target);
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw error;
+    if (!create) return null;
+    try {
+      await mkdir(target, { mode: 0o700 });
+    } catch (mkdirError) {
+      if (mkdirError?.code !== "EEXIST") throw mkdirError;
+    }
+    details = await lstat(target);
+  }
+  if (details.isSymbolicLink() || !details.isDirectory()) {
+    throw new Error(
+      `${label} path component must be a regular directory, not a symbolic link or junction: ${target}`,
+    );
+  }
+  return details;
+}
+
+async function ensureSafeDirectoryChain(
+  root,
+  directory,
+  label,
+  { create = false } = {},
+) {
+  const resolvedRoot = path.resolve(root);
+  const resolvedDirectory = path.resolve(directory);
+  if (resolvedDirectory !== resolvedRoot) {
+    assertInside(resolvedRoot, resolvedDirectory, label);
+  }
+  const relative = path.relative(resolvedRoot, resolvedDirectory);
+  const segments = relative ? relative.split(path.sep) : [];
+  let current = resolvedRoot;
+
+  for (let index = -1; index < segments.length; index++) {
+    if (index >= 0) current = path.join(current, segments[index]);
+    if (!(await readSafeDirectory(current, label, create))) return false;
+  }
+  return true;
+}
+
+async function assertManagedRegularFileOrAbsent(root, target, label) {
+  const parentsExist = await ensureSafeDirectoryChain(
+    root,
+    path.dirname(target),
+    label,
+  );
+  if (!parentsExist) return false;
+  return assertRegularFileOrAbsent(target, label);
+}
+
+async function removeManagedRegularFile(root, target, label) {
+  const fileExists = await assertManagedRegularFileOrAbsent(
+    root,
+    target,
+    label,
+  );
+  if (fileExists) await rm(target, { force: true });
+}
+
+function managedSnapshotPath(snapshotFiles, relative) {
+  return path.join(snapshotFiles, ...relative.split("/"));
+}
+
+async function copyRegularFile(sourceRoot, source, targetRoot, target, label) {
+  if (
+    !(await assertManagedRegularFileOrAbsent(
+      sourceRoot,
+      source,
+      `${label} source`,
+    ))
+  ) {
+    throw new Error(`${label} source is missing: ${source}`);
+  }
+  await ensureSafeDirectoryChain(
+    targetRoot,
+    path.dirname(target),
+    `${label} destination`,
+    { create: true },
+  );
+  if (
+    await assertManagedRegularFileOrAbsent(
+      targetRoot,
+      target,
+      `${label} destination`,
+    )
+  ) {
+    throw new Error(`${label} destination already exists: ${target}`);
+  }
+  await cp(source, target, {
+    errorOnExist: true,
+    force: false,
+    preserveTimestamps: true,
+  });
+}
+
+async function restoreManagedFileSet(repoRoot, storageRoot, entries) {
+  for (const entry of entries) {
+    const destination = path.join(repoRoot, ...entry.path.split("/"));
+    assertInside(repoRoot, destination, "Managed file destination");
+    await removeManagedRegularFile(
+      repoRoot,
+      destination,
+      "Managed file destination",
+    );
+    if (entry.existed) {
+      const source = managedSnapshotPath(storageRoot, entry.path);
+      await copyRegularFile(
+        repoRoot,
+        source,
+        repoRoot,
+        destination,
+        "Managed file restore",
+      );
+    }
+  }
+}
+
+async function buildManagedFileEntries(repoRoot, candidateRoot, paths) {
+  const entries = [];
+  for (const relative of paths) {
+    const live = path.join(repoRoot, ...relative.split("/"));
+    const candidate = path.join(candidateRoot, ...relative.split("/"));
+    assertInside(repoRoot, live, "Managed file destination");
+    const existed = await assertManagedRegularFileOrAbsent(
+      repoRoot,
+      live,
+      "Managed live path",
+    );
+    const candidateExists = await assertManagedRegularFileOrAbsent(
+      candidateRoot,
+      candidate,
+      "Managed candidate path",
+    );
+    if (!existed && !candidateExists) {
+      throw new Error(`Managed path has no live or candidate file: ${relative}.`);
+    }
+    entries.push({
+      path: relative,
+      existed,
+      candidateExists,
+    });
+  }
+  return entries;
+}
+
+function buildManagedFilesJournal(repoRoot, id, kind, snapshotDir, entries) {
+  return {
+    schemaVersion: 1,
+    id,
+    operation: "managed-files",
+    phase: "created",
+    createdAt: new Date().toISOString(),
+    kind,
+    snapshotPath: path
+      .relative(repoRoot, snapshotDir)
+      .split(path.sep)
+      .join("/"),
+    paths: entries,
+    appliedCount: 0,
+  };
+}
+
+async function buildManagedFilesContext(options, repoRoot, id) {
+  const candidateRoot = path.resolve(options.candidateRoot);
+  const paths = normalizeManagedPaths(options.paths, options.kind);
+  const snapshotDir = path.join(
+    repoRoot,
+    ".harness-cache",
+    "file-snapshots",
+    id,
+  );
+  const snapshotFiles = path.join(snapshotDir, "files");
+  const { journalPath } = transactionStatePaths(repoRoot);
+  assertInside(repoRoot, snapshotDir, "Managed file snapshot");
+  const entries = await buildManagedFileEntries(
+    repoRoot,
+    candidateRoot,
+    paths,
+  );
+  return {
+    repoRoot,
+    id,
+    kind: options.kind,
+    candidateRoot,
+    paths,
+    entries,
+    snapshotDir,
+    snapshotFiles,
+    journalPath,
+    journal: buildManagedFilesJournal(
+      repoRoot,
+      id,
+      options.kind,
+      snapshotDir,
+      entries,
+    ),
+  };
+}
+
+async function stageManagedFileSnapshots(context) {
+  await ensureSafeDirectoryChain(
+    context.repoRoot,
+    context.snapshotFiles,
+    "Managed file snapshot",
+    { create: true },
+  );
+  await writeJournal(context, "preparing");
+  for (const entry of context.entries) {
+    if (!entry.existed) continue;
+    const source = path.join(
+      context.repoRoot,
+      ...entry.path.split("/"),
+    );
+    await copyRegularFile(
+      context.repoRoot,
+      source,
+      context.repoRoot,
+      managedSnapshotPath(context.snapshotFiles, entry.path),
+      "Managed file snapshot",
+    );
+  }
+  await writeJournal(context, "prepared");
+}
+
+async function applyManagedCandidate(context) {
+  for (let index = 0; index < context.entries.length; index++) {
+    const entry = context.entries[index];
+    const destination = path.join(
+      context.repoRoot,
+      ...entry.path.split("/"),
+    );
+    await removeManagedRegularFile(
+      context.repoRoot,
+      destination,
+      "Managed file destination",
+    );
+    if (entry.candidateExists) {
+      const source = path.join(
+        context.candidateRoot,
+        ...entry.path.split("/"),
+      );
+      await copyRegularFile(
+        context.candidateRoot,
+        source,
+        context.repoRoot,
+        destination,
+        "Managed candidate activation",
+      );
+    }
+    context.journal.appliedCount = index + 1;
+    await writeJournal(context, "applying");
+  }
+  await writeJournal(context, "applied");
+}
+
+function buildManagedFilesRecord(context, options) {
+  return {
+    schemaVersion: 1,
+    id: context.id,
+    operation: "managed-files",
+    kind: context.kind,
+    status: "committed",
+    createdAt: new Date().toISOString(),
+    snapshotPath: path
+      .relative(context.repoRoot, context.snapshotDir)
+      .split(path.sep)
+      .join("/"),
+    paths: context.entries.map(({ path: relative, existed }) => ({
+      path: relative,
+      existed,
+    })),
+    previous: options.previous ?? null,
+    current: options.current ?? null,
+    verification: options.verification ?? null,
+  };
+}
+
+export async function replaceManagedFilesTransaction(options) {
+  const repoRoot = path.resolve(options.repoRoot);
+  const lock = await acquireTransactionLock(repoRoot);
+  try {
+    await assertNoPendingJournal(repoRoot);
+    const id = transactionId();
+    const context = await buildManagedFilesContext(options, repoRoot, id);
+    let record;
+    try {
+      await stageManagedFileSnapshots(context);
+      await applyManagedCandidate(context);
+      if (options.afterApply) await options.afterApply();
+      record = buildManagedFilesRecord(context, options);
+      await atomicWrite(
+        path.join(
+          context.repoRoot,
+          ".harness-cache",
+          "last-transaction.json",
+        ),
+        `${JSON.stringify(record, null, 2)}\n`,
+      );
+    } catch (error) {
+      try {
+        await restoreManagedFileSet(
+          context.repoRoot,
+          context.snapshotFiles,
+          context.entries,
+        );
+        await rm(context.snapshotDir, { recursive: true, force: true });
+        await removeJournal(context.journalPath);
+      } catch (restoreError) {
+        throw new AggregateError(
+          [error, restoreError],
+          "Managed file update failed and restoring its files also failed.",
+        );
+      }
+      throw error;
+    }
+    await writeJournal(context, "committed");
+    await removeJournal(context.journalPath);
+    return record;
   } finally {
     await lock.release();
   }
@@ -519,6 +959,152 @@ async function finalizeRollback(context) {
   return context.record;
 }
 
+async function loadManagedFilesRollbackContext(
+  repoRoot,
+  recordPath,
+  record,
+) {
+  if (
+    record.status !== "committed" ||
+    record.operation !== "managed-files"
+  ) {
+    throw new Error("The managed file transaction is not rollback-eligible.");
+  }
+  const paths = normalizeManagedPaths(
+    record.paths?.map((entry) => entry.path),
+    record.kind,
+  );
+  if (paths.length !== record.paths.length) {
+    throw new Error("Managed file rollback record contains duplicate paths.");
+  }
+  const snapshot = resolveJournalPath(
+    repoRoot,
+    record.snapshotPath,
+    "Managed file rollback snapshot",
+  );
+  assertExpectedCachePath(
+    snapshot.relative,
+    "file-snapshots",
+    record.id,
+    "Managed file rollback snapshot",
+  );
+  const snapshotFiles = path.join(snapshot.target, "files");
+  const discardRoot = path.join(
+    repoRoot,
+    ".harness-cache",
+    "file-discard",
+    record.id,
+  );
+  const discardFiles = path.join(discardRoot, "files");
+  const { journalPath } = transactionStatePaths(repoRoot);
+  assertInside(repoRoot, discardRoot, "Managed file rollback discard");
+
+  const currentEntries = [];
+  for (const relative of paths) {
+    const live = path.join(repoRoot, ...relative.split("/"));
+    currentEntries.push({
+      path: relative,
+      existed: await assertManagedRegularFileOrAbsent(
+        repoRoot,
+        live,
+        "Managed rollback live path",
+      ),
+    });
+  }
+  return {
+    repoRoot,
+    recordPath,
+    record,
+    snapshotDir: snapshot.target,
+    snapshotFiles,
+    discardRoot,
+    discardFiles,
+    currentEntries,
+    journalPath,
+    journal: {
+      schemaVersion: 1,
+      id: record.id,
+      operation: "managed-files-rollback",
+      phase: "created",
+      createdAt: new Date().toISOString(),
+      kind: record.kind,
+      snapshotPath: record.snapshotPath,
+      discardPath: path
+        .relative(repoRoot, discardRoot)
+        .split(path.sep)
+        .join("/"),
+      paths: record.paths,
+      currentPaths: currentEntries,
+    },
+  };
+}
+
+async function stageManagedRollback(context) {
+  await ensureSafeDirectoryChain(
+    context.repoRoot,
+    context.discardFiles,
+    "Managed file rollback discard",
+    { create: true },
+  );
+  await writeJournal(context, "preparing");
+  for (const entry of context.currentEntries) {
+    if (!entry.existed) continue;
+    const live = path.join(
+      context.repoRoot,
+      ...entry.path.split("/"),
+    );
+    await copyRegularFile(
+      context.repoRoot,
+      live,
+      context.repoRoot,
+      managedSnapshotPath(context.discardFiles, entry.path),
+      "Managed rollback discard",
+    );
+  }
+  await writeJournal(context, "prepared");
+}
+
+async function performManagedFilesRollback(context, afterRestore) {
+  try {
+    await stageManagedRollback(context);
+    await restoreManagedFileSet(
+      context.repoRoot,
+      context.snapshotFiles,
+      context.record.paths,
+    );
+    await writeJournal(context, "files-restored");
+    if (afterRestore) await afterRestore();
+  } catch (error) {
+    try {
+      await restoreManagedFileSet(
+        context.repoRoot,
+        context.discardFiles,
+        context.currentEntries,
+      );
+      await rm(context.discardRoot, { recursive: true, force: true });
+      await removeJournal(context.journalPath);
+    } catch (restoreError) {
+      throw new AggregateError(
+        [error, restoreError],
+        "Managed file rollback failed and restoring current files also failed.",
+      );
+    }
+    throw error;
+  }
+
+  context.record.status = "rolled-back";
+  context.record.rolledBackAt = new Date().toISOString();
+  await atomicWrite(
+    context.recordPath,
+    `${JSON.stringify(context.record, null, 2)}\n`,
+  );
+  await writeJournal(context, "committed");
+  await rm(context.discardRoot, { recursive: true, force: true });
+  await rm(context.snapshotDir, { recursive: true, force: true });
+  await removeJournal(context.journalPath);
+  return context.record;
+}
+
 export async function rollbackLastTransaction(options) {
   const repoRoot = path.resolve(options.repoRoot);
   const recordPath = path.join(
@@ -529,6 +1115,18 @@ export async function rollbackLastTransaction(options) {
   const lock = await acquireTransactionLock(repoRoot);
   try {
     await assertNoPendingJournal(repoRoot);
+    const record = JSON.parse(await readFile(recordPath, "utf8"));
+    if (record.operation === "managed-files") {
+      const context = await loadManagedFilesRollbackContext(
+        repoRoot,
+        recordPath,
+        record,
+      );
+      return await performManagedFilesRollback(
+        context,
+        options.afterRestore,
+      );
+    }
     const context = await loadRollbackContext(repoRoot, recordPath);
     await activateRollback(context, options.afterRestore);
     return await finalizeRollback(context);
@@ -576,15 +1174,88 @@ function assertExpectedCachePath(relative, category, id, label) {
   }
 }
 
-function loadRecoveryContext(repoRoot, journal) {
-  if (
-    journal?.schemaVersion !== 1 ||
-    !/^[A-Za-z0-9-]+$/.test(String(journal?.id ?? "")) ||
-    !["replacement", "rollback"].includes(journal?.operation)
-  ) {
-    throw new Error("Transaction journal is invalid or unsupported.");
+function loadManagedRecoveryContext(repoRoot, journal, baseContext) {
+  const normalizedPaths = normalizeManagedPaths(
+    journal.paths?.map((entry) => entry.path),
+    journal.kind,
+  );
+  if (normalizedPaths.length !== journal.paths?.length) {
+    throw new Error("Managed file journal contains duplicate paths.");
   }
+  const entryByPath = new Map(
+    journal.paths.map((entry) => [entry.path, entry]),
+  );
+  const entries = normalizedPaths.map((relative) => {
+    const entry = entryByPath.get(relative);
+    if (typeof entry?.existed !== "boolean") {
+      throw new Error("Managed file journal has an invalid path entry.");
+    }
+    return {
+      path: relative,
+      existed: entry.existed,
+      ...(typeof entry.candidateExists === "boolean"
+        ? { candidateExists: entry.candidateExists }
+        : {}),
+    };
+  });
+  const snapshot = resolveJournalPath(
+    repoRoot,
+    journal.snapshotPath,
+    "Managed file journal snapshot",
+  );
+  assertExpectedCachePath(
+    snapshot.relative,
+    "file-snapshots",
+    journal.id,
+    "Managed file journal snapshot",
+  );
+  const context = {
+    ...baseContext,
+    entries,
+    snapshotDir: snapshot.target,
+    snapshotFiles: path.join(snapshot.target, "files"),
+  };
+  if (journal.operation !== "managed-files-rollback") return context;
 
+  const currentPaths = normalizeManagedPaths(
+    journal.currentPaths?.map((entry) => entry.path),
+    journal.kind,
+  );
+  if (
+    currentPaths.length !== journal.currentPaths?.length ||
+    currentPaths.join("\0") !== normalizedPaths.join("\0")
+  ) {
+    throw new Error("Managed file rollback journal paths do not match.");
+  }
+  const currentByPath = new Map(
+    journal.currentPaths.map((entry) => [entry.path, entry]),
+  );
+  context.currentEntries = currentPaths.map((relative) => {
+    const entry = currentByPath.get(relative);
+    if (typeof entry?.existed !== "boolean") {
+      throw new Error(
+        "Managed file rollback journal has an invalid current path entry.",
+      );
+    }
+    return { path: relative, existed: entry.existed };
+  });
+  const discard = resolveJournalPath(
+    repoRoot,
+    journal.discardPath,
+    "Managed file rollback discard",
+  );
+  assertExpectedCachePath(
+    discard.relative,
+    "file-discard",
+    journal.id,
+    "Managed file rollback discard",
+  );
+  context.discardRoot = discard.target;
+  context.discardFiles = path.join(discard.target, "files");
+  return context;
+}
+
+function loadComponentRecoveryContext(repoRoot, journal, baseContext) {
   const component = resolveJournalPath(
     repoRoot,
     journal.componentPath,
@@ -608,14 +1279,7 @@ function loadRecoveryContext(repoRoot, journal) {
   );
 
   const context = {
-    repoRoot,
-    journal,
-    journalPath: transactionStatePaths(repoRoot).journalPath,
-    recordPath: path.join(
-      repoRoot,
-      ".harness-cache",
-      "last-transaction.json",
-    ),
+    ...baseContext,
     componentDir: component.target,
     snapshotDir: snapshot.target,
     snapshotComponent: path.join(snapshot.target, "component"),
@@ -656,6 +1320,34 @@ function loadRecoveryContext(repoRoot, journal) {
     );
   }
   return context;
+}
+
+function loadRecoveryContext(repoRoot, journal) {
+  if (
+    journal?.schemaVersion !== 1 ||
+    !/^[A-Za-z0-9-]+$/.test(String(journal?.id ?? "")) ||
+    ![
+      "replacement",
+      "rollback",
+      "managed-files",
+      "managed-files-rollback",
+    ].includes(journal?.operation)
+  ) {
+    throw new Error("Transaction journal is invalid or unsupported.");
+  }
+  const baseContext = {
+    repoRoot,
+    journal,
+    journalPath: transactionStatePaths(repoRoot).journalPath,
+    recordPath: path.join(
+      repoRoot,
+      ".harness-cache",
+      "last-transaction.json",
+    ),
+  };
+  return journal.operation.startsWith("managed-files")
+    ? loadManagedRecoveryContext(repoRoot, journal, baseContext)
+    : loadComponentRecoveryContext(repoRoot, journal, baseContext);
 }
 
 async function matchingLastTransaction(context, status) {
@@ -762,6 +1454,58 @@ async function recoverRollback(context) {
   };
 }
 
+async function recoverManagedFiles(context) {
+  if (await matchingLastTransaction(context, "committed")) {
+    await removeJournal(context.journalPath);
+    return {
+      operation: "managed-files",
+      outcome: "committed-cleanup-completed",
+      transaction: context.journal.id,
+    };
+  }
+  if (context.journal.phase !== "preparing") {
+    await restoreManagedFileSet(
+      context.repoRoot,
+      context.snapshotFiles,
+      context.entries,
+    );
+  }
+  await rm(context.snapshotDir, { recursive: true, force: true });
+  await removeJournal(context.journalPath);
+  return {
+    operation: "managed-files",
+    outcome: "rolled-back",
+    transaction: context.journal.id,
+  };
+}
+
+async function recoverManagedFilesRollback(context) {
+  if (await matchingLastTransaction(context, "rolled-back")) {
+    await rm(context.discardRoot, { recursive: true, force: true });
+    await rm(context.snapshotDir, { recursive: true, force: true });
+    await removeJournal(context.journalPath);
+    return {
+      operation: "managed-files-rollback",
+      outcome: "committed-cleanup-completed",
+      transaction: context.journal.id,
+    };
+  }
+  if (context.journal.phase !== "preparing") {
+    await restoreManagedFileSet(
+      context.repoRoot,
+      context.discardFiles,
+      context.currentEntries,
+    );
+  }
+  await rm(context.discardRoot, { recursive: true, force: true });
+  await removeJournal(context.journalPath);
+  return {
+    operation: "managed-files-rollback",
+    outcome: "rolled-back",
+    transaction: context.journal.id,
+  };
+}
+
 async function readRecoveryLock(lockPath) {
   try {
     return JSON.parse(await readFile(lockPath, "utf8"));
@@ -802,9 +1546,16 @@ export async function recoverInterruptedTransaction(options) {
       };
     }
     const context = loadRecoveryContext(repoRoot, journal);
-    const result = journal.operation === "replacement"
-      ? await recoverReplacement(context)
-      : await recoverRollback(context);
+    let result;
+    if (journal.operation === "replacement") {
+      result = await recoverReplacement(context);
+    } else if (journal.operation === "rollback") {
+      result = await recoverRollback(context);
+    } else if (journal.operation === "managed-files") {
+      result = await recoverManagedFiles(context);
+    } else {
+      result = await recoverManagedFilesRollback(context);
+    }
     if (options.afterRecover) await options.afterRecover(result);
     return result;
   } finally {

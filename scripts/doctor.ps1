@@ -96,7 +96,7 @@ if (Test-Path -LiteralPath $transactionLock) {
 else {
   Add-Pass "No transaction lock residue"
 }
-foreach ($runtimeDirectory in @("staging", "discard")) {
+foreach ($runtimeDirectory in @("staging", "discard", "file-discard")) {
   $runtimePath = Join-Path $transactionState $runtimeDirectory
   $residue = Get-ChildItem -LiteralPath $runtimePath -Force -ErrorAction SilentlyContinue |
     Select-Object -First 1

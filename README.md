@@ -75,12 +75,26 @@ pwsh -NoProfile -File .\scripts\bootstrap.ps1 -LinkCcg
 1. 只读检查仓库、工具链、现有规范、Hook、CI、来源与安全边界；
 2. 对仓库无法回答的决定调用 `grill-me`，每轮只问一个问题，并给出推荐项与取舍；
 3. 汇总完整项目约束，等待用户对最新版摘要明确批准；
-4. 批准后才写入 `.harness/project.json`、协调 Trellis/CCG，并通过
+4. 批准后由可执行验证器拒绝草稿、凭据、越权 provider 和已有目录冲突，
+   再原子写入 `.harness/project.json`、Schema 与所有权清单；
+5. 协调 Trellis/CCG，并通过
    `trellis-spec-bootstrap` 生成基于现有代码事实的规范；
-5. 运行离线 doctor、冲突、来源和质量门禁。
+6. 运行离线 doctor、冲突、来源和质量门禁。
 
 初始化阶段默认不调用 Grok、Claude、GPT Pro、付费模型或联网服务，
 也不会读取密钥值。现有文件在没有所有权清单前一律按用户资产处理。
+
+```powershell
+# 只读发现；不会创建 .harness
+node .\scripts\harness-init.mjs inspect --repo-root .
+
+# grill-me 完成且用户批准最终约束后
+node .\scripts\harness-init.mjs validate --contract .\approved-contract.json
+node .\scripts\harness-init.mjs apply --repo-root . --contract .\approved-contract.json
+
+# 把可独立运行的初始化 Skill 导出到另一个项目；遇到同名目录会拒绝覆盖
+node .\scripts\harness-init.mjs export-skill --target <repository>
+```
 
 ## 验证
 
@@ -155,11 +169,14 @@ node .\scripts\harness-adapter.mjs grok-probe --live
 ### Trellis
 
 ```powershell
-trellis upgrade
-trellis update --migrate
+# 在稀疏临时 worktree 中用精确版本生成候选，校验 npm integrity，
+# 保留项目覆盖层并通过共享快照事务落地
+pnpm harness:update -- --trellis-version <exact-semantic-version>
 ```
 
-更新后检查 `.trellis/.version` 和本地定制，尤其是 `codex.dispatch_mode: inline`。
+一次事务只能更新 Trellis 或 CCG 其中一个来源。Trellis 更新会跳过并保留
+已修改的项目覆盖层，继续强制 `codex.dispatch_mode: inline`；候选中若出现
+`.new` 冲突、副本越界或受保护路径被物化，事务会在写入前失败。
 
 ### CCG
 
@@ -172,13 +189,17 @@ pnpm harness:update -- --ccg-commit <40-character-commit> --source-checkout I:\a
 # 恢复上一份由 Harness 创建的快照
 pnpm harness:rollback
 
+# 进程被终止后，显式恢复持久化事务日志或清理已死亡 PID 的锁
+pnpm harness:recover
+
 # 只撤销 Harness 确认拥有且未被用户修改的全局安装状态
 pnpm harness:uninstall
 ```
 
-更新过程使用独占锁、候选目录、来源 Git tree、全量门禁和可恢复快照。
-任何中断或后置验证失败都会自动回滚；被用户修改的全局状态会保留并以
-非零状态提示人工处理。
+更新过程使用独占锁、持久化阶段日志、候选目录、来源 Git tree、全量门禁
+和可恢复快照。普通异常或后置验证失败会自动回滚；即使进程被强制结束，
+`pnpm doctor` 也会阻断并引导运行 `pnpm harness:recover`。被用户修改的
+全局状态会保留并以非零状态提示人工处理。
 
 每次更新必须同步：
 

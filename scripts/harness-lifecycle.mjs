@@ -7,18 +7,22 @@ import {
   readFile,
   rename,
   rm,
+  stat,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import {
   buildBootstrapOwnership,
   buildRestoreAction,
   assertSparseExclusionsUnchanged,
+  compareSemanticVersions,
   parseSparseArchiveExclusions,
   parseLifecycleArgs,
   resolvePackageManagerInvocation,
+  updateTrellisProvenanceText,
   validateUpdateSource,
 } from "./lib/harness-lifecycle.mjs";
 import { runCcgGates, runHarnessTests } from "./lib/harness-gates.mjs";
@@ -26,6 +30,7 @@ import {
   buildOwnedUninstallPlan,
   recoverInterruptedTransaction,
   replaceComponentTransaction,
+  replaceManagedFilesTransaction,
   rollbackLastTransaction,
 } from "./lib/harness-transaction.mjs";
 
@@ -55,6 +60,16 @@ function run(command, args, options = {}) {
 
 async function readJson(filePath) {
   return JSON.parse(await readFile(filePath, "utf8"));
+}
+
+async function exists(filePath) {
+  try {
+    await stat(filePath);
+    return true;
+  } catch (error) {
+    if (error?.code === "ENOENT") return false;
+    throw error;
+  }
 }
 
 async function atomicWrite(filePath, value) {
@@ -463,6 +478,263 @@ async function prepareUpdateCandidate(args, manifest, resolved, temporaryRoot) {
   };
 }
 
+const PROTECTED_CCG_PATHS = [
+  "components/ccg-workflow/templates/skills/domains/security/pentest.md",
+  "components/ccg-workflow/templates/skills/domains/security/red-team.md",
+];
+
+function splitNullList(value) {
+  return String(value ?? "")
+    .split("\0")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+function resolveTrellisIntegrity(version) {
+  const output = run(
+    "npm",
+    [
+      "view",
+      `@mindfoldhq/trellis@${version}`,
+      "dist.integrity",
+      "--json",
+    ],
+    { capture: true },
+  );
+  const integrity = JSON.parse(output);
+  if (
+    typeof integrity !== "string" ||
+    !/^sha512-[A-Za-z0-9+/]+={0,2}$/.test(integrity)
+  ) {
+    throw new Error(
+      `npm returned an invalid integrity for Trellis ${version}.`,
+    );
+  }
+  return integrity;
+}
+
+async function assertProtectedPathsAbsent(worktree) {
+  for (const relative of PROTECTED_CCG_PATHS) {
+    if (await exists(path.join(worktree, ...relative.split("/")))) {
+      throw new Error(
+        `Protected path was materialized in the Trellis candidate: ${relative}.`,
+      );
+    }
+  }
+}
+
+function collectWorktreeChanges(worktree) {
+  const tracked = splitNullList(
+    git(worktree, ["diff", "--name-only", "-z", "HEAD"], {
+      capture: true,
+    }),
+  );
+  const untracked = splitNullList(
+    git(
+      worktree,
+      ["ls-files", "--others", "--exclude-standard", "-z"],
+      { capture: true },
+    ),
+  );
+  const changed = [...new Set([...tracked, ...untracked])].sort();
+  const conflicts = changed.filter((relative) =>
+    relative.endsWith(".new"),
+  );
+  if (conflicts.length > 0) {
+    throw new Error(
+      `Trellis produced unresolved conflict copies: ${conflicts.join(", ")}.`,
+    );
+  }
+  return changed.filter(
+    (relative) =>
+      !relative.startsWith(".trellis/.backup/") &&
+      !relative.startsWith(".trellis/tasks/") &&
+      !relative.startsWith(".trellis/spec/") &&
+      !relative.startsWith(".trellis/workspace/"),
+  );
+}
+
+async function addSparseTrellisWorktree(repoRoot, worktree) {
+  git(repoRoot, [
+    "worktree",
+    "add",
+    "--detach",
+    "--no-checkout",
+    worktree,
+    "HEAD",
+  ]);
+  git(worktree, ["sparse-checkout", "init", "--no-cone"]);
+  git(worktree, [
+    "sparse-checkout",
+    "set",
+    "--no-cone",
+    "/*",
+    ...PROTECTED_CCG_PATHS.map((relative) => `!/${relative}`),
+  ]);
+  git(worktree, ["checkout", "--detach", "HEAD"]);
+  await assertProtectedPathsAbsent(worktree);
+}
+
+async function runTrellisCandidateUpdate(worktree, version) {
+  const updateOutput = run(
+    "pnpm",
+    [
+      "dlx",
+      `@mindfoldhq/trellis@${version}`,
+      "update",
+      "--skip-all",
+      "--migrate",
+    ],
+    { cwd: worktree, capture: true },
+  );
+  const actualVersion = (
+    await readFile(path.join(worktree, ".trellis", ".version"), "utf8")
+  ).trim();
+  if (actualVersion !== version) {
+    throw new Error(
+      `Trellis candidate version mismatch: expected ${version}, got ${actualVersion}.`,
+    );
+  }
+  await assertProtectedPathsAbsent(worktree);
+  return updateOutput;
+}
+
+async function updateTrellisCandidateProvenance(
+  worktree,
+  manifest,
+  version,
+  integrity,
+) {
+  const previousVersion = String(manifest.trellis.version);
+  const manifestPath = path.join(worktree, "harness.sources.json");
+  const candidateManifest = await readJson(manifestPath);
+  candidateManifest.trellis = {
+    ...candidateManifest.trellis,
+    version,
+    integrity,
+    sourceMode: "generated-project-assets-from-explicit-version",
+  };
+  candidateManifest.capturedAt = new Date().toISOString();
+  await atomicWrite(
+    manifestPath,
+    `${JSON.stringify(candidateManifest, null, 2)}\n`,
+  );
+
+  const readmePath = path.join(worktree, "README.md");
+  await atomicWrite(
+    readmePath,
+    updateTrellisProvenanceText(
+      await readFile(readmePath, "utf8"),
+      previousVersion,
+      version,
+    ),
+  );
+  return integrity;
+}
+
+function summarizeTrellisUpdate(version, updateOutput, changedPaths) {
+  return {
+    command:
+      `pnpm dlx @mindfoldhq/trellis@${version} `
+      + "update --skip-all --migrate",
+    strategy: "preserve-modified-project-overlays",
+    changedPaths: changedPaths.length,
+    updateOutput: updateOutput
+      .split(/\r?\n/)
+      .filter((line) => /modified|unchanged|updated|skipped/i.test(line))
+      .slice(0, 20),
+  };
+}
+
+async function prepareTrellisWorktree(
+  args,
+  manifest,
+  worktree,
+  temporaryRoot,
+  previousVersion,
+) {
+  const integrity = resolveTrellisIntegrity(args.trellisVersion);
+  const updateOutput = await runTrellisCandidateUpdate(
+    worktree,
+    args.trellisVersion,
+  );
+  await updateTrellisCandidateProvenance(
+    worktree,
+    manifest,
+    args.trellisVersion,
+    integrity,
+  );
+  const changedPaths = collectWorktreeChanges(worktree);
+  runHarnessTests(worktree, run);
+  await assertProtectedPathsAbsent(worktree);
+  return {
+    candidateRoot: worktree,
+    temporaryRoot,
+    worktreeAdded: true,
+    changedPaths,
+    previous: {
+      version: previousVersion,
+      integrity: String(manifest.trellis.integrity ?? ""),
+    },
+    current: {
+      version: args.trellisVersion,
+      integrity,
+    },
+    verification: summarizeTrellisUpdate(
+      args.trellisVersion,
+      updateOutput,
+      changedPaths,
+    ),
+  };
+}
+
+export async function createTrellisCandidate(args, manifest) {
+  const previousVersion = String(manifest.trellis?.version ?? "");
+  if (compareSemanticVersions(args.trellisVersion, previousVersion) < 0) {
+    throw new Error(
+      `Refusing Trellis downgrade from ${previousVersion} to ${args.trellisVersion}.`,
+    );
+  }
+  const temporaryRoot = await mkdtemp(
+    path.join(tmpdir(), "trellis-harness-update-"),
+  );
+  const worktree = path.join(temporaryRoot, "worktree");
+  let worktreeAdded = false;
+  try {
+    worktreeAdded = true;
+    await addSparseTrellisWorktree(args.repoRoot, worktree);
+    return await prepareTrellisWorktree(
+      args,
+      manifest,
+      worktree,
+      temporaryRoot,
+      previousVersion,
+    );
+  } catch (error) {
+    if (worktreeAdded) {
+      git(
+        args.repoRoot,
+        ["worktree", "remove", "--force", worktree],
+        { allowedStatuses: [0, 128] },
+      );
+    }
+    await rm(temporaryRoot, { recursive: true, force: true });
+    throw error;
+  }
+}
+
+export async function cleanupTrellisCandidate(repoRoot, prepared) {
+  if (prepared.worktreeAdded) {
+    git(
+      repoRoot,
+      ["worktree", "remove", "--force", prepared.candidateRoot],
+      { allowedStatuses: [0, 128] },
+    );
+    git(repoRoot, ["worktree", "prune"], { allowedStatuses: [0] });
+  }
+  await rm(prepared.temporaryRoot, { recursive: true, force: true });
+}
+
 function writeUpdateReceipt(source, record) {
   process.stdout.write(
     `${JSON.stringify(
@@ -479,13 +751,7 @@ function writeUpdateReceipt(source, record) {
   );
 }
 
-async function updateHarness(args) {
-  assertCleanGit(args.repoRoot, "Harness repository");
-  const manifest = await readJson(
-    path.join(args.repoRoot, "harness.sources.json"),
-  );
-
-  runHarnessDoctor(args.repoRoot);
+async function updateCcgHarness(args, manifest) {
   const resolved = await resolveUpdateCheckout(args, manifest);
   const exportTemporary = await mkdtemp(
     path.join(tmpdir(), "trellis-ccg-export-"),
@@ -517,6 +783,61 @@ async function updateHarness(args) {
       await rm(resolved.cleanupRoot, { recursive: true, force: true });
     }
   }
+}
+
+async function updateTrellisHarness(args, manifest) {
+  const previousVersion = String(manifest.trellis?.version ?? "");
+  if (args.trellisVersion === previousVersion) {
+    process.stdout.write(
+      `${JSON.stringify({
+        status: "unchanged",
+        source: "trellis",
+        version: previousVersion,
+      }, null, 2)}\n`,
+    );
+    return;
+  }
+
+  const prepared = await createTrellisCandidate(args, manifest);
+  try {
+    const record = await replaceManagedFilesTransaction({
+      repoRoot: args.repoRoot,
+      candidateRoot: prepared.candidateRoot,
+      paths: prepared.changedPaths,
+      kind: "trellis",
+      previous: prepared.previous,
+      current: prepared.current,
+      verification: prepared.verification,
+      afterApply: () => runHarnessTests(args.repoRoot, run),
+    });
+    process.stdout.write(
+      `${JSON.stringify({
+        status: "updated",
+        source: "trellis",
+        version: prepared.current.version,
+        integrity: prepared.current.integrity,
+        transaction: record.id,
+        changedPaths: prepared.changedPaths.length,
+        next:
+          "Run pnpm bootstrap to align the global Trellis CLI, then review, "
+          + "commit, and run pnpm doctor.",
+      }, null, 2)}\n`,
+    );
+  } finally {
+    await cleanupTrellisCandidate(args.repoRoot, prepared);
+  }
+}
+
+async function updateHarness(args) {
+  assertCleanGit(args.repoRoot, "Harness repository");
+  const manifest = await readJson(
+    path.join(args.repoRoot, "harness.sources.json"),
+  );
+  runHarnessDoctor(args.repoRoot);
+  if (args.trellisVersion) {
+    return updateTrellisHarness(args, manifest);
+  }
+  return updateCcgHarness(args, manifest);
 }
 
 async function rollbackHarness(args) {
@@ -602,7 +923,12 @@ async function main() {
   return uninstallHarness(args);
 }
 
-main().catch((error) => {
-  process.stderr.write(`Harness lifecycle failed: ${error.message}\n`);
-  process.exitCode = 1;
-});
+const invokedPath = process.argv[1]
+  ? path.resolve(process.argv[1])
+  : null;
+if (invokedPath === path.resolve(fileURLToPath(import.meta.url))) {
+  main().catch((error) => {
+    process.stderr.write(`Harness lifecycle failed: ${error.message}\n`);
+    process.exitCode = 1;
+  });
+}

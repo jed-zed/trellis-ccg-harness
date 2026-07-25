@@ -5,6 +5,7 @@ coverage/
 
 # Harness runtime
 .harness-cache/
+.harness-init-*/
 .harness-backup-*/
 output/
 tmp/
