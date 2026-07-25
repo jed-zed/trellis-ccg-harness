@@ -348,6 +348,13 @@ async function writeReplacementManifest(context, options) {
   context.manifest.ccg.version = context.candidatePackage.version;
   context.manifest.ccg.sourceMode =
     "tracked-tree-from-explicit-personal-commit";
+  for (const staleComparisonField of [
+    "mergeBaseWithOriginalAtCapture",
+    "personalOnlyCommitsAtCapture",
+    "originalOnlyCommitsAtCapture",
+  ]) {
+    delete context.manifest.ccg[staleComparisonField];
+  }
   context.manifest.capturedAt = new Date().toISOString();
   await atomicWrite(
     context.repoRoot,

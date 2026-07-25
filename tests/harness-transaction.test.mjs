@@ -56,6 +56,9 @@ function fixture() {
       snapshotPath: "components/ccg-workflow",
       commit: "a".repeat(40),
       gitTree: "b".repeat(40),
+      mergeBaseWithOriginalAtCapture: "e".repeat(40),
+      personalOnlyCommitsAtCapture: 26,
+      originalOnlyCommitsAtCapture: 25,
     },
   });
   return {
@@ -405,6 +408,41 @@ test("transaction lock is exclusive and explicitly released", async () => {
     await first.release();
     const second = await acquireTransactionLock(value.repoRoot);
     await second.release();
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("replacement removes stale comparison counters and rollback restores them", async () => {
+  const value = fixture();
+  const manifestPath = path.join(value.repoRoot, "harness.sources.json");
+  const staleFields = [
+    "mergeBaseWithOriginalAtCapture",
+    "personalOnlyCommitsAtCapture",
+    "originalOnlyCommitsAtCapture",
+  ];
+  try {
+    const originalManifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    await replaceComponentTransaction({
+      repoRoot: value.repoRoot,
+      candidateDir: value.candidate,
+      commit: "c".repeat(40),
+      gitTree: "d".repeat(40),
+    });
+
+    const updatedManifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    for (const field of staleFields) {
+      assert.equal(Object.hasOwn(updatedManifest.ccg, field), false);
+    }
+
+    await rollbackLastTransaction({ repoRoot: value.repoRoot });
+    const restoredManifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    for (const field of staleFields) {
+      assert.equal(
+        restoredManifest.ccg[field],
+        originalManifest.ccg[field],
+      );
+    }
   } finally {
     value.cleanup();
   }
