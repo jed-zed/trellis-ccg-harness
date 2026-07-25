@@ -2,10 +2,8 @@
 
 import { spawnSync } from "node:child_process";
 import {
-  mkdir,
   mkdtemp,
   readFile,
-  rename,
   rm,
   stat,
   writeFile,
@@ -16,46 +14,76 @@ import { fileURLToPath } from "node:url";
 
 import {
   buildBootstrapOwnership,
+  buildOwnedUninstallPlan,
   buildRestoreAction,
+  assertBootstrapOwnershipContinuity,
   assertSparseExclusionsUnchanged,
   compareSemanticVersions,
+  globalPackageSnapshotsEqual,
+  inspectGlobalPackage,
   parseSparseArchiveExclusions,
   parseLifecycleArgs,
   resolvePackageManagerInvocation,
   updateTrellisProvenanceText,
+  validateBootstrapOwnership,
+  validateGlobalPackageSnapshot,
   validateUpdateSource,
 } from "./lib/harness-lifecycle.mjs";
 import { runCcgGates, runHarnessTests } from "./lib/harness-gates.mjs";
 import {
-  buildOwnedUninstallPlan,
   recoverInterruptedTransaction,
   replaceComponentTransaction,
   replaceManagedFilesTransaction,
   rollbackLastTransaction,
 } from "./lib/harness-transaction.mjs";
+import {
+  assertSafeRegularFileOrAbsent,
+  ensureSafeDirectoryChain,
+  safeAtomicWrite,
+  safeRemove,
+} from "./lib/harness-fs.mjs";
+import {
+  materializeGitTree,
+  verifyMaterializedGitTree,
+} from "./lib/git-tree-materializer.mjs";
 
 function run(command, args, options = {}) {
   const capture = options.capture === true;
+  const encoding = options.encoding === null ? null : "utf8";
   const invocation = resolvePackageManagerInvocation(command, args);
   const result = spawnSync(invocation.command, invocation.args, {
     cwd: options.cwd,
     env: options.env ?? process.env,
-    encoding: "utf8",
+    encoding,
     shell: false,
-    stdio: capture ? ["ignore", "pipe", "pipe"] : "inherit",
+    input: options.input,
+    stdio: capture
+      ? [options.input === undefined ? "ignore" : "pipe", "pipe", "pipe"]
+      : options.input === undefined
+        ? "inherit"
+        : ["pipe", "inherit", "inherit"],
   });
   if (result.error) throw result.error;
   const allowed = options.allowedStatuses ?? [0];
   if (!allowed.includes(result.status)) {
     const details = capture
-      ? [result.stdout, result.stderr].filter(Boolean).join("\n").trim()
+      ? [result.stdout, result.stderr]
+          .filter(Boolean)
+          .map((value) =>
+            Buffer.isBuffer(value) ? value.toString("utf8") : value,
+          )
+          .join("\n")
+          .trim()
       : "";
     throw new Error(
       `${command} ${args.join(" ")} exited with ${result.status}` +
         (details ? `:\n${details}` : "."),
     );
   }
-  return capture ? String(result.stdout ?? "").trim() : "";
+  if (!capture) return "";
+  return encoding === null
+    ? Buffer.from(result.stdout ?? [])
+    : String(result.stdout ?? "").trim();
 }
 
 async function readJson(filePath) {
@@ -72,15 +100,8 @@ async function exists(filePath) {
   }
 }
 
-async function atomicWrite(filePath, value) {
-  const temporary = `${filePath}.tmp-${process.pid}-${Date.now()}`;
-  try {
-    await mkdir(path.dirname(filePath), { recursive: true, mode: 0o700 });
-    await writeFile(temporary, value, { mode: 0o600 });
-    await rename(temporary, filePath);
-  } finally {
-    await rm(temporary, { force: true });
-  }
+async function atomicWrite(repoRoot, filePath, value, label) {
+  await safeAtomicWrite(repoRoot, filePath, value, label);
 }
 
 function cachePath(repoRoot, name) {
@@ -92,19 +113,6 @@ function cachePath(repoRoot, name) {
   return target;
 }
 
-function stateFromDependency(value) {
-  if (!value) return null;
-  return {
-    ...(value.version ? { version: String(value.version) } : {}),
-    ...(value.resolved ? { resolved: String(value.resolved) } : {}),
-  };
-}
-
-function sourcePathFromResolved(resolved) {
-  if (!resolved?.startsWith("file:")) return null;
-  return path.resolve(decodeURIComponent(resolved.slice("file:".length)));
-}
-
 function samePath(left, right) {
   if (!left || !right) return false;
   const normalize = (value) => {
@@ -114,41 +122,40 @@ function samePath(left, right) {
   return normalize(left) === normalize(right);
 }
 
-function statesEqual(left, right) {
-  return (
-    (left?.version ?? null) === (right?.version ?? null) &&
-    (left?.resolved ?? null) === (right?.resolved ?? null)
-  );
-}
-
-function observeGlobalPackages() {
-  const output = run(
-    "npm",
-    [
-      "ls",
-      "-g",
-      "ccg-workflow",
-      "@mindfoldhq/trellis",
-      "--depth=0",
-      "--json",
-    ],
-    { capture: true, allowedStatuses: [0, 1] },
-  );
-  const parsed = output ? JSON.parse(output) : {};
-  const dependencies = parsed.dependencies ?? {};
+async function observeGlobalPackages() {
+  const globalRoot = run("npm", ["root", "-g"], { capture: true });
+  const [trellis, ccg] = await Promise.all([
+    inspectGlobalPackage(globalRoot, "@mindfoldhq/trellis"),
+    inspectGlobalPackage(globalRoot, "ccg-workflow"),
+  ]);
   return {
-    trellis: stateFromDependency(dependencies["@mindfoldhq/trellis"]),
-    ccg: stateFromDependency(dependencies["ccg-workflow"]),
+    trellis,
+    ccg,
   };
 }
 
 async function beginBootstrap(args) {
   const pendingPath = cachePath(args.repoRoot, "bootstrap-pending.json");
+  const ownershipPath = cachePath(args.repoRoot, "ownership.json");
   const manifest = await readJson(
     path.join(args.repoRoot, "harness.sources.json"),
   );
+  const before = await observeGlobalPackages();
+  const existing = await readExistingOwnership(
+    ownershipPath,
+    args.repoRoot,
+  );
+  assertBootstrapOwnershipContinuity(
+    existing,
+    before,
+    {
+      trellis: args.manageTrellis,
+      ccg: args.manageCcg,
+    },
+    args.repoRoot,
+  );
   const pending = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     repoRoot: args.repoRoot,
     createdAt: new Date().toISOString(),
     managed: {
@@ -163,9 +170,24 @@ async function beginBootstrap(args) {
       args.repoRoot,
       String(manifest.ccg.snapshotPath),
     ),
-    before: observeGlobalPackages(),
+    before,
   };
-  await mkdir(path.dirname(pendingPath), { recursive: true, mode: 0o700 });
+  await ensureSafeDirectoryChain(
+    args.repoRoot,
+    pending.ccgSourcePath,
+    "Harness CCG component",
+  );
+  await ensureSafeDirectoryChain(
+    args.repoRoot,
+    path.dirname(pendingPath),
+    "Bootstrap transaction state",
+    { create: true },
+  );
+  await assertSafeRegularFileOrAbsent(
+    args.repoRoot,
+    pendingPath,
+    "Bootstrap pending record",
+  );
   await writeFile(pendingPath, `${JSON.stringify(pending, null, 2)}\n`, {
     flag: "wx",
     mode: 0o600,
@@ -174,6 +196,42 @@ async function beginBootstrap(args) {
 }
 
 function assertBootstrapTransaction(pending, repoRoot) {
+  const required = [
+    "schemaVersion",
+    "repoRoot",
+    "createdAt",
+    "managed",
+    "expected",
+    "ccgSourcePath",
+    "before",
+  ];
+  const keys = Object.keys(pending ?? {});
+  if (
+    pending?.schemaVersion !== 2 ||
+    keys.length !== required.length ||
+    required.some((key) => !keys.includes(key)) ||
+    typeof pending.createdAt !== "string" ||
+    typeof pending.managed?.trellis !== "boolean" ||
+    typeof pending.managed?.ccg !== "boolean" ||
+    Object.keys(pending.managed).sort().join(",") !== "ccg,trellis" ||
+    typeof pending.expected?.trellisVersion !== "string" ||
+    typeof pending.expected?.ccgVersion !== "string" ||
+    Object.keys(pending.expected).sort().join(",") !==
+      "ccgVersion,trellisVersion" ||
+    typeof pending.ccgSourcePath !== "string" ||
+    !path.isAbsolute(pending.ccgSourcePath) ||
+    Object.keys(pending.before ?? {}).sort().join(",") !== "ccg,trellis"
+  ) {
+    throw new Error("Bootstrap ownership transaction has an invalid schema.");
+  }
+  validateGlobalPackageSnapshot(
+    pending.before.trellis,
+    "Bootstrap previous Trellis",
+  );
+  validateGlobalPackageSnapshot(
+    pending.before.ccg,
+    "Bootstrap previous CCG",
+  );
   if (!samePath(pending.repoRoot, repoRoot)) {
     throw new Error("Bootstrap ownership transaction belongs to another repo.");
   }
@@ -203,7 +261,7 @@ function assertManagedCcg(pending, after) {
   }
   if (
     !samePath(
-      sourcePathFromResolved(after.ccg.resolved),
+      after.ccg.sourcePath,
       pending.ccgSourcePath,
     )
   ) {
@@ -213,12 +271,25 @@ function assertManagedCcg(pending, after) {
   }
 }
 
-async function readExistingOwnership(ownershipPath) {
+async function readExistingOwnership(ownershipPath, repoRoot) {
+  await assertSafeRegularFileOrAbsent(
+    repoRoot,
+    ownershipPath,
+    "Bootstrap ownership record",
+  );
   try {
-    return await readJson(ownershipPath);
+    return validateBootstrapOwnership(
+      await readJson(ownershipPath),
+      repoRoot,
+    );
   } catch (error) {
     if (error?.code === "ENOENT") {
-      return { schemaVersion: 1, entries: [] };
+      return {
+        schemaVersion: 2,
+        repoRoot: path.resolve(repoRoot),
+        updatedAt: new Date(0).toISOString(),
+        entries: [],
+      };
     }
     throw error;
   }
@@ -235,9 +306,14 @@ function mergeOwnershipEntries(existing, recorded) {
 async function completeBootstrap(args) {
   const pendingPath = cachePath(args.repoRoot, "bootstrap-pending.json");
   const ownershipPath = cachePath(args.repoRoot, "ownership.json");
+  await assertSafeRegularFileOrAbsent(
+    args.repoRoot,
+    pendingPath,
+    "Bootstrap pending record",
+  );
   const pending = await readJson(pendingPath);
   assertBootstrapTransaction(pending, args.repoRoot);
-  const after = observeGlobalPackages();
+  const after = await observeGlobalPackages();
   assertManagedTrellis(pending, after);
   assertManagedCcg(pending, after);
 
@@ -247,14 +323,27 @@ async function completeBootstrap(args) {
     managed: pending.managed,
     before: pending.before,
     after,
+    existingOwnership: await readExistingOwnership(
+      ownershipPath,
+      args.repoRoot,
+    ),
   });
-  const existing = await readExistingOwnership(ownershipPath);
+  const existing = await readExistingOwnership(
+    ownershipPath,
+    args.repoRoot,
+  );
   recorded.entries = mergeOwnershipEntries(existing, recorded);
   await atomicWrite(
+    args.repoRoot,
     ownershipPath,
     `${JSON.stringify(recorded, null, 2)}\n`,
+    "Bootstrap ownership record",
   );
-  await rm(pendingPath, { force: true });
+  await safeRemove(
+    args.repoRoot,
+    pendingPath,
+    "Bootstrap pending record",
+  );
   process.stdout.write(`Harness ownership manifest: ${ownershipPath}\n`);
 }
 
@@ -271,12 +360,18 @@ async function abortBootstrap(args) {
   const pendingPath = cachePath(args.repoRoot, "bootstrap-pending.json");
   let pending;
   try {
+    await assertSafeRegularFileOrAbsent(
+      args.repoRoot,
+      pendingPath,
+      "Bootstrap pending record",
+    );
     pending = await readJson(pendingPath);
   } catch (error) {
     if (error?.code === "ENOENT") return;
     throw error;
   }
-  const current = observeGlobalPackages();
+  assertBootstrapTransaction(pending, args.repoRoot);
+  const current = await observeGlobalPackages();
   const candidates = [
     pending.managed.trellis
       ? {
@@ -297,14 +392,24 @@ async function abortBootstrap(args) {
   ].filter(Boolean);
 
   for (const candidate of candidates) {
-    if (!statesEqual(candidate.before, candidate.current)) {
+    if (!globalPackageSnapshotsEqual(candidate.before, candidate.current)) {
       restoreGlobalEntry({
+        id: candidate.id,
+        kind:
+          candidate.id === "ccg-link"
+            ? "npm-global-link"
+            : "npm-global-package",
         package: candidate.package,
-        previous: candidate.before,
+        originalBeforeFirstManagement: candidate.before,
+        installedByHarness: candidate.current ?? candidate.before,
       });
     }
   }
-  await rm(pendingPath, { force: true });
+  await safeRemove(
+    args.repoRoot,
+    pendingPath,
+    "Bootstrap pending record",
+  );
 }
 
 function git(repoRoot, args, options = {}) {
@@ -388,29 +493,19 @@ function resolveSparseArchiveExclusions(checkout, previousCommit, targetCommit) 
 }
 
 async function exportCommit(checkout, commit, temporaryRoot, exclusions = []) {
-  const archivePath = path.join(temporaryRoot, "ccg-source.tar");
   const exportRoot = path.join(temporaryRoot, "export");
-  await mkdir(exportRoot, { recursive: true, mode: 0o700 });
-  const archiveArgs = [
-    "-C",
+  const materialized = await materializeGitTree({
     checkout,
-    "archive",
-    "--format=tar",
-    `--output=${archivePath}`,
     commit,
-  ];
-  if (exclusions.length > 0) {
-    archiveArgs.push(
-      "--",
-      ".",
-      ...exclusions.map(
-        (relativePath) => `:(exclude,top,literal)${relativePath}`,
-      ),
-    );
-  }
-  run("git", archiveArgs);
-  run("tar", ["-xf", archivePath, "-C", exportRoot]);
-  return exportRoot;
+    destination: exportRoot,
+    exclusions,
+    execute: run,
+  });
+  return {
+    candidateDir: exportRoot,
+    treeEntries: materialized.entries,
+    manifestSha256: materialized.manifestSha256,
+  };
 }
 
 function runHarnessDoctor(repoRoot) {
@@ -464,7 +559,7 @@ async function prepareUpdateCandidate(args, manifest, resolved, temporaryRoot) {
     String(manifest.ccg.commit),
     source.commit,
   );
-  const candidateDir = await exportCommit(
+  const materialized = await exportCommit(
     resolved.checkout,
     source.commit,
     temporaryRoot,
@@ -473,9 +568,120 @@ async function prepareUpdateCandidate(args, manifest, resolved, temporaryRoot) {
   return {
     source,
     verificationCommands,
-    candidateDir,
+    ...materialized,
     archiveExclusions,
   };
+}
+
+async function readOwnershipIfPresent(repoRoot) {
+  const ownershipPath = cachePath(repoRoot, "ownership.json");
+  const present = await assertSafeRegularFileOrAbsent(
+    repoRoot,
+    ownershipPath,
+    "Bootstrap ownership record",
+  );
+  if (!present) return null;
+  return validateBootstrapOwnership(
+    await readJson(ownershipPath),
+    repoRoot,
+  );
+}
+
+function assertVersionOutput(output, expected, label) {
+  const lines = String(output ?? "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const escaped = expected.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const versionPattern = new RegExp(
+    `(?:^|[/@])${escaped}(?:$|\\s)`,
+  );
+  if (!lines.some((line) => line === expected || versionPattern.test(line))) {
+    throw new Error(
+      `${label} version mismatch: expected ${expected}, got `
+      + `${lines.join(" | ") || "no output"}.`,
+    );
+  }
+}
+
+async function runFinalCcgVerification(args, manifest, prepared) {
+  const componentRoot = path.resolve(
+    args.repoRoot,
+    String(manifest.ccg.snapshotPath),
+  );
+  const finalCommands = runCcgGates(componentRoot, run);
+  const materialized = await verifyMaterializedGitTree(
+    componentRoot,
+    prepared.treeEntries,
+    { allowedExtraRoots: ["dist", "node_modules"] },
+  );
+  if (materialized.manifestSha256 !== prepared.manifestSha256) {
+    throw new Error("Final CCG tracked-tree manifest digest changed.");
+  }
+
+  finalCommands.push(
+    ...(await runActivatedCcgCliSmokes(args.repoRoot, componentRoot)),
+  );
+
+  await runHarnessTests(args.repoRoot, run);
+  finalCommands.push("node --test tests/*.test.mjs");
+  return finalCommands;
+}
+
+async function runActivatedCcgCliSmokes(repoRoot, componentRoot) {
+  const commands = [];
+  const packageManifest = await readJson(
+    path.join(componentRoot, "package.json"),
+  );
+  const localVersion = run(
+    process.execPath,
+    [path.join(componentRoot, "bin", "ccg.mjs"), "--version"],
+    { cwd: componentRoot, capture: true },
+  );
+  assertVersionOutput(
+    localVersion,
+    String(packageManifest.version),
+    "Final-path CCG CLI",
+  );
+  commands.push("node bin/ccg.mjs --version");
+
+  const ownership = await readOwnershipIfPresent(repoRoot);
+  const ccgOwnership = ownership?.entries.find(
+    (entry) => entry.id === "ccg-link",
+  );
+  if (ccgOwnership) {
+    const globalPackages = await observeGlobalPackages();
+    if (
+      !globalPackages.ccg?.sourcePath ||
+      !samePath(globalPackages.ccg.sourcePath, componentRoot) ||
+      !globalPackageSnapshotsEqual(
+        globalPackages.ccg,
+        ccgOwnership.installedByHarness,
+      )
+    ) {
+      throw new Error(
+        "Harness-owned global CCG link no longer matches its ownership fingerprint.",
+      );
+    }
+    const globalVersion =
+      process.platform === "win32"
+        ? run(
+            process.env.ComSpec || "cmd.exe",
+            ["/d", "/s", "/c", "ccg --version"],
+            { cwd: repoRoot, capture: true },
+          )
+        : run("ccg", ["--version"], {
+            cwd: repoRoot,
+            capture: true,
+          });
+    assertVersionOutput(
+      globalVersion,
+      String(packageManifest.version),
+      "Harness-managed global CCG CLI",
+    );
+    commands.push("ccg --version");
+  }
+  return commands;
 }
 
 const PROTECTED_CCG_PATHS = [
@@ -616,18 +822,22 @@ async function updateTrellisCandidateProvenance(
   };
   candidateManifest.capturedAt = new Date().toISOString();
   await atomicWrite(
+    worktree,
     manifestPath,
     `${JSON.stringify(candidateManifest, null, 2)}\n`,
+    "Trellis candidate source manifest",
   );
 
   const readmePath = path.join(worktree, "README.md");
   await atomicWrite(
+    worktree,
     readmePath,
     updateTrellisProvenanceText(
       await readFile(readmePath, "utf8"),
       previousVersion,
       version,
     ),
+    "Trellis candidate README",
   );
   return integrity;
 }
@@ -763,18 +973,27 @@ async function updateCcgHarness(args, manifest) {
       resolved,
       exportTemporary,
     );
+    const verification = {
+      repository: prepared.source.repository,
+      commands: prepared.verificationCommands,
+      preservedSparsePaths: prepared.archiveExclusions,
+      candidateManifestSha256: prepared.manifestSha256,
+      finalCommands: [],
+    };
 
     const record = await replaceComponentTransaction({
       repoRoot: args.repoRoot,
       candidateDir: prepared.candidateDir,
       commit: prepared.source.commit,
       gitTree: prepared.source.gitTree,
-      verification: {
-        repository: prepared.source.repository,
-        commands: prepared.verificationCommands,
-        preservedSparsePaths: prepared.archiveExclusions,
+      verification,
+      afterReplace: async () => {
+        verification.finalCommands = await runFinalCcgVerification(
+          args,
+          manifest,
+          prepared,
+        );
       },
-      afterReplace: () => runHarnessTests(args.repoRoot, run),
     });
     writeUpdateReceipt(prepared.source, record);
   } finally {
@@ -843,7 +1062,17 @@ async function updateHarness(args) {
 async function rollbackHarness(args) {
   const record = await rollbackLastTransaction({
     repoRoot: args.repoRoot,
-    afterRestore: () => runHarnessTests(args.repoRoot, run),
+    afterRestore: async () => {
+      const manifest = await readJson(
+        path.join(args.repoRoot, "harness.sources.json"),
+      );
+      const componentRoot = path.resolve(
+        args.repoRoot,
+        String(manifest.ccg.snapshotPath),
+      );
+      await runActivatedCcgCliSmokes(args.repoRoot, componentRoot);
+      await runHarnessTests(args.repoRoot, run);
+    },
   });
   process.stdout.write(
     `${JSON.stringify({
@@ -874,7 +1103,15 @@ async function uninstallHarness(args) {
   const ownershipPath = cachePath(args.repoRoot, "ownership.json");
   let ownership;
   try {
-    ownership = await readJson(ownershipPath);
+    await assertSafeRegularFileOrAbsent(
+      args.repoRoot,
+      ownershipPath,
+      "Bootstrap ownership record",
+    );
+    ownership = validateBootstrapOwnership(
+      await readJson(ownershipPath),
+      args.repoRoot,
+    );
   } catch (error) {
     if (error?.code === "ENOENT") {
       process.stdout.write("No Harness-owned global state is recorded.\n");
@@ -883,21 +1120,25 @@ async function uninstallHarness(args) {
     throw error;
   }
 
-  const current = observeGlobalPackages();
+  const current = await observeGlobalPackages();
   const observations = {
-    "trellis-global": { version: current.trellis?.version },
-    "ccg-link": {
-      sourcePath: sourcePathFromResolved(current.ccg?.resolved),
-    },
+    "trellis-global": current.trellis,
+    "ccg-link": current.ccg,
   };
-  const plan = buildOwnedUninstallPlan(ownership, observations);
+  const plan = buildOwnedUninstallPlan(
+    ownership,
+    observations,
+    args.repoRoot,
+  );
   for (const entry of plan.remove) restoreGlobalEntry(entry);
 
   ownership.entries = plan.skip;
   ownership.updatedAt = new Date().toISOString();
   await atomicWrite(
+    args.repoRoot,
     ownershipPath,
     `${JSON.stringify(ownership, null, 2)}\n`,
+    "Bootstrap ownership record",
   );
 
   for (const entry of plan.skip) {

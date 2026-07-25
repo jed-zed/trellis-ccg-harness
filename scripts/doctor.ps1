@@ -81,6 +81,29 @@ else {
   Add-Pass "pnpm $pnpmVersion"
 }
 
+$goVersion = Read-Version "go" @("version")
+if (-not $goVersion) {
+  Add-Failure "Go is missing; CCG wrapper verification requires Go."
+}
+else {
+  Add-Pass "$goVersion"
+}
+
+$ccgRoot = Join-Path $RepoRoot ([string]$manifest.ccg.snapshotPath)
+$ccgBin = Join-Path $ccgRoot "bin/ccg.mjs"
+$localCcgVersion = & node $ccgBin --version 2>&1
+$localCcgText = ($localCcgVersion -join [Environment]::NewLine).Trim()
+$expectedCcgPattern = "(?:^|[/@])$([Regex]::Escape([string]$manifest.ccg.version))(?:$|\s)"
+if ($LASTEXITCODE -ne 0) {
+  Add-Failure "The activated CCG CLI cannot run from its final Harness path."
+}
+elseif ($localCcgText -ne [string]$manifest.ccg.version -and $localCcgText -notmatch $expectedCcgPattern) {
+  Add-Failure "Activated CCG CLI must be $($manifest.ccg.version); found $($localCcgVersion -join ' ')."
+}
+else {
+  Add-Pass "Activated CCG CLI $($manifest.ccg.version)"
+}
+
 $transactionState = Join-Path $RepoRoot ".harness-cache"
 $transactionJournal = Join-Path $transactionState "transaction-journal.json"
 $transactionLock = Join-Path $transactionState "transaction.lock"

@@ -2,6 +2,7 @@ import { readdir } from "node:fs/promises";
 import path from "node:path";
 
 export function runCcgGates(checkout, execute) {
+  execute("go", ["version"], { cwd: checkout, capture: true });
   const commands = [
     ["pnpm", ["install", "--frozen-lockfile"]],
     ["pnpm", ["lint"]],
@@ -15,9 +16,14 @@ export function runCcgGates(checkout, execute) {
   const wrapperRoot = path.join(checkout, "codeagent-wrapper");
   execute("go", ["test", "./..."], { cwd: wrapperRoot });
   execute("go", ["build", "./..."], { cwd: wrapperRoot });
-  return commands.map(
-    ([command, commandArgs]) => `${command} ${commandArgs.join(" ")}`,
-  );
+  return [
+    "go version",
+    ...commands.map(
+      ([command, commandArgs]) => `${command} ${commandArgs.join(" ")}`,
+    ),
+    "go test ./...",
+    "go build ./...",
+  ];
 }
 
 export async function runHarnessTests(repoRoot, execute) {

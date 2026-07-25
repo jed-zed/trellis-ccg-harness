@@ -40,6 +40,7 @@ personal CCG source implementation.
 - Python 3.9 or newer for Trellis task resolution.
 - PowerShell 7 for bootstrap, doctor, and source verification.
 - Git for source and tracked-runtime checks.
+- Go for the mandatory wrapper test/build gate.
 - The installed personal `ccg` CLI/plugin for model workflows.
 
 ## Quick Use
@@ -63,6 +64,8 @@ The optional Grok probe is explicit and reads credentials only from
 Lifecycle operations never fetch from the public CCG upstream or a mutable npm
 selector. CCG update accepts only the personal repository, a clean
 authoritative checkout, a full commit, its matching tree, and a component
-candidate that passes CCG plus root Harness gates. Trellis update accepts only
+candidate materialized directly from Git blobs. Path/type/mode/blob validation
+runs before mutation; frozen install, build, local/global CLI smoke, source-tree
+validation, and root tests run again from the final component path. Trellis update accepts only
 an exact semantic version, verifies its npm integrity, generates in a sparse
 temporary worktree, and applies only the bounded Trellis-managed surface.

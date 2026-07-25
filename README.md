@@ -52,6 +52,7 @@ CCG 智能层
 - Python 3.9+
 - PowerShell 7+
 - pnpm/Corepack
+- Go（CCG wrapper 的 test/build 门禁必需）
 - 按需安装 Codex、Claude Code、Gemini、Grok CLI
 
 ```powershell
@@ -196,10 +197,19 @@ pnpm harness:recover
 pnpm harness:uninstall
 ```
 
-更新过程使用独占锁、持久化阶段日志、候选目录、来源 Git tree、全量门禁
-和可恢复快照。普通异常或后置验证失败会自动回滚；即使进程被强制结束，
-`pnpm doctor` 也会阻断并引导运行 `pnpm harness:recover`。被用户修改的
-全局状态会保留并以非零状态提示人工处理。
+更新过程不依赖外部 `tar`：它从选定 commit 的 blob 构建候选，并逐项校验
+路径、类型、blob SHA 和 POSIX 可执行位。候选激活后，会在最终组件路径重新
+执行 frozen install、lint、typecheck、test、build、Go 门禁、tracked-tree
+校验、本地 CLI smoke；若全局 `ccg` 由 Harness 管理，还必须通过真实
+`ccg --version`。
+
+事务使用独占锁、严格 schema 的持久化阶段日志、内容身份和可恢复快照。
+普通异常或后置验证失败会恢复原组件与可工作的全局命令；进程被强制结束时，
+`pnpm doctor` 会阻断并引导运行 `pnpm harness:recover`。回滚前会覆盖 tracked、
+staged、untracked、ignored、rename 等全部 live 组件内容；只要更新后发生任何
+变化就拒绝回滚，且不修改组件、索引、manifest、snapshot 或 transaction record。
+全局 ownership 永久保留第一次接管前的基线；重复 bootstrap 只有在当前状态仍
+匹配上次 Harness fingerprint 时才允许续管。
 
 每次更新必须同步：
 

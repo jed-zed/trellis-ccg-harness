@@ -1,18 +1,27 @@
 import {
   cp,
   lstat,
-  mkdir,
   open,
   readFile,
   readdir,
-  rename,
   rm,
   stat,
-  unlink,
-  writeFile,
 } from "node:fs/promises";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
+
+import {
+  assertSafeRegularFileOrAbsent,
+  buildContentIdentity,
+  contentIdentitiesEqual,
+  ensureSafeDirectoryChain,
+  fingerprintRegularFile,
+  fingerprintsEqual,
+  safeAtomicWrite,
+  safeCreateDirectory,
+  safeRemove,
+  safeRename,
+} from "./harness-fs.mjs";
 
 const JOURNAL_FILE = "transaction-journal.json";
 const LOCK_FILE = "transaction.lock";
@@ -81,15 +90,12 @@ async function assertCandidateSurface(candidateDir) {
   }
 }
 
-async function atomicWrite(target, value) {
-  const temporary = `${target}.tmp-${process.pid}-${Date.now()}`;
-  try {
-    await mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
-    await writeFile(temporary, value, { mode: 0o600 });
-    await rename(temporary, target);
-  } finally {
-    await rm(temporary, { force: true });
-  }
+function sha256(value) {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+async function atomicWrite(root, target, value, label = "Harness state") {
+  await safeAtomicWrite(root, target, value, label);
 }
 
 function transactionId() {
@@ -119,15 +125,15 @@ async function writeJournal(context, phase) {
   context.journal.phase = phase;
   context.journal.updatedAt = new Date().toISOString();
   await atomicWrite(
+    context.repoRoot,
     context.journalPath,
     `${JSON.stringify(context.journal, null, 2)}\n`,
+    "Transaction journal",
   );
 }
 
-async function removeJournal(journalPath) {
-  await unlink(journalPath).catch((error) => {
-    if (error?.code !== "ENOENT") throw error;
-  });
+async function removeJournal(repoRoot, journalPath) {
+  await safeRemove(repoRoot, journalPath, "Transaction journal");
 }
 
 async function assertNoPendingJournal(repoRoot) {
@@ -143,7 +149,8 @@ async function assertNoPendingJournal(repoRoot) {
 export async function acquireTransactionLock(repoRoot) {
   const root = path.resolve(repoRoot);
   const { stateDir, lockPath } = transactionStatePaths(root);
-  await mkdir(stateDir, { recursive: true, mode: 0o700 });
+  await safeCreateDirectory(root, stateDir, "Transaction state");
+  await assertSafeRegularFileOrAbsent(root, lockPath, "Transaction lock");
 
   const token = randomUUID();
   let handle;
@@ -151,11 +158,14 @@ export async function acquireTransactionLock(repoRoot) {
     handle = await open(lockPath, "wx", 0o600);
     await handle.writeFile(
       `${JSON.stringify({
+        schemaVersion: 2,
         pid: process.pid,
         createdAt: new Date().toISOString(),
         token,
+        repoRoot: root,
       })}\n`,
     );
+    await handle.sync();
   } catch (error) {
     if (error?.code === "EEXIST") {
       throw new Error(
@@ -174,9 +184,7 @@ export async function acquireTransactionLock(repoRoot) {
       await handle.close();
       const current = await readJsonIfPresent(lockPath);
       if (current?.token === token) {
-        await unlink(lockPath).catch((error) => {
-          if (error?.code !== "ENOENT") throw error;
-        });
+        await safeRemove(root, lockPath, "Transaction lock");
       }
     },
   };
@@ -236,6 +244,12 @@ async function loadReplacementContext(options, repoRoot, candidateDir, id) {
   assertInside(repoRoot, componentDir, "CCG component");
   if (componentDir === candidateDir)
     throw new Error("Candidate directory cannot be the live CCG component.");
+  await ensureSafeDirectoryChain(
+    repoRoot,
+    componentDir,
+    "CCG component",
+  );
+  const previousContentIdentity = await buildContentIdentity(componentDir);
   return {
     ...paths,
     repoRoot,
@@ -245,6 +259,8 @@ async function loadReplacementContext(options, repoRoot, candidateDir, id) {
     manifest,
     candidatePackage,
     componentDir,
+    previousContentIdentity,
+    previousManifestSha256: sha256(manifestBytes),
     snapshotComponent: path.join(paths.snapshotDir, "component"),
     snapshotManifest: path.join(
       paths.snapshotDir,
@@ -252,7 +268,7 @@ async function loadReplacementContext(options, repoRoot, candidateDir, id) {
     ),
     journalPath,
     journal: {
-      schemaVersion: 1,
+      schemaVersion: 2,
       id,
       operation: "replacement",
       phase: "created",
@@ -269,16 +285,29 @@ async function loadReplacementContext(options, repoRoot, candidateDir, id) {
         .relative(repoRoot, paths.stagingDir)
         .split(path.sep)
         .join("/"),
+      previousContentIdentity,
+      previousManifestSha256: sha256(manifestBytes),
     },
   };
 }
 
 async function stageReplacement(context) {
-  await mkdir(context.snapshotDir, { recursive: true, mode: 0o700 });
-  await mkdir(context.stagingDir, { recursive: true, mode: 0o700 });
-  await writeFile(context.snapshotManifest, context.manifestBytes, {
-    mode: 0o600,
-  });
+  await safeCreateDirectory(
+    context.repoRoot,
+    context.snapshotDir,
+    "Replacement snapshot",
+  );
+  await safeCreateDirectory(
+    context.repoRoot,
+    context.stagingDir,
+    "Replacement staging",
+  );
+  await atomicWrite(
+    context.repoRoot,
+    context.snapshotManifest,
+    context.manifestBytes,
+    "Replacement snapshot manifest",
+  );
   await writeJournal(context, "preparing");
   await cp(context.candidateDir, context.stagedComponent, {
     recursive: true,
@@ -291,10 +320,20 @@ async function stageReplacement(context) {
 
 async function activateReplacement(context, state) {
   await writeJournal(context, "moving-current");
-  await rename(context.componentDir, context.snapshotComponent);
+  await safeRename(
+    context.repoRoot,
+    context.componentDir,
+    context.snapshotComponent,
+    "Replacement current component",
+  );
   state.componentMoved = true;
   await writeJournal(context, "current-moved");
-  await rename(context.stagedComponent, context.componentDir);
+  await safeRename(
+    context.repoRoot,
+    context.stagedComponent,
+    context.componentDir,
+    "Replacement candidate",
+  );
   state.candidateActivated = true;
   await writeJournal(context, "candidate-activated");
 }
@@ -311,16 +350,22 @@ async function writeReplacementManifest(context, options) {
     "tracked-tree-from-explicit-personal-commit";
   context.manifest.capturedAt = new Date().toISOString();
   await atomicWrite(
+    context.repoRoot,
     context.manifestPath,
     `${JSON.stringify(context.manifest, null, 2)}\n`,
+    "Source manifest",
   );
   await writeJournal(context, "manifest-written");
   return previous;
 }
 
-function buildReplacementRecord(context, options, previous) {
+async function buildReplacementRecord(context, options, previous) {
+  const currentContentIdentity = await buildContentIdentity(
+    context.componentDir,
+  );
+  const currentManifestBytes = await readFile(context.manifestPath);
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     id: context.id,
     operation: "component",
     status: "committed",
@@ -333,10 +378,16 @@ function buildReplacementRecord(context, options, previous) {
       .relative(context.repoRoot, context.componentDir)
       .split(path.sep)
       .join("/"),
-    previous,
+    previous: {
+      ...previous,
+      contentIdentity: context.previousContentIdentity,
+      manifestSha256: context.previousManifestSha256,
+    },
     current: {
       commit: options.commit,
       gitTree: options.gitTree,
+      contentIdentity: currentContentIdentity,
+      manifestSha256: sha256(currentManifestBytes),
     },
     verification: options.verification ?? null,
   };
@@ -344,15 +395,40 @@ function buildReplacementRecord(context, options, previous) {
 
 async function restoreFailedReplacement(context, state) {
   if (state.candidateActivated && (await exists(context.componentDir))) {
-    await rm(context.componentDir, { recursive: true, force: true });
+    await safeRemove(
+      context.repoRoot,
+      context.componentDir,
+      "Failed replacement candidate",
+      { recursive: true },
+    );
   }
   if (state.componentMoved && (await exists(context.snapshotComponent))) {
-    await rename(context.snapshotComponent, context.componentDir);
+    await safeRename(
+      context.repoRoot,
+      context.snapshotComponent,
+      context.componentDir,
+      "Failed replacement restore",
+    );
   }
-  await atomicWrite(context.manifestPath, context.manifestBytes);
-  await rm(context.stagingDir, { recursive: true, force: true });
-  await rm(context.snapshotDir, { recursive: true, force: true });
-  await removeJournal(context.journalPath);
+  await atomicWrite(
+    context.repoRoot,
+    context.manifestPath,
+    context.manifestBytes,
+    "Source manifest",
+  );
+  await safeRemove(
+    context.repoRoot,
+    context.stagingDir,
+    "Failed replacement staging",
+    { recursive: true },
+  );
+  await safeRemove(
+    context.repoRoot,
+    context.snapshotDir,
+    "Failed replacement snapshot",
+    { recursive: true },
+  );
+  await removeJournal(context.repoRoot, context.journalPath);
 }
 
 async function performReplacement(context, options) {
@@ -363,14 +439,16 @@ async function performReplacement(context, options) {
     await activateReplacement(context, state);
     const previous = await writeReplacementManifest(context, options);
     if (options.afterReplace) await options.afterReplace();
-    record = buildReplacementRecord(context, options, previous);
+    record = await buildReplacementRecord(context, options, previous);
     await atomicWrite(
+      context.repoRoot,
       path.join(
         context.repoRoot,
         ".harness-cache",
         "last-transaction.json",
       ),
       `${JSON.stringify(record, null, 2)}\n`,
+      "Last transaction record",
     );
   } catch (error) {
     try {
@@ -385,8 +463,13 @@ async function performReplacement(context, options) {
   }
 
   await writeJournal(context, "committed");
-  await rm(context.stagingDir, { recursive: true, force: true });
-  await removeJournal(context.journalPath);
+  await safeRemove(
+    context.repoRoot,
+    context.stagingDir,
+    "Committed replacement staging",
+    { recursive: true },
+  );
+  await removeJournal(context.repoRoot, context.journalPath);
   return record;
 }
 
@@ -486,6 +569,245 @@ function normalizeManagedPaths(values, kind) {
   return paths;
 }
 
+function assertPlainObject(value, label) {
+  if (
+    value === null ||
+    typeof value !== "object" ||
+    Array.isArray(value) ||
+    Object.getPrototypeOf(value) !== Object.prototype
+  ) {
+    throw new Error(`${label} must be a plain object.`);
+  }
+}
+
+function assertExactKeys(value, required, optional, label) {
+  assertPlainObject(value, label);
+  const allowed = new Set([...required, ...optional]);
+  const missing = required.filter(
+    (key) => !Object.prototype.hasOwnProperty.call(value, key),
+  );
+  const extra = Object.keys(value).filter((key) => !allowed.has(key));
+  if (missing.length > 0 || extra.length > 0) {
+    throw new Error(
+      `${label} has an invalid schema`
+      + `${missing.length ? `; missing ${missing.join(", ")}` : ""}`
+      + `${extra.length ? `; unexpected ${extra.join(", ")}` : ""}.`,
+    );
+  }
+}
+
+function assertString(value, label, pattern = null) {
+  if (
+    typeof value !== "string" ||
+    value.length === 0 ||
+    (pattern && !pattern.test(value))
+  ) {
+    throw new Error(`${label} is invalid.`);
+  }
+}
+
+function validateContentIdentity(value, label) {
+  assertExactKeys(
+    value,
+    ["algorithm", "digest", "entryCount"],
+    [],
+    label,
+  );
+  if (
+    value.algorithm !== "sha256-tree-v1" ||
+    !/^[a-f0-9]{64}$/.test(value.digest) ||
+    !Number.isSafeInteger(value.entryCount) ||
+    value.entryCount < 0
+  ) {
+    throw new Error(`${label} is invalid.`);
+  }
+  return value;
+}
+
+function validateFileFingerprint(value, label) {
+  assertPlainObject(value, label);
+  if (value.kind === "absent") {
+    assertExactKeys(value, ["kind"], [], label);
+    return value;
+  }
+  assertExactKeys(
+    value,
+    ["kind", "sha256", "size", "mode"],
+    [],
+    label,
+  );
+  if (
+    value.kind !== "file" ||
+    !/^[a-f0-9]{64}$/.test(value.sha256) ||
+    !Number.isSafeInteger(value.size) ||
+    value.size < 0 ||
+    !/^[0-7]{3}$/.test(value.mode)
+  ) {
+    throw new Error(`${label} is invalid.`);
+  }
+  return value;
+}
+
+function validateComponentState(value, label) {
+  assertExactKeys(
+    value,
+    ["commit", "gitTree", "contentIdentity", "manifestSha256"],
+    [],
+    label,
+  );
+  assertString(value.commit, `${label} commit`, /^[a-f0-9]{40}$/);
+  assertString(value.gitTree, `${label} Git tree`, /^[a-f0-9]{40}$/);
+  assertString(value.manifestSha256, `${label} manifest`, /^[a-f0-9]{64}$/);
+  validateContentIdentity(value.contentIdentity, `${label} content identity`);
+  return value;
+}
+
+function validateSourceMetadata(value, label) {
+  if (value === null) return value;
+  assertExactKeys(value, ["version"], ["integrity"], label);
+  assertString(value.version, `${label} version`);
+  if (value.integrity !== undefined) {
+    assertString(value.integrity, `${label} integrity`);
+  }
+  return value;
+}
+
+function validateVerification(value, operation) {
+  if (value === null) return value;
+  if (operation === "component") {
+    assertExactKeys(
+      value,
+      ["repository", "commands", "preservedSparsePaths"],
+      ["candidateManifestSha256", "finalCommands"],
+      "Component verification",
+    );
+    assertString(value.repository, "Component verification repository");
+    if (
+      !Array.isArray(value.commands) ||
+      !value.commands.every((entry) => typeof entry === "string") ||
+      !Array.isArray(value.preservedSparsePaths) ||
+      !value.preservedSparsePaths.every(
+        (entry) => typeof entry === "string",
+      )
+    ) {
+      throw new Error("Component verification commands are invalid.");
+    }
+    if (
+      value.candidateManifestSha256 !== undefined &&
+      !/^[a-f0-9]{64}$/.test(value.candidateManifestSha256)
+    ) {
+      throw new Error("Component verification manifest digest is invalid.");
+    }
+    if (
+      value.finalCommands !== undefined &&
+      (!Array.isArray(value.finalCommands) ||
+        !value.finalCommands.every((entry) => typeof entry === "string"))
+    ) {
+      throw new Error("Component final verification commands are invalid.");
+    }
+    return value;
+  }
+  assertExactKeys(
+    value,
+    ["command", "strategy", "changedPaths", "updateOutput"],
+    [],
+    "Managed file verification",
+  );
+  assertString(value.command, "Managed file verification command");
+  assertString(value.strategy, "Managed file verification strategy");
+  if (
+    !Number.isSafeInteger(value.changedPaths) ||
+    value.changedPaths < 0 ||
+    !Array.isArray(value.updateOutput) ||
+    !value.updateOutput.every((entry) => typeof entry === "string")
+  ) {
+    throw new Error("Managed file verification is invalid.");
+  }
+  return value;
+}
+
+function validateTransactionRecord(record) {
+  assertPlainObject(record, "Transaction record");
+  const common = [
+    "schemaVersion",
+    "id",
+    "operation",
+    "status",
+    "createdAt",
+    "snapshotPath",
+    "previous",
+    "current",
+    "verification",
+  ];
+  if (record.operation === "component") {
+    assertExactKeys(
+      record,
+      [...common, "componentPath"],
+      ["rolledBackAt"],
+      "Component transaction record",
+    );
+  } else if (record.operation === "managed-files") {
+    assertExactKeys(
+      record,
+      [...common, "kind", "paths"],
+      ["rolledBackAt"],
+      "Managed file transaction record",
+    );
+  } else {
+    throw new Error("Transaction record operation is invalid.");
+  }
+  if (
+    record.schemaVersion !== 2 ||
+    !/^[A-Za-z0-9-]+$/.test(String(record.id ?? "")) ||
+    !["committed", "rolled-back"].includes(record.status)
+  ) {
+    throw new Error("Transaction record is invalid or unsupported.");
+  }
+  assertString(record.createdAt, "Transaction record creation time");
+  if (record.rolledBackAt !== undefined) {
+    assertString(record.rolledBackAt, "Transaction rollback time");
+  }
+  assertString(record.snapshotPath, "Transaction snapshot path");
+  validateVerification(record.verification, record.operation);
+  if (record.operation === "component") {
+    assertString(record.componentPath, "Transaction component path");
+    validateComponentState(record.previous, "Previous component state");
+    validateComponentState(record.current, "Current component state");
+  } else {
+    if (record.kind !== "trellis" || !Array.isArray(record.paths)) {
+      throw new Error("Managed file transaction metadata is invalid.");
+    }
+    validateSourceMetadata(record.previous, "Previous managed source");
+    validateSourceMetadata(record.current, "Current managed source");
+    for (const entry of record.paths) {
+      assertExactKeys(
+        entry,
+        [
+          "path",
+          "existed",
+          "originalFingerprint",
+          "installedFingerprint",
+        ],
+        [],
+        "Managed file transaction path",
+      );
+      assertString(entry.path, "Managed file transaction path");
+      if (typeof entry.existed !== "boolean") {
+        throw new Error("Managed file transaction existence flag is invalid.");
+      }
+      validateFileFingerprint(
+        entry.originalFingerprint,
+        "Managed original fingerprint",
+      );
+      validateFileFingerprint(
+        entry.installedFingerprint,
+        "Managed installed fingerprint",
+      );
+    }
+  }
+  return record;
+}
+
 async function assertRegularFileOrAbsent(target, label) {
   try {
     const details = await lstat(target);
@@ -497,50 +819,6 @@ async function assertRegularFileOrAbsent(target, label) {
     if (error?.code === "ENOENT") return false;
     throw error;
   }
-}
-
-async function readSafeDirectory(target, label, create) {
-  let details;
-  try {
-    details = await lstat(target);
-  } catch (error) {
-    if (error?.code !== "ENOENT") throw error;
-    if (!create) return null;
-    try {
-      await mkdir(target, { mode: 0o700 });
-    } catch (mkdirError) {
-      if (mkdirError?.code !== "EEXIST") throw mkdirError;
-    }
-    details = await lstat(target);
-  }
-  if (details.isSymbolicLink() || !details.isDirectory()) {
-    throw new Error(
-      `${label} path component must be a regular directory, not a symbolic link or junction: ${target}`,
-    );
-  }
-  return details;
-}
-
-async function ensureSafeDirectoryChain(
-  root,
-  directory,
-  label,
-  { create = false } = {},
-) {
-  const resolvedRoot = path.resolve(root);
-  const resolvedDirectory = path.resolve(directory);
-  if (resolvedDirectory !== resolvedRoot) {
-    assertInside(resolvedRoot, resolvedDirectory, label);
-  }
-  const relative = path.relative(resolvedRoot, resolvedDirectory);
-  const segments = relative ? relative.split(path.sep) : [];
-  let current = resolvedRoot;
-
-  for (let index = -1; index < segments.length; index++) {
-    if (index >= 0) current = path.join(current, segments[index]);
-    if (!(await readSafeDirectory(current, label, create))) return false;
-  }
-  return true;
 }
 
 async function assertManagedRegularFileOrAbsent(root, target, label) {
@@ -643,6 +921,16 @@ async function buildManagedFileEntries(repoRoot, candidateRoot, paths) {
       path: relative,
       existed,
       candidateExists,
+      originalFingerprint: await fingerprintRegularFile(
+        repoRoot,
+        live,
+        "Managed live path",
+      ),
+      installedFingerprint: await fingerprintRegularFile(
+        candidateRoot,
+        candidate,
+        "Managed candidate path",
+      ),
     });
   }
   return entries;
@@ -650,7 +938,7 @@ async function buildManagedFileEntries(repoRoot, candidateRoot, paths) {
 
 function buildManagedFilesJournal(repoRoot, id, kind, snapshotDir, entries) {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     id,
     operation: "managed-files",
     phase: "created",
@@ -760,7 +1048,7 @@ async function applyManagedCandidate(context) {
 
 function buildManagedFilesRecord(context, options) {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     id: context.id,
     operation: "managed-files",
     kind: context.kind,
@@ -770,10 +1058,19 @@ function buildManagedFilesRecord(context, options) {
       .relative(context.repoRoot, context.snapshotDir)
       .split(path.sep)
       .join("/"),
-    paths: context.entries.map(({ path: relative, existed }) => ({
-      path: relative,
-      existed,
-    })),
+    paths: context.entries.map(
+      ({
+        path: relative,
+        existed,
+        originalFingerprint,
+        installedFingerprint,
+      }) => ({
+        path: relative,
+        existed,
+        originalFingerprint,
+        installedFingerprint,
+      }),
+    ),
     previous: options.previous ?? null,
     current: options.current ?? null,
     verification: options.verification ?? null,
@@ -794,12 +1091,14 @@ export async function replaceManagedFilesTransaction(options) {
       if (options.afterApply) await options.afterApply();
       record = buildManagedFilesRecord(context, options);
       await atomicWrite(
+        context.repoRoot,
         path.join(
           context.repoRoot,
           ".harness-cache",
           "last-transaction.json",
         ),
         `${JSON.stringify(record, null, 2)}\n`,
+        "Last transaction record",
       );
     } catch (error) {
       try {
@@ -808,8 +1107,13 @@ export async function replaceManagedFilesTransaction(options) {
           context.snapshotFiles,
           context.entries,
         );
-        await rm(context.snapshotDir, { recursive: true, force: true });
-        await removeJournal(context.journalPath);
+        await safeRemove(
+          context.repoRoot,
+          context.snapshotDir,
+          "Failed managed snapshot",
+          { recursive: true },
+        );
+        await removeJournal(context.repoRoot, context.journalPath);
       } catch (restoreError) {
         throw new AggregateError(
           [error, restoreError],
@@ -819,7 +1123,7 @@ export async function replaceManagedFilesTransaction(options) {
       throw error;
     }
     await writeJournal(context, "committed");
-    await removeJournal(context.journalPath);
+    await removeJournal(context.repoRoot, context.journalPath);
     return record;
   } finally {
     await lock.release();
@@ -828,16 +1132,50 @@ export async function replaceManagedFilesTransaction(options) {
 
 async function loadRollbackContext(repoRoot, recordPath) {
   assertInside(repoRoot, recordPath, "Transaction record");
-  const record = JSON.parse(await readFile(recordPath, "utf8"));
+  await assertSafeRegularFileOrAbsent(
+    repoRoot,
+    recordPath,
+    "Transaction record",
+  );
+  const record = validateTransactionRecord(
+    JSON.parse(await readFile(recordPath, "utf8")),
+  );
   if (record.status !== "committed") {
     throw new Error("The last Harness transaction is not rollback-eligible.");
   }
 
-  const snapshotDir = path.resolve(repoRoot, record.snapshotPath);
-  const componentDir = path.resolve(repoRoot, record.componentPath);
+  const manifestPath = path.join(repoRoot, "harness.sources.json");
+  const currentManifestBytes = await readFile(manifestPath);
+  const manifest = JSON.parse(currentManifestBytes.toString("utf8"));
+  const componentDir = path.resolve(
+    repoRoot,
+    String(manifest.ccg?.snapshotPath ?? ""),
+  );
+  const componentPath = path
+    .relative(repoRoot, componentDir)
+    .split(path.sep)
+    .join("/");
+  if (
+    componentPath !== "components/ccg-workflow" ||
+    record.componentPath !== componentPath
+  ) {
+    throw new Error("Transaction component path does not match Harness ownership.");
+  }
+  const snapshotDir = path.join(
+    repoRoot,
+    ".harness-cache",
+    "snapshots",
+    record.id,
+  );
+  const expectedSnapshotPath = path
+    .relative(repoRoot, snapshotDir)
+    .split(path.sep)
+    .join("/");
+  if (record.snapshotPath !== expectedSnapshotPath) {
+    throw new Error("Transaction snapshot path does not match its transaction ID.");
+  }
   const snapshotComponent = path.join(snapshotDir, "component");
   const snapshotManifest = path.join(snapshotDir, "harness.sources.json");
-  const manifestPath = path.join(repoRoot, "harness.sources.json");
   const discardRoot = path.join(
     repoRoot,
     ".harness-cache",
@@ -853,12 +1191,10 @@ async function loadRollbackContext(repoRoot, recordPath) {
   assertInside(repoRoot, snapshotDir, "Rollback snapshot");
   assertInside(repoRoot, componentDir, "CCG component");
   assertInside(repoRoot, discardRoot, "Rollback discard");
-
-  const currentManifestBytes = await readFile(manifestPath);
-  const manifest = JSON.parse(currentManifestBytes.toString("utf8"));
   if (
     manifest.ccg?.commit !== record.current.commit ||
-    manifest.ccg?.gitTree !== record.current.gitTree
+    manifest.ccg?.gitTree !== record.current.gitTree ||
+    sha256(currentManifestBytes) !== record.current.manifestSha256
   ) {
     throw new Error(
       "Current Harness manifest changed after the update; refusing rollback.",
@@ -866,6 +1202,40 @@ async function loadRollbackContext(repoRoot, recordPath) {
   }
   if (!(await exists(snapshotComponent)))
     throw new Error("Rollback component snapshot is missing.");
+  await ensureSafeDirectoryChain(
+    repoRoot,
+    componentDir,
+    "Rollback current component",
+  );
+  await ensureSafeDirectoryChain(
+    repoRoot,
+    snapshotComponent,
+    "Rollback component snapshot",
+  );
+  const currentContentIdentity = await buildContentIdentity(componentDir);
+  if (
+    !contentIdentitiesEqual(
+      currentContentIdentity,
+      record.current.contentIdentity,
+    )
+  ) {
+    throw new Error(
+      "Current CCG component changed after the update; refusing rollback.",
+    );
+  }
+  const snapshotContentIdentity = await buildContentIdentity(snapshotComponent);
+  if (
+    !contentIdentitiesEqual(
+      snapshotContentIdentity,
+      record.previous.contentIdentity,
+    )
+  ) {
+    throw new Error("Rollback component snapshot identity is invalid.");
+  }
+  const snapshotManifestBytes = await readFile(snapshotManifest);
+  if (sha256(snapshotManifestBytes) !== record.previous.manifestSha256) {
+    throw new Error("Rollback source manifest snapshot identity is invalid.");
+  }
 
   return {
     repoRoot,
@@ -880,9 +1250,10 @@ async function loadRollbackContext(repoRoot, recordPath) {
     discardComponent,
     discardManifest,
     currentManifestBytes,
+    currentContentIdentity,
     journalPath,
     journal: {
-      schemaVersion: 1,
+      schemaVersion: 2,
       id: record.id,
       operation: "rollback",
       phase: "created",
@@ -893,43 +1264,81 @@ async function loadRollbackContext(repoRoot, recordPath) {
         .relative(repoRoot, discardRoot)
         .split(path.sep)
         .join("/"),
+      currentContentIdentity,
+      currentManifestSha256: sha256(currentManifestBytes),
     },
   };
 }
 
 async function restoreInterruptedRollback(context, state) {
   if (state.snapshotActivated && (await exists(context.componentDir))) {
-    await rename(context.componentDir, context.snapshotComponent);
+    await safeRename(
+      context.repoRoot,
+      context.componentDir,
+      context.snapshotComponent,
+      "Interrupted rollback snapshot restore",
+    );
   }
   if (state.currentMoved && (await exists(context.discardComponent))) {
-    await rename(context.discardComponent, context.componentDir);
+    await safeRename(
+      context.repoRoot,
+      context.discardComponent,
+      context.componentDir,
+      "Interrupted rollback current restore",
+    );
   }
-  await atomicWrite(context.manifestPath, context.currentManifestBytes);
-  await rm(context.discardRoot, { recursive: true, force: true });
-  await removeJournal(context.journalPath);
+  await atomicWrite(
+    context.repoRoot,
+    context.manifestPath,
+    context.currentManifestBytes,
+    "Source manifest",
+  );
+  await safeRemove(
+    context.repoRoot,
+    context.discardRoot,
+    "Interrupted rollback discard",
+    { recursive: true },
+  );
+  await removeJournal(context.repoRoot, context.journalPath);
 }
 
 async function activateRollback(context, afterRestore) {
-  await mkdir(context.discardRoot, {
-    recursive: true,
-    mode: 0o700,
-  });
-  await writeFile(context.discardManifest, context.currentManifestBytes, {
-    mode: 0o600,
-  });
+  await safeCreateDirectory(
+    context.repoRoot,
+    context.discardRoot,
+    "Rollback discard",
+  );
+  await atomicWrite(
+    context.repoRoot,
+    context.discardManifest,
+    context.currentManifestBytes,
+    "Rollback discard manifest",
+  );
   await writeJournal(context, "prepared");
   const state = { currentMoved: false, snapshotActivated: false };
   try {
     await writeJournal(context, "moving-current");
-    await rename(context.componentDir, context.discardComponent);
+    await safeRename(
+      context.repoRoot,
+      context.componentDir,
+      context.discardComponent,
+      "Rollback current component",
+    );
     state.currentMoved = true;
     await writeJournal(context, "current-moved");
-    await rename(context.snapshotComponent, context.componentDir);
+    await safeRename(
+      context.repoRoot,
+      context.snapshotComponent,
+      context.componentDir,
+      "Rollback snapshot activation",
+    );
     state.snapshotActivated = true;
     await writeJournal(context, "snapshot-activated");
     await atomicWrite(
+      context.repoRoot,
       context.manifestPath,
       await readFile(context.snapshotManifest),
+      "Source manifest",
     );
     await writeJournal(context, "manifest-restored");
     if (afterRestore) await afterRestore();
@@ -950,12 +1359,19 @@ async function finalizeRollback(context) {
   context.record.status = "rolled-back";
   context.record.rolledBackAt = new Date().toISOString();
   await atomicWrite(
+    context.repoRoot,
     context.recordPath,
     `${JSON.stringify(context.record, null, 2)}\n`,
+    "Last transaction record",
   );
   await writeJournal(context, "committed");
-  await rm(context.discardRoot, { recursive: true, force: true });
-  await removeJournal(context.journalPath);
+  await safeRemove(
+    context.repoRoot,
+    context.discardRoot,
+    "Committed rollback discard",
+    { recursive: true },
+  );
+  await removeJournal(context.repoRoot, context.journalPath);
   return context.record;
 }
 
@@ -1000,15 +1416,30 @@ async function loadManagedFilesRollbackContext(
   assertInside(repoRoot, discardRoot, "Managed file rollback discard");
 
   const currentEntries = [];
+  const recordByPath = new Map(
+    record.paths.map((entry) => [entry.path, entry]),
+  );
   for (const relative of paths) {
     const live = path.join(repoRoot, ...relative.split("/"));
+    const currentFingerprint = await fingerprintRegularFile(
+      repoRoot,
+      live,
+      "Managed rollback live path",
+    );
+    if (
+      !fingerprintsEqual(
+        currentFingerprint,
+        recordByPath.get(relative).installedFingerprint,
+      )
+    ) {
+      throw new Error(
+        `Managed path changed after the update; refusing rollback: ${relative}.`,
+      );
+    }
     currentEntries.push({
       path: relative,
-      existed: await assertManagedRegularFileOrAbsent(
-        repoRoot,
-        live,
-        "Managed rollback live path",
-      ),
+      existed: currentFingerprint.kind === "file",
+      fingerprint: currentFingerprint,
     });
   }
   return {
@@ -1022,7 +1453,7 @@ async function loadManagedFilesRollbackContext(
     currentEntries,
     journalPath,
     journal: {
-      schemaVersion: 1,
+      schemaVersion: 2,
       id: record.id,
       operation: "managed-files-rollback",
       phase: "created",
@@ -1081,8 +1512,13 @@ async function performManagedFilesRollback(context, afterRestore) {
         context.discardFiles,
         context.currentEntries,
       );
-      await rm(context.discardRoot, { recursive: true, force: true });
-      await removeJournal(context.journalPath);
+      await safeRemove(
+        context.repoRoot,
+        context.discardRoot,
+        "Failed managed rollback discard",
+        { recursive: true },
+      );
+      await removeJournal(context.repoRoot, context.journalPath);
     } catch (restoreError) {
       throw new AggregateError(
         [error, restoreError],
@@ -1095,13 +1531,25 @@ async function performManagedFilesRollback(context, afterRestore) {
   context.record.status = "rolled-back";
   context.record.rolledBackAt = new Date().toISOString();
   await atomicWrite(
+    context.repoRoot,
     context.recordPath,
     `${JSON.stringify(context.record, null, 2)}\n`,
+    "Last transaction record",
   );
   await writeJournal(context, "committed");
-  await rm(context.discardRoot, { recursive: true, force: true });
-  await rm(context.snapshotDir, { recursive: true, force: true });
-  await removeJournal(context.journalPath);
+  await safeRemove(
+    context.repoRoot,
+    context.discardRoot,
+    "Committed managed rollback discard",
+    { recursive: true },
+  );
+  await safeRemove(
+    context.repoRoot,
+    context.snapshotDir,
+    "Committed managed rollback snapshot",
+    { recursive: true },
+  );
+  await removeJournal(context.repoRoot, context.journalPath);
   return context.record;
 }
 
@@ -1115,7 +1563,14 @@ export async function rollbackLastTransaction(options) {
   const lock = await acquireTransactionLock(repoRoot);
   try {
     await assertNoPendingJournal(repoRoot);
-    const record = JSON.parse(await readFile(recordPath, "utf8"));
+    await assertSafeRegularFileOrAbsent(
+      repoRoot,
+      recordPath,
+      "Transaction record",
+    );
+    const record = validateTransactionRecord(
+      JSON.parse(await readFile(recordPath, "utf8")),
+    );
     if (record.operation === "managed-files") {
       const context = await loadManagedFilesRollbackContext(
         repoRoot,
@@ -1322,19 +1777,189 @@ function loadComponentRecoveryContext(repoRoot, journal, baseContext) {
   return context;
 }
 
-function loadRecoveryContext(repoRoot, journal) {
+function validateJournalPathEntry(entry, operation) {
+  const replacement = operation === "managed-files";
+  assertExactKeys(
+    entry,
+    replacement
+      ? [
+          "path",
+          "existed",
+          "candidateExists",
+          "originalFingerprint",
+          "installedFingerprint",
+        ]
+      : [
+          "path",
+          "existed",
+          "originalFingerprint",
+          "installedFingerprint",
+        ],
+    [],
+    "Managed journal path",
+  );
+  assertString(entry.path, "Managed journal path");
   if (
-    journal?.schemaVersion !== 1 ||
-    !/^[A-Za-z0-9-]+$/.test(String(journal?.id ?? "")) ||
-    ![
-      "replacement",
-      "rollback",
-      "managed-files",
-      "managed-files-rollback",
-    ].includes(journal?.operation)
+    typeof entry.existed !== "boolean" ||
+    (replacement && typeof entry.candidateExists !== "boolean")
+  ) {
+    throw new Error("Managed journal path flags are invalid.");
+  }
+  validateFileFingerprint(
+    entry.originalFingerprint,
+    "Managed journal original fingerprint",
+  );
+  validateFileFingerprint(
+    entry.installedFingerprint,
+    "Managed journal installed fingerprint",
+  );
+}
+
+function validateTransactionJournal(journal) {
+  assertPlainObject(journal, "Transaction journal");
+  const common = [
+    "schemaVersion",
+    "id",
+    "operation",
+    "phase",
+    "createdAt",
+    "updatedAt",
+  ];
+  const operation = journal.operation;
+  if (operation === "replacement") {
+    assertExactKeys(
+      journal,
+      [
+        ...common,
+        "componentPath",
+        "snapshotPath",
+        "stagingPath",
+        "previousContentIdentity",
+        "previousManifestSha256",
+      ],
+      [],
+      "Replacement journal",
+    );
+    validateContentIdentity(
+      journal.previousContentIdentity,
+      "Replacement previous identity",
+    );
+    assertString(
+      journal.previousManifestSha256,
+      "Replacement previous manifest",
+      /^[a-f0-9]{64}$/,
+    );
+  } else if (operation === "rollback") {
+    assertExactKeys(
+      journal,
+      [
+        ...common,
+        "componentPath",
+        "snapshotPath",
+        "discardPath",
+        "currentContentIdentity",
+        "currentManifestSha256",
+      ],
+      [],
+      "Rollback journal",
+    );
+    validateContentIdentity(
+      journal.currentContentIdentity,
+      "Rollback current identity",
+    );
+    assertString(
+      journal.currentManifestSha256,
+      "Rollback current manifest",
+      /^[a-f0-9]{64}$/,
+    );
+  } else if (operation === "managed-files") {
+    assertExactKeys(
+      journal,
+      [
+        ...common,
+        "kind",
+        "snapshotPath",
+        "paths",
+        "appliedCount",
+      ],
+      [],
+      "Managed file journal",
+    );
+  } else if (operation === "managed-files-rollback") {
+    assertExactKeys(
+      journal,
+      [
+        ...common,
+        "kind",
+        "snapshotPath",
+        "discardPath",
+        "paths",
+        "currentPaths",
+      ],
+      [],
+      "Managed rollback journal",
+    );
+  } else {
+    throw new Error("Transaction journal operation is invalid.");
+  }
+  if (
+    journal.schemaVersion !== 2 ||
+    !/^[A-Za-z0-9-]+$/.test(String(journal.id ?? "")) ||
+    typeof journal.phase !== "string" ||
+    typeof journal.createdAt !== "string" ||
+    typeof journal.updatedAt !== "string"
   ) {
     throw new Error("Transaction journal is invalid or unsupported.");
   }
+  if (operation.startsWith("managed-files")) {
+    if (
+      journal.kind !== "trellis" ||
+      !Array.isArray(journal.paths) ||
+      journal.paths.length === 0
+    ) {
+      throw new Error("Managed transaction journal is invalid.");
+    }
+    for (const entry of journal.paths) {
+      validateJournalPathEntry(
+        entry,
+        operation === "managed-files" ? "managed-files" : "rollback",
+      );
+    }
+    if (
+      operation === "managed-files" &&
+      (!Number.isSafeInteger(journal.appliedCount) ||
+        journal.appliedCount < 0 ||
+        journal.appliedCount > journal.paths.length)
+    ) {
+      throw new Error("Managed journal applied count is invalid.");
+    }
+    if (operation === "managed-files-rollback") {
+      if (!Array.isArray(journal.currentPaths)) {
+        throw new Error("Managed rollback current paths are invalid.");
+      }
+      for (const entry of journal.currentPaths) {
+        assertExactKeys(
+          entry,
+          ["path", "existed", "fingerprint"],
+          [],
+          "Managed rollback current path",
+        );
+        assertString(entry.path, "Managed rollback current path");
+        if (typeof entry.existed !== "boolean") {
+          throw new Error("Managed rollback current existence flag is invalid.");
+        }
+        validateFileFingerprint(
+          entry.fingerprint,
+          "Managed rollback current fingerprint",
+        );
+      }
+    }
+  }
+  return journal;
+}
+
+function loadRecoveryContext(repoRoot, journal) {
+  validateTransactionJournal(journal);
   const baseContext = {
     repoRoot,
     journal,
@@ -1352,13 +1977,20 @@ function loadRecoveryContext(repoRoot, journal) {
 
 async function matchingLastTransaction(context, status) {
   const record = await readJsonIfPresent(context.recordPath);
-  return record?.id === context.journal.id && record?.status === status;
+  if (!record) return false;
+  validateTransactionRecord(record);
+  return record.id === context.journal.id && record.status === status;
 }
 
 async function recoverReplacement(context) {
   if (await matchingLastTransaction(context, "committed")) {
-    await rm(context.stagingDir, { recursive: true, force: true });
-    await removeJournal(context.journalPath);
+    await safeRemove(
+      context.repoRoot,
+      context.stagingDir,
+      "Committed recovery staging",
+      { recursive: true },
+    );
+    await removeJournal(context.repoRoot, context.journalPath);
     return {
       operation: "replacement",
       outcome: "committed-cleanup-completed",
@@ -1371,12 +2003,49 @@ async function recoverReplacement(context) {
       "Replacement recovery cannot find the preserved source manifest.",
     );
   }
+  if (
+    !(await exists(context.snapshotComponent)) ||
+    !contentIdentitiesEqual(
+      await buildContentIdentity(context.snapshotComponent),
+      context.journal.previousContentIdentity,
+    ) ||
+    sha256(await readFile(context.snapshotManifest)) !==
+      context.journal.previousManifestSha256
+  ) {
+    throw new Error("Replacement recovery snapshot identity is invalid.");
+  }
+  let preservedCandidate = null;
   if (await exists(context.snapshotComponent)) {
     if (await exists(context.componentDir)) {
-      await rm(context.componentDir, { recursive: true, force: true });
+      const recoveryDiscard = path.join(
+        context.repoRoot,
+        ".harness-cache",
+        "recovery-discard",
+        context.journal.id,
+      );
+      const preserved = path.join(recoveryDiscard, "component");
+      await safeCreateDirectory(
+        context.repoRoot,
+        recoveryDiscard,
+        "Replacement recovery discard",
+      );
+      await safeRename(
+        context.repoRoot,
+        context.componentDir,
+        preserved,
+        "Replacement recovery candidate preservation",
+      );
+      preservedCandidate = path
+        .relative(context.repoRoot, preserved)
+        .split(path.sep)
+        .join("/");
     }
-    await mkdir(path.dirname(context.componentDir), { recursive: true });
-    await rename(context.snapshotComponent, context.componentDir);
+    await safeRename(
+      context.repoRoot,
+      context.snapshotComponent,
+      context.componentDir,
+      "Replacement recovery snapshot activation",
+    );
   } else if (!(await exists(context.componentDir))) {
     throw new Error(
       "Replacement recovery found neither the live nor preserved component.",
@@ -1384,23 +2053,41 @@ async function recoverReplacement(context) {
   }
 
   await atomicWrite(
+    context.repoRoot,
     context.manifestPath,
     await readFile(context.snapshotManifest),
+    "Source manifest",
   );
-  await rm(context.stagingDir, { recursive: true, force: true });
-  await rm(context.snapshotDir, { recursive: true, force: true });
-  await removeJournal(context.journalPath);
+  await safeRemove(
+    context.repoRoot,
+    context.stagingDir,
+    "Replacement recovery staging",
+    { recursive: true },
+  );
+  await safeRemove(
+    context.repoRoot,
+    context.snapshotDir,
+    "Replacement recovery snapshot",
+    { recursive: true },
+  );
+  await removeJournal(context.repoRoot, context.journalPath);
   return {
     operation: "replacement",
     outcome: "rolled-back",
     transaction: context.journal.id,
+    ...(preservedCandidate ? { preservedCandidate } : {}),
   };
 }
 
 async function recoverRollback(context) {
   if (await matchingLastTransaction(context, "rolled-back")) {
-    await rm(context.discardRoot, { recursive: true, force: true });
-    await removeJournal(context.journalPath);
+    await safeRemove(
+      context.repoRoot,
+      context.discardRoot,
+      "Committed rollback recovery discard",
+      { recursive: true },
+    );
+    await removeJournal(context.repoRoot, context.journalPath);
     return {
       operation: "rollback",
       outcome: "committed-cleanup-completed",
@@ -1424,17 +2111,23 @@ async function recoverRollback(context) {
           "Rollback recovery cannot reconstruct the previous snapshot.",
         );
       }
-      await mkdir(path.dirname(context.snapshotComponent), {
-        recursive: true,
-      });
-      await rename(context.componentDir, context.snapshotComponent);
+      await safeRename(
+        context.repoRoot,
+        context.componentDir,
+        context.snapshotComponent,
+        "Rollback recovery snapshot reconstruction",
+      );
     } else if (componentExists) {
       throw new Error(
         "Rollback recovery found an ambiguous live component state.",
       );
     }
-    await mkdir(path.dirname(context.componentDir), { recursive: true });
-    await rename(context.discardComponent, context.componentDir);
+    await safeRename(
+      context.repoRoot,
+      context.discardComponent,
+      context.componentDir,
+      "Rollback recovery current restore",
+    );
   } else if (!componentExists || !snapshotExists) {
     throw new Error(
       "Rollback recovery is missing the current component or rollback snapshot.",
@@ -1442,11 +2135,18 @@ async function recoverRollback(context) {
   }
 
   await atomicWrite(
+    context.repoRoot,
     context.manifestPath,
     await readFile(context.discardManifest),
+    "Source manifest",
   );
-  await rm(context.discardRoot, { recursive: true, force: true });
-  await removeJournal(context.journalPath);
+  await safeRemove(
+    context.repoRoot,
+    context.discardRoot,
+    "Rollback recovery discard",
+    { recursive: true },
+  );
+  await removeJournal(context.repoRoot, context.journalPath);
   return {
     operation: "rollback",
     outcome: "rolled-back",
@@ -1456,7 +2156,7 @@ async function recoverRollback(context) {
 
 async function recoverManagedFiles(context) {
   if (await matchingLastTransaction(context, "committed")) {
-    await removeJournal(context.journalPath);
+    await removeJournal(context.repoRoot, context.journalPath);
     return {
       operation: "managed-files",
       outcome: "committed-cleanup-completed",
@@ -1470,8 +2170,13 @@ async function recoverManagedFiles(context) {
       context.entries,
     );
   }
-  await rm(context.snapshotDir, { recursive: true, force: true });
-  await removeJournal(context.journalPath);
+  await safeRemove(
+    context.repoRoot,
+    context.snapshotDir,
+    "Managed recovery snapshot",
+    { recursive: true },
+  );
+  await removeJournal(context.repoRoot, context.journalPath);
   return {
     operation: "managed-files",
     outcome: "rolled-back",
@@ -1481,9 +2186,19 @@ async function recoverManagedFiles(context) {
 
 async function recoverManagedFilesRollback(context) {
   if (await matchingLastTransaction(context, "rolled-back")) {
-    await rm(context.discardRoot, { recursive: true, force: true });
-    await rm(context.snapshotDir, { recursive: true, force: true });
-    await removeJournal(context.journalPath);
+    await safeRemove(
+      context.repoRoot,
+      context.discardRoot,
+      "Committed managed rollback recovery discard",
+      { recursive: true },
+    );
+    await safeRemove(
+      context.repoRoot,
+      context.snapshotDir,
+      "Committed managed rollback recovery snapshot",
+      { recursive: true },
+    );
+    await removeJournal(context.repoRoot, context.journalPath);
     return {
       operation: "managed-files-rollback",
       outcome: "committed-cleanup-completed",
@@ -1497,8 +2212,13 @@ async function recoverManagedFilesRollback(context) {
       context.currentEntries,
     );
   }
-  await rm(context.discardRoot, { recursive: true, force: true });
-  await removeJournal(context.journalPath);
+  await safeRemove(
+    context.repoRoot,
+    context.discardRoot,
+    "Managed rollback recovery discard",
+    { recursive: true },
+  );
+  await removeJournal(context.repoRoot, context.journalPath);
   return {
     operation: "managed-files-rollback",
     outcome: "rolled-back",
@@ -1511,16 +2231,49 @@ async function readRecoveryLock(lockPath) {
     return JSON.parse(await readFile(lockPath, "utf8"));
   } catch (error) {
     if (error?.code === "ENOENT") return null;
-    if (error instanceof SyntaxError) return { invalid: true };
     throw error;
   }
+}
+
+function validateRecoveryLock(lock, repoRoot) {
+  assertExactKeys(
+    lock,
+    ["schemaVersion", "pid", "createdAt", "token", "repoRoot"],
+    [],
+    "Transaction lock",
+  );
+  if (
+    lock.schemaVersion !== 2 ||
+    !Number.isSafeInteger(lock.pid) ||
+    lock.pid <= 0 ||
+    typeof lock.createdAt !== "string" ||
+    !/^[a-f0-9-]{36}$/i.test(String(lock.token ?? "")) ||
+    normalizePath(lock.repoRoot) !== normalizePath(repoRoot)
+  ) {
+    throw new Error("Transaction lock is invalid or belongs to another repo.");
+  }
+  return lock;
 }
 
 export async function recoverInterruptedTransaction(options) {
   const repoRoot = path.resolve(options.repoRoot);
   const { lockPath, journalPath } = transactionStatePaths(repoRoot);
   const isProcessAlive = options.isProcessAlive ?? defaultIsProcessAlive;
-  const existingLock = await readRecoveryLock(lockPath);
+  await ensureSafeDirectoryChain(
+    repoRoot,
+    path.dirname(lockPath),
+    "Transaction recovery state",
+    { create: true },
+  );
+  await assertSafeRegularFileOrAbsent(
+    repoRoot,
+    lockPath,
+    "Transaction lock",
+  );
+  const rawLock = await readRecoveryLock(lockPath);
+  const existingLock = rawLock
+    ? validateRecoveryLock(rawLock, repoRoot)
+    : null;
   if (
     existingLock?.pid &&
     isProcessAlive(Number(existingLock.pid))
@@ -1530,9 +2283,7 @@ export async function recoverInterruptedTransaction(options) {
     );
   }
   if (existingLock) {
-    await unlink(lockPath).catch((error) => {
-      if (error?.code !== "ENOENT") throw error;
-    });
+    await safeRemove(repoRoot, lockPath, "Stale transaction lock");
   }
 
   const lock = await acquireTransactionLock(repoRoot);
@@ -1568,23 +2319,4 @@ function normalizePath(value) {
   return process.platform === "win32"
     ? normalized.toLowerCase()
     : normalized;
-}
-
-export function buildOwnedUninstallPlan(ownership, observations) {
-  const remove = [];
-  const skip = [];
-  for (const entry of ownership?.entries ?? []) {
-    const observed = observations?.[entry.id];
-    let matches = false;
-    if (entry.kind === "npm-global-link") {
-      matches =
-        observed?.sourcePath &&
-        normalizePath(observed.sourcePath) ===
-          normalizePath(entry.sourcePath);
-    } else if (entry.kind === "npm-global-package") {
-      matches = observed?.version === entry.version;
-    }
-    (matches ? remove : skip).push(entry);
-  }
-  return { remove, skip };
 }

@@ -4,11 +4,12 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  renameSync,
   rmSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -17,12 +18,14 @@ import { pathToFileURL } from "node:url";
 
 import {
   acquireTransactionLock,
-  buildOwnedUninstallPlan,
   recoverInterruptedTransaction,
   replaceComponentTransaction,
   replaceManagedFilesTransaction,
   rollbackLastTransaction,
 } from "../scripts/lib/harness-transaction.mjs";
+import {
+  buildOwnedUninstallPlan,
+} from "../scripts/lib/harness-lifecycle.mjs";
 
 const TRANSACTION_MODULE = pathToFileURL(
   path.resolve("scripts", "lib", "harness-transaction.mjs"),
@@ -60,6 +63,19 @@ function fixture() {
     candidate,
     cleanup: () => rmSync(repoRoot, { recursive: true, force: true }),
   };
+}
+
+function git(repoRoot, args) {
+  const result = spawnSync("git", ["-C", repoRoot, ...args], {
+    encoding: "utf8",
+    shell: false,
+  });
+  assert.equal(
+    result.status,
+    0,
+    [result.stdout, result.stderr].filter(Boolean).join("\n"),
+  );
+  return String(result.stdout ?? "").trim();
 }
 
 async function waitForFile(filePath, child) {
@@ -229,6 +245,50 @@ test("component replacement rejects repository/runtime metadata before activatio
   }
 });
 
+test("a failed final-path gate restores the component behind a global link", async () => {
+  const value = fixture();
+  const globalRoot = mkdtempSync(path.join(tmpdir(), "global link with spaces-"));
+  const globalEntry = path.join(globalRoot, "ccg-workflow");
+  try {
+    const component = path.join(
+      value.repoRoot,
+      "components",
+      "ccg-workflow",
+    );
+    writeFileSync(path.join(component, "cli.txt"), "old-cli\n");
+    writeFileSync(path.join(value.candidate, "cli.txt"), "new-cli\n");
+    symlinkSync(
+      component,
+      globalEntry,
+      process.platform === "win32" ? "junction" : "dir",
+    );
+
+    await assert.rejects(
+      replaceComponentTransaction({
+        repoRoot: value.repoRoot,
+        candidateDir: value.candidate,
+        commit: "c".repeat(40),
+        gitTree: "d".repeat(40),
+        afterReplace: () => {
+          assert.equal(
+            readFileSync(path.join(globalEntry, "cli.txt"), "utf8"),
+            "new-cli\n",
+          );
+          throw new Error("simulated final build failure");
+        },
+      }),
+      /simulated final build failure/,
+    );
+    assert.equal(
+      readFileSync(path.join(globalEntry, "cli.txt"), "utf8"),
+      "old-cli\n",
+    );
+  } finally {
+    value.cleanup();
+    rmSync(globalRoot, { recursive: true, force: true });
+  }
+});
+
 test("component replacement rejects symbolic links and junctions", async () => {
   const value = fixture();
   try {
@@ -347,6 +407,217 @@ test("transaction lock is exclusive and explicitly released", async () => {
     await second.release();
   } finally {
     value.cleanup();
+  }
+});
+
+for (const dirtyCase of [
+  {
+    name: "modified tracked file",
+    mutate(value) {
+      writeFileSync(
+        path.join(value.repoRoot, "components", "ccg-workflow", "version.txt"),
+        "user-modified\n",
+      );
+    },
+  },
+  {
+    name: "staged tracked file",
+    mutate(value) {
+      writeFileSync(
+        path.join(value.repoRoot, "components", "ccg-workflow", "version.txt"),
+        "user-staged\n",
+      );
+      git(value.repoRoot, ["add", "components/ccg-workflow/version.txt"]);
+    },
+  },
+  {
+    name: "untracked file",
+    mutate(value) {
+      writeFileSync(
+        path.join(value.repoRoot, "components", "ccg-workflow", "notes.txt"),
+        "user-note\n",
+      );
+    },
+  },
+  {
+    name: "ignored file",
+    mutate(value) {
+      const ignored = path.join(
+        value.repoRoot,
+        "components",
+        "ccg-workflow",
+        "ignored",
+      );
+      mkdirSync(ignored);
+      writeFileSync(path.join(ignored, "user.cache"), "important\n");
+    },
+  },
+  {
+    name: "renamed file",
+    mutate(value) {
+      renameSync(
+        path.join(value.repoRoot, "components", "ccg-workflow", "version.txt"),
+        path.join(value.repoRoot, "components", "ccg-workflow", "renamed.txt"),
+      );
+    },
+  },
+]) {
+  test(`rollback refuses a ${dirtyCase.name} without mutating state`, async () => {
+    const value = fixture();
+    try {
+      writeFileSync(
+        path.join(value.repoRoot, ".gitignore"),
+        "components/ccg-workflow/ignored/\n.harness-cache/\n",
+      );
+      git(value.repoRoot, ["init"]);
+      git(value.repoRoot, ["config", "user.email", "test@example.invalid"]);
+      git(value.repoRoot, ["config", "user.name", "Harness Test"]);
+      git(value.repoRoot, ["add", "."]);
+      git(value.repoRoot, ["commit", "-m", "fixture"]);
+      await replaceComponentTransaction({
+        repoRoot: value.repoRoot,
+        candidateDir: value.candidate,
+        commit: "c".repeat(40),
+        gitTree: "d".repeat(40),
+      });
+      dirtyCase.mutate(value);
+
+      const componentPath = path.join(
+        value.repoRoot,
+        "components",
+        "ccg-workflow",
+      );
+      const manifestPath = path.join(value.repoRoot, "harness.sources.json");
+      const recordPath = path.join(
+        value.repoRoot,
+        ".harness-cache",
+        "last-transaction.json",
+      );
+      const record = JSON.parse(readFileSync(recordPath, "utf8"));
+      const snapshotMarker = path.join(
+        value.repoRoot,
+        record.snapshotPath,
+        "component",
+        "version.txt",
+      );
+      const manifestBefore = readFileSync(manifestPath, "utf8");
+      const recordBefore = readFileSync(recordPath, "utf8");
+      const indexBefore = git(value.repoRoot, ["write-tree"]);
+      const stagedBefore = git(value.repoRoot, [
+        "diff",
+        "--cached",
+        "--name-status",
+      ]);
+      const surfaceBefore = git(value.repoRoot, [
+        "status",
+        "--porcelain",
+        "--ignored",
+        "--",
+        componentPath,
+      ]);
+
+      await assert.rejects(
+        rollbackLastTransaction({ repoRoot: value.repoRoot }),
+        /component changed|refusing rollback/i,
+      );
+
+      assert.equal(readFileSync(manifestPath, "utf8"), manifestBefore);
+      assert.equal(readFileSync(recordPath, "utf8"), recordBefore);
+      assert.equal(readFileSync(snapshotMarker, "utf8"), "old\n");
+      assert.equal(git(value.repoRoot, ["write-tree"]), indexBefore);
+      assert.equal(
+        git(value.repoRoot, ["diff", "--cached", "--name-status"]),
+        stagedBefore,
+      );
+      assert.equal(
+        git(value.repoRoot, [
+          "status",
+          "--porcelain",
+          "--ignored",
+          "--",
+          componentPath,
+        ]),
+        surfaceBefore,
+      );
+    } finally {
+      value.cleanup();
+    }
+  });
+}
+
+test("rollback rejects malformed or redirected records before mutation", async () => {
+  for (const mutateRecord of [
+    (record) => ({ ...record, unexpected: true }),
+    (record) => ({ ...record, snapshotPath: "../outside" }),
+    (record) => ({ ...record, schemaVersion: 999 }),
+    (record) => ({
+      ...record,
+      current: { ...record.current, manifestSha256: "0".repeat(64) },
+    }),
+  ]) {
+    const value = fixture();
+    try {
+      await replaceComponentTransaction({
+        repoRoot: value.repoRoot,
+        candidateDir: value.candidate,
+        commit: "c".repeat(40),
+        gitTree: "d".repeat(40),
+      });
+      const manifestPath = path.join(value.repoRoot, "harness.sources.json");
+      const recordPath = path.join(
+        value.repoRoot,
+        ".harness-cache",
+        "last-transaction.json",
+      );
+      const componentPath = path.join(
+        value.repoRoot,
+        "components",
+        "ccg-workflow",
+        "version.txt",
+      );
+      const record = JSON.parse(readFileSync(recordPath, "utf8"));
+      writeJson(recordPath, mutateRecord(record));
+      const manifestBefore = readFileSync(manifestPath, "utf8");
+      const componentBefore = readFileSync(componentPath, "utf8");
+      const recordBefore = readFileSync(recordPath, "utf8");
+
+      await assert.rejects(
+        rollbackLastTransaction({ repoRoot: value.repoRoot }),
+        /schema|invalid|snapshot|manifest|unsupported/i,
+      );
+      assert.equal(readFileSync(manifestPath, "utf8"), manifestBefore);
+      assert.equal(readFileSync(componentPath, "utf8"), componentBefore);
+      assert.equal(readFileSync(recordPath, "utf8"), recordBefore);
+    } finally {
+      value.cleanup();
+    }
+  }
+});
+
+test("transaction state rejects a cache junction before external mutation", async () => {
+  const value = fixture();
+  const outside = mkdtempSync(path.join(tmpdir(), "harness-outside-"));
+  const sentinel = path.join(outside, "sentinel.txt");
+  try {
+    writeFileSync(sentinel, "unchanged\n");
+    symlinkSync(
+      outside,
+      path.join(value.repoRoot, ".harness-cache"),
+      process.platform === "win32" ? "junction" : "dir",
+    );
+    await assert.rejects(
+      replaceComponentTransaction({
+        repoRoot: value.repoRoot,
+        candidateDir: value.candidate,
+        commit: "c".repeat(40),
+        gitTree: "d".repeat(40),
+      }),
+      /symbolic link|junction|regular directory/i,
+    );
+    assert.equal(readFileSync(sentinel, "utf8"), "unchanged\n");
+  } finally {
+    value.cleanup();
+    rmSync(outside, { recursive: true, force: true });
   }
 });
 
@@ -472,7 +743,13 @@ test("explicit recovery clears a stale lock but refuses a live owner", async () 
   );
   try {
     mkdirSync(path.dirname(lockPath), { recursive: true });
-    writeJson(lockPath, { pid: 424242, createdAt: new Date().toISOString() });
+    writeJson(lockPath, {
+      schemaVersion: 2,
+      pid: 424242,
+      createdAt: new Date().toISOString(),
+      token: "00000000-0000-4000-8000-000000000000",
+      repoRoot: value.repoRoot,
+    });
     await assert.rejects(
       recoverInterruptedTransaction({
         repoRoot: value.repoRoot,
@@ -539,6 +816,46 @@ test("managed Trellis files update and roll back through the shared lifecycle", 
       ),
       false,
     );
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("managed rollback refuses post-update edits without touching its snapshot", async () => {
+  const value = managedFilesFixture();
+  try {
+    await replaceManagedFilesTransaction({
+      repoRoot: value.repoRoot,
+      candidateRoot: value.candidateRoot,
+      paths: value.managedPaths,
+      kind: "trellis",
+      previous: { version: "0.6.8", integrity: "sha512-old" },
+      current: { version: "0.6.9", integrity: "sha512-new" },
+    });
+    const versionPath = path.join(value.repoRoot, ".trellis", ".version");
+    const recordPath = path.join(
+      value.repoRoot,
+      ".harness-cache",
+      "last-transaction.json",
+    );
+    const record = JSON.parse(readFileSync(recordPath, "utf8"));
+    const snapshotVersion = path.join(
+      value.repoRoot,
+      record.snapshotPath,
+      "files",
+      ".trellis",
+      ".version",
+    );
+    writeFileSync(versionPath, "user-edited\n");
+    const recordBefore = readFileSync(recordPath, "utf8");
+
+    await assert.rejects(
+      rollbackLastTransaction({ repoRoot: value.repoRoot }),
+      /managed path changed|refusing rollback/i,
+    );
+    assert.equal(readFileSync(versionPath, "utf8"), "user-edited\n");
+    assert.equal(readFileSync(snapshotVersion, "utf8"), "0.6.8\n");
+    assert.equal(readFileSync(recordPath, "utf8"), recordBefore);
   } finally {
     value.cleanup();
   }
@@ -786,28 +1103,50 @@ test("managed file updates reject paths outside the Trellis-owned surface", asyn
 });
 
 test("uninstall planning only selects unchanged Harness-owned global state", () => {
+  const repoRoot = path.resolve("C:/harness");
+  const snapshot = (overrides = {}) => ({
+    version: "1.0.0",
+    entryPath: path.resolve("C:/npm/root/package"),
+    entryIdentity: { dev: "1", ino: "2", birthtimeNs: "3" },
+    packageJsonSha256: "a".repeat(64),
+    ...overrides,
+  });
+  const ccgInstalled = snapshot({
+    version: "3.3.0",
+    sourcePath: path.resolve("C:/personal/ccg"),
+  });
+  const trellisInstalled = snapshot({ version: "0.6.8" });
   const plan = buildOwnedUninstallPlan(
     {
+      schemaVersion: 2,
+      repoRoot,
+      updatedAt: new Date().toISOString(),
       entries: [
         {
           id: "ccg-link",
           kind: "npm-global-link",
           package: "ccg-workflow",
-          sourcePath: "C:/personal/ccg",
+          originalBeforeFirstManagement: null,
+          installedByHarness: ccgInstalled,
         },
         {
-          id: "trellis",
+          id: "trellis-global",
           kind: "npm-global-package",
           package: "@mindfoldhq/trellis",
-          version: "0.6.8",
+          originalBeforeFirstManagement: null,
+          installedByHarness: trellisInstalled,
         },
       ],
     },
     {
-      "ccg-link": { sourcePath: "C:/different/ccg" },
-      trellis: { version: "0.6.8" },
+      "ccg-link": {
+        ...ccgInstalled,
+        sourcePath: path.resolve("C:/different/ccg"),
+      },
+      "trellis-global": trellisInstalled,
     },
+    repoRoot,
   );
-  assert.deepEqual(plan.remove.map((entry) => entry.id), ["trellis"]);
+  assert.deepEqual(plan.remove.map((entry) => entry.id), ["trellis-global"]);
   assert.deepEqual(plan.skip.map((entry) => entry.id), ["ccg-link"]);
 });

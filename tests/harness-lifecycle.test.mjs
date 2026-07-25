@@ -1,5 +1,14 @@
 import assert from "node:assert/strict";
+import {
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { spawnSync } from "node:child_process";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -9,14 +18,45 @@ import {
   buildRestoreAction,
   assertSparseExclusionsUnchanged,
   compareSemanticVersions,
+  globalPackageSnapshotsEqual,
+  inspectGlobalPackage,
   parseSparseArchiveExclusions,
   parseLifecycleArgs,
   resolvePackageManagerInvocation,
   updateTrellisProvenanceText,
+  validateBootstrapOwnership,
   validateUpdateSource,
 } from "../scripts/lib/harness-lifecycle.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+
+function packageSnapshot(overrides = {}) {
+  return {
+    version: "1.0.0",
+    entryPath: path.resolve("C:/npm/root/example"),
+    entryIdentity: {
+      dev: "1",
+      ino: "2",
+      birthtimeNs: "3",
+    },
+    packageJsonSha256: "a".repeat(64),
+    ...overrides,
+  };
+}
+
+function runPackageManager(command, args) {
+  const invocation = resolvePackageManagerInvocation(command, args);
+  const result = spawnSync(invocation.command, invocation.args, {
+    encoding: "utf8",
+    shell: false,
+  });
+  assert.equal(
+    result.status,
+    0,
+    [result.stdout, result.stderr].filter(Boolean).join("\n"),
+  );
+  return String(result.stdout ?? "").trim();
+}
 
 test("update parsing accepts exactly one explicit CCG or Trellis target", () => {
   const parsed = parseLifecycleArgs([
@@ -194,30 +234,47 @@ test("bootstrap ownership records only globals actually changed by Harness", () 
     ccgSourcePath: "C:/harness/components/ccg-workflow",
     managed: { trellis: true, ccg: false },
     before: {
-      trellis: { version: "0.6.7" },
-      ccg: { version: "3.3.0", resolved: "file:C:/personal/ccg" },
+      trellis: packageSnapshot({ version: "0.6.7" }),
+      ccg: packageSnapshot({
+        version: "3.3.0",
+        sourcePath: path.resolve("C:/personal/ccg"),
+      }),
     },
     after: {
-      trellis: { version: "0.6.8" },
-      ccg: {
+      trellis: packageSnapshot({
+        version: "0.6.8",
+        entryIdentity: { dev: "1", ino: "4", birthtimeNs: "5" },
+      }),
+      ccg: packageSnapshot({
         version: "3.3.0",
-        resolved: "file:C:/harness/components/ccg-workflow",
-      },
+        sourcePath: path.resolve("C:/harness/components/ccg-workflow"),
+      }),
     },
   });
 
   assert.deepEqual(ownership.entries.map((entry) => entry.id), [
     "trellis-global",
   ]);
-  assert.equal(ownership.entries[0].version, "0.6.8");
-  assert.equal(ownership.entries[0].previous.version, "0.6.7");
+  assert.equal(
+    ownership.entries[0].installedByHarness.version,
+    "0.6.8",
+  );
+  assert.equal(
+    ownership.entries[0].originalBeforeFirstManagement.version,
+    "0.6.7",
+  );
 });
 
 test("restore actions preserve a previous package or remove a new owned install", () => {
   assert.deepEqual(
     buildRestoreAction({
+      id: "trellis-global",
+      kind: "npm-global-package",
       package: "@mindfoldhq/trellis",
-      previous: { version: "0.6.7" },
+      originalBeforeFirstManagement: packageSnapshot({
+        version: "0.6.7",
+      }),
+      installedByHarness: packageSnapshot({ version: "0.6.8" }),
     }),
     {
       operation: "install",
@@ -226,23 +283,253 @@ test("restore actions preserve a previous package or remove a new owned install"
   );
   assert.deepEqual(
     buildRestoreAction({
+      id: "ccg-link",
+      kind: "npm-global-link",
       package: "ccg-workflow",
-      previous: {
+      originalBeforeFirstManagement: packageSnapshot({
         version: "3.3.0",
-        resolved: "file:C:/personal/ccg",
-      },
+        sourcePath: path.resolve("C:/personal/ccg"),
+      }),
+      installedByHarness: packageSnapshot({
+        version: "3.3.0",
+        sourcePath: path.resolve(
+          "C:/harness/components/ccg-workflow",
+        ),
+      }),
     }),
     {
       operation: "install",
-      spec: "C:/personal/ccg",
+      spec: path.resolve("C:/personal/ccg"),
     },
   );
   assert.deepEqual(
-    buildRestoreAction({ package: "ccg-workflow", previous: null }),
+    buildRestoreAction({
+      id: "ccg-link",
+      kind: "npm-global-link",
+      package: "ccg-workflow",
+      originalBeforeFirstManagement: null,
+      installedByHarness: packageSnapshot({
+        version: "3.3.0",
+        sourcePath: path.resolve(
+          "C:/harness/components/ccg-workflow",
+        ),
+      }),
+    }),
     {
       operation: "uninstall",
       spec: "ccg-workflow",
     },
+  );
+});
+
+test("global package identity resolves the real npm entry target with spaces", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "npm prefix with spaces-"));
+  const globalRoot = path.join(root, "lib", "node_modules");
+  const source = path.join(root, "package source with spaces");
+  try {
+    mkdirSync(globalRoot, { recursive: true });
+    mkdirSync(source);
+    writeFileSync(
+      path.join(source, "package.json"),
+      `${JSON.stringify({ name: "ccg-workflow", version: "3.3.0" })}\n`,
+    );
+    symlinkSync(
+      source,
+      path.join(globalRoot, "ccg-workflow"),
+      process.platform === "win32" ? "junction" : "dir",
+    );
+    const observed = await inspectGlobalPackage(
+      globalRoot,
+      "ccg-workflow",
+    );
+    assert.equal(observed.version, "3.3.0");
+    assert.equal(
+      path.resolve(observed.sourcePath),
+      path.resolve(source),
+    );
+    assert.match(observed.packageJsonSha256, /^[a-f0-9]{64}$/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("an isolated npm prefix keeps a local global link and CLI working with spaces", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "isolated npm prefix-"));
+  const prefix = path.join(root, "global prefix with spaces");
+  const source = path.join(root, "ccg source with spaces");
+  try {
+    mkdirSync(source, { recursive: true });
+    writeFileSync(
+      path.join(source, "package.json"),
+      `${JSON.stringify({
+        name: "ccg-workflow",
+        version: "3.3.0",
+        bin: { ccg: "./bin/ccg.mjs" },
+      })}\n`,
+    );
+    mkdirSync(path.join(source, "bin"));
+    writeFileSync(
+      path.join(source, "bin", "ccg.mjs"),
+      "#!/usr/bin/env node\nconsole.log('3.3.0');\n",
+    );
+    if (process.platform !== "win32") {
+      const { chmodSync } = await import("node:fs");
+      chmodSync(path.join(source, "bin", "ccg.mjs"), 0o755);
+    }
+
+    runPackageManager("npm", [
+      "install",
+      "-g",
+      source,
+      "--prefix",
+      prefix,
+      "--ignore-scripts",
+    ]);
+    const globalRoot = runPackageManager("npm", [
+      "root",
+      "-g",
+      "--prefix",
+      prefix,
+    ]);
+    const observed = await inspectGlobalPackage(
+      globalRoot,
+      "ccg-workflow",
+    );
+    assert.equal(path.resolve(observed.sourcePath), path.resolve(source));
+
+    const command =
+      process.platform === "win32"
+        ? path.join(prefix, "ccg.cmd")
+        : path.join(prefix, "bin", "ccg");
+    const smoke =
+      process.platform === "win32"
+        ? spawnSync(`"${command}" --version`, {
+            encoding: "utf8",
+            shell: true,
+          })
+        : spawnSync(command, ["--version"], {
+            encoding: "utf8",
+            shell: false,
+          });
+    assert.equal(smoke.status, 0, smoke.stderr);
+    assert.equal(smoke.stdout.trim(), "3.3.0");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("repeated bootstrap keeps the first original and rejects same-version replacement", () => {
+  const original = packageSnapshot({
+    version: "3.2.2",
+    sourcePath: path.resolve("C:/original with spaces/ccg"),
+  });
+  const firstInstalled = packageSnapshot({
+    version: "3.3.0",
+    sourcePath: path.resolve("C:/harness/components/ccg-workflow"),
+    entryIdentity: { dev: "1", ino: "10", birthtimeNs: "11" },
+  });
+  const first = buildBootstrapOwnership({
+    repoRoot: "C:/harness",
+    ccgSourcePath: "C:/harness/components/ccg-workflow",
+    managed: { trellis: false, ccg: true },
+    before: { trellis: null, ccg: original },
+    after: { trellis: null, ccg: firstInstalled },
+  });
+  const secondInstalled = packageSnapshot({
+    version: "3.3.0",
+    sourcePath: path.resolve("C:/harness/components/ccg-workflow"),
+    entryIdentity: { dev: "1", ino: "12", birthtimeNs: "13" },
+  });
+  const second = buildBootstrapOwnership({
+    repoRoot: "C:/harness",
+    ccgSourcePath: "C:/harness/components/ccg-workflow",
+    managed: { trellis: false, ccg: true },
+    before: { trellis: null, ccg: firstInstalled },
+    after: { trellis: null, ccg: secondInstalled },
+    existingOwnership: first,
+  });
+  assert.equal(
+    second.entries[0].originalBeforeFirstManagement.sourcePath,
+    original.sourcePath,
+  );
+  assert.deepEqual(
+    buildRestoreAction(second.entries[0]),
+    { operation: "install", spec: original.sourcePath },
+  );
+
+  const userReplacement = {
+    ...firstInstalled,
+    entryIdentity: { dev: "1", ino: "99", birthtimeNs: "100" },
+  };
+  assert.equal(
+    globalPackageSnapshotsEqual(userReplacement, firstInstalled),
+    false,
+  );
+  assert.throws(
+    () =>
+      buildBootstrapOwnership({
+        repoRoot: "C:/harness",
+        ccgSourcePath: "C:/harness/components/ccg-workflow",
+        managed: { trellis: false, ccg: true },
+        before: { trellis: null, ccg: userReplacement },
+        after: { trellis: null, ccg: secondInstalled },
+        existingOwnership: first,
+      }),
+    /changed|refusing/i,
+  );
+});
+
+test("ownership schema rejects extra fields, wrong targets, and redirected roots", () => {
+  const repoRoot = path.resolve("C:/harness");
+  const installed = packageSnapshot({
+    version: "3.3.0",
+    sourcePath: path.resolve("C:/harness/components/ccg-workflow"),
+  });
+  const valid = {
+    schemaVersion: 2,
+    repoRoot,
+    updatedAt: new Date().toISOString(),
+    entries: [
+      {
+        id: "ccg-link",
+        kind: "npm-global-link",
+        package: "ccg-workflow",
+        originalBeforeFirstManagement: null,
+        installedByHarness: installed,
+      },
+    ],
+  };
+  assert.equal(validateBootstrapOwnership(valid, repoRoot), valid);
+  assert.throws(
+    () => validateBootstrapOwnership({ ...valid, unexpected: true }, repoRoot),
+    /schema|unexpected/i,
+  );
+  assert.throws(
+    () =>
+      validateBootstrapOwnership(
+        {
+          ...valid,
+          repoRoot: path.resolve("C:/outside"),
+        },
+        repoRoot,
+      ),
+    /invalid|unsupported/i,
+  );
+  assert.throws(
+    () =>
+      validateBootstrapOwnership(
+        {
+          ...valid,
+          entries: [
+            {
+              ...valid.entries[0],
+              package: "user-package",
+            },
+          ],
+        },
+        repoRoot,
+      ),
+    /target|invalid/i,
   );
 });
 

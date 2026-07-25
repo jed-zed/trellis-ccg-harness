@@ -28,20 +28,26 @@ Lifecycle mutation is a separate transaction boundary:
 1. acquire an exclusive Harness lock;
 2. persist a phase journal before the first mutating rename or file copy;
 3. verify either the personal CCG commit/tree or exact Trellis version/integrity;
-4. generate a sparse candidate and reject runtime state, links, junctions,
-   protected-path materialization, and ownership-surface escapes;
+4. materialize a sparse candidate directly from selected Git blobs, then bind
+   every path, type, blob SHA and executable mode before mutation;
 5. run the source-specific and root Harness gates;
 6. snapshot the current component or exact Trellis-managed files;
-7. apply the candidate, update the source manifest, and run post-apply gates;
+7. apply the candidate, update the source manifest, then rerun frozen install,
+   CCG/Go gates, tracked-tree validation, local CLI and any Harness-owned global
+   CLI smoke from the final component path;
 8. commit the transaction record only after success, otherwise restore the
    snapshot automatically.
 
-Rollback restores only a Harness-created snapshot. If the process dies outside
+Rollback restores only a Harness-created snapshot and only while the current
+component or managed-file fingerprints still match what Harness installed.
+Post-update tracked, staged, untracked, ignored, or renamed content makes the
+operation fail before mutation. If the process dies outside
 normal exception handling, doctor blocks on the journal/lock and
 `harness:recover` either finishes committed cleanup or deterministically
 restores the pre-transaction state. Uninstall changes global state only when
-its ownership record and installed digest still match; user edits are
-preserved and reported for manual handling.
+its strict ownership record and filesystem fingerprint still match; the
+original-before-first-management baseline is immutable across repeat bootstrap.
+User edits are preserved and reported for manual handling.
 
 ## Alternatives Considered
 
@@ -82,8 +88,8 @@ is not exposed to untrusted task input.
 - User-level Trellis hook precedence depends on the local fallback containing
   the marker declared by the adapter contract; doctor reports drift if a
   future global Trellis update removes that guard.
-- A missing installed CCG CLI is a warning during setup; a mismatched installed
-  version is blocking.
+- The activated local CCG CLI and any Harness-managed global link are blocking
+  doctor/update checks.
 - Search capability is true only when the response contains both a web-search
   tool call and citation/annotation evidence.
 - GPT Pro remains owned by the existing CCG bridge and is not reimplemented by

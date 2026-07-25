@@ -1,4 +1,6 @@
+import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
+import { lstat, readFile, realpath } from "node:fs/promises";
 import path from "node:path";
 
 const FULL_SHA1 = /^[a-f0-9]{40}$/;
@@ -350,43 +352,214 @@ export function validateUpdateSource({ expected, actual }) {
   };
 }
 
-function clonePackageState(value) {
-  if (!value) return null;
+function normalizedPath(value) {
+  const resolved = path.resolve(String(value)).replaceAll("\\", "/");
+  return process.platform === "win32" ? resolved.toLowerCase() : resolved;
+}
+
+function packageEntryPath(globalRoot, packageName) {
+  if (!["ccg-workflow", "@mindfoldhq/trellis"].includes(packageName)) {
+    throw new Error(`Unsupported global package: ${packageName}.`);
+  }
+  return path.join(path.resolve(globalRoot), ...packageName.split("/"));
+}
+
+function filesystemIdentity(details) {
   return {
-    ...(value.version ? { version: String(value.version) } : {}),
-    ...(value.resolved ? { resolved: String(value.resolved) } : {}),
+    dev: String(details.dev),
+    ino: String(details.ino),
+    birthtimeNs: String(details.birthtimeNs),
+  };
+}
+
+export async function inspectGlobalPackage(globalRoot, packageName) {
+  const entryPath = packageEntryPath(globalRoot, packageName);
+  let entryDetails;
+  try {
+    entryDetails = await lstat(entryPath, { bigint: true });
+  } catch (error) {
+    if (error?.code === "ENOENT") return null;
+    throw error;
+  }
+  if (!entryDetails.isDirectory() && !entryDetails.isSymbolicLink()) {
+    throw new Error(`Global package entry is not a directory or link: ${entryPath}`);
+  }
+  const canonicalPath = await realpath(entryPath);
+  const packageBytes = await readFile(path.join(canonicalPath, "package.json"));
+  const manifest = JSON.parse(packageBytes.toString("utf8"));
+  if (
+    manifest.name !== packageName ||
+    typeof manifest.version !== "string" ||
+    manifest.version.length === 0
+  ) {
+    throw new Error(`Global package manifest is invalid: ${entryPath}`);
+  }
+  const isLink =
+    entryDetails.isSymbolicLink() ||
+    normalizedPath(canonicalPath) !== normalizedPath(entryPath);
+  return {
+    version: manifest.version,
+    entryPath: path.resolve(entryPath),
+    entryIdentity: filesystemIdentity(entryDetails),
+    packageJsonSha256: createHash("sha256").update(packageBytes).digest("hex"),
+    ...(isLink ? { sourcePath: path.resolve(canonicalPath) } : {}),
+  };
+}
+
+function assertPlainObject(value, label) {
+  if (
+    value === null ||
+    typeof value !== "object" ||
+    Array.isArray(value) ||
+    Object.getPrototypeOf(value) !== Object.prototype
+  ) {
+    throw new Error(`${label} must be a plain object.`);
+  }
+}
+
+function assertExactKeys(value, required, optional, label) {
+  assertPlainObject(value, label);
+  const allowed = new Set([...required, ...optional]);
+  const missing = required.filter(
+    (key) => !Object.prototype.hasOwnProperty.call(value, key),
+  );
+  const extra = Object.keys(value).filter((key) => !allowed.has(key));
+  if (missing.length > 0 || extra.length > 0) {
+    throw new Error(
+      `${label} has an invalid schema`
+      + `${missing.length ? `; missing ${missing.join(", ")}` : ""}`
+      + `${extra.length ? `; unexpected ${extra.join(", ")}` : ""}.`,
+    );
+  }
+}
+
+export function validateGlobalPackageSnapshot(value, label = "Global package") {
+  if (value === null) return value;
+  assertExactKeys(
+    value,
+    ["version", "entryPath", "entryIdentity", "packageJsonSha256"],
+    ["sourcePath"],
+    label,
+  );
+  assertExactKeys(
+    value.entryIdentity,
+    ["dev", "ino", "birthtimeNs"],
+    [],
+    `${label} filesystem identity`,
+  );
+  if (
+    typeof value.version !== "string" ||
+    !path.isAbsolute(value.entryPath) ||
+    (value.sourcePath !== undefined && !path.isAbsolute(value.sourcePath)) ||
+    !["dev", "ino", "birthtimeNs"].every(
+      (key) => /^\d+$/.test(value.entryIdentity[key]),
+    ) ||
+    !/^[a-f0-9]{64}$/.test(value.packageJsonSha256)
+  ) {
+    throw new Error(`${label} fingerprint is invalid.`);
+  }
+  return value;
+}
+
+export function globalPackageSnapshotsEqual(left, right) {
+  if (left === null || right === null) return left === right;
+  validateGlobalPackageSnapshot(left, "Left global package");
+  validateGlobalPackageSnapshot(right, "Right global package");
+  const sameEntry = (
+    normalizedPath(left.entryPath) === normalizedPath(right.entryPath) &&
+    left.entryIdentity.dev === right.entryIdentity.dev &&
+    left.entryIdentity.ino === right.entryIdentity.ino &&
+    left.entryIdentity.birthtimeNs === right.entryIdentity.birthtimeNs
+  );
+  if (left.sourcePath !== undefined || right.sourcePath !== undefined) {
+    return (
+      sameEntry &&
+      left.sourcePath !== undefined &&
+      right.sourcePath !== undefined &&
+      normalizedPath(left.sourcePath) === normalizedPath(right.sourcePath)
+    );
+  }
+  return (
+    sameEntry &&
+    left.version === right.version &&
+    left.packageJsonSha256 === right.packageJsonSha256
+  );
+}
+
+function buildOwnershipEntry({
+  id,
+  kind,
+  packageName,
+  before,
+  after,
+  previousEntry,
+}) {
+  validateGlobalPackageSnapshot(before, `${id} previous package`);
+  validateGlobalPackageSnapshot(after, `${id} installed package`);
+  if (!after) {
+    throw new Error(`Managed global package is missing after bootstrap: ${id}.`);
+  }
+  if (
+    previousEntry &&
+    !globalPackageSnapshotsEqual(
+      before,
+      previousEntry.installedByHarness,
+    )
+  ) {
+    throw new Error(
+      `Global package ${id} changed after Harness management; refusing adoption.`,
+    );
+  }
+  return {
+    id,
+    kind,
+    package: packageName,
+    originalBeforeFirstManagement: previousEntry
+      ? previousEntry.originalBeforeFirstManagement
+      : before,
+    installedByHarness: after,
   };
 }
 
 export function buildBootstrapOwnership(options) {
   const entries = [];
+  const previousById = new Map(
+    (options.existingOwnership?.entries ?? []).map((entry) => [
+      entry.id,
+      entry,
+    ]),
+  );
   if (options.managed?.trellis) {
-    if (!options.after?.trellis?.version) {
-      throw new Error("Managed Trellis installation has no observed version.");
-    }
-    entries.push({
+    entries.push(buildOwnershipEntry({
       id: "trellis-global",
       kind: "npm-global-package",
-      package: "@mindfoldhq/trellis",
-      version: String(options.after.trellis.version),
-      previous: clonePackageState(options.before?.trellis),
-    });
+      packageName: "@mindfoldhq/trellis",
+      before: options.before?.trellis ?? null,
+      after: options.after?.trellis ?? null,
+      previousEntry: previousById.get("trellis-global"),
+    }));
   }
   if (options.managed?.ccg) {
-    if (!options.after?.ccg?.version) {
-      throw new Error("Managed CCG installation has no observed version.");
+    if (
+      !options.after?.ccg?.sourcePath ||
+      normalizedPath(options.after.ccg.sourcePath) !==
+        normalizedPath(options.ccgSourcePath)
+    ) {
+      throw new Error(
+        "Managed global CCG package is not linked to the Harness component.",
+      );
     }
-    entries.push({
+    entries.push(buildOwnershipEntry({
       id: "ccg-link",
       kind: "npm-global-link",
-      package: "ccg-workflow",
-      version: String(options.after.ccg.version),
-      sourcePath: path.resolve(options.ccgSourcePath),
-      previous: clonePackageState(options.before?.ccg),
-    });
+      packageName: "ccg-workflow",
+      before: options.before?.ccg ?? null,
+      after: options.after?.ccg ?? null,
+      previousEntry: previousById.get("ccg-link"),
+    }));
   }
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     repoRoot: path.resolve(options.repoRoot),
     updatedAt: new Date().toISOString(),
     entries,
@@ -394,20 +567,134 @@ export function buildBootstrapOwnership(options) {
 }
 
 export function buildRestoreAction(entry) {
-  if (entry.previous?.resolved?.startsWith("file:")) {
+  validateOwnershipEntry(entry);
+  const original = entry.originalBeforeFirstManagement;
+  if (original?.sourcePath) {
     return {
       operation: "install",
-      spec: decodeURIComponent(entry.previous.resolved.slice("file:".length)),
+      spec: original.sourcePath,
     };
   }
-  if (entry.previous?.version) {
+  if (original?.version) {
     return {
       operation: "install",
-      spec: `${entry.package}@${entry.previous.version}`,
+      spec: `${entry.package}@${original.version}`,
     };
   }
   return {
     operation: "uninstall",
     spec: entry.package,
   };
+}
+
+function validateOwnershipEntry(entry) {
+  assertExactKeys(
+    entry,
+    [
+      "id",
+      "kind",
+      "package",
+      "originalBeforeFirstManagement",
+      "installedByHarness",
+    ],
+    [],
+    "Harness ownership entry",
+  );
+  const expected = {
+    "trellis-global": {
+      kind: "npm-global-package",
+      package: "@mindfoldhq/trellis",
+    },
+    "ccg-link": {
+      kind: "npm-global-link",
+      package: "ccg-workflow",
+    },
+  }[entry.id];
+  if (
+    !expected ||
+    entry.kind !== expected.kind ||
+    entry.package !== expected.package
+  ) {
+    throw new Error("Harness ownership entry target is invalid.");
+  }
+  validateGlobalPackageSnapshot(
+    entry.originalBeforeFirstManagement,
+    `${entry.id} original package`,
+  );
+  validateGlobalPackageSnapshot(
+    entry.installedByHarness,
+    `${entry.id} installed package`,
+  );
+  return entry;
+}
+
+export function validateBootstrapOwnership(value, repoRoot) {
+  assertExactKeys(
+    value,
+    ["schemaVersion", "repoRoot", "updatedAt", "entries"],
+    [],
+    "Harness ownership",
+  );
+  if (
+    value.schemaVersion !== 2 ||
+    normalizedPath(value.repoRoot) !== normalizedPath(repoRoot) ||
+    typeof value.updatedAt !== "string" ||
+    !Array.isArray(value.entries)
+  ) {
+    throw new Error("Harness ownership record is invalid or unsupported.");
+  }
+  const ids = new Set();
+  for (const entry of value.entries) {
+    validateOwnershipEntry(entry);
+    if (ids.has(entry.id)) {
+      throw new Error(`Harness ownership contains duplicate target ${entry.id}.`);
+    }
+    ids.add(entry.id);
+  }
+  return value;
+}
+
+export function assertBootstrapOwnershipContinuity(
+  ownership,
+  before,
+  managed,
+  repoRoot,
+) {
+  validateBootstrapOwnership(ownership, repoRoot);
+  const beforeById = {
+    "trellis-global": before?.trellis ?? null,
+    "ccg-link": before?.ccg ?? null,
+  };
+  const selected = new Set([
+    ...(managed?.trellis ? ["trellis-global"] : []),
+    ...(managed?.ccg ? ["ccg-link"] : []),
+  ]);
+  for (const entry of ownership.entries) {
+    if (
+      selected.has(entry.id) &&
+      !globalPackageSnapshotsEqual(
+        beforeById[entry.id],
+        entry.installedByHarness,
+      )
+    ) {
+      throw new Error(
+        `Global package ${entry.id} changed after Harness management; refusing bootstrap.`,
+      );
+    }
+  }
+}
+
+export function buildOwnedUninstallPlan(ownership, observations, repoRoot) {
+  validateBootstrapOwnership(ownership, repoRoot);
+  const remove = [];
+  const skip = [];
+  for (const entry of ownership.entries) {
+    const observed = observations?.[entry.id] ?? null;
+    (
+      globalPackageSnapshotsEqual(observed, entry.installedByHarness)
+        ? remove
+        : skip
+    ).push(entry);
+  }
+  return { remove, skip };
 }
