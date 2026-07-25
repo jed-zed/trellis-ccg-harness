@@ -201,9 +201,13 @@ After approval:
    ```
 
    The apply command refuses draft contracts, credentials, unsafe authorities,
-   non-inline dispatch, Claude enablement, and collisions with user-owned
-   `.harness/` state. It creates `.harness/project.json`, its JSON Schema, and
-   an ownership manifest only after approval.
+   non-inline dispatch, Claude enablement, collisions with user-owned
+   `.harness/` state, and malformed or conflicting collaboration markers. It
+   creates `.harness/project.json`, its JSON Schema, and an ownership manifest,
+   then projects the canonical
+   [collaboration policy](assets/collaboration-policy.md) into one
+   ownership-recorded `HARNESS-COLLABORATION` block in root `AGENTS.md`.
+   Existing Trellis, Harness, and user content outside that block is preserved.
 4. Re-read the saved catalog, ensure it still matches the approved selection,
    then install the exact project-level Skill copies:
 
@@ -219,7 +223,8 @@ After approval:
    names, source links, source drift, and user-owned target collisions. It
    records source and tree digests in `.harness/project-skills.json`. Reconcile
    other project instructions, hooks, ignores, and adapter files through
-   managed blocks or ownership-aware copies.
+   managed blocks or ownership-aware copies. Do not mutate global configuration
+   unless it was listed and explicitly approved.
 5. Load `trellis-spec-bootstrap` to generate or refresh code-backed
    `.trellis/spec/` guidelines. Existing code is the evidence source; templates
    are not the specification.
@@ -249,6 +254,7 @@ Report:
 
 - the final constraints and authorities;
 - every file created or changed;
+- the canonical collaboration-policy source and derived `AGENTS.md` block;
 - validation commands and outcomes;
 - anything intentionally left in `draft`;
 - remaining operator actions, including any separately approved global install

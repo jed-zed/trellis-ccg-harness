@@ -21,6 +21,23 @@ framework.
 Do not write lifecycle state from CCG back into `.trellis/tasks/`. CCG runtime
 state under `.ccg/` and `.codex/ccg/` is evidence only and must remain ignored.
 
+## Collaboration Policy Projection
+
+- `.agents/skills/harness-init/assets/collaboration-policy.md` is the canonical
+  reusable rule source.
+- Root `AGENTS.md` contains an exact derived projection between
+  `HARNESS-COLLABORATION` markers. Keep the Trellis-managed block, the
+  project-specific Harness block, and user content outside those markers
+  unchanged.
+- After contract approval, `harness-init apply` projects the same asset into a
+  new project's `AGENTS.md` and records its block digest in
+  `.harness/ownership.json`.
+- Missing `AGENTS.md` is created. Malformed, duplicate, conflicting, missing,
+  or user-modified managed blocks fail closed instead of being overwritten.
+- The policy's authority order resolves Trellis/CCG/Ponytail/Caveman overlap,
+  and its search router selects `rg`, CodeGraph, or fast-context by question
+  type without creating a CodeGraph index.
+
 ## Runtime Rules
 
 - Codex is the sole workspace writer and uses `codex.dispatch_mode: inline`.

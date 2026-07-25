@@ -154,6 +154,35 @@ directory component beneath `.agents/skills`, copies a bounded link-free
 snapshot, verifies the staged tree identity, and rechecks the target before its
 atomic rename.
 
+## Ordered collaboration policy
+
+`.agents/skills/harness-init/assets/collaboration-policy.md` is the canonical
+source for the reusable Trellis/CCG/Ponytail/Caveman/search contract. Root
+`AGENTS.md` contains a generated projection between dedicated
+`HARNESS-COLLABORATION` markers; the existing Trellis-managed and
+project-specific Harness blocks remain independent.
+
+The initializer reads the same asset after contract approval and inserts one
+derived block into the target `AGENTS.md`. It preserves all content outside the
+dedicated markers, rejects malformed or conflicting pre-existing markers, and
+records the block digest in `.harness/ownership.json`. A repeated apply is
+unchanged only when the project contract and managed block still match.
+
+The policy resolves existing search overlap by choosing one first tool per
+question: `rg` for exact text, CodeGraph for indexed code relationships, and
+fast-context for semantic discovery or unindexed projects. A second semantic
+tool is a gap-filling step, not a default parallel call. The policy never
+creates a CodeGraph index and keeps ace-tool disabled unless Harness explicitly
+changes that decision. Generic legacy `grep` examples in Trellis Skills are
+search intent rather than a tool mandate; accepted task-specific commands still
+win and must be reported if they conflict. Current project guide examples use
+`rg`.
+
+Ponytail `full` may minimize only code inside higher-order requirements and
+gates. Caveman may compress only routine conversation. Neither can remove
+required artifact content, evidence, validation, security, accessibility,
+error handling, or acceptance criteria.
+
 ## CI boundary
 
 The root workflow owns all executable gates. Nested component workflows are

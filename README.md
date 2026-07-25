@@ -81,7 +81,8 @@ pwsh -NoProfile -File .\scripts\bootstrap.ps1 -LinkCcg
 3. 对仓库无法回答的决定调用 `grill-me`，每轮只问一个问题，并给出推荐项与取舍；
 4. 汇总完整项目约束和逐项 Skill 选择理由，等待用户对最新版摘要明确批准；
 5. 批准后由可执行验证器拒绝草稿、凭据、越权 provider 和已有目录冲突，
-   再原子写入 `.harness/project.json`、Schema 与所有权清单；
+   以及畸形或冲突的规则标记，再原子写入 `.harness/project.json`、Schema
+   与所有权清单，并把统一协作策略投影到根 `AGENTS.md` 的独立托管块；
 6. 把批准的非全局 Skill 复制到项目级 `.agents/skills/`，写入
    `.harness/project-skills.json`，并校验仓库快照摘要、契约选择与目标所有权；
 7. 协调 Trellis/CCG，并通过
@@ -92,6 +93,9 @@ pwsh -NoProfile -File .\scripts\bootstrap.ps1 -LinkCcg
 也不会读取密钥值。全局默认只保留 `harness-init` 与 `grill-me` 两个
 必要 Skill；现有全局 Skill 不会被初始化过程擅自删除或移动，清理由独立的
 所有权感知迁移处理。现有文件在没有所有权清单前一律按用户资产处理。
+协作规则事实来源是
+[`collaboration-policy.md`](.agents/skills/harness-init/assets/collaboration-policy.md)；
+当前及新项目的 `AGENTS.md` 内容均为派生副本，初始化器会保留块外定制。
 
 ```powershell
 # 只读发现；不会创建 .harness

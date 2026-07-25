@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
@@ -6,6 +7,7 @@ import {
   readFileSync,
   rmSync,
   symlinkSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { readFile } from "node:fs/promises";
@@ -28,6 +30,13 @@ const TEMPLATE_PATH = path.join(
   "assets",
   "project-contract.template.json",
 );
+const POLICY_PATH = path.join(
+  SKILL_ROOT,
+  "assets",
+  "collaboration-policy.md",
+);
+const POLICY_START = "<!-- HARNESS-COLLABORATION:START -->";
+const POLICY_END = "<!-- HARNESS-COLLABORATION:END -->";
 
 function fixture() {
   const repoRoot = mkdtempSync(path.join(tmpdir(), "harness-init-"));
@@ -161,6 +170,19 @@ test("approved contracts atomically create the owned Harness contract", async ()
       ".harness/project.json",
       ".harness/project.schema.json",
     ]);
+    assert.deepEqual(ownership.managedBlocks, [
+      {
+        path: "AGENTS.md",
+        startMarker: POLICY_START,
+        endMarker: POLICY_END,
+        sha256: createHash("sha256")
+          .update(
+            `${POLICY_START}\n${readFileSync(POLICY_PATH, "utf8").trim()}\n${POLICY_END}`,
+          )
+          .digest("hex"),
+      },
+    ]);
+    assert.match(ownership.managedBlocks[0].sha256, /^[a-f0-9]{64}$/);
     assert.match(ownership.contractSha256, /^[a-f0-9]{64}$/);
     assert.match(ownership.schemaSha256, /^[a-f0-9]{64}$/);
     assert.equal(
@@ -169,6 +191,12 @@ test("approved contracts atomically create the owned Harness contract", async ()
       ),
       true,
     );
+    const agents = readFileSync(path.join(value.repoRoot, "AGENTS.md"), "utf8");
+    assert.match(agents, new RegExp(POLICY_START));
+    assert.match(agents, new RegExp(POLICY_END));
+    assert.match(agents, /Ponytail/);
+    assert.match(agents, /Caveman/);
+    assert.match(agents, /CodeGraph/);
 
     const repeated = await applyProjectContract({
       repoRoot: value.repoRoot,
@@ -176,6 +204,100 @@ test("approved contracts atomically create the owned Harness contract", async ()
       skillRoot: SKILL_ROOT,
     });
     assert.equal(repeated.status, "unchanged");
+    assert.equal(
+      readFileSync(path.join(value.repoRoot, "AGENTS.md"), "utf8"),
+      agents,
+    );
+    assert.equal(agents.split(POLICY_START).length - 1, 1);
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("approved contracts preserve existing AGENTS content", async () => {
+  const value = fixture();
+  try {
+    const original =
+      "<!-- TRELLIS:START -->\nTrellis rules\n<!-- TRELLIS:END -->\n\n" +
+      "<!-- HARNESS:START -->\nProject Harness rules\n<!-- HARNESS:END -->\n\n" +
+      "User rule\n";
+    writeFileSync(path.join(value.repoRoot, "AGENTS.md"), original);
+    const contractPath = writeContract(value.repoRoot, approvedContract());
+
+    await applyProjectContract({
+      repoRoot: value.repoRoot,
+      contractPath,
+      skillRoot: SKILL_ROOT,
+    });
+
+    const agents = readFileSync(path.join(value.repoRoot, "AGENTS.md"), "utf8");
+    assert.ok(agents.startsWith(original));
+    assert.equal(agents.split("<!-- TRELLIS:START -->").length - 1, 1);
+    assert.equal(agents.split("<!-- HARNESS:START -->").length - 1, 1);
+    assert.equal(agents.split("Project Harness rules").length - 1, 1);
+    assert.equal(agents.split("User rule").length - 1, 1);
+    assert.equal(agents.split(POLICY_START).length - 1, 1);
+    assert.match(
+      agents,
+      new RegExp(
+        readFileSync(POLICY_PATH, "utf8")
+          .trim()
+          .replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+      ),
+    );
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("malformed or conflicting collaboration blocks fail without mutation", async (t) => {
+  for (const [name, agents] of [
+    ["malformed", `${POLICY_START}\nmissing end\n`],
+    ["conflicting", `${POLICY_START}\nuser-owned rules\n${POLICY_END}\n`],
+  ]) {
+    await t.test(name, async () => {
+      const value = fixture();
+      try {
+        const agentsPath = path.join(value.repoRoot, "AGENTS.md");
+        writeFileSync(agentsPath, agents);
+        const contractPath = writeContract(value.repoRoot, approvedContract());
+
+        await assert.rejects(
+          applyProjectContract({
+            repoRoot: value.repoRoot,
+            contractPath,
+            skillRoot: SKILL_ROOT,
+          }),
+          /AGENTS|collaboration|managed block|collision/i,
+        );
+        assert.equal(existsSync(path.join(value.repoRoot, ".harness")), false);
+        assert.equal(readFileSync(agentsPath, "utf8"), agents);
+      } finally {
+        value.cleanup();
+      }
+    });
+  }
+});
+
+test("non-regular AGENTS state fails without mutation", async () => {
+  const value = fixture();
+  try {
+    mkdirSync(path.join(value.repoRoot, "AGENTS.md"));
+    const contractPath = writeContract(value.repoRoot, approvedContract());
+
+    await assert.rejects(
+      applyProjectContract({
+        repoRoot: value.repoRoot,
+        contractPath,
+        skillRoot: SKILL_ROOT,
+      }),
+      /AGENTS\.md is not a regular file/i,
+    );
+    assert.equal(existsSync(path.join(value.repoRoot, ".harness")), false);
+    assert.equal(
+      statSync(path.join(value.repoRoot, "AGENTS.md")).isDirectory(),
+      true,
+    );
   } finally {
     value.cleanup();
   }
@@ -307,6 +429,22 @@ test("skill export is portable and refuses to overwrite a collision", async () =
     assert.equal(
       existsSync(path.join(targetSkill, "scripts", "harness-init-core.mjs")),
       true,
+    );
+    assert.equal(
+      existsSync(
+        path.join(targetSkill, "assets", "collaboration-policy.md"),
+      ),
+      true,
+    );
+    const contractPath = writeContract(value.repoRoot, approvedContract());
+    await applyProjectContract({
+      repoRoot: value.repoRoot,
+      contractPath,
+      skillRoot: targetSkill,
+    });
+    assert.match(
+      readFileSync(path.join(value.repoRoot, "AGENTS.md"), "utf8"),
+      /HARNESS-COLLABORATION:START/,
     );
 
     await assert.rejects(

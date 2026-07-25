@@ -51,6 +51,8 @@ const SKILL_REPOSITORY_IGNORED_DIRECTORIES = new Set([
 const PROJECT_SKILL_MAX_FILES = 2_000;
 const PROJECT_SKILL_MAX_FILE_BYTES = 16 * 1024 * 1024;
 const PROJECT_SKILL_MAX_TOTAL_BYTES = 64 * 1024 * 1024;
+const COLLABORATION_BLOCK_START = "<!-- HARNESS-COLLABORATION:START -->";
+const COLLABORATION_BLOCK_END = "<!-- HARNESS-COLLABORATION:END -->";
 
 async function exists(target) {
   try {
@@ -68,6 +70,15 @@ async function pathEntryExists(target) {
     return true;
   } catch (error) {
     if (error?.code === "ENOENT") return false;
+    throw error;
+  }
+}
+
+async function readUtf8IfExists(target) {
+  try {
+    return await readFile(target, "utf8");
+  } catch (error) {
+    if (error?.code === "ENOENT") return "";
     throw error;
   }
 }
@@ -97,6 +108,52 @@ async function assertSafeRegularFile(target, label, { allowMissing } = {}) {
     if (allowMissing && error?.code === "ENOENT") return false;
     throw error;
   }
+}
+
+function markerCount(content, marker) {
+  return content.split(marker).length - 1;
+}
+
+function findCollaborationBlock(content) {
+  const starts = markerCount(content, COLLABORATION_BLOCK_START);
+  const ends = markerCount(content, COLLABORATION_BLOCK_END);
+  if (starts !== ends || starts > 1) {
+    throw new Error(
+      "AGENTS.md has a malformed or duplicate Harness collaboration managed block.",
+    );
+  }
+  if (starts === 0) return null;
+  const start = content.indexOf(COLLABORATION_BLOCK_START);
+  const end = content.indexOf(COLLABORATION_BLOCK_END);
+  if (end < start) {
+    throw new Error(
+      "AGENTS.md has an invalid Harness collaboration managed block order.",
+    );
+  }
+  return content.slice(start, end + COLLABORATION_BLOCK_END.length);
+}
+
+function renderCollaborationBlock(policy) {
+  return `${COLLABORATION_BLOCK_START}\n${policy.trim()}\n${COLLABORATION_BLOCK_END}`;
+}
+
+function addCollaborationBlock(content, expectedBlock) {
+  const currentBlock = findCollaborationBlock(content);
+  if (currentBlock === expectedBlock) return content;
+  if (currentBlock !== null) {
+    throw new Error(
+      "AGENTS.md contains a conflicting Harness collaboration managed block; refusing to overwrite it.",
+    );
+  }
+  const separator =
+    content.length === 0
+      ? ""
+      : content.endsWith("\n\n")
+        ? ""
+        : content.endsWith("\n")
+          ? "\n"
+          : "\n\n";
+  return `${content}${separator}${expectedBlock}\n`;
 }
 
 function assertInside(root, target, label) {
@@ -1334,6 +1391,7 @@ function validateProjectOwnership(
     "contractSha256",
     "schemaSha256",
     "managedPaths",
+    "managedBlocks",
   ];
   if (
     Object.keys(ownership).sort().join(",") !==
@@ -1384,7 +1442,20 @@ export async function applyProjectContract({
   const schemaBytes = await readFile(schemaPath);
   const contractSha256 = sha256(contractBytes);
   const schemaSha256 = sha256(schemaBytes);
+  const agentsPath = path.join(root, "AGENTS.md");
+  const policyPath = path.join(
+    sourceSkill,
+    "assets",
+    "collaboration-policy.md",
+  );
+  const collaborationBlock = renderCollaborationBlock(
+    await readFile(policyPath, "utf8"),
+  );
+  const collaborationSha256 = sha256(collaborationBlock);
   assertInside(root, harnessDir, "Harness contract directory");
+  await assertSafeRegularFile(agentsPath, "AGENTS.md", {
+    allowMissing: true,
+  });
 
   if (await pathEntryExists(harnessDir)) {
     await ensureSafeDirectoryChain(
@@ -1410,14 +1481,32 @@ export async function applyProjectContract({
         currentBytes === contractBytes &&
         sha256(await readFile(installedSchemaPath)) === schemaSha256
       ) {
-        validateProjectOwnership(
+        const ownership = validateProjectOwnership(
           await readJson(ownershipPath),
           { contractSha256, schemaSha256 },
         );
+        const managedBlock = ownership.managedBlocks?.find(
+          (entry) => entry?.path === "AGENTS.md",
+        );
+        const currentBlock = findCollaborationBlock(
+          await readUtf8IfExists(agentsPath),
+        );
+        if (
+          managedBlock?.startMarker !== COLLABORATION_BLOCK_START ||
+          managedBlock?.endMarker !== COLLABORATION_BLOCK_END ||
+          managedBlock?.sha256 !== collaborationSha256 ||
+          currentBlock !== collaborationBlock
+        ) {
+          throw new Error(
+            "The managed AGENTS.md collaboration block is missing or modified; refusing to overwrite user state.",
+          );
+        }
         return {
           status: "unchanged",
           projectPath,
+          agentsPath,
           contractSha256,
+          collaborationSha256,
         };
       }
     }
@@ -1426,16 +1515,36 @@ export async function applyProjectContract({
     );
   }
 
+  const currentAgents = await readUtf8IfExists(agentsPath);
+  const nextAgents = addCollaborationBlock(
+    currentAgents,
+    collaborationBlock,
+  );
+  const agentsChanged = currentAgents !== nextAgents;
   const stageDir = path.join(root, `.harness-init-${randomUUID()}`);
+  const agentsStagePath = path.join(
+    root,
+    `.AGENTS.md.harness-init-${randomUUID()}`,
+  );
   assertInside(root, stageDir, "Harness initialization staging directory");
+  assertInside(root, agentsStagePath, "Harness AGENTS staging file");
   const ownership = {
     schemaVersion: 1,
     owner: "trellis-ccg-harness",
     contractSha256,
     schemaSha256,
     managedPaths: [...PROJECT_MANAGED_PATHS],
+    managedBlocks: [
+      {
+        path: "AGENTS.md",
+        startMarker: COLLABORATION_BLOCK_START,
+        endMarker: COLLABORATION_BLOCK_END,
+        sha256: collaborationSha256,
+      },
+    ],
   };
 
+  let harnessApplied = false;
   try {
     await mkdir(stageDir, { mode: 0o700 });
     await writeFile(
@@ -1453,9 +1562,24 @@ export async function applyProjectContract({
       canonicalJson(ownership),
       { mode: 0o600 },
     );
+    if (agentsChanged) {
+      const agentsMode = await exists(agentsPath)
+        ? (await stat(agentsPath)).mode & 0o777
+        : 0o644;
+      await writeFile(agentsStagePath, nextAgents, {
+        flag: "wx",
+        mode: agentsMode,
+      });
+    }
     await rename(stageDir, harnessDir);
+    harnessApplied = true;
+    if (agentsChanged) await rename(agentsStagePath, agentsPath);
   } catch (error) {
     await rm(stageDir, { recursive: true, force: true });
+    await rm(agentsStagePath, { force: true });
+    if (harnessApplied) {
+      await rm(harnessDir, { recursive: true, force: true });
+    }
     if (error?.code === "EEXIST" || error?.code === "ENOTEMPTY") {
       throw new Error(
         "The .harness path already exists; refusing initialization collision.",
@@ -1467,7 +1591,9 @@ export async function applyProjectContract({
   return {
     status: "applied",
     projectPath,
+    agentsPath,
     contractSha256: ownership.contractSha256,
+    collaborationSha256,
   };
 }
 

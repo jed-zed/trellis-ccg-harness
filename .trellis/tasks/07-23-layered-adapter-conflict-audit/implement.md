@@ -40,11 +40,30 @@
     the Skill package, and cover its non-mutation/provider boundaries with
     offline tests.
 
+## Minimal CCG plan extension: ordered collaboration policy
+
+CCG evidence: Gemini completed a bounded read-only planning pass from a
+secret-excluding snapshot. Claude and Grok remain disabled by this accepted
+Trellis task. Codex owns the final plan, edits, tests, and review.
+
+- [x] Add one canonical `harness-init` policy asset containing the ordered
+  authority, Ponytail, Caveman, and `rg`/CodeGraph/fast-context routing rules.
+- [x] Add a derived `HARNESS-COLLABORATION` block to root `AGENTS.md`; keep the
+  existing Trellis and Harness blocks byte-preserved.
+- [x] Extend `applyProjectContract()` to insert the same block atomically after
+  approval, preserve unrelated `AGENTS.md` content, reject malformed/conflicting
+  markers, and record block ownership.
+- [x] Add focused red/green tests for missing/existing `AGENTS.md`, inheritance,
+  collision preservation, ownership, and repeat apply.
+- [x] Update initializer docs, run Trellis 2.2 plus CCG change/quality/security
+  gates, then rerun Harness tests, doctor, conflicts, and source verification.
+
 ## Verification
 
 ```powershell
 node --test .\tests\harness-adapter.test.mjs
 node --test .\tests\harness-init-skill.test.mjs
+node --test .\tests\harness-init-cli.test.mjs
 node .\scripts\harness-adapter.mjs context
 node .\scripts\harness-adapter.mjs conflicts
 pwsh -NoProfile -File .\scripts\doctor.ps1
@@ -114,3 +133,23 @@ security reference files.
 - [x] Validate exact contract ownership and schema identity on repeat apply.
 - [x] Recheck Windows MCP secret ACLs at launch and terminate child trees.
 - [ ] Run final Harness/CCG gates, source verification, doctor, and CI.
+
+- The ordered collaboration policy is canonical in
+  `.agents/skills/harness-init/assets/collaboration-policy.md`; root and newly
+  initialized `AGENTS.md` blocks are tested derived projections.
+- Harness root tests passed 94/94; CCG lint, typecheck, build, and 451 tests
+  passed; Go test/build passed.
+- CCG change analysis, quality scan, and security scan passed. Quality retained
+  25 non-blocking complexity warnings: 24 in the enlarged portable initializer
+  module after PR #1's project-Skill work and one in a long initializer test;
+  two apply to the extended `applyProjectContract()` function.
+- Harness doctor, source verification, task-bound context, and conflict audit
+  passed with 0 blocking and 0 warnings.
+- Concurrent PR #1 commits through `5b874af` were integrated in an isolated
+  worktree. Six overlapping initializer/doc/test files were reconciled while
+  retaining the PR's Skill repository and project-copy behavior; the original
+  dirty checkout was not modified. PR #1's 10 remote CI jobs are green at this
+  base commit, including `Go / ubuntu-latest`.
+- Current project guide examples now use `rg`; generic Trellis Skill/template
+  search examples are interpreted through the canonical router without
+  modifying Trellis or plugin source.

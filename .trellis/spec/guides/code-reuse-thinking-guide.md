@@ -21,10 +21,10 @@ When you copy-paste or rewrite existing logic:
 
 ```bash
 # Search for similar function names
-grep -r "functionName" .
+rg -n "functionName" .
 
 # Search for similar logic
-grep -r "keyword" .
+rg -n "keyword" .
 ```
 
 ### Step 2: Ask These Questions
@@ -79,7 +79,7 @@ grep -r "keyword" .
 When you've made similar changes to multiple files:
 
 1. **Review**: Did you catch all instances?
-2. **Search**: Run grep to find any missed
+2. **Search**: Run `rg` to find any missed
 3. **Consider**: Should this be abstracted?
 
 ---
