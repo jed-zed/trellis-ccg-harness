@@ -60,7 +60,15 @@ jobs:
         run: pnpm --dir ./components/ccg-workflow typecheck
 
       - name: Test personal CCG
+        if: runner.os != 'Windows'
         run: pnpm --dir ./components/ccg-workflow test
+
+      # Windows ACL hardening invokes PowerShell and can exceed a test's
+      # 30-second bound under parallel runner load. Serialize files and allow
+      # one bounded retry without changing the frozen personal CCG source tree.
+      - name: Test personal CCG (Windows ACL-safe)
+        if: runner.os == 'Windows'
+        run: pnpm --dir ./components/ccg-workflow exec vitest run --no-file-parallelism --retry 1
 
       - name: Build personal CCG
         run: pnpm --dir ./components/ccg-workflow build
