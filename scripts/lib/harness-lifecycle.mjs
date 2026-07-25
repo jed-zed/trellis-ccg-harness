@@ -15,6 +15,60 @@ const LIFECYCLE_COMMANDS = new Set([
   "bootstrap-abort",
 ]);
 
+export function parseSparseArchiveExclusions(value) {
+  const exclusions = [];
+  for (const rawLine of String(value ?? "").split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || !line.startsWith("!")) continue;
+    if (!line.startsWith("!/")) {
+      throw new Error(
+        `Sparse archive exclusions must use repository-rooted literal paths: ${line}`,
+      );
+    }
+    const relativePath = line.slice(2).replaceAll("\\", "/");
+    if (
+      !relativePath ||
+      /[*?[\]\x00-\x1f\x7f]/.test(relativePath) ||
+      path.posix.isAbsolute(relativePath)
+    ) {
+      throw new Error(
+        `Sparse archive exclusions must be literal paths: ${line}`,
+      );
+    }
+    const normalized = path.posix.normalize(relativePath);
+    if (
+      normalized !== relativePath ||
+      normalized === "." ||
+      normalized === ".." ||
+      normalized.startsWith("../") ||
+      /^[A-Za-z]:/.test(normalized)
+    ) {
+      throw new Error(`Sparse archive exclusion would escape the source tree: ${line}`);
+    }
+    exclusions.push(normalized);
+  }
+  return [...new Set(exclusions)].sort();
+}
+
+export function assertSparseExclusionsUnchanged(exclusions, changedPaths) {
+  const changed = new Set(
+    (changedPaths ?? [])
+      .map((value) => String(value).trim().replaceAll("\\", "/"))
+      .filter(Boolean),
+  );
+  const violations = exclusions.filter(
+    (excluded) =>
+      changed.has(excluded) ||
+      [...changed].some((entry) => entry.startsWith(`${excluded}/`)),
+  );
+  if (violations.length > 0) {
+    throw new Error(
+      `A sparse-excluded path changed in the target commit: ${violations.join(", ")}.`,
+    );
+  }
+  return [...exclusions];
+}
+
 export function resolvePackageManagerInvocation(
   command,
   args,

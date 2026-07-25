@@ -15,6 +15,8 @@ import path from "node:path";
 import {
   buildBootstrapOwnership,
   buildRestoreAction,
+  assertSparseExclusionsUnchanged,
+  parseSparseArchiveExclusions,
   parseLifecycleArgs,
   resolvePackageManagerInvocation,
   validateUpdateSource,
@@ -344,18 +346,53 @@ async function resolveUpdateCheckout(args, manifest) {
   return { checkout: cleanupRoot, remoteName: "origin", cleanupRoot };
 }
 
-async function exportCommit(checkout, commit, temporaryRoot) {
+function resolveSparseArchiveExclusions(checkout, previousCommit, targetCommit) {
+  const sparseOutput = run("git", ["-C", checkout, "sparse-checkout", "list"], {
+    capture: true,
+    allowedStatuses: [0, 1, 128],
+  });
+  const exclusions = parseSparseArchiveExclusions(sparseOutput);
+  if (exclusions.length === 0) return [];
+  const changedOutput = run(
+    "git",
+    [
+      "-C",
+      checkout,
+      "diff",
+      "--name-only",
+      previousCommit,
+      targetCommit,
+      "--",
+      ...exclusions,
+    ],
+    { capture: true },
+  );
+  const changedPaths = changedOutput.split(/\r?\n/).filter(Boolean);
+  return assertSparseExclusionsUnchanged(exclusions, changedPaths);
+}
+
+async function exportCommit(checkout, commit, temporaryRoot, exclusions = []) {
   const archivePath = path.join(temporaryRoot, "ccg-source.tar");
   const exportRoot = path.join(temporaryRoot, "export");
   await mkdir(exportRoot, { recursive: true, mode: 0o700 });
-  run("git", [
+  const archiveArgs = [
     "-C",
     checkout,
     "archive",
     "--format=tar",
     `--output=${archivePath}`,
     commit,
-  ]);
+  ];
+  if (exclusions.length > 0) {
+    archiveArgs.push(
+      "--",
+      ".",
+      ...exclusions.map(
+        (relativePath) => `:(exclude,top,literal)${relativePath}`,
+      ),
+    );
+  }
+  run("git", archiveArgs);
   run("tar", ["-xf", archivePath, "-C", exportRoot]);
   return exportRoot;
 }
@@ -406,12 +443,23 @@ async function prepareUpdateCandidate(args, manifest, resolved, temporaryRoot) {
     resolved.checkout,
     "Authoritative CCG checkout after quality gates",
   );
+  const archiveExclusions = resolveSparseArchiveExclusions(
+    resolved.checkout,
+    String(manifest.ccg.commit),
+    source.commit,
+  );
   const candidateDir = await exportCommit(
     resolved.checkout,
     source.commit,
     temporaryRoot,
+    archiveExclusions,
   );
-  return { source, verificationCommands, candidateDir };
+  return {
+    source,
+    verificationCommands,
+    candidateDir,
+    archiveExclusions,
+  };
 }
 
 function writeUpdateReceipt(source, record) {
@@ -457,6 +505,7 @@ async function updateHarness(args) {
       verification: {
         repository: prepared.source.repository,
         commands: prepared.verificationCommands,
+        preservedSparsePaths: prepared.archiveExclusions,
       },
       afterReplace: () => runHarnessTests(args.repoRoot, run),
     });

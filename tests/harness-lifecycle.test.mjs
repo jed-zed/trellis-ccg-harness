@@ -7,6 +7,8 @@ import { fileURLToPath } from "node:url";
 import {
   buildBootstrapOwnership,
   buildRestoreAction,
+  assertSparseExclusionsUnchanged,
+  parseSparseArchiveExclusions,
   parseLifecycleArgs,
   resolvePackageManagerInvocation,
   validateUpdateSource,
@@ -69,6 +71,37 @@ test("source validation binds credential-free personal repo, commit, and tree", 
         actual: { ...expected, gitTree: "c".repeat(40) },
       }),
     /tree mismatch/i,
+  );
+});
+
+test("sparse source exclusions are literal, bounded, and unchanged across the update", () => {
+  const exclusions = parseSparseArchiveExclusions([
+    "/*",
+    "!/templates/skills/domains/security/pentest.md",
+    "!/templates/skills/domains/security/red-team.md",
+  ].join("\n"));
+  assert.deepEqual(exclusions, [
+    "templates/skills/domains/security/pentest.md",
+    "templates/skills/domains/security/red-team.md",
+  ]);
+  assert.deepEqual(
+    assertSparseExclusionsUnchanged(exclusions, ["package.json"]),
+    exclusions,
+  );
+  assert.throws(
+    () =>
+      assertSparseExclusionsUnchanged(exclusions, [
+        "templates/skills/domains/security/red-team.md",
+      ]),
+    /changed in the target commit/i,
+  );
+  assert.throws(
+    () => parseSparseArchiveExclusions("!/templates/**/secret.md"),
+    /literal paths/i,
+  );
+  assert.throws(
+    () => parseSparseArchiveExclusions("!/../outside.txt"),
+    /escape/i,
   );
 });
 
