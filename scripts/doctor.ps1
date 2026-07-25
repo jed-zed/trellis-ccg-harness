@@ -163,19 +163,31 @@ else {
 }
 
 if (Get-Command gh -ErrorAction SilentlyContinue) {
-  $privacy = & gh repo view "jed-zed/trellis-ccg-harness" --json isPrivate --jq ".isPrivate" 2>$null
-  if ($LASTEXITCODE -eq 0 -and $privacy.Trim() -eq "true") {
-    Add-Pass "GitHub repository is private"
-  }
-  elseif ($LASTEXITCODE -eq 0) {
-    Add-Failure "GitHub repository is not private."
+  $expectedVisibility = [string]$manifest.harness.visibility
+  $privacy = & gh repo view ([string]$manifest.harness.repository) --json isPrivate --jq ".isPrivate" 2>$null
+  if ($LASTEXITCODE -eq 0) {
+    $actualVisibility = if ($privacy.Trim() -eq "true") {
+      "private"
+    }
+    else {
+      "public"
+    }
+    if ($expectedVisibility -notin @("private", "public")) {
+      Add-Failure "Unsupported repository visibility in harness.sources.json: $expectedVisibility"
+    }
+    elseif ($actualVisibility -eq $expectedVisibility) {
+      Add-Pass "GitHub repository visibility is $actualVisibility"
+    }
+    else {
+      Add-Failure "GitHub repository visibility is $actualVisibility; expected $expectedVisibility."
+    }
   }
   else {
-    Add-Warning "Could not verify GitHub privacy with the current gh session."
+    Add-Warning "Could not verify GitHub repository visibility with the current gh session."
   }
 }
 else {
-  Add-Warning "GitHub CLI is unavailable; remote privacy was not checked."
+  Add-Warning "GitHub CLI is unavailable; remote visibility was not checked."
 }
 
 if ($warnings.Count -gt 0) {

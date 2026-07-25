@@ -58,6 +58,17 @@ test("doctor blocks on interrupted transaction residue", async () => {
   assert.match(doctor, /harness:recover/)
 })
 
+test("doctor verifies the repository visibility recorded by the source manifest", async () => {
+  const [doctor, manifestBytes] = await Promise.all([
+    readFile(path.join(ROOT, "scripts", "doctor.ps1"), "utf8"),
+    readFile(path.join(ROOT, "harness.sources.json"), "utf8"),
+  ])
+  const manifest = JSON.parse(manifestBytes)
+  assert.equal(manifest.harness.visibility, "public")
+  assert.match(doctor, /manifest\.harness\.visibility/)
+  assert.doesNotMatch(doctor, /repository is not private/i)
+})
+
 test("Dependabot covers Actions, the CCG package, and the Go wrapper", async () => {
   const config = await readFile(
     path.join(ROOT, ".github", "dependabot.yml"),

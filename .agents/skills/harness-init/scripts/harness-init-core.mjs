@@ -1,4 +1,11 @@
-import { createHash, randomUUID } from "node:crypto";
+import {
+  createHash,
+  createHmac,
+  randomBytes,
+  randomUUID,
+  timingSafeEqual,
+} from "node:crypto";
+import { execFile as execFileCallback } from "node:child_process";
 import {
   chmod,
   cp,
@@ -10,6 +17,7 @@ import {
   realpath,
   rename,
   rm,
+  rmdir,
   stat,
   writeFile,
 } from "node:fs/promises";
@@ -17,6 +25,7 @@ import { homedir } from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 
 const CONTRACT_STATUSES = new Set(["draft", "approved", "ready"]);
 const MANIFEST_CANDIDATES = [
@@ -51,6 +60,37 @@ const SKILL_REPOSITORY_IGNORED_DIRECTORIES = new Set([
 const PROJECT_SKILL_MAX_FILES = 2_000;
 const PROJECT_SKILL_MAX_FILE_BYTES = 16 * 1024 * 1024;
 const PROJECT_SKILL_MAX_TOTAL_BYTES = 64 * 1024 * 1024;
+const COLLABORATION_BLOCK_START = "<!-- HARNESS-COLLABORATION:START -->";
+const COLLABORATION_BLOCK_END = "<!-- HARNESS-COLLABORATION:END -->";
+const PROJECT_POLICY_VERSION = 2;
+const COLLABORATION_MARKER_FORMAT_VERSION = 1;
+const PROJECT_OWNERSHIP_SCHEMA_VERSION = 2;
+const PROJECT_POLICY_RELATIVE_PATH =
+  ".harness/policies/collaboration-policy.md";
+const PROJECT_TRANSACTION_PREFIX = ".harness-init-txn-";
+const PROJECT_LOCK_PATH = ".harness-init-lock";
+const PROJECT_LOCK_CANDIDATE_PREFIX = ".harness-init-lock-";
+const PROJECT_GC_PREFIX = ".harness-init-gc-";
+const PROJECT_GC_PATTERN =
+  /^\.harness-init-gc-(?:transaction|lock|candidate)-[a-f0-9-]{36}$/i;
+const PROJECT_PROVENANCE_SCHEMA_VERSION = 1;
+const PROJECT_OWNER_SCHEMA_VERSION = 2;
+const PROJECT_JOURNAL_SCHEMA_VERSION = 3;
+const PROJECT_COMMIT_MARKER_SCHEMA_VERSION = 2;
+const CURRENT_PROCESS_FALLBACK_IDENTITY =
+  `fallback:${process.platform}:${process.pid}:` +
+  `${Math.round((Date.now() - process.uptime() * 1000) / 100)}`;
+const execFile = promisify(execFileCallback);
+let currentProcessIdentityPromise;
+const LEGACY_AGENTS_STAGE_PATTERN =
+  /^\.AGENTS\.md\.harness-init-[a-f0-9-]{36}$/i;
+const PROJECT_TRANSACTION_TARGETS = new Set([
+  "AGENTS.md",
+  PROJECT_POLICY_RELATIVE_PATH,
+  ".harness/project.json",
+  ".harness/project.schema.json",
+  ".harness/ownership.json",
+]);
 
 async function exists(target) {
   try {
@@ -68,6 +108,15 @@ async function pathEntryExists(target) {
     return true;
   } catch (error) {
     if (error?.code === "ENOENT") return false;
+    throw error;
+  }
+}
+
+async function readUtf8IfExists(target) {
+  try {
+    return await readFile(target, "utf8");
+  } catch (error) {
+    if (error?.code === "ENOENT") return "";
     throw error;
   }
 }
@@ -97,6 +146,67 @@ async function assertSafeRegularFile(target, label, { allowMissing } = {}) {
     if (allowMissing && error?.code === "ENOENT") return false;
     throw error;
   }
+}
+
+function markerCount(content, marker) {
+  return content.split(marker).length - 1;
+}
+
+function findCollaborationBlock(content) {
+  const starts = markerCount(content, COLLABORATION_BLOCK_START);
+  const ends = markerCount(content, COLLABORATION_BLOCK_END);
+  if (starts !== ends || starts > 1) {
+    throw new Error(
+      "AGENTS.md has a malformed or duplicate Harness collaboration managed block.",
+    );
+  }
+  if (starts === 0) return null;
+  const start = content.indexOf(COLLABORATION_BLOCK_START);
+  const end = content.indexOf(COLLABORATION_BLOCK_END);
+  if (end < start) {
+    throw new Error(
+      "AGENTS.md has an invalid Harness collaboration managed block order.",
+    );
+  }
+  return content.slice(start, end + COLLABORATION_BLOCK_END.length);
+}
+
+function renderCollaborationBlock(policy) {
+  return `${COLLABORATION_BLOCK_START}\n${policy.trim()}\n${COLLABORATION_BLOCK_END}`;
+}
+
+function addCollaborationBlock(content, expectedBlock) {
+  const currentBlock = findCollaborationBlock(content);
+  if (currentBlock === expectedBlock) return content;
+  if (currentBlock !== null) {
+    throw new Error(
+      "AGENTS.md contains a conflicting Harness collaboration managed block; refusing to overwrite it.",
+    );
+  }
+  const separator =
+    content.length === 0
+      ? ""
+      : content.endsWith("\n\n")
+        ? ""
+        : content.endsWith("\n")
+          ? "\n"
+          : "\n\n";
+  return `${content}${separator}${expectedBlock}\n`;
+}
+
+function replaceCollaborationBlock(content, currentBlock, expectedBlock) {
+  if (currentBlock === expectedBlock) return content;
+  const start = content.indexOf(currentBlock);
+  if (start < 0) {
+    throw new Error(
+      "The managed AGENTS.md collaboration block changed during projection.",
+    );
+  }
+  return (
+    content.slice(0, start) +
+    expectedBlock +
+    content.slice(start + currentBlock.length)
+  );
 }
 
 function assertInside(root, target, label) {
@@ -1317,158 +1427,1810 @@ function sha256(value) {
   return createHash("sha256").update(value).digest("hex");
 }
 
-const PROJECT_MANAGED_PATHS = Object.freeze([
-  ".harness/ownership.json",
-  ".harness/project.json",
-  ".harness/project.schema.json",
-]);
+async function readJson(target) {
+  return JSON.parse(await readFile(target, "utf8"));
+}
 
-function validateProjectOwnership(
-  ownership,
-  { contractSha256, schemaSha256 },
-) {
-  assertObject(ownership, "Harness project ownership");
-  const expectedKeys = [
-    "schemaVersion",
-    "owner",
-    "contractSha256",
-    "schemaSha256",
-    "managedPaths",
-  ];
+function normalizeResolvedPath(value) {
+  const resolved = path.resolve(value);
+  return process.platform === "win32" ? resolved.toLowerCase() : resolved;
+}
+
+function projectTargetPath(root, relativePath, label = "Project target") {
   if (
-    Object.keys(ownership).sort().join(",") !==
-      expectedKeys.sort().join(",") ||
-    ownership.schemaVersion !== 1 ||
-    ownership.owner !== "trellis-ccg-harness" ||
-    ownership.contractSha256 !== contractSha256 ||
-    ownership.schemaSha256 !== schemaSha256 ||
-    !Array.isArray(ownership.managedPaths) ||
-    ownership.managedPaths.length !== PROJECT_MANAGED_PATHS.length ||
-    ownership.managedPaths.some(
-      (entry, index) => entry !== PROJECT_MANAGED_PATHS[index],
+    typeof relativePath !== "string" ||
+    !PROJECT_TRANSACTION_TARGETS.has(relativePath)
+  ) {
+    throw new Error(`${label} is outside the Harness-owned project surface.`);
+  }
+  const target = path.join(root, ...relativePath.split("/"));
+  assertInside(root, target, label);
+  return target;
+}
+
+function statIdentity(details) {
+  return {
+    dev: String(details.dev),
+    ino: String(details.ino),
+    size: String(details.size),
+    mtimeMs: String(details.mtimeMs),
+    ctimeMs: String(details.ctimeMs),
+    birthtimeMs: String(details.birthtimeMs),
+    uid: String(details.uid),
+    gid: String(details.gid),
+  };
+}
+
+function identitiesEqual(left, right, { ignoreCtime = false } = {}) {
+  return (
+    left?.dev === right?.dev &&
+    left?.ino === right?.ino &&
+    left?.size === right?.size &&
+    left?.mtimeMs === right?.mtimeMs &&
+    (ignoreCtime || left?.ctimeMs === right?.ctimeMs) &&
+    left?.birthtimeMs === right?.birthtimeMs &&
+    left?.uid === right?.uid &&
+    left?.gid === right?.gid
+  );
+}
+
+async function readFileFingerprint(target, label) {
+  let before;
+  try {
+    before = await lstat(target);
+  } catch (error) {
+    if (error?.code === "ENOENT") {
+      return {
+        exists: false,
+        sha256: null,
+        identity: null,
+        mode: null,
+        bytes: null,
+      };
+    }
+    throw error;
+  }
+  if (before.isSymbolicLink()) {
+    throw new Error(`${label} is a symbolic link or reparse point: ${target}`);
+  }
+  if (!before.isFile()) {
+    throw new Error(`${label} is not a regular file: ${target}`);
+  }
+  const bytes = await readFile(target);
+  const after = await lstat(target);
+  const beforeIdentity = statIdentity(before);
+  const afterIdentity = statIdentity(after);
+  if (!identitiesEqual(beforeIdentity, afterIdentity)) {
+    throw new Error(`${label} changed while it was being read.`);
+  }
+  return {
+    exists: true,
+    sha256: sha256(bytes),
+    identity: afterIdentity,
+    mode: after.mode & 0o777,
+    bytes,
+  };
+}
+
+function journalFingerprint(fingerprint) {
+  return {
+    exists: fingerprint.exists,
+    sha256: fingerprint.sha256,
+    identity: fingerprint.identity,
+    mode: fingerprint.mode,
+  };
+}
+
+function fingerprintMatches(
+  current,
+  expected,
+  {
+    requireIdentity = true,
+    ignoreCtime = false,
+  } = {},
+) {
+  if (current.exists !== expected.exists) return false;
+  if (!current.exists) return true;
+  return (
+    current.sha256 === expected.sha256 &&
+    current.mode === expected.mode &&
+    (
+      !requireIdentity ||
+      identitiesEqual(current.identity, expected.identity, {
+        ignoreCtime,
+      })
     )
+  );
+}
+
+async function assertFingerprintUnchanged(target, expected, label) {
+  const current = await readFileFingerprint(target, label);
+  if (!fingerprintMatches(current, expected)) {
+    throw new Error(
+      `${label} drifted after discovery; refusing compare-and-swap replacement.`,
+    );
+  }
+  return current;
+}
+
+function assertOutside(root, target, label) {
+  const relative = path.relative(path.resolve(root), path.resolve(target));
+  if (
+    !relative ||
+    (!relative.startsWith("..") && !path.isAbsolute(relative))
+  ) {
+    throw new Error(`${label} must stay outside the target repository.`);
+  }
+}
+
+async function loadProjectProvenanceKey(root, configuredPath) {
+  const keyPath = path.resolve(
+    configuredPath ??
+      process.env.HARNESS_INIT_PROVENANCE_KEY_PATH ??
+      path.join(homedir(), ".harness-init", "project-transaction.key"),
+  );
+  assertOutside(root, keyPath, "Harness recovery provenance key");
+  const parent = path.dirname(keyPath);
+  await mkdir(parent, { recursive: true, mode: 0o700 });
+  const parentDetails = await lstat(parent);
+  if (parentDetails.isSymbolicLink() || !parentDetails.isDirectory()) {
+    throw new Error(
+      `Harness recovery provenance directory is unsafe: ${parent}`,
+    );
+  }
+  if (
+    process.platform !== "win32" &&
+    (parentDetails.mode & 0o077) !== 0
   ) {
     throw new Error(
-      "Harness project ownership identity is invalid or changed.",
+      "Harness recovery provenance directory must not be accessible by group or other users.",
+    );
+  }
+  try {
+    await writeFile(keyPath, randomBytes(32).toString("hex"), {
+      flag: "wx",
+      mode: 0o600,
+    });
+  } catch (error) {
+    if (error?.code !== "EEXIST") throw error;
+  }
+  await assertSafeRegularFile(keyPath, "Harness recovery provenance key");
+  const details = await lstat(keyPath);
+  if (process.platform !== "win32" && (details.mode & 0o077) !== 0) {
+    throw new Error(
+      "Harness recovery provenance key must not be accessible by group or other users.",
+    );
+  }
+  const encoded = (await readFile(keyPath, "utf8")).trim();
+  if (!/^[a-f0-9]{64}$/i.test(encoded)) {
+    throw new Error("Harness recovery provenance key is invalid.");
+  }
+  return Buffer.from(encoded, "hex");
+}
+
+function provenanceDigest(key, domain, payload) {
+  return createHmac("sha256", key)
+    .update(`harness-init:${domain}\n`)
+    .update(canonicalJson(payload))
+    .digest("hex");
+}
+
+function authenticateProjectRecord(key, domain, payload) {
+  return {
+    ...payload,
+    provenance: {
+      schemaVersion: PROJECT_PROVENANCE_SCHEMA_VERSION,
+      algorithm: "hmac-sha256",
+      digest: provenanceDigest(key, domain, payload),
+    },
+  };
+}
+
+function verifyProjectRecordProvenance(key, domain, record, label) {
+  const { provenance, ...payload } = record ?? {};
+  if (
+    provenance?.schemaVersion !== PROJECT_PROVENANCE_SCHEMA_VERSION ||
+    provenance?.algorithm !== "hmac-sha256" ||
+    !/^[a-f0-9]{64}$/i.test(String(provenance?.digest ?? ""))
+  ) {
+    throw new Error(
+      `${label} lacks authenticated recovery provenance; manual review is required.`,
+    );
+  }
+  const expected = Buffer.from(provenanceDigest(key, domain, payload), "hex");
+  const actual = Buffer.from(provenance.digest, "hex");
+  if (
+    expected.length !== actual.length ||
+    !timingSafeEqual(expected, actual)
+  ) {
+    throw new Error(
+      `${label} recovery provenance is not authentic; preserving residue for manual review.`,
+    );
+  }
+  return payload;
+}
+
+function defaultIsProcessAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    if (error?.code === "ESRCH") return false;
+    return true;
+  }
+}
+
+async function assertSafeDirectory(target, label, { allowMissing } = {}) {
+  try {
+    const details = await lstat(target);
+    if (details.isSymbolicLink()) {
+      throw new Error(
+        `${label} is a symbolic link or reparse point: ${target}`,
+      );
+    }
+    if (!details.isDirectory()) {
+      throw new Error(`${label} is not a regular directory: ${target}`);
+    }
+    return true;
+  } catch (error) {
+    if (allowMissing && error?.code === "ENOENT") return false;
+    throw error;
+  }
+}
+
+function validateTransactionOwner(owner, root, label, provenanceKey) {
+  if (owner?.schemaVersion !== PROJECT_OWNER_SCHEMA_VERSION) {
+    throw new Error(
+      `${label} lacks authenticated recovery provenance; manual review is required.`,
+    );
+  }
+  const payload = verifyProjectRecordProvenance(
+    provenanceKey,
+    "owner",
+    owner,
+    `${label} owner`,
+  );
+  if (
+    !Number.isSafeInteger(payload.pid) ||
+    payload.pid <= 0 ||
+    typeof payload.processIdentity !== "string" ||
+    !payload.processIdentity ||
+    typeof payload.createdAt !== "string" ||
+    !/^[a-f0-9-]{36}$/i.test(String(payload.token ?? "")) ||
+    normalizeResolvedPath(payload.repoRoot) !== normalizeResolvedPath(root)
+  ) {
+    throw new Error(`${label} ownership metadata is invalid.`);
+  }
+  return owner;
+}
+
+async function readOwnedDirectoryOwner(
+  directory,
+  root,
+  label,
+  provenanceKey,
+) {
+  await assertSafeDirectory(directory, label);
+  const ownerPath = path.join(directory, "owner.json");
+  await assertSafeRegularFile(ownerPath, `${label} owner`);
+  return validateTransactionOwner(
+    JSON.parse(await readFile(ownerPath, "utf8")),
+    root,
+    label,
+    provenanceKey,
+  );
+}
+
+async function cleanupProjectGcTombstones(root) {
+  for (const entry of await readdir(root, { withFileTypes: true })) {
+    if (!entry.name.startsWith(PROJECT_GC_PREFIX)) continue;
+    if (!PROJECT_GC_PATTERN.test(entry.name)) {
+      throw new Error(
+        `Unrecognized Harness cleanup tombstone requires manual review: ${entry.name}`,
+      );
+    }
+    const directory = path.join(root, entry.name);
+    const details = await lstat(directory);
+    if (details.isSymbolicLink() || !details.isDirectory()) {
+      throw new Error(
+        `Harness cleanup tombstone is not a regular directory: ${directory}`,
+      );
+    }
+    await rm(directory, { recursive: true, force: true });
+  }
+}
+
+async function readPlatformProcessIdentity(pid) {
+  if (!Number.isSafeInteger(pid) || pid <= 0) return null;
+  if (process.platform === "linux") {
+    try {
+      const [bootId, statLine] = await Promise.all([
+        readFile("/proc/sys/kernel/random/boot_id", "utf8"),
+        readFile(`/proc/${pid}/stat`, "utf8"),
+      ]);
+      const commandEnd = statLine.lastIndexOf(")");
+      if (commandEnd < 0) return undefined;
+      const fields = statLine.slice(commandEnd + 2).trim().split(/\s+/);
+      const startTicks = fields[19];
+      if (!startTicks) return undefined;
+      return `linux:${bootId.trim()}:${startTicks}`;
+    } catch (error) {
+      if (error?.code === "ENOENT" || error?.code === "ESRCH") return null;
+      return undefined;
+    }
+  }
+  if (process.platform === "win32") {
+    try {
+      const { stdout } = await execFile(
+        "powershell.exe",
+        [
+          "-NoLogo",
+          "-NoProfile",
+          "-NonInteractive",
+          "-Command",
+          `$p = Get-Process -Id ${pid} -ErrorAction Stop; ` +
+            "[Console]::Out.Write($p.StartTime.ToUniversalTime().Ticks)",
+        ],
+        { windowsHide: true, timeout: 5_000, maxBuffer: 4_096 },
+      );
+      const ticks = stdout.trim();
+      if (/^\d+$/.test(ticks)) return `win32:${pid}:${ticks}`;
+      return undefined;
+    } catch {
+      return undefined;
+    }
+  }
+  if (process.platform === "darwin") {
+    try {
+      const { stdout } = await execFile(
+        "/bin/ps",
+        ["-p", String(pid), "-o", "lstart="],
+        {
+          timeout: 5_000,
+          maxBuffer: 4_096,
+          env: { ...process.env, LANG: "C", LC_ALL: "C" },
+        },
+      );
+      const startedAt = stdout.trim().replace(/\s+/g, " ");
+      if (startedAt) return `darwin:${pid}:${startedAt}`;
+      return undefined;
+    } catch {
+      return undefined;
+    }
+  }
+  return undefined;
+}
+
+async function defaultReadProcessIdentity(pid) {
+  if (pid === process.pid) {
+    currentProcessIdentityPromise ??= readPlatformProcessIdentity(pid).then(
+      (identity) => identity ?? CURRENT_PROCESS_FALLBACK_IDENTITY,
+    );
+    return currentProcessIdentityPromise;
+  }
+  return readPlatformProcessIdentity(pid);
+}
+
+async function transactionOwnerIsAlive(
+  owner,
+  {
+    isProcessAlive = defaultIsProcessAlive,
+    readProcessIdentity = defaultReadProcessIdentity,
+    identityIsAuthoritative = true,
+  } = {},
+) {
+  if (!(await isProcessAlive(owner.pid))) return false;
+  const observed = await readProcessIdentity(owner.pid);
+  if (owner.processIdentity.startsWith("fallback:")) {
+    return owner.pid === process.pid
+      ? observed === owner.processIdentity
+      : true;
+  }
+  if (typeof observed === "string") {
+    return observed === owner.processIdentity;
+  }
+  if (observed === null && identityIsAuthoritative) return false;
+  return true;
+}
+
+async function terminalizeOwnedDirectory(
+  root,
+  directory,
+  kind,
+  { faultInjector, phase } = {},
+) {
+  if (!["transaction", "lock", "candidate"].includes(kind)) {
+    throw new Error(`Unsupported Harness cleanup tombstone kind: ${kind}`);
+  }
+  const tombstone = path.join(
+    root,
+    `${PROJECT_GC_PREFIX}${kind}-${randomUUID()}`,
+  );
+  assertInside(root, tombstone, "Harness cleanup tombstone");
+  await rename(directory, tombstone);
+  if (faultInjector && phase) await faultInjector(phase);
+  await rm(tombstone, { recursive: true, force: true });
+}
+
+async function clearStaleProjectLock(
+  root,
+  provenanceKey,
+  processOptions,
+) {
+  const lockDirectory = path.join(root, PROJECT_LOCK_PATH);
+  if (!(await pathEntryExists(lockDirectory))) return;
+  const owner = await readOwnedDirectoryOwner(
+    lockDirectory,
+    root,
+    "Harness initialization lock",
+    provenanceKey,
+  );
+  if (await transactionOwnerIsAlive(owner, processOptions)) {
+    throw new Error(
+      `Another Harness initializer is running with PID ${owner.pid}.`,
+    );
+  }
+  await terminalizeOwnedDirectory(root, lockDirectory, "lock");
+}
+
+async function acquireProjectLock(
+  root,
+  {
+    isProcessAlive = defaultIsProcessAlive,
+    readProcessIdentity = defaultReadProcessIdentity,
+    provenanceKey,
+    faultInjector,
+  } = {},
+) {
+  await cleanupProjectGcTombstones(root);
+  const processOptions = {
+    isProcessAlive,
+    readProcessIdentity,
+    identityIsAuthoritative:
+      readProcessIdentity !== defaultReadProcessIdentity ||
+      isProcessAlive === defaultIsProcessAlive,
+  };
+  await clearStaleProjectLock(root, provenanceKey, processOptions);
+  const token = randomUUID();
+  const candidate = path.join(
+    root,
+    `${PROJECT_LOCK_CANDIDATE_PREFIX}${token}`,
+  );
+  const lockDirectory = path.join(root, PROJECT_LOCK_PATH);
+  const processIdentity = await readProcessIdentity(process.pid);
+  if (typeof processIdentity !== "string" || !processIdentity) {
+    throw new Error(
+      "Harness initializer could not determine its process instance identity.",
+    );
+  }
+  const owner = authenticateProjectRecord(provenanceKey, "owner", {
+    schemaVersion: PROJECT_OWNER_SCHEMA_VERSION,
+    pid: process.pid,
+    processIdentity,
+    createdAt: new Date().toISOString(),
+    token,
+    repoRoot: root,
+  });
+  await mkdir(candidate, { mode: 0o700 });
+  try {
+    await writeFile(
+      path.join(candidate, "owner.json"),
+      canonicalJson(owner),
+      { flag: "wx", mode: 0o600 },
+    );
+    await rename(candidate, lockDirectory);
+  } catch (error) {
+    if (await pathEntryExists(candidate)) {
+      await terminalizeOwnedDirectory(root, candidate, "candidate");
+    }
+    if (await pathEntryExists(lockDirectory)) {
+      const current = await readOwnedDirectoryOwner(
+        lockDirectory,
+        root,
+        "Harness initialization lock",
+        provenanceKey,
+      );
+      throw new Error(
+        `Another Harness initializer is running or owns the project lock with PID ${current.pid}.`,
+      );
+    }
+    throw error;
+  }
+  return {
+    directory: lockDirectory,
+    owner,
+    async release() {
+      if (!(await pathEntryExists(lockDirectory))) return;
+      const current = await readOwnedDirectoryOwner(
+        lockDirectory,
+        root,
+        "Harness initialization lock",
+        provenanceKey,
+      );
+      if (current.token !== token) {
+        throw new Error(
+          "Harness initialization lock ownership changed; refusing cleanup.",
+        );
+      }
+      await terminalizeOwnedDirectory(root, lockDirectory, "lock", {
+        faultInjector,
+        phase: "after-lock-terminalize",
+      });
+    },
+  };
+}
+
+function transactionStagePath(stageDirectory, bucket, relativePath) {
+  const target = path.join(
+    stageDirectory,
+    bucket,
+    ...relativePath.split("/"),
+  );
+  assertInside(stageDirectory, target, "Transaction staging path");
+  return target;
+}
+
+async function writeStagedFile(stageDirectory, target, bytes, mode) {
+  await ensureSafeDirectoryChain(
+    stageDirectory,
+    path.dirname(target),
+    "Transaction staging parent",
+    { create: true },
+  );
+  await writeFile(target, bytes, { flag: "wx", mode });
+}
+
+async function collectMissingTargetDirectories(root, targets) {
+  const candidates = new Set();
+  for (const target of targets) {
+    let current = path.dirname(projectTargetPath(root, target.path));
+    while (normalizeResolvedPath(current) !== normalizeResolvedPath(root)) {
+      candidates.add(current);
+      current = path.dirname(current);
+    }
+  }
+  const ordered = [...candidates].sort(
+    (left, right) =>
+      left.split(path.sep).length - right.split(path.sep).length,
+  );
+  const missing = [];
+  for (const directory of ordered) {
+    const present = await assertSafeDirectory(
+      directory,
+      "Harness transaction target parent",
+      { allowMissing: true },
+    );
+    if (!present) {
+      missing.push(
+        path.relative(root, directory).split(path.sep).join("/"),
+      );
+    }
+  }
+  return missing;
+}
+
+async function prepareProjectTransaction({
+  root,
+  lock,
+  targets,
+  preconditions = [],
+  provenanceKey,
+}) {
+  const id = randomUUID();
+  const stageDirectory = path.join(root, `${PROJECT_TRANSACTION_PREFIX}${id}`);
+  assertInside(root, stageDirectory, "Harness transaction staging directory");
+  await mkdir(stageDirectory, { mode: 0o700 });
+  await writeFile(
+    path.join(stageDirectory, "owner.json"),
+    canonicalJson(
+      authenticateProjectRecord(provenanceKey, "owner", {
+        schemaVersion: PROJECT_OWNER_SCHEMA_VERSION,
+        pid: process.pid,
+        processIdentity: lock.owner.processIdentity,
+        createdAt: new Date().toISOString(),
+        token: id,
+        repoRoot: root,
+      }),
+    ),
+    { flag: "wx", mode: 0o600 },
+  );
+
+  const targetPaths = new Set(targets.map((target) => target.path));
+  const preconditionPaths = new Set();
+  const journalPreconditions = [];
+  for (const precondition of preconditions) {
+    if (
+      !precondition ||
+      preconditionPaths.has(precondition.path) ||
+      targetPaths.has(precondition.path)
+    ) {
+      throw new Error(
+        "Harness transaction preconditions must be unique read-only project paths.",
+      );
+    }
+    const absolute = projectTargetPath(
+      root,
+      precondition.path,
+      "Harness transaction precondition",
+    );
+    const current = await assertFingerprintUnchanged(
+      absolute,
+      precondition.expected,
+      `${precondition.path} transaction precondition`,
+    );
+    preconditionPaths.add(precondition.path);
+    journalPreconditions.push({
+      path: precondition.path,
+      fingerprint: journalFingerprint(current),
+    });
+  }
+
+  const journalTargets = [];
+  for (const target of targets) {
+    const absolute = projectTargetPath(
+      root,
+      target.path,
+      "Harness transaction target",
+    );
+    const original = target.expectedOriginal
+      ? await assertFingerprintUnchanged(
+        absolute,
+        target.expectedOriginal,
+        target.path,
+      )
+      : await readFileFingerprint(absolute, target.path);
+    const nextPath = transactionStagePath(
+      stageDirectory,
+      "next",
+      target.path,
+    );
+    const backupPath = transactionStagePath(
+      stageDirectory,
+      "backup",
+      target.path,
+    );
+    const displacedPath = transactionStagePath(
+      stageDirectory,
+      "displaced",
+      target.path,
+    );
+    await writeStagedFile(
+      stageDirectory,
+      nextPath,
+      target.bytes,
+      target.mode,
+    );
+    const stagedNext = await readFileFingerprint(
+      nextPath,
+      `Staged ${target.path}`,
+    );
+    if (stagedNext.sha256 !== sha256(target.bytes)) {
+      throw new Error(`Staged ${target.path} failed digest verification.`);
+    }
+    if (original.exists) {
+      await writeStagedFile(
+        stageDirectory,
+        backupPath,
+        original.bytes,
+        original.mode,
+      );
+      const backup = await readFileFingerprint(
+        backupPath,
+        `Backup ${target.path}`,
+      );
+      if (backup.sha256 !== original.sha256) {
+        throw new Error(`Backup ${target.path} failed digest verification.`);
+      }
+    } else {
+      await ensureSafeDirectoryChain(
+        stageDirectory,
+        path.dirname(displacedPath),
+        "Transaction displaced parent",
+        { create: true },
+      );
+    }
+    journalTargets.push({
+      path: target.path,
+      original: journalFingerprint(original),
+      next: {
+        sha256: stagedNext.sha256,
+        mode: stagedNext.mode,
+      },
+    });
+  }
+
+  const journal = authenticateProjectRecord(provenanceKey, "journal", {
+    schemaVersion: PROJECT_JOURNAL_SCHEMA_VERSION,
+    operation: "project-policy-apply",
+    id,
+    repoRoot: root,
+    lockToken: lock.owner.token,
+    createdAt: new Date().toISOString(),
+    createdDirectories: await collectMissingTargetDirectories(root, targets),
+    preconditions: journalPreconditions,
+    targets: journalTargets,
+  });
+  const journalBytes = canonicalJson(journal);
+  await writeFile(
+    path.join(stageDirectory, "journal.json"),
+    journalBytes,
+    { flag: "wx", mode: 0o600 },
+  );
+  return {
+    stageDirectory,
+    journal,
+    journalSha256: sha256(journalBytes),
+  };
+}
+
+function validJournalFingerprint(fingerprint) {
+  if (!fingerprint || typeof fingerprint.exists !== "boolean") {
+    return false;
+  }
+  if (!fingerprint.exists) {
+    return (
+      fingerprint.sha256 === null &&
+      fingerprint.identity === null &&
+      fingerprint.mode === null
+    );
+  }
+  return (
+    /^[a-f0-9]{64}$/.test(String(fingerprint.sha256 ?? "")) &&
+    fingerprint.identity &&
+    Number.isInteger(fingerprint.mode)
+  );
+}
+
+function validateProjectTransactionJournal(
+  journal,
+  root,
+  stageDirectory,
+  provenanceKey,
+) {
+  if (journal?.schemaVersion !== PROJECT_JOURNAL_SCHEMA_VERSION) {
+    throw new Error(
+      "Harness project transaction journal lacks authenticated recovery provenance; manual review is required.",
+    );
+  }
+  verifyProjectRecordProvenance(
+    provenanceKey,
+    "journal",
+    journal,
+    "Harness project transaction journal",
+  );
+  if (
+    !journal ||
+    journal.operation !== "project-policy-apply" ||
+    !/^[a-f0-9-]{36}$/i.test(String(journal.id ?? "")) ||
+    normalizeResolvedPath(journal.repoRoot) !== normalizeResolvedPath(root) ||
+    path.basename(stageDirectory) !== `${PROJECT_TRANSACTION_PREFIX}${journal.id}` ||
+    !Array.isArray(journal.targets) ||
+    journal.targets.length === 0 ||
+    !Array.isArray(journal.createdDirectories) ||
+    !Array.isArray(journal.preconditions)
+  ) {
+    throw new Error("Harness project transaction journal is invalid.");
+  }
+  const seen = new Set();
+  for (const target of journal.targets) {
+    if (
+      !target ||
+      !PROJECT_TRANSACTION_TARGETS.has(target.path) ||
+      seen.has(target.path) ||
+      !validJournalFingerprint(target.original) ||
+      !/^[a-f0-9]{64}$/.test(String(target.next?.sha256 ?? "")) ||
+      !Number.isInteger(target.next?.mode)
+    ) {
+      throw new Error("Harness project transaction target is invalid.");
+    }
+    seen.add(target.path);
+  }
+  const preconditionPaths = new Set();
+  for (const precondition of journal.preconditions ?? []) {
+    if (
+      !precondition ||
+      !PROJECT_TRANSACTION_TARGETS.has(precondition.path) ||
+      seen.has(precondition.path) ||
+      preconditionPaths.has(precondition.path) ||
+      !validJournalFingerprint(precondition.fingerprint)
+    ) {
+      throw new Error("Harness project transaction precondition is invalid.");
+    }
+    preconditionPaths.add(precondition.path);
+  }
+  for (const relative of journal.createdDirectories) {
+    if (
+      relative !== ".harness" &&
+      relative !== ".harness/policies"
+    ) {
+      throw new Error("Harness transaction directory journal is invalid.");
+    }
+  }
+  return journal;
+}
+
+async function verifyProjectTransactionPreconditions(root, journal) {
+  for (const precondition of journal.preconditions ?? []) {
+    const current = await readFileFingerprint(
+      projectTargetPath(
+        root,
+        precondition.path,
+        "Harness transaction precondition",
+      ),
+      `${precondition.path} transaction precondition`,
+    );
+    if (!fingerprintMatches(current, precondition.fingerprint)) {
+      throw new Error(
+        `${precondition.path} transaction precondition drifted; refusing to commit a split Harness state.`,
+      );
+    }
+  }
+}
+
+async function createTransactionTargetDirectories(root, journal) {
+  for (const relative of journal.createdDirectories) {
+    const directory = path.join(root, ...relative.split("/"));
+    assertInside(root, directory, "Harness transaction target directory");
+    try {
+      await mkdir(directory, { mode: 0o700 });
+    } catch (error) {
+      if (error?.code !== "EEXIST") throw error;
+      await assertSafeDirectory(
+        directory,
+        "Harness transaction target directory",
+      );
+    }
+  }
+}
+
+async function installTransactionTarget(root, stageDirectory, target) {
+  const destination = projectTargetPath(root, target.path);
+  const current = await readFileFingerprint(destination, target.path);
+  if (!fingerprintMatches(current, target.original)) {
+    throw new Error(
+      `${target.path} drifted before final replacement; refusing to overwrite it.`,
+    );
+  }
+  const stagedNext = transactionStagePath(
+    stageDirectory,
+    "next",
+    target.path,
+  );
+  const displaced = transactionStagePath(
+    stageDirectory,
+    "displaced",
+    target.path,
+  );
+  await ensureSafeDirectoryChain(
+    stageDirectory,
+    path.dirname(displaced),
+    "Transaction displaced parent",
+    { create: true },
+  );
+  if (target.original.exists) {
+    await rename(destination, displaced);
+    const moved = await readFileFingerprint(
+      displaced,
+      `Displaced ${target.path}`,
+    );
+    if (
+      !fingerprintMatches(moved, target.original, {
+        ignoreCtime: true,
+      })
+    ) {
+      if (!(await pathEntryExists(destination))) {
+        await link(displaced, destination);
+      }
+      throw new Error(
+        `${target.path} changed during final compare-and-swap.`,
+      );
+    }
+  }
+  try {
+    await link(stagedNext, destination);
+  } catch (error) {
+    if (
+      target.original.exists &&
+      !(await pathEntryExists(destination)) &&
+      await pathEntryExists(displaced)
+    ) {
+      await link(displaced, destination);
+    }
+    if (error?.code === "EEXIST") {
+      throw new Error(
+        `${target.path} was created concurrently; both versions were preserved.`,
+      );
+    }
+    throw error;
+  }
+  const installed = await readFileFingerprint(
+    destination,
+    `Installed ${target.path}`,
+  );
+  if (
+    installed.sha256 !== target.next.sha256 ||
+    installed.mode !== target.next.mode
+  ) {
+    throw new Error(`Installed ${target.path} failed digest verification.`);
+  }
+}
+
+async function removeCreatedTransactionDirectories(root, journal) {
+  for (const relative of [...journal.createdDirectories].reverse()) {
+    const directory = path.join(root, ...relative.split("/"));
+    if (!(await pathEntryExists(directory))) continue;
+    await assertSafeDirectory(
+      directory,
+      "Harness transaction cleanup directory",
+    );
+    try {
+      await rmdir(directory);
+    } catch (error) {
+      if (error?.code !== "ENOTEMPTY" && error?.code !== "EEXIST") {
+        throw error;
+      }
+    }
+  }
+}
+
+async function rollbackProjectTransaction(
+  root,
+  stageDirectory,
+  journal,
+  { faultInjector } = {},
+) {
+  for (const target of [...journal.targets].reverse()) {
+    const destination = projectTargetPath(root, target.path);
+    const current = await readFileFingerprint(destination, target.path);
+    const displaced = transactionStagePath(
+      stageDirectory,
+      "displaced",
+      target.path,
+    );
+    const displacedFingerprint = await readFileFingerprint(
+      displaced,
+      `Displaced ${target.path}`,
+    );
+    const currentIsNext =
+      current.exists &&
+      current.sha256 === target.next.sha256 &&
+      current.mode === target.next.mode;
+    const currentIsOriginal =
+      target.original.exists &&
+      fingerprintMatches(current, target.original, {
+        requireIdentity: false,
+      });
+
+    if (!current.exists || currentIsNext) {
+      if (currentIsNext) await rm(destination, { force: true });
+      if (target.original.exists) {
+        const backup = transactionStagePath(
+          stageDirectory,
+          "backup",
+          target.path,
+        );
+        const backupFingerprint = await readFileFingerprint(
+          backup,
+          `Backup ${target.path}`,
+        );
+        if (backupFingerprint.sha256 !== target.original.sha256) {
+          throw new Error(
+            `Cannot recover ${target.path}: verified backup is invalid.`,
+          );
+        }
+        if (
+          normalizeResolvedPath(path.dirname(destination)) !==
+          normalizeResolvedPath(root)
+        ) {
+          await ensureSafeDirectoryChain(
+            root,
+            path.dirname(destination),
+            `Recovery parent for ${target.path}`,
+            { create: true },
+          );
+        }
+        await link(backup, destination);
+      }
+      continue;
+    }
+    if (currentIsOriginal) continue;
+    if (displacedFingerprint.exists) {
+      throw new Error(
+        `${target.path} changed after transaction replacement; ` +
+          "current bytes and the verified original backup were preserved " +
+          `in ${stageDirectory}.`,
+      );
+    }
+    // The target drifted before this transaction reached it. Preserve that
+    // concurrent content while rolling back targets already installed.
+  }
+  await removeCreatedTransactionDirectories(root, journal);
+  await terminalizeOwnedDirectory(
+    root,
+    stageDirectory,
+    "transaction",
+    {
+      faultInjector,
+      phase: "after-rollback-terminalize",
+    },
+  );
+}
+
+async function verifyCommittedProjectTransaction(
+  root,
+  stageDirectory,
+  journal,
+) {
+  await verifyProjectTransactionPreconditions(root, journal);
+  for (const target of journal.targets) {
+    const current = await readFileFingerprint(
+      projectTargetPath(root, target.path),
+      `Committed ${target.path}`,
+    );
+    if (
+      !current.exists ||
+      current.sha256 !== target.next.sha256 ||
+      current.mode !== target.next.mode
+    ) {
+      throw new Error(
+        `Committed Harness transaction target ${target.path} drifted; preserving recovery evidence.`,
+      );
+    }
+  }
+}
+
+async function recoverProjectTransactions(
+  root,
+  {
+    isProcessAlive = defaultIsProcessAlive,
+    readProcessIdentity = defaultReadProcessIdentity,
+    provenanceKey,
+  } = {},
+) {
+  await cleanupProjectGcTombstones(root);
+  const entries = await readdir(root, { withFileTypes: true });
+  for (const entry of entries.sort((left, right) =>
+    left.name.localeCompare(right.name))) {
+    if (
+      !entry.name.startsWith(PROJECT_TRANSACTION_PREFIX) &&
+      !entry.name.startsWith(PROJECT_LOCK_CANDIDATE_PREFIX)
+    ) {
+      continue;
+    }
+    const directory = path.join(root, entry.name);
+    const details = await lstat(directory);
+    if (details.isSymbolicLink() || !details.isDirectory()) {
+      throw new Error(
+        `Harness initializer residue is not an owned directory: ${directory}`,
+      );
+    }
+    const owner = await readOwnedDirectoryOwner(
+      directory,
+      root,
+      "Harness initializer residue",
+      provenanceKey,
+    );
+    if (
+      await transactionOwnerIsAlive(owner, {
+        isProcessAlive,
+        readProcessIdentity,
+        identityIsAuthoritative:
+          readProcessIdentity !== defaultReadProcessIdentity ||
+          isProcessAlive === defaultIsProcessAlive,
+      })
+    ) {
+      throw new Error(
+        `Harness initializer residue still belongs to live PID ${owner.pid}.`,
+      );
+    }
+    if (entry.name.startsWith(PROJECT_LOCK_CANDIDATE_PREFIX)) {
+      await terminalizeOwnedDirectory(root, directory, "candidate");
+      continue;
+    }
+    const journalPath = path.join(directory, "journal.json");
+    if (!(await pathEntryExists(journalPath))) {
+      await terminalizeOwnedDirectory(root, directory, "transaction");
+      continue;
+    }
+    await assertSafeRegularFile(
+      journalPath,
+      "Harness project transaction journal",
+    );
+    const journal = validateProjectTransactionJournal(
+      JSON.parse(await readFile(journalPath, "utf8")),
+      root,
+      directory,
+      provenanceKey,
+    );
+    const committedPath = path.join(directory, "committed.json");
+    if (await pathEntryExists(committedPath)) {
+      await assertSafeRegularFile(
+        committedPath,
+        "Harness project transaction commit marker",
+      );
+      const marker = JSON.parse(await readFile(committedPath, "utf8"));
+      if (marker?.schemaVersion !== PROJECT_COMMIT_MARKER_SCHEMA_VERSION) {
+        throw new Error(
+          "Harness project transaction commit marker lacks authenticated " +
+            "recovery provenance; manual review is required.",
+        );
+      }
+      verifyProjectRecordProvenance(
+        provenanceKey,
+        "commit-marker",
+        marker,
+        "Harness project transaction commit marker",
+      );
+      if (
+        marker.id !== journal.id ||
+        marker.journalSha256 !==
+          sha256(canonicalJson(journal))
+      ) {
+        throw new Error(
+          "Harness project transaction commit marker is invalid.",
+        );
+      }
+      try {
+        await verifyCommittedProjectTransaction(root, directory, journal);
+      } catch (error) {
+        await rollbackProjectTransaction(root, directory, journal);
+        throw error;
+      }
+      await terminalizeOwnedDirectory(root, directory, "transaction");
+    } else {
+      await rollbackProjectTransaction(root, directory, journal);
+    }
+  }
+}
+
+async function runProjectTransaction({
+  root,
+  lock,
+  targets,
+  preconditions = [],
+  provenanceKey,
+  faultInjector,
+}) {
+  let prepared;
+  let committedValidated = false;
+  try {
+    prepared = await prepareProjectTransaction({
+      root,
+      lock,
+      targets,
+      preconditions,
+      provenanceKey,
+    });
+    if (faultInjector) await faultInjector("after-journal");
+    await verifyProjectTransactionPreconditions(root, prepared.journal);
+    await createTransactionTargetDirectories(root, prepared.journal);
+    for (const target of prepared.journal.targets) {
+      if (faultInjector) {
+        await faultInjector(`before-target:${target.path}`);
+      }
+      await installTransactionTarget(
+        root,
+        prepared.stageDirectory,
+        target,
+      );
+      if (faultInjector) {
+        await faultInjector(`after-target:${target.path}`);
+      }
+    }
+    if (faultInjector) await faultInjector("before-commit-marker");
+    await verifyProjectTransactionPreconditions(root, prepared.journal);
+    await writeFile(
+      path.join(prepared.stageDirectory, "committed.json"),
+      canonicalJson(
+        authenticateProjectRecord(provenanceKey, "commit-marker", {
+          schemaVersion: PROJECT_COMMIT_MARKER_SCHEMA_VERSION,
+          id: prepared.journal.id,
+          journalSha256: prepared.journalSha256,
+        }),
+      ),
+      { flag: "wx", mode: 0o600 },
+    );
+    if (faultInjector) await faultInjector("after-commit-marker");
+    await verifyCommittedProjectTransaction(
+      root,
+      prepared.stageDirectory,
+      prepared.journal,
+    );
+    committedValidated = true;
+    await terminalizeOwnedDirectory(
+      root,
+      prepared.stageDirectory,
+      "transaction",
+      {
+        faultInjector,
+        phase: "after-commit-terminalize",
+      },
+    );
+  } catch (error) {
+    if (committedValidated) throw error;
+    if (!prepared) {
+      const candidates = (await readdir(root, { withFileTypes: true }))
+        .filter(
+          (entry) =>
+            entry.isDirectory() &&
+            entry.name.startsWith(PROJECT_TRANSACTION_PREFIX),
+        );
+      for (const candidate of candidates) {
+        const directory = path.join(root, candidate.name);
+        const owner = await readOwnedDirectoryOwner(
+          directory,
+          root,
+          "Failed Harness transaction staging",
+          provenanceKey,
+        );
+        if (owner.pid === process.pid) {
+          await terminalizeOwnedDirectory(
+            root,
+            directory,
+            "transaction",
+          );
+        }
+      }
+      throw error;
+    }
+    try {
+      await rollbackProjectTransaction(
+        root,
+        prepared.stageDirectory,
+        prepared.journal,
+        { faultInjector },
+      );
+    } catch (rollbackError) {
+      throw new AggregateError(
+        [error, rollbackError],
+        `Harness project transaction failed and requires recovery from ${prepared.stageDirectory}.`,
+      );
+    }
+    throw error;
+  }
+}
+
+function buildProjectOwnership(
+  contractSha256,
+  schemaSha256,
+  policyBytes,
+  renderedBlock,
+) {
+  const sourceSha256 = sha256(policyBytes);
+  const renderedBlockSha256 = sha256(renderedBlock);
+  return {
+    schemaVersion: PROJECT_OWNERSHIP_SCHEMA_VERSION,
+    owner: "trellis-ccg-harness",
+    contractSha256,
+    schemaSha256,
+    policy: {
+      policyVersion: PROJECT_POLICY_VERSION,
+      markerFormatVersion: COLLABORATION_MARKER_FORMAT_VERSION,
+      sourcePath: PROJECT_POLICY_RELATIVE_PATH,
+      sourceSha256,
+      renderedBlockSha256,
+    },
+    managedPaths: [
+      ".harness/ownership.json",
+      PROJECT_POLICY_RELATIVE_PATH,
+      ".harness/project.json",
+      ".harness/project.schema.json",
+    ],
+    managedBlocks: [
+      {
+        path: "AGENTS.md",
+        startMarker: COLLABORATION_BLOCK_START,
+        endMarker: COLLABORATION_BLOCK_END,
+        markerFormatVersion: COLLABORATION_MARKER_FORMAT_VERSION,
+        renderedBlockSha256,
+      },
+    ],
+  };
+}
+
+function validateExistingProjectOwnership(
+  ownership,
+  contractSha256,
+  schemaSha256,
+) {
+  const legacyPaths = [
+    ".harness/ownership.json",
+    ".harness/project.json",
+    ".harness/project.schema.json",
+  ];
+  if (
+    !ownership ||
+    ![1, PROJECT_OWNERSHIP_SCHEMA_VERSION].includes(
+      ownership.schemaVersion,
+    ) ||
+    ownership.owner !== "trellis-ccg-harness" ||
+    ownership.contractSha256 !== contractSha256 ||
+    (ownership.schemaSha256 !== undefined &&
+      ownership.schemaSha256 !== schemaSha256) ||
+    (ownership.schemaVersion === PROJECT_OWNERSHIP_SCHEMA_VERSION &&
+      ownership.schemaSha256 !== schemaSha256) ||
+    !Array.isArray(ownership.managedPaths) ||
+    !legacyPaths.every((entry) => ownership.managedPaths.includes(entry))
+  ) {
+    throw new Error(
+      "The existing .harness ownership is not a compatible Harness-managed project contract.",
     );
   }
   return ownership;
 }
 
-async function readJson(target) {
-  return JSON.parse(await readFile(target, "utf8"));
+function validateOwnedPolicyProjection(
+  ownership,
+  managedBlock,
+  policyFingerprint,
+  expectedSourceSha256,
+  expectedRenderedBlockSha256,
+) {
+  if (
+    ownership.schemaVersion !== PROJECT_OWNERSHIP_SCHEMA_VERSION
+  ) {
+    if (policyFingerprint.exists) {
+      throw new Error(
+        "The project policy path exists without schema-v2 ownership; refusing to overwrite user state.",
+      );
+    }
+    return;
+  }
+  if (
+    ownership.policy?.sourcePath !== PROJECT_POLICY_RELATIVE_PATH ||
+    !ownership.managedPaths.includes(PROJECT_POLICY_RELATIVE_PATH) ||
+    !Number.isSafeInteger(ownership.policy?.policyVersion) ||
+    ownership.policy.policyVersion < 1 ||
+    ownership.policy?.markerFormatVersion !==
+      COLLABORATION_MARKER_FORMAT_VERSION ||
+    managedBlock.markerFormatVersion !==
+      COLLABORATION_MARKER_FORMAT_VERSION ||
+    ownership.policy?.renderedBlockSha256 !==
+      managedBlock.renderedBlockSha256 ||
+    !/^[a-f0-9]{64}$/.test(
+      String(ownership.policy?.sourceSha256 ?? ""),
+    ) ||
+    !policyFingerprint.exists ||
+    policyFingerprint.sha256 !== ownership.policy.sourceSha256
+  ) {
+    throw new Error(
+      "The managed project policy source is missing or modified; refusing to overwrite user state.",
+    );
+  }
+  if (ownership.policy.policyVersion > PROJECT_POLICY_VERSION) {
+    throw new Error(
+      "The managed project policy version " +
+        `${ownership.policy.policyVersion} is newer than this initializer ` +
+        "supports; refusing to downgrade it.",
+    );
+  }
+  if (
+    ownership.policy.policyVersion === PROJECT_POLICY_VERSION &&
+    (
+      ownership.policy.sourceSha256 !== expectedSourceSha256 ||
+      ownership.policy.renderedBlockSha256 !==
+        expectedRenderedBlockSha256
+    )
+  ) {
+    throw new Error(
+      "The managed project policy content differs at the current policy " +
+        "version; bump the policy version before upgrading it.",
+    );
+  }
+}
+
+async function discoverLegacyAgentsStages(root) {
+  const stages = [];
+  for (const entry of await readdir(root, { withFileTypes: true })) {
+    if (!LEGACY_AGENTS_STAGE_PATTERN.test(entry.name)) continue;
+    const stagePath = path.join(root, entry.name);
+    const fingerprint = await readFileFingerprint(
+      stagePath,
+      "Legacy AGENTS.md staging file",
+    );
+    const content = fingerprint.bytes.toString("utf8");
+    stages.push({
+      path: stagePath,
+      fingerprint,
+      block: findCollaborationBlock(content),
+    });
+  }
+  return stages;
+}
+
+async function cleanupLegacyAgentsStage(stage) {
+  await assertFingerprintUnchanged(
+    stage.path,
+    stage.fingerprint,
+    "Legacy AGENTS.md staging file",
+  );
+  await rm(stage.path, { force: true });
 }
 
 export async function applyProjectContract({
   repoRoot,
   contractPath,
   skillRoot,
+  faultInjector,
+  isProcessAlive,
+  readProcessIdentity,
+  provenanceKeyPath,
 }) {
   const root = path.resolve(repoRoot);
   const sourceSkill = path.resolve(skillRoot);
-  const contract = await readJson(path.resolve(contractPath));
+  const resolvedContractPath = path.resolve(contractPath);
+  const contractFingerprint = await readFileFingerprint(
+    resolvedContractPath,
+    "Approved project contract",
+  );
+  if (!contractFingerprint.exists) {
+    throw new Error("Approved project contract does not exist.");
+  }
+  const contract = JSON.parse(contractFingerprint.bytes.toString("utf8"));
   validateProjectContract(contract, { requireApproved: true });
   const contractBytes = canonicalJson(contract);
+  const contractSha256 = sha256(contractBytes);
   const harnessDir = path.join(root, ".harness");
   const projectPath = path.join(harnessDir, "project.json");
-  const ownershipPath = path.join(harnessDir, "ownership.json");
-  const installedSchemaPath = path.join(
-    harnessDir,
-    "project.schema.json",
+  const agentsPath = path.join(root, "AGENTS.md");
+  const policyPath = path.join(
+    sourceSkill,
+    "assets",
+    "collaboration-policy.md",
   );
+  const policyFingerprint = await readFileFingerprint(
+    policyPath,
+    "Harness collaboration policy asset",
+  );
+  if (!policyFingerprint.exists) {
+    throw new Error("Harness collaboration policy asset does not exist.");
+  }
+  const policyBytes = policyFingerprint.bytes;
+  const collaborationBlock = renderCollaborationBlock(
+    policyBytes.toString("utf8"),
+  );
+  const collaborationSha256 = sha256(collaborationBlock);
+  assertInside(root, harnessDir, "Harness contract directory");
   const schemaPath = path.join(
     sourceSkill,
     "assets",
     "project-contract.schema.json",
   );
-  const schemaBytes = await readFile(schemaPath);
-  const contractSha256 = sha256(contractBytes);
-  const schemaSha256 = sha256(schemaBytes);
-  assertInside(root, harnessDir, "Harness contract directory");
-
-  if (await pathEntryExists(harnessDir)) {
-    await ensureSafeDirectoryChain(
-      root,
-      harnessDir,
-      "Harness contract directory",
+  const schemaFingerprint = await readFileFingerprint(
+    schemaPath,
+    "Harness project contract schema asset",
+  );
+  if (!schemaFingerprint.exists) {
+    throw new Error("Harness project contract schema asset does not exist.");
+  }
+  const provenanceKey = await loadProjectProvenanceKey(
+    root,
+    provenanceKeyPath,
+  );
+  const lock = await acquireProjectLock(root, {
+    isProcessAlive,
+    readProcessIdentity,
+    provenanceKey,
+    faultInjector,
+  });
+  try {
+    await recoverProjectTransactions(root, {
+      isProcessAlive,
+      readProcessIdentity,
+      provenanceKey,
+    });
+    await assertFingerprintUnchanged(
+      resolvedContractPath,
+      contractFingerprint,
+      "Approved project contract",
     );
-    if (await pathEntryExists(projectPath)) {
-      await assertSafeRegularFile(
+    await assertFingerprintUnchanged(
+      policyPath,
+      policyFingerprint,
+      "Harness collaboration policy asset",
+    );
+    await assertFingerprintUnchanged(
+      schemaPath,
+      schemaFingerprint,
+      "Harness project contract schema asset",
+    );
+
+    const agentsFingerprint = await readFileFingerprint(
+      agentsPath,
+      "AGENTS.md",
+    );
+    const currentAgents = agentsFingerprint.exists
+      ? agentsFingerprint.bytes.toString("utf8")
+      : "";
+    const ownership = buildProjectOwnership(
+      contractSha256,
+      schemaFingerprint.sha256,
+      policyBytes,
+      collaborationBlock,
+    );
+    const nextOwnershipBytes = Buffer.from(canonicalJson(ownership));
+    const targets = [];
+    const preconditions = [];
+    let status = "applied";
+    let legacyAgentsStage = null;
+
+    const harnessExists = await pathEntryExists(harnessDir);
+    if (!harnessExists) {
+      const nextAgents = addCollaborationBlock(
+        currentAgents,
+        collaborationBlock,
+      );
+      targets.push(
+        {
+          path: "AGENTS.md",
+          bytes: Buffer.from(nextAgents),
+          mode: agentsFingerprint.exists ? agentsFingerprint.mode : 0o644,
+          expectedOriginal: agentsFingerprint,
+        },
+        {
+          path: PROJECT_POLICY_RELATIVE_PATH,
+          bytes: policyBytes,
+          mode: 0o600,
+          expectedOriginal: await readFileFingerprint(
+            path.join(root, ...PROJECT_POLICY_RELATIVE_PATH.split("/")),
+            "Project collaboration policy",
+          ),
+        },
+        {
+          path: ".harness/project.json",
+          bytes: Buffer.from(contractBytes),
+          mode: 0o600,
+          expectedOriginal: await readFileFingerprint(
+            projectPath,
+            "Harness project contract",
+          ),
+        },
+        {
+          path: ".harness/project.schema.json",
+          bytes: schemaFingerprint.bytes,
+          mode: 0o600,
+          expectedOriginal: await readFileFingerprint(
+            path.join(harnessDir, "project.schema.json"),
+            "Harness project contract schema",
+          ),
+        },
+        {
+          path: ".harness/ownership.json",
+          bytes: nextOwnershipBytes,
+          mode: 0o600,
+          expectedOriginal: await readFileFingerprint(
+            path.join(harnessDir, "ownership.json"),
+            "Harness ownership manifest",
+          ),
+        },
+      );
+    } else {
+      await assertSafeDirectory(harnessDir, "Existing .harness");
+      const ownershipPath = path.join(harnessDir, "ownership.json");
+      const targetPolicyPath = path.join(
+        root,
+        ...PROJECT_POLICY_RELATIVE_PATH.split("/"),
+      );
+      const targetSchemaPath = path.join(
+        harnessDir,
+        "project.schema.json",
+      );
+      const projectFingerprint = await readFileFingerprint(
         projectPath,
-        "Harness project contract",
+        "Existing Harness project contract",
       );
-      await assertSafeRegularFile(
+      const ownershipFingerprint = await readFileFingerprint(
         ownershipPath,
-        "Harness project ownership",
+        "Existing Harness ownership",
       );
-      await assertSafeRegularFile(
-        installedSchemaPath,
-        "Harness project schema",
+      const targetSchemaFingerprint = await readFileFingerprint(
+        targetSchemaPath,
+        "Existing Harness project schema",
       );
-      const currentBytes = canonicalJson(await readJson(projectPath));
       if (
-        currentBytes === contractBytes &&
-        sha256(await readFile(installedSchemaPath)) === schemaSha256
+        !projectFingerprint.exists ||
+        !ownershipFingerprint.exists ||
+        !targetSchemaFingerprint.exists
       ) {
-        validateProjectOwnership(
-          await readJson(ownershipPath),
-          { contractSha256, schemaSha256 },
+        throw new Error(
+          "The .harness path is incomplete and is treated as user-owned; refusing collision.",
         );
+      }
+      preconditions.push(
+        {
+          path: ".harness/project.json",
+          expected: projectFingerprint,
+        },
+        {
+          path: ".harness/project.schema.json",
+          expected: targetSchemaFingerprint,
+        },
+      );
+      const currentProjectBytes = canonicalJson(
+        JSON.parse(projectFingerprint.bytes.toString("utf8")),
+      );
+      if (currentProjectBytes !== contractBytes) {
+        throw new Error(
+          "The existing Harness project contract differs; refusing collision.",
+        );
+      }
+      if (targetSchemaFingerprint.sha256 !== schemaFingerprint.sha256) {
+        throw new Error(
+          "The existing Harness project schema differs; refusing collision.",
+        );
+      }
+      const currentOwnership = validateExistingProjectOwnership(
+        JSON.parse(ownershipFingerprint.bytes.toString("utf8")),
+        contractSha256,
+        schemaFingerprint.sha256,
+      );
+      const managedBlock = currentOwnership.managedBlocks?.find(
+        (entry) => entry?.path === "AGENTS.md",
+      );
+      const currentBlock = findCollaborationBlock(currentAgents);
+      const targetPolicyFingerprint = await readFileFingerprint(
+        targetPolicyPath,
+        "Managed project collaboration policy",
+      );
+      const legacyAgentsStages = await discoverLegacyAgentsStages(root);
+      let nextAgents;
+      if (!managedBlock) {
+        if (
+          currentOwnership.schemaVersion !== 1 ||
+          currentBlock !== null
+        ) {
+          throw new Error(
+            "The existing collaboration block has no compatible Harness ownership; refusing to overwrite user state.",
+          );
+        }
+        if (targetPolicyFingerprint.exists) {
+          throw new Error(
+            "The project policy path exists without ownership; refusing to overwrite user state.",
+          );
+        }
+        nextAgents = addCollaborationBlock(
+          currentAgents,
+          collaborationBlock,
+        );
+        status = "migrated";
+      } else {
+        const recordedBlockSha256 =
+          managedBlock.renderedBlockSha256 ?? managedBlock.sha256;
+        if (
+          managedBlock.startMarker !== COLLABORATION_BLOCK_START ||
+          managedBlock.endMarker !== COLLABORATION_BLOCK_END ||
+          !/^[a-f0-9]{64}$/.test(String(recordedBlockSha256 ?? ""))
+        ) {
+          throw new Error(
+            "The managed AGENTS.md collaboration block is missing or modified; refusing to overwrite user state.",
+          );
+        }
+        const matchingLegacyStages = legacyAgentsStages.filter(
+          (entry) =>
+            entry.block !== null &&
+            sha256(entry.block) === recordedBlockSha256,
+        );
+        if (legacyAgentsStages.length > 0) {
+          if (
+            legacyAgentsStages.length !== 1 ||
+            matchingLegacyStages.length !== 1
+          ) {
+            throw new Error(
+              "Legacy AGENTS.md staging residue is ambiguous or modified; refusing cleanup.",
+            );
+          }
+          legacyAgentsStage = matchingLegacyStages[0];
+        }
+        if (currentBlock === null) {
+          if (
+            currentOwnership.schemaVersion !== 1 ||
+            legacyAgentsStage === null ||
+            targetPolicyFingerprint.exists
+          ) {
+            throw new Error(
+              "The managed AGENTS.md collaboration block is missing or modified; refusing to overwrite user state.",
+            );
+          }
+          nextAgents = addCollaborationBlock(
+            currentAgents,
+            collaborationBlock,
+          );
+          status = "migrated";
+        } else {
+          if (sha256(currentBlock) !== recordedBlockSha256) {
+            throw new Error(
+              "The managed AGENTS.md collaboration block is missing or modified; refusing to overwrite user state.",
+            );
+          }
+          validateOwnedPolicyProjection(
+            currentOwnership,
+            managedBlock,
+            targetPolicyFingerprint,
+            sha256(policyBytes),
+            collaborationSha256,
+          );
+          nextAgents = replaceCollaborationBlock(
+            currentAgents,
+            currentBlock,
+            collaborationBlock,
+          );
+          status =
+            currentOwnership.schemaVersion ===
+              PROJECT_OWNERSHIP_SCHEMA_VERSION &&
+            recordedBlockSha256 !== collaborationSha256
+              ? "upgraded"
+              : currentOwnership.schemaVersion === 1
+                ? "migrated"
+                : "upgraded";
+        }
+      }
+
+      if (nextAgents !== currentAgents) {
+        targets.push({
+          path: "AGENTS.md",
+          bytes: Buffer.from(nextAgents),
+          mode: agentsFingerprint.exists ? agentsFingerprint.mode : 0o644,
+          expectedOriginal: agentsFingerprint,
+        });
+      }
+      if (
+        !targetPolicyFingerprint.exists ||
+        targetPolicyFingerprint.sha256 !== sha256(policyBytes)
+      ) {
+        targets.push({
+          path: PROJECT_POLICY_RELATIVE_PATH,
+          bytes: policyBytes,
+          mode: targetPolicyFingerprint.exists
+            ? targetPolicyFingerprint.mode
+            : 0o600,
+          expectedOriginal: targetPolicyFingerprint,
+        });
+      }
+      if (
+        ownershipFingerprint.sha256 !== sha256(nextOwnershipBytes)
+      ) {
+        targets.push({
+          path: ".harness/ownership.json",
+          bytes: nextOwnershipBytes,
+          mode: ownershipFingerprint.mode,
+          expectedOriginal: ownershipFingerprint,
+        });
+      }
+      if (targets.length === 0) {
+        if (legacyAgentsStage) {
+          await cleanupLegacyAgentsStage(legacyAgentsStage);
+        }
         return {
           status: "unchanged",
           projectPath,
+          agentsPath,
           contractSha256,
+          collaborationSha256,
         };
       }
     }
-    throw new Error(
-      "The .harness path already exists and is treated as user-owned; refusing collision.",
-    );
-  }
 
-  const stageDir = path.join(root, `.harness-init-${randomUUID()}`);
-  assertInside(root, stageDir, "Harness initialization staging directory");
-  const ownership = {
-    schemaVersion: 1,
-    owner: "trellis-ccg-harness",
-    contractSha256,
-    schemaSha256,
-    managedPaths: [...PROJECT_MANAGED_PATHS],
-  };
-
-  try {
-    await mkdir(stageDir, { mode: 0o700 });
-    await writeFile(
-      path.join(stageDir, "project.json"),
-      contractBytes,
-      { mode: 0o600 },
-    );
-    await writeFile(
-      path.join(stageDir, "project.schema.json"),
-      schemaBytes,
-      { mode: 0o600 },
-    );
-    await writeFile(
-      path.join(stageDir, "ownership.json"),
-      canonicalJson(ownership),
-      { mode: 0o600 },
-    );
-    await rename(stageDir, harnessDir);
-  } catch (error) {
-    await rm(stageDir, { recursive: true, force: true });
-    if (error?.code === "EEXIST" || error?.code === "ENOTEMPTY") {
-      throw new Error(
-        "The .harness path already exists; refusing initialization collision.",
-      );
+    await runProjectTransaction({
+      root,
+      lock,
+      targets,
+      preconditions,
+      provenanceKey,
+      faultInjector,
+    });
+    if (legacyAgentsStage) {
+      await cleanupLegacyAgentsStage(legacyAgentsStage);
     }
-    throw error;
+    return {
+      status,
+      projectPath,
+      agentsPath,
+      contractSha256,
+      collaborationSha256,
+    };
+  } finally {
+    await lock.release();
   }
-
-  return {
-    status: "applied",
-    projectPath,
-    contractSha256: ownership.contractSha256,
-  };
 }
 
 export async function inspectProject(

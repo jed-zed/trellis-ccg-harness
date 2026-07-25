@@ -40,11 +40,61 @@
     the Skill package, and cover its non-mutation/provider boundaries with
     offline tests.
 
+## Minimal CCG plan extension: ordered collaboration policy
+
+CCG evidence: Gemini completed a bounded read-only planning pass from a
+secret-excluding snapshot. Claude and Grok remain disabled by this accepted
+Trellis task. Codex owns the final plan, edits, tests, and review.
+
+- [x] Add one canonical `harness-init` policy asset containing the ordered
+  authority, Ponytail, Caveman, and `rg`/CodeGraph/fast-context routing rules.
+- [x] Add a derived `HARNESS-COLLABORATION` block to root `AGENTS.md`; keep the
+  existing Trellis and Harness blocks byte-preserved.
+- [x] Extend `applyProjectContract()` to insert the same block atomically after
+  approval, preserve unrelated `AGENTS.md` content, reject malformed/conflicting
+  markers, and record block ownership.
+- [x] Add focused red/green tests for missing/existing `AGENTS.md`, inheritance,
+  collision preservation, ownership, and repeat apply.
+- [x] Update initializer docs, run Trellis 2.2 plus CCG change/quality/security
+  gates, then rerun Harness tests, doctor, conflicts, and source verification.
+
+## PR #2 review repair: recoverable project-policy transaction
+
+- [x] Add red tests for `AGENTS.md` drift after the initial read, failure after
+  every commit step, hard process termination, deterministic recovery, and
+  staging/lock cleanup.
+- [x] Replace the split `.harness`/`AGENTS.md` rename sequence with one
+  project-scoped transaction: exclusive owned lock, original digest and file
+  identity, pending journal before mutation, verified backups, final CAS, and
+  ownership committed last.
+- [x] Upgrade ownership to schema v2 and distinguish an untouched legacy
+  projection from a user-edited block, so PR #1 state and future policy
+  revisions migrate without weakening overwrite protection.
+- [x] Materialize the pinned project policy at
+  `.harness/policies/collaboration-policy.md`, record its source/rendered
+  digests, and make every generated `AGENTS.md` reference resolve without a
+  prior Skill export.
+- [x] Rerun focused initializer tests, the complete Harness suite, Trellis
+  check, CCG change/quality/security gates, doctor, conflict audit, source
+  verification, and CI before requesting another review.
+
+## PR #2 final-review repair: authenticated recovery ownership
+
+- [x] Add red regressions proving repository-authored transaction residue cannot
+  replay against user files and a reused live PID cannot pin dead state.
+- [x] Authenticate transaction owners, journals, and commit markers with an
+  user-scoped key outside the target repository.
+- [x] Bind owner liveness to PID plus process-instance identity on Linux,
+  Windows, and macOS, with conservative fallback on unsupported platforms.
+- [ ] Rerun the full Harness and CCG quality/security gates, push the final Head,
+  resolve the new review threads, and wait for all CI jobs.
+
 ## Verification
 
 ```powershell
 node --test .\tests\harness-adapter.test.mjs
 node --test .\tests\harness-init-skill.test.mjs
+node --test .\tests\harness-init-cli.test.mjs
 node .\scripts\harness-adapter.mjs context
 node .\scripts\harness-adapter.mjs conflicts
 pwsh -NoProfile -File .\scripts\doctor.ps1
@@ -113,4 +163,122 @@ security reference files.
 - [x] Reuse the shared Python resolver for adapter task context.
 - [x] Validate exact contract ownership and schema identity on repeat apply.
 - [x] Recheck Windows MCP secret ACLs at launch and terminate child trees.
-- [ ] Run final Harness/CCG gates, source verification, doctor, and CI.
+- [x] Run final Harness/CCG gates, source verification, doctor, and CI.
+
+### Final review repair: terminal cleanup and monotonic policy state
+
+- [x] Add failing hard-kill tests for commit finalization, completed rollback
+  cleanup, and lock release after atomic tombstoning; add partial-tombstone
+  recovery coverage.
+- [x] Replace in-place recursive deletion of active transaction/lock state with
+  strict atomic GC tombstones and idempotent startup cleanup.
+- [x] Add a POSIX chmod race regression, then bind mode, ctime, uid, and gid in
+  discovery/CAS comparisons without weakening content preservation.
+- [x] Journal existing project and schema fingerprints as read-only
+  preconditions; revalidate at prepare, pre-install, pre-commit, and committed
+  finalization, rolling back targets on drift.
+- [x] Make policy version direction authoritative: migrate intact older
+  versions, reject same-version content conflicts, and reject future-version
+  downgrade attempts without mutation.
+- [x] Update initializer documentation and PR #2 description, rerun focused and
+  full Trellis/CCG gates plus CI, reply to and resolve the GitHub review
+  threads, then return the PR to Ready.
+
+- The ordered collaboration policy is canonical in
+  `.agents/skills/harness-init/assets/collaboration-policy.md`; root and newly
+  initialized `AGENTS.md` blocks are tested derived projections.
+- Harness root tests passed 94/94; CCG lint, typecheck, build, and 451 tests
+  passed; Go test/build passed.
+- CCG change analysis, quality scan, and security scan passed. Quality retained
+  25 non-blocking complexity warnings: 24 in the enlarged portable initializer
+  module after PR #1's project-Skill work and one in a long initializer test;
+  two apply to the extended `applyProjectContract()` function.
+- Harness doctor, source verification, task-bound context, and conflict audit
+  passed with 0 blocking and 0 warnings.
+- Concurrent PR #1 commits through `5b874af` were integrated in an isolated
+  worktree. Six overlapping initializer/doc/test files were reconciled while
+  retaining the PR's Skill repository and project-copy behavior; the original
+  dirty checkout was not modified. PR #1's 10 remote CI jobs are green at this
+  base commit, including `Go / ubuntu-latest`.
+- Current project guide examples now use `rg`; generic Trellis Skill/template
+  search examples are interpreted through the canonical router without
+  modifying Trellis or plugin source.
+- PR #2 review repair added a project-scoped initializer lock, SHA-256 plus
+  file-identity CAS, pending journal, verified backups, ownership-last commit,
+  and deterministic rollback/finalization after hard process termination.
+- Ownership schema v2 records the pinned source and rendered block digests.
+  PR #1 ownership, the PR #2 schema-v1 block form, an interrupted legacy split
+  state, and an untouched older policy all have covered migrations; edited
+  blocks or pinned sources still fail closed.
+- Direct cross-repository apply now writes
+  `.harness/policies/collaboration-policy.md`, so the generated canonical path
+  exists without exporting `harness-init` first.
+- Final review-repair verification passed: 35 focused initializer tests and
+  111 complete Harness tests; Trellis context validation; CCG component lint,
+  typecheck, 451 tests, and build; change analysis; security scan with zero
+  findings; doctor; source verification; and conflict audit with 0 blocking,
+  0 warning, 3 informational findings, and 15 passed checks.
+- The CCG structural quality scan passed with 0 errors and 36 non-blocking
+  warnings in the portable initializer module. Eleven warnings are added by
+  the lock/journal/CAS/recovery paths required by this review; no gate,
+  validation, backup, or recovery branch was removed to reduce that count.
+- After PR #1 merged as `370f1f6`, PR #2 was rebased from `5b874af` onto the
+  merged `main`. Seven overlapping initializer, task, documentation, and test
+  files were reconciled without dropping PR #1's later hardening. In
+  particular, ownership schema v2 now retains the installed project-schema
+  SHA-256, legacy ownership with or without that field migrates only after the
+  installed schema matches the distribution asset, and changed schema bytes
+  still fail closed.
+- Post-rebase local verification passed: 37 focused initializer tests, 122
+  complete Harness tests, CCG lint/typecheck/build and 453 tests across 30
+  files, source verification at CCG commit `84d9dd8` and tree `c8afbd5`,
+  doctor, and conflict audit with 0 blocking, 0 warning, 3 informational
+  findings, and 15 passed checks.
+- Post-rebase CCG change and security scans passed with zero findings. The
+  structural quality scan passed with 0 errors and 37 non-blocking complexity
+  warnings in the portable initializer module. The first full CCG test run hit
+  one Windows temporary-directory `ENOTEMPTY` cleanup race; the isolated 13-test
+  file and the complete 453-test suite both passed on immediate rerun.
+- The automatic external-intelligence pre-route was intentionally skipped:
+  the accepted Trellis task forbids Grok for this work, while the local route
+  is enabled and could invoke it. All CCG verification ran locally.
+- Final-review local repair passed 43 focused initializer tests on Windows
+  (42 passed and the POSIX-only `chmod 0600` case skipped), plus the complete
+  Harness suite with 135 tests (134 passed, the same POSIX case skipped).
+- CCG lint, typecheck, build, and 453 tests across 30 files passed. Native Go
+  `go test -short ./...` and `go build` passed.
+- CCG change analysis passed. Structural quality passed with 0 errors and 39
+  non-blocking complexity warnings; the added transaction/version validation
+  branches were retained instead of weakening the reviewed safety gates.
+  Security scans for both `harness-init` and `scripts/` reported zero findings.
+- Source verification, task-bound context, doctor, and conflict audit passed;
+  the audit reports 0 blocking, 0 warning, 3 informational findings, and 15
+  passed checks. Trellis 0.6.9 has no `trellis check` command, so the
+  repository's context, doctor, tests, and source gates provide the supported
+  equivalent validation.
+- Repository visibility is now declared as `public` in
+  `harness.sources.json` and checked against live GitHub state by doctor,
+  matching the repository owner's explicit decision.
+- Harness CI run `30172566509` passed all ten jobs on implementation Head
+  `80a7ece`: Node 20/22 on Linux and Windows, Go on Linux/Windows/macOS, and
+  bootstrap/doctor on Linux/Windows/macOS. The Linux jobs executed the POSIX
+  permission-race regression; both Windows jobs passed the ACL-safe CCG suite.
+- PR #2 targets `main` and is Ready. The two review threads addressed by
+  `80a7ece` are resolved; a later review on `9a8e47f` added one P1 about
+  unauthenticated repository-authored recovery residue and one P2 about PID
+  reuse, so the PR remains non-mergeable until this follow-up is pushed and
+  reviewed.
+- The follow-up local suite passes 139 Harness tests (138 passed, the
+  Windows-hosted POSIX chmod case skipped), CCG lint/typecheck/build and
+  453/453 tests, Go short tests/build, change analysis, and security scan with
+  zero findings. Structural quality passes with 0 errors and 41 non-blocking
+  complexity warnings; doctor, task context, source verification, and conflict
+  audit also pass with 0 blocking and 0 warnings.
+- Harness CI run `30173637878` passed all ten jobs on Head `291e16a`,
+  including Linux process/permission coverage and both Windows ACL-safe Node
+  matrices. Both new review threads have commit-linked replies and are resolved.
+- Metadata-only Head `1b49e38` exposed a Windows Node 20 fallback-identity race:
+  the concurrent-apply test accepted a second initializer after the platform
+  query fell back. The fix compares the complete fallback process-instance
+  identity for the current PID; ten repeated focused runs and the full local
+  Harness suite pass before resubmission.

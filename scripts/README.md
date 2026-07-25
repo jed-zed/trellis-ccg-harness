@@ -21,7 +21,8 @@ runtime model policy, and provider boundaries deterministic.
   CLI inside a rollback-capable ownership transaction.
 - `harness-init.mjs`: performs read-only discovery, persists an explicitly
   approved user Skill-repository profile, applies only a credential-free
-  project contract, and installs only the exact approved project Skill copies.
+  project contract plus the ownership-recorded collaboration-policy block in
+  `AGENTS.md`, and installs only the exact approved project Skill copies.
 - `harness-lifecycle.mjs`: performs exact-version Trellis or commit-pinned CCG
   updates, rollback, crash recovery, and ownership-safe uninstall transactions.
 - `lib/harness-gates.mjs`: runs the exact CCG, Go, and root test commands used

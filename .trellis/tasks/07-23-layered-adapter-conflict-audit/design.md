@@ -154,6 +154,92 @@ directory component beneath `.agents/skills`, copies a bounded link-free
 snapshot, verifies the staged tree identity, and rechecks the target before its
 atomic rename.
 
+## Ordered collaboration policy
+
+`.agents/skills/harness-init/assets/collaboration-policy.md` is the canonical
+source for the reusable Trellis/CCG/Ponytail/Caveman/search contract. Root
+`AGENTS.md` contains a generated projection between dedicated
+`HARNESS-COLLABORATION` markers; the existing Trellis-managed and
+project-specific Harness blocks remain independent.
+
+The initializer reads the same asset after contract approval and inserts one
+derived block into the target `AGENTS.md`. It preserves all content outside the
+dedicated markers, rejects malformed or conflicting pre-existing markers, and
+records the block digest in `.harness/ownership.json`. A repeated apply is
+unchanged only when the project contract and managed block still match.
+
+The policy resolves existing search overlap by choosing one first tool per
+question: `rg` for exact text, CodeGraph for indexed code relationships, and
+fast-context for semantic discovery or unindexed projects. A second semantic
+tool is a gap-filling step, not a default parallel call. The policy never
+creates a CodeGraph index and keeps ace-tool disabled unless Harness explicitly
+changes that decision. Generic legacy `grep` examples in Trellis Skills are
+search intent rather than a tool mandate; accepted task-specific commands still
+win and must be reported if they conflict. Current project guide examples use
+`rg`.
+
+Ponytail `full` may minimize only code inside higher-order requirements and
+gates. Caveman may compress only routine conversation. Neither can remove
+required artifact content, evidence, validation, security, accessibility,
+error handling, or acceptance criteria.
+
+### Recoverable policy projection transaction
+
+Project initialization treats `AGENTS.md` and the owned `.harness` files as one
+logical transaction. Before changing a target it records the original SHA-256,
+file identity, mode, verified backup, intended SHA-256, and transaction owner
+in a pending journal under an ignored project-local staging directory. An
+owned project lock serializes initializers. Immediately before replacement the
+initializer re-reads the target and compares both digest and identity; drift
+fails closed without overwriting the concurrent content.
+
+Project-local recovery metadata is not trusted by itself. The initializer
+creates a user-scoped key outside the target repository at
+`~/.harness-init/project-transaction.key` and authenticates each owner, journal,
+and commit marker. Missing, legacy, or modified provenance stops recovery before
+any target replay and preserves the residue for manual review. Owner metadata
+also records a process-instance identity: Linux uses boot ID plus `/proc` start
+ticks, Windows uses process creation ticks, and macOS uses process start time.
+PID liveness is accepted only when that identity still matches.
+
+Each target is installed without overwrite, and
+`.harness/ownership.json` is committed last. A committed marker distinguishes
+a complete transaction from a pending one. On the next apply, a dead lock
+owner triggers deterministic cleanup: committed transactions are verified and
+finalized; pending transactions restore verified backups in reverse order.
+Unexpected target bytes are preserved and reported instead of being deleted.
+
+Successful commit, completed rollback, and lock release never recursively
+delete an active directory in place. They first atomically rename it to a
+strict UUID-bearing Harness GC tombstone; recursive deletion is then
+idempotent, and the next initializer removes partial tombstones without
+depending on files inside them. Candidate, transaction, and lock namespaces
+remain distinct so recovery cannot reinterpret a tombstone as active state.
+
+File fingerprints bind content plus POSIX mode, ctime, uid, and gid in addition
+to inode/device/size/timestamps. Existing project contracts and installed
+schemas are journaled as read-only preconditions during policy migration and
+upgrade. Preconditions are checked while preparing the journal, before the
+first replacement, before the commit marker, and again before committed
+finalization; drift rolls back changed targets while preserving the concurrent
+file. ACLs, extended attributes, and Windows security descriptors are outside
+the portable projection guarantee and are documented as unsupported metadata.
+
+Ownership schema v2 records the project policy version, marker format version,
+the pinned source path and SHA-256, and the rendered block SHA-256. Migration
+accepts PR #1 ownership only when it is Harness-owned, the contract matches,
+and no collaboration marker exists. Later policy upgrades are allowed only
+when the current block still matches the digest recorded by the previous
+ownership manifest. Policy versions are monotonic: a lower intact version may
+upgrade, an equal-version digest conflict is rejected, and a version newer than
+the initializer is never downgraded. Any mismatch remains a user-edit conflict.
+
+The distribution asset remains the upstream policy source. Every initialized
+project receives an owned pinned copy at
+`.harness/policies/collaboration-policy.md`; the generated `AGENTS.md` block
+references that guaranteed local path. This pinned copy is a managed
+projection, not a second independently edited policy source.
+
 ## CI boundary
 
 The root workflow owns all executable gates. Nested component workflows are

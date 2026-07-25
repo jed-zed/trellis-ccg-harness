@@ -8,6 +8,8 @@ Adopt the recommended layered-adapter architecture without losing the complete p
 
 - Keep `components/ccg-workflow/` byte-identical to the recorded personal CCG Git tree.
 - Add a committed, secret-free Harness adapter contract with explicit ownership, state, model, hook, and provider policies.
+- Keep GitHub visibility `public` as explicitly chosen by the repository owner,
+  and validate that live state against `harness.sources.json`.
 - Treat `.trellis/tasks/<task>/` as the canonical task and plan authority.
 - Treat `.ccg/tasks/` and `.codex/ccg/` as ignored runtime evidence only.
 - Run CCG from the installed CLI/plugin version matching `harness.sources.json`; do not execute source-tree helper scripts as the runtime integration path.
@@ -50,6 +52,23 @@ Adopt the recommended layered-adapter architecture without losing the complete p
   quality, security, provider, hook, provenance, CI, update, and rollback
   constraints in a secret-free project contract, then route code-backed
   guideline generation through `trellis-spec-bootstrap`.
+- Add one ordered collaboration policy for Trellis, CCG, Ponytail `full`,
+  Caveman, `rg`, fast-context, and CodeGraph. System/user instructions,
+  accepted Trellis artifacts, architecture, and required CCG gates remain
+  authoritative in that order; lower layers may not weaken higher ones.
+- Keep Ponytail limited to minimizing implementation inside accepted behavior,
+  artifacts, tests, reviews, documentation, security, accessibility, error
+  handling, and quality gates. Keep Caveman limited to routine conversation;
+  exact technical evidence and structured artifacts remain complete.
+- Route exact names and text to `rg`, indexed symbol/call/impact questions to
+  CodeGraph, and natural-language discovery or unindexed repositories to
+  fast-context. Use a second semantic tool only for a stated gap, check
+  `codegraph status` when freshness is uncertain, respect data-egress policy,
+  and keep ace-tool disabled unless Harness explicitly restores it.
+- Make the policy active in this repository and automatically inherited by
+  newly initialized projects through the existing `harness-init` source and
+  ownership-aware apply path. Preserve Trellis-managed and user-owned
+  `AGENTS.md` content.
 
 ## Acceptance Criteria
 
@@ -95,6 +114,43 @@ Adopt the recommended layered-adapter architecture without losing the complete p
 - [x] Adapter context reuses the shared Python resolver including Windows
   `py -3`; the CCG MCP launcher rechecks Windows ACLs and terminates full child
   trees.
+- [x] One canonical collaboration-policy asset defines the full authority,
+  Ponytail, Caveman, and search-routing contract.
+- [x] Root `AGENTS.md` contains a derived, clearly marked collaboration block
+  without changing the Trellis-managed block or existing Harness block.
+- [x] `harness-init apply` creates or preserves `AGENTS.md`, adds exactly one
+  owned collaboration block, rejects malformed/conflicting blocks, and remains
+  idempotent.
+- [x] Exported `harness-init` Skills include the canonical policy asset, so new
+  projects inherit it without installing or modifying external Skills or MCPs.
+- [x] Focused initializer tests plus Harness change, quality, security, doctor,
+  conflict, and source gates pass.
+- [x] A concurrent `AGENTS.md` edit after discovery is detected and preserved;
+  initialization fails instead of silently overwriting it.
+- [x] Every interrupted commit step is recoverable after normal failure and
+  hard process termination, with no orphaned initializer files after recovery.
+- [x] PR #1 ownership and an untouched older policy projection migrate to
+  ownership schema v2; a user-edited managed block still fails closed.
+- [x] Direct cross-repository apply, without exporting the Skill first, creates
+  the local canonical path named by the generated `AGENTS.md` block.
+- [x] Completed transaction, rollback, and lock directories enter an atomic
+  tombstone state before recursive deletion; interrupted cleanup resumes
+  without requiring partially deleted internal metadata.
+- [x] Project-policy CAS detects POSIX mode, ctime, uid, and gid drift and
+  preserves concurrent permission tightening; unsupported ACL/xattr metadata
+  boundaries are explicit.
+- [x] Existing `project.json` and `project.schema.json` fingerprints are
+  journaled as read-only transaction preconditions and revalidated before
+  replacement, before commit, and during finalization.
+- [x] Policy upgrades are monotonic: older supported versions may upgrade only
+  from intact projections, same-version digest conflicts fail closed, and an
+  initializer never downgrades a newer project policy.
+- [x] Repository-authored transaction residue cannot authenticate as Harness
+  recovery state and is rejected before project files are replayed.
+- [x] Lock and transaction owners bind PID to a process-instance identity so a
+  reused live PID does not block hard-interruption recovery.
+- [ ] PR #2 description, review threads, verification evidence, and Ready state
+  match the final post-fix Head.
 
 ## Constraints
 
@@ -106,8 +162,11 @@ Adopt the recommended layered-adapter architecture without losing the complete p
 
 ## Out of Scope
 
-- Removing the personal CCG snapshot from the private repository.
+- Removing the personal CCG snapshot from the public repository.
 - Replacing the CCG official Grok CLI/ACP implementation.
 - Mutating unrelated user-level Codex content outside ownership-aware managed
   blocks and manifest entries.
 - Enabling Claude assets generated by Trellis.
+- Editing Ponytail/Caveman Skills, CodeGraph/fast-context MCPs, plugin caches,
+  or the recorded personal CCG component snapshot.
+- Automatically creating or refreshing a CodeGraph index.
