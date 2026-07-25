@@ -4,11 +4,11 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
-  realpathSync,
   rmSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
+import { realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -125,7 +125,7 @@ test("approved first-run Skill refinement persists and is reused by inspection",
     assert.equal(profile.schemaVersion, 1);
     assert.equal(
       profile.repositoryPath,
-      realpathSync(value.skillRepository),
+      await realpath(value.skillRepository),
     );
     assert.deepEqual(profile.globalEssentialSkills, [
       "grill-me",
@@ -156,7 +156,7 @@ test("approved first-run Skill refinement persists and is reused by inspection",
     });
     assert.deepEqual(facts.skillRepository, {
       configured: true,
-      path: realpathSync(value.skillRepository),
+      path: await realpath(value.skillRepository),
       available: true,
       globalEssentialSkills: ["grill-me", "harness-init"],
     });
