@@ -51,11 +51,12 @@ integration boundary, not a third framework.
 <!-- HARNESS-COLLABORATION:START -->
 # Harness Collaboration Policy
 
-In the Harness distribution, the canonical source for this reusable policy is
-`.agents/skills/harness-init/assets/collaboration-policy.md`. `harness-init`
-projects it into a dedicated managed block in a target repository's root
-`AGENTS.md`. Generated blocks are derived copies; update them from the Harness
-policy asset instead of editing a managed block directly.
+The Harness distribution's upstream source for this reusable policy is
+`.agents/skills/harness-init/assets/collaboration-policy.md`. In every
+initialized project, the canonical pinned source is
+`.harness/policies/collaboration-policy.md`; `harness-init` updates that owned
+copy from the distribution asset and projects it into a dedicated managed block
+in root `AGENTS.md`. Do not edit the pinned source or managed block directly.
 
 ## Priority and conflict handling
 

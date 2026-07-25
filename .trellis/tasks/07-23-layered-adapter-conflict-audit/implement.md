@@ -58,6 +58,26 @@ Trellis task. Codex owns the final plan, edits, tests, and review.
 - [x] Update initializer docs, run Trellis 2.2 plus CCG change/quality/security
   gates, then rerun Harness tests, doctor, conflicts, and source verification.
 
+## PR #2 review repair: recoverable project-policy transaction
+
+- [x] Add red tests for `AGENTS.md` drift after the initial read, failure after
+  every commit step, hard process termination, deterministic recovery, and
+  staging/lock cleanup.
+- [x] Replace the split `.harness`/`AGENTS.md` rename sequence with one
+  project-scoped transaction: exclusive owned lock, original digest and file
+  identity, pending journal before mutation, verified backups, final CAS, and
+  ownership committed last.
+- [x] Upgrade ownership to schema v2 and distinguish an untouched legacy
+  projection from a user-edited block, so PR #1 state and future policy
+  revisions migrate without weakening overwrite protection.
+- [x] Materialize the pinned project policy at
+  `.harness/policies/collaboration-policy.md`, record its source/rendered
+  digests, and make every generated `AGENTS.md` reference resolve without a
+  prior Skill export.
+- [x] Rerun focused initializer tests, the complete Harness suite, Trellis
+  check, CCG change/quality/security gates, doctor, conflict audit, source
+  verification, and CI before requesting another review.
+
 ## Verification
 
 ```powershell
@@ -153,3 +173,25 @@ security reference files.
 - Current project guide examples now use `rg`; generic Trellis Skill/template
   search examples are interpreted through the canonical router without
   modifying Trellis or plugin source.
+- PR #2 review repair added a project-scoped initializer lock, SHA-256 plus
+  file-identity CAS, pending journal, verified backups, ownership-last commit,
+  and deterministic rollback/finalization after hard process termination.
+- Ownership schema v2 records the pinned source and rendered block digests.
+  PR #1 ownership, the PR #2 schema-v1 block form, an interrupted legacy split
+  state, and an untouched older policy all have covered migrations; edited
+  blocks or pinned sources still fail closed.
+- Direct cross-repository apply now writes
+  `.harness/policies/collaboration-policy.md`, so the generated canonical path
+  exists without exporting `harness-init` first.
+- Final review-repair verification passed: 35 focused initializer tests and
+  111 complete Harness tests; Trellis context validation; CCG component lint,
+  typecheck, 451 tests, and build; change analysis; security scan with zero
+  findings; doctor; source verification; and conflict audit with 0 blocking,
+  0 warning, 3 informational findings, and 15 passed checks.
+- The CCG structural quality scan passed with 0 errors and 36 non-blocking
+  warnings in the portable initializer module. Eleven warnings are added by
+  the lock/journal/CAS/recovery paths required by this review; no gate,
+  validation, backup, or recovery branch was removed to reduce that count.
+- The automatic external-intelligence pre-route was intentionally skipped:
+  the accepted Trellis task forbids Grok for this work, while the local route
+  is enabled and could invoke it. All CCG verification ran locally.

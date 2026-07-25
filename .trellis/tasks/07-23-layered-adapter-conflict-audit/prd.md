@@ -123,6 +123,14 @@ Adopt the recommended layered-adapter architecture without losing the complete p
   projects inherit it without installing or modifying external Skills or MCPs.
 - [x] Focused initializer tests plus Harness change, quality, security, doctor,
   conflict, and source gates pass.
+- [x] A concurrent `AGENTS.md` edit after discovery is detected and preserved;
+  initialization fails instead of silently overwriting it.
+- [x] Every interrupted commit step is recoverable after normal failure and
+  hard process termination, with no orphaned initializer files after recovery.
+- [x] PR #1 ownership and an untouched older policy projection migrate to
+  ownership schema v2; a user-edited managed block still fails closed.
+- [x] Direct cross-repository apply, without exporting the Skill first, creates
+  the local canonical path named by the generated `AGENTS.md` block.
 
 ## Constraints
 

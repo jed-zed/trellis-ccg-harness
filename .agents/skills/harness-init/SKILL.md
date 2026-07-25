@@ -203,11 +203,22 @@ After approval:
    The apply command refuses draft contracts, credentials, unsafe authorities,
    non-inline dispatch, Claude enablement, collisions with user-owned
    `.harness/` state, and malformed or conflicting collaboration markers. It
-   creates `.harness/project.json`, its JSON Schema, and an ownership manifest,
-   then projects the canonical
+   uses an owned project lock, a pending journal, verified backups, and final
+   digest/identity compare-and-swap checks. It creates
+   `.harness/project.json`, its JSON Schema, a pinned project policy at
+   `.harness/policies/collaboration-policy.md`, and a schema-v2 ownership
+   manifest, then projects the distribution
    [collaboration policy](assets/collaboration-policy.md) into one
    ownership-recorded `HARNESS-COLLABORATION` block in root `AGENTS.md`.
-   Existing Trellis, Harness, and user content outside that block is preserved.
+   Ownership is committed last. Existing Trellis, Harness, and user content
+   outside that block is preserved.
+
+   A later apply recovers a dead initializer deterministically: an uncommitted
+   journal restores verified backups, while a committed journal is finalized
+   only when every installed digest still matches. PR #1 ownership without
+   block metadata migrates only when no collaboration marker exists. A later
+   policy revision upgrades only when the current block and pinned source still
+   match their previous ownership digests; user edits always fail closed.
 4. Re-read the saved catalog, ensure it still matches the approved selection,
    then install the exact project-level Skill copies:
 
@@ -254,7 +265,8 @@ Report:
 
 - the final constraints and authorities;
 - every file created or changed;
-- the canonical collaboration-policy source and derived `AGENTS.md` block;
+- the distribution policy source, pinned project source, and derived
+  `AGENTS.md` block;
 - validation commands and outcomes;
 - anything intentionally left in `draft`;
 - remaining operator actions, including any separately approved global install

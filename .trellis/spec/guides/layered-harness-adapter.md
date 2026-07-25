@@ -23,17 +23,25 @@ state under `.ccg/` and `.codex/ccg/` is evidence only and must remain ignored.
 
 ## Collaboration Policy Projection
 
-- `.agents/skills/harness-init/assets/collaboration-policy.md` is the canonical
-  reusable rule source.
+- `.agents/skills/harness-init/assets/collaboration-policy.md` is the
+  distribution's upstream reusable rule source. Each initialized project gets
+  a pinned owned source at `.harness/policies/collaboration-policy.md`.
 - Root `AGENTS.md` contains an exact derived projection between
   `HARNESS-COLLABORATION` markers. Keep the Trellis-managed block, the
   project-specific Harness block, and user content outside those markers
   unchanged.
-- After contract approval, `harness-init apply` projects the same asset into a
-  new project's `AGENTS.md` and records its block digest in
-  `.harness/ownership.json`.
+- After contract approval, `harness-init apply` transactionally writes the
+  pinned policy, projects it into the new project's `AGENTS.md`, and records
+  source and rendered digests in schema-v2 `.harness/ownership.json`.
 - Missing `AGENTS.md` is created. Malformed, duplicate, conflicting, missing,
   or user-modified managed blocks fail closed instead of being overwritten.
+- The apply transaction uses an owned project lock, original digest and file
+  identity, a pending journal, verified backups, final CAS checks, and
+  ownership-last commit order. A later run rolls back an interrupted pending
+  transaction or finalizes a verified committed one.
+- PR #1 ownership without `managedBlocks` migrates only when no collaboration
+  markers exist. A policy revision upgrades only when the current block still
+  matches the previously recorded rendered digest.
 - The policy's authority order resolves Trellis/CCG/Ponytail/Caveman overlap,
   and its search router selects `rg`, CodeGraph, or fast-context by question
   type without creating a CodeGraph index.

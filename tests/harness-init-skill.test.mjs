@@ -132,6 +132,10 @@ test('harness-init refines and reuses a minimal-global project Skill profile', a
 test('root AGENTS projects the canonical collaboration policy', async () => {
   const rootAgents = await readFile(path.join(ROOT, 'AGENTS.md'), 'utf8')
   const policy = await readSkillFile('assets', 'collaboration-policy.md')
+  const pinnedPolicy = await readFile(
+    path.join(ROOT, '.harness', 'policies', 'collaboration-policy.md'),
+    'utf8',
+  )
   const start = '<!-- HARNESS-COLLABORATION:START -->'
   const end = '<!-- HARNESS-COLLABORATION:END -->'
   const startIndex = rootAgents.indexOf(start)
@@ -145,4 +149,5 @@ test('root AGENTS projects the canonical collaboration policy', async () => {
     rootAgents.slice(startIndex + start.length, endIndex).trim(),
     policy.trim(),
   )
+  assert.equal(pinnedPolicy, policy)
 })

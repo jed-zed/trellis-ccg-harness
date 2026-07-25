@@ -183,6 +183,36 @@ gates. Caveman may compress only routine conversation. Neither can remove
 required artifact content, evidence, validation, security, accessibility,
 error handling, or acceptance criteria.
 
+### Recoverable policy projection transaction
+
+Project initialization treats `AGENTS.md` and the owned `.harness` files as one
+logical transaction. Before changing a target it records the original SHA-256,
+file identity, mode, verified backup, intended SHA-256, and transaction owner
+in a pending journal under an ignored project-local staging directory. An
+owned project lock serializes initializers. Immediately before replacement the
+initializer re-reads the target and compares both digest and identity; drift
+fails closed without overwriting the concurrent content.
+
+Each target is installed without overwrite, and
+`.harness/ownership.json` is committed last. A committed marker distinguishes
+a complete transaction from a pending one. On the next apply, a dead lock
+owner triggers deterministic cleanup: committed transactions are verified and
+finalized; pending transactions restore verified backups in reverse order.
+Unexpected target bytes are preserved and reported instead of being deleted.
+
+Ownership schema v2 records the project policy version, marker format version,
+the pinned source path and SHA-256, and the rendered block SHA-256. Migration
+accepts PR #1 ownership only when it is Harness-owned, the contract matches,
+and no collaboration marker exists. Later policy upgrades are allowed only
+when the current block still matches the digest recorded by the previous
+ownership manifest. Any mismatch remains a user-edit conflict.
+
+The distribution asset remains the upstream policy source. Every initialized
+project receives an owned pinned copy at
+`.harness/policies/collaboration-policy.md`; the generated `AGENTS.md` block
+references that guaranteed local path. This pinned copy is a managed
+projection, not a second independently edited policy source.
+
 ## CI boundary
 
 The root workflow owns all executable gates. Nested component workflows are
