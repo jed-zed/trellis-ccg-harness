@@ -4,22 +4,21 @@
 
 <img src="assets/logo/ccg-logo-cropped.png" alt="CCG Workflow" width="400">
 
-[![GitHub stars](https://img.shields.io/github/stars/fengshao1227/ccg-workflow?style=social)](https://github.com/fengshao1227/ccg-workflow)
-[![NPM Downloads](https://img.shields.io/npm/dt/ccg-workflow?style=flat-square&color=blue)](https://www.npmjs.com/package/ccg-workflow)
-[![npm version](https://img.shields.io/npm/v/ccg-workflow.svg)](https://www.npmjs.com/package/ccg-workflow)
+[![GitHub stars](https://img.shields.io/github/stars/jed-zed/ccg-gptpro-worflow?style=social)](https://github.com/jed-zed/ccg-gptpro-worflow)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
-[![CI](https://github.com/fengshao1227/ccg-workflow/actions/workflows/ci.yml/badge.svg)](https://github.com/fengshao1227/ccg-workflow/actions/workflows/ci.yml)
-[![codecov](https://codecov.io/gh/fengshao1227/ccg-workflow/graph/badge.svg)](https://codecov.io/gh/fengshao1227/ccg-workflow)
+[![CI](https://github.com/jed-zed/ccg-gptpro-worflow/actions/workflows/ci.yml/badge.svg)](https://github.com/jed-zed/ccg-gptpro-worflow/actions/workflows/ci.yml)
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-Compatible-green.svg)](https://claude.ai/code)
 [![Node](https://img.shields.io/badge/Node.js-%3E%3D20-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
-[![Follow on X](https://img.shields.io/badge/X-@CCG__Workflow-black?logo=x&logoColor=white)](https://x.com/CCG_Workflow)
-![star](https://atomgit.com/fengshao1227/ccg-workflow/star/badge.svg)
-[![Docs](https://img.shields.io/badge/Docs-ccg.fengshao1227.com-blue?style=for-the-badge&logo=readthedocs&logoColor=white)](https://ccg.fengshao1227.com/)
 [![Ask DeepWiki](https://img.shields.io/badge/Ask-DeepWiki-blue?logo=data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHBhdGggZD0iTTEyIDJDNi40OCAyIDIgNi40OCAyIDEyczQuNDggMTAgMTAgMTAgMTAtNC40OCAxMC0xMFMxNy41MiAyIDEyIDJ6bTEgMTdoLTJ2LTJoMnYyem0yLjA3LTcuNzVsLS45Ljkydi4wMUM0LjE3IDEyLjE3IDE0IDEzIDE0IDEzaC0yYzAtMS4xLjktMiAyLTJzMi0uOSAyLTItLjktMi0yLTJINmMwLTIuMjEgMS43OS00IDQtNGgyYzIuMjEgMCA0IDEuNzkgNCA0IDAgLjg4LS4zNiAxLjY4LS45MyAyLjI1eiIgZmlsbD0id2hpdGUiLz48L3N2Zz4=)](https://deepwiki.com/fengshao1227/ccg-workflow)
 
-[简体中文](./README.zh-CN.md) | English | [**Documentation**](https://ccg.fengshao1227.com/)
+[简体中文](./README.zh-CN.md) | English
 
 </div>
+
+> This is the personal `jed-zed` distribution used by
+> [`trellis-ccg-harness`](https://github.com/jed-zed/trellis-ccg-harness).
+> It preserves upstream attribution while making the personal repository,
+> pinned source manifest, and transactional Harness updater authoritative.
 
 ## ♥️ Sponsor
 
@@ -222,11 +221,11 @@ Includes `/ccg:workflow`, `/ccg:plan`, `/ccg:execute`, `/ccg:frontend`, `/ccg:ba
 ## Quick Start
 
 ```bash
-# Install (interactive 4-step wizard)
-npx ccg-workflow
-
-# Or non-interactive with defaults
-npx ccg-workflow init --skip-prompt
+# From a reviewed, full 40-character personal commit
+corepack enable
+pnpm install --frozen-lockfile
+pnpm build
+node bin/ccg.mjs init
 ```
 
 Requires **Node.js 20+** and **Claude Code CLI**. Codex CLI, Gemini CLI, and Grok CLI are optional (enable multi-model features).
@@ -234,18 +233,20 @@ Requires **Node.js 20+** and **Claude Code CLI**. Codex CLI, Gemini CLI, and Gro
 ## CLI Commands
 
 ```bash
-npx ccg-workflow                          # Interactive menu
-npx ccg-workflow init                     # 4-step install wizard
-npx ccg-workflow doctor                   # Environment health check
-npx ccg-workflow status                   # Installation overview
-npx ccg-workflow codex-mode install       # Install Codex-Led mode
-npx ccg-workflow codex-mode uninstall     # Uninstall Codex-Led mode
-npx ccg-workflow uninstall                # Uninstall CCG
-npx ccg-workflow config mcp               # Configure MCP tokens
-npx ccg-workflow diagnose-mcp             # Diagnose MCP issues
-ccg grok login                             # Direct official Grok browser login
-ccg doctor --grok                          # Non-paid Grok contract doctor
-ccg doctor --grok-live                     # Explicit paid Web/X smoke
+node bin/ccg.mjs                          # Interactive menu
+node bin/ccg.mjs init                     # 4-step install wizard
+node bin/ccg.mjs doctor                   # Environment health check
+node bin/ccg.mjs status                   # Installation overview
+node bin/ccg.mjs codex-mode install       # Install Codex-Led mode
+node bin/ccg.mjs codex-mode uninstall     # Uninstall Codex-Led mode
+node bin/ccg.mjs codex-mode recover       # Recover an interrupted Codex transaction
+node bin/ccg.mjs uninstall                # Uninstall CCG
+node bin/ccg.mjs config mcp               # Configure MCP tokens
+node bin/ccg.mjs diagnose-mcp             # Static MCP diagnosis
+node bin/ccg.mjs diagnose-mcp --smoke     # Opt-in bounded stdio handshake
+node bin/ccg.mjs grok login               # Direct official Grok browser login
+node bin/ccg.mjs doctor --grok            # Non-paid Grok contract doctor
+node bin/ccg.mjs doctor --grok-live       # Explicit paid Web/X smoke
 ```
 
 ## Configuration
@@ -274,22 +275,52 @@ Set in `~/.claude/settings.json` under `"env"`:
 | `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` | unset | Set `1` for parallel Agent Teams |
 | `XAI_API_KEY` | unset | Explicit API-key auth for approved headless/CI Grok intelligence runs |
 
-## Update / Uninstall
+## Security and Ownership
+
+- The wrapper binary is downloaded only from the personal release and its
+  pinned SHA-256 is verified before chmod or execution.
+- Executable npm/Git dependencies are exact-version or exact-commit entries in
+  `third-party-sources.json`; mutable `@latest` selectors are not used.
+- MCP secrets are stored in owner-only files and loaded by a local launcher, so
+  they are not placed in process arguments or mirrored into other runtimes.
+  MCP children receive a minimal allowlisted base environment plus only the
+  variables approved for that server.
+- MCP entries are managed per target (`Claude`, `Codex`, and `Gemini`) in a
+  strict ownership ledger. Same-name user entries require explicit adoption,
+  retain their first exact structured baseline, and are restored on uninstall;
+  post-install user edits are preserved and block mutation.
+- Codex mode uses strict digest-bound ownership and transaction manifests.
+  Install and uninstall reject linked/junction path components, preserve
+  unrelated user files, and fail closed on malformed or modified state. A
+  process crash leaves a durable journal; run `ccg codex-mode recover` before
+  another lifecycle operation.
+- Wrapper acquisition is fail-closed: a download, digest, version, or platform
+  failure makes initialization fail until the pinned binary verifies.
+- `diagnose-mcp --smoke` is explicit, stdio-only, time/output bounded, redacted,
+  runs only after static validation succeeds, and terminates the complete child
+  process tree. CLI failures always return a nonzero exit status.
+
+## Update / Rollback / Uninstall
+
+The built-in public npm updater is disabled. From the
+`trellis-ccg-harness` root, use an explicit personal commit:
 
 ```bash
-npx ccg-workflow@latest     # Update to latest
-npx ccg-workflow doctor     # Check health after update
-npx ccg-workflow uninstall  # Clean uninstall
+pnpm harness:update -- --ccg-commit <40-character-commit>
+pnpm harness:doctor
+pnpm harness:rollback
+pnpm harness:uninstall
 ```
 
 ## Credits
 
+- [fengshao1227/ccg-workflow](https://github.com/fengshao1227/ccg-workflow) — upstream CCG project
 - [cexll/myclaude](https://github.com/cexll/myclaude) — codeagent-wrapper inspiration
 - [UfoMiao/zcf](https://github.com/UfoMiao/zcf) — Git tools reference
 - [mindfold-ai/Trellis](https://github.com/mindfold-ai/Trellis) — Hook-based workflow state patterns
 - [ace-tool](https://linux.do/t/topic/1344562) — MCP code retrieval
 
-## Contributors
+## Upstream Contributors
 
 <!-- readme: contributors -start -->
 <table>
@@ -308,16 +339,10 @@ npx ccg-workflow uninstall  # Clean uninstall
 </table>
 <!-- readme: contributors -end -->
 
-## Contact
+## Support
 
-- **X (Twitter)**: [@CCG_Workflow](https://x.com/CCG_Workflow)
-- **Email**: [fengshao1227@gmail.com](mailto:fengshao1227@gmail.com)
-- **Issues**: [GitHub Issues](https://github.com/fengshao1227/ccg-workflow/issues)
-- **Community**: [Linux.do](https://linux.do)
-
-## Star History
-
-[![Star History Chart](https://api.star-history.com/svg?repos=fengshao1227/ccg-workflow&type=timeline&legend=top-left)](https://www.star-history.com/#fengshao1227/ccg-workflow&type=timeline&legend=top-left)
+- **Personal fork issues**: [GitHub Issues](https://github.com/jed-zed/ccg-gptpro-worflow/issues)
+- **Upstream community**: [Linux.do](https://linux.do)
 
 ## License
 
@@ -325,4 +350,4 @@ MIT
 
 ---
 
-v3.3.0 | [Issues](https://github.com/fengshao1227/ccg-workflow/issues) | [Contributing](./CONTRIBUTING.md)
+v3.3.0 | [Issues](https://github.com/jed-zed/ccg-gptpro-worflow/issues) | [Contributing](./CONTRIBUTING.md)

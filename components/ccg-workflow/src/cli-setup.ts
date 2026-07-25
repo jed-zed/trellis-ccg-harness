@@ -12,7 +12,7 @@ import { init } from './commands/init'
 import { showMainMenu } from './commands/menu'
 import { i18n, initI18n } from './i18n'
 import { readCcgConfig, resolveCliIntelligenceFlag } from './utils/config'
-import { installCodexMode, uninstallCodexMode, uninstallWorkflows } from './utils/installer'
+import { installCodexMode, recoverCodexMode, uninstallCodexMode, uninstallWorkflows } from './utils/installer'
 
 function customizeHelp(sections: any[]): any[] {
   sections.unshift({
@@ -31,7 +31,7 @@ function customizeHelp(sections: any[]): any[] {
       `  ${ansis.cyan('ccg doctor')}       Check installation health`,
       `  ${ansis.cyan('ccg grok login')}   Sign in to the isolated Grok intelligence profile`,
       `  ${ansis.cyan('ccg status')}       Show installation overview`,
-      `  ${ansis.cyan('ccg codex-mode')}   Install/uninstall Codex-Led mode`,
+      `  ${ansis.cyan('ccg codex-mode')}   Install/uninstall/recover Codex-Led mode`,
       `  ${ansis.cyan('ccg uninstall')}    Uninstall CCG (non-interactive)`,
       '',
       ansis.gray(`  ${i18n.t('cli:help.shortcuts')}`),
@@ -122,7 +122,9 @@ export async function setupCommands(cli: CAC): Promise<void> {
       if (options.lang) {
         await initI18n(options.lang)
       }
-      await init(options)
+      const result = await init(options)
+      if (!result.success && !result.cancelled)
+        process.exitCode = 1
     })
 
   // CAC assigns `true` by default to every negated option. Intelligence is
@@ -135,8 +137,12 @@ export async function setupCommands(cli: CAC): Promise<void> {
   // Diagnose MCP command
   cli
     .command('diagnose-mcp', i18n.t('cli:help.commandDescriptions.diagnoseMcp'))
-    .action(async () => {
-      await diagnoseMcp()
+    .option('--smoke', 'Explicitly start configured stdio MCP servers and perform a bounded initialize handshake')
+    .option('--timeout <ms>', 'Per-server MCP smoke timeout in milliseconds (50-15000)')
+    .action(async (options: { smoke?: boolean, timeout?: string }) => {
+      const result = await diagnoseMcp(options)
+      if (!result.success)
+        process.exitCode = 1
     })
 
   // Fix MCP command (Windows only)
@@ -165,7 +171,11 @@ export async function setupCommands(cli: CAC): Promise<void> {
     .option('--grok', 'Run local-only Grok intelligence diagnostics (no model prompt)')
     .option('--grok-live', 'Run explicit paid Grok Web/X smoke diagnostics')
     .option('--grok-cleanup', 'Remove expired Grok evidence and orphan private roots')
-    .action(async (options: { grok?: boolean, grokLive?: boolean, grokCleanup?: boolean }) => { await doctor(options) })
+    .action(async (options: { grok?: boolean, grokLive?: boolean, grokCleanup?: boolean }) => {
+      const result = await doctor(options)
+      if (!result.ok)
+        process.exitCode = 1
+    })
 
   cli
     .command('grok <action>', 'Manage the isolated Grok intelligence login')
@@ -179,7 +189,7 @@ export async function setupCommands(cli: CAC): Promise<void> {
 
   // Codex mode: non-interactive install/uninstall
   cli
-    .command('codex-mode <action>', 'Install or uninstall Codex-Led mode (non-interactive)')
+    .command('codex-mode <action>', 'Install, uninstall, or recover Codex-Led mode (non-interactive)')
     .action(async (action: string) => {
       if (action === 'install') {
         const result = await installCodexMode()
@@ -203,9 +213,24 @@ export async function setupCommands(cli: CAC): Promise<void> {
           process.exitCode = 1
         }
       }
+      else if (action === 'recover') {
+        const result = await recoverCodexMode()
+        if (result.success) {
+          console.log(ansis.green(
+            result.recovered
+              ? '✓ Codex mode transaction recovered'
+              : '✓ No Codex mode recovery was needed',
+          ))
+          console.log(result.message)
+        }
+        else {
+          console.error(ansis.red(`✗ ${result.message}`))
+          process.exitCode = 1
+        }
+      }
       else {
         console.error(ansis.red(`Unknown action: ${action}`))
-        console.log(ansis.gray('Usage: ccg codex-mode <install|uninstall>'))
+        console.log(ansis.gray('Usage: ccg codex-mode <install|uninstall|recover>'))
         process.exitCode = 1
       }
     })

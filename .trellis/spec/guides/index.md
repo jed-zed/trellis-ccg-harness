@@ -24,6 +24,7 @@ These guides help you **ask the right questions before coding**.
 | [Code Reuse Thinking Guide](./code-reuse-thinking-guide.md) | Identify patterns and reduce duplication | When you notice repeated patterns |
 | [Cross-Layer Thinking Guide](./cross-layer-thinking-guide.md) | Think through data flow across layers | Features spanning multiple layers |
 | [Personal Source Provenance](./personal-source-provenance.md) | Preserve personal forks and exact source identity | When importing or updating Trellis/CCG components |
+| [Layered Harness Adapter](./layered-harness-adapter.md) | Keep Trellis lifecycle, CCG runtime, providers, and conflicts separated | When changing Harness integration or model routing |
 
 ---
 

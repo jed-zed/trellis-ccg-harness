@@ -2,7 +2,7 @@
 
 > [根目录](../CLAUDE.md) > **src**
 
-**Last Updated**: 2026-07-22 (v3.3.0)
+**Last Updated**: 2026-07-24 (v3.3.0)
 
 ---
 
@@ -12,6 +12,13 @@
 - 新增 `commands/grok.ts`、Grok doctor 分层和 `external_intelligence` opt-in 配置迁移。
 - 安装器分发独立的 Grok ACP runtime、fixtures、commands 与 skills；generic Grok backend 由 codeagent-wrapper v5.12.2 处理。
 - Grok 情报登录默认走浏览器 OAuth；无头 CI 可显式提供 `XAI_API_KEY`，live smoke 仅手动触发。
+
+### 2026-07-24（v3.3.0 安全复审加固）
+- Wrapper 仅接受个人仓库 Release，并在首次执行前校验固定 SHA-256；所有可执行 npm/Git 来源写入 `third-party-sources.json`。
+- Codex 模式改为托管区块、结构化 Hook 合并和摘要绑定所有权清单；安装/卸载不再覆盖无关全局文件。
+- MCP 密钥改由 owner-only spec + 本地 launcher 注入；损坏配置关闭式失败，禁止跨运行时复制密钥。
+- `diagnose-mcp --smoke` 新增显式、有界、脱敏的 stdio 初始化握手和进程树清理。
+- 内置公开 npm 自更新已禁用；个人发行版只能由 Harness 使用完整 commit 执行事务式更新。
 
 ---
 
@@ -45,7 +52,7 @@
 |------|------|------|----------|
 | `ccg` (默认) | — | 显示交互式菜单 | `commands/menu.ts:showMainMenu()` |
 | `ccg init` | `ccg i` | 4 步交互安装向导 | `commands/init.ts:init()` |
-| `ccg diagnose-mcp` | — | 诊断 MCP 配置问题 | `commands/diagnose-mcp.ts:diagnoseMcp()` |
+| `ccg diagnose-mcp [--smoke]` | — | 静态诊断 MCP；显式 `--smoke` 执行有界 stdio 初始化握手 | `commands/diagnose-mcp.ts:diagnoseMcp()` |
 | `ccg fix-mcp` | — | 修复 Windows MCP 配置 | `commands/diagnose-mcp.ts:fixMcp()` |
 | `ccg config mcp` | — | 配置 MCP Token | `commands/config-mcp.ts:configMcp()` |
 | `ccg doctor` | — | 安装健康检查；`--grok` 本地诊断，`--grok-live` 显式付费 Web/X smoke | `commands/doctor.ts:doctor()` |
@@ -89,9 +96,9 @@ export { getCurrentVersion, checkForUpdates, compareVersions } from './utils/ver
 |------|----------|------|
 | `init.ts` | `init(options)` | 4 步安装向导（API 提供方→模型路由→MCP 工具→性能模式），orchestrate installWorkflows |
 | `menu.ts` | `showMainMenu()` | ASCII Art 主菜单，CJK 宽度感知对齐，6 功能选项循环 |
-| `update.ts` | `update()` | 检查 npm 版本，触发 `npx ccg-workflow@latest init --skip-prompt --skip-mcp` |
+| `update.ts` | `update()` | 拒绝公开 npm 自更新，要求由 Harness 使用个人仓库完整 commit 事务式更新 |
 | `config-mcp.ts` | `configMcp()` | 独立 MCP Token 配置交互 |
-| `diagnose-mcp.ts` | `diagnoseMcp()`, `fixMcp()` | 诊断 `~/.claude.json` MCP 配置，Windows 修复 |
+| `diagnose-mcp.ts` | `diagnoseMcp()`, `fixMcp()` | 诊断 `~/.claude.json` MCP 配置；可选有界 stdio smoke；Windows 修复 |
 | `doctor.ts` | `doctor()`, `status()` | 安装健康检查、本地 Grok ACP 检查、显式 live smoke 和证据保留诊断 |
 | `grok.ts` | `grokAccount()` | 调用分发的 Grok manager 管理隔离登录，不复用项目或全局 MCP 配置 |
 
@@ -130,6 +137,16 @@ v1.7.83 将原 1878 行单文件拆分为 5 个聚焦模块，各自边界清晰
 | `installer-mcp.ts` | MCP 服务安装（ace-tool / fast-context / contextweaver / 通用） | `installAceTool()`, `installFastContext()`, `syncMcpToCodex()`, `syncMcpToGemini()` |
 | `installer-prompt.ts` | fast-context 搜索引导 Prompt 管理 | `writeFastContextPrompt()`, `removeFastContextPrompt()` |
 
+复审后新增的安全边界模块：
+
+| 文件 | 职责 |
+|------|------|
+| `codex-mode.ts` | 托管区块、Hook 结构化合并、碰撞备份、所有权摘要和安全卸载 |
+| `mcp-secrets.ts` | owner-only MCP secret spec 和无密钥 argv 的 launcher 配置 |
+| `mcp-smoke.ts` | 显式、有界、脱敏的 MCP stdio `initialize` 握手及进程树清理 |
+| `python-resolver.ts` | 跨平台解析 Python 3.9+，支持 `python3` / `python` / `py -3` |
+| `third-party-sources.ts` | 校验 `third-party-sources.json` 的精确版本、commit 和 integrity |
+
 **`installWorkflows()` 执行链**（`src/utils/installer.ts:659`）：
 
 ```
@@ -150,16 +167,16 @@ v1.7.83 将原 1878 行单文件拆分为 5 个聚焦模块，各自边界清晰
 ```typescript
 const EXPECTED_BINARY_VERSION = '5.12.2'  // 必须与 codeagent-wrapper/main.go 中 version 常量保持一致
 
-// 双源下载策略（优先国内 CDN）：
+// 唯一可执行来源：个人仓库 preset Release
 const BINARY_SOURCES = [
-  { name: 'Cloudflare CDN', url: 'https://github.20031227.xyz/preset', timeoutMs: 30_000 },
-  { name: 'GitHub Release',  url: 'https://github.com/.../releases/download/preset', timeoutMs: 120_000 },
+  { name: 'Personal GitHub Release', url: 'https://github.com/jed-zed/.../releases/download/preset', timeoutMs: 120_000 },
 ]
 ```
 
-- 下载前检查：`binary --version` 输出与 `EXPECTED_BINARY_VERSION` 对比，版本一致则跳过下载
-- 优先用 `curl`（自动读取系统代理 `HTTPS_PROXY`），失败后降级 Node.js `fetch`
-- 下载失败显示红框警告 + 手动修复指引，**不阻塞**安装流程（非致命错误）
+- 已安装二进制必须先匹配当前平台的固定 SHA-256，之后才允许执行 `--version`。
+- 下载候选保持不可执行权限；SHA-256 匹配后才 `chmod`、执行版本检查并原子替换。
+- 使用 `curl`（自动读取系统代理）下载，缺失时降级 Node.js `fetch`；不启用镜像或 provider fallback。
+- 下载、摘要或版本失败都会进入安装错误集合并使最终安装结果失败。
 
 ⚠️ **版本同步铁律**：修改 Go 代码时必须同步更新 `EXPECTED_BINARY_VERSION` 和 `codeagent-wrapper/main.go` 中的 `version`，两值必须一致，否则 `update` 不会触发 binary 重新下载。
 
@@ -207,6 +224,10 @@ MCP 配置需要在三个工具链同步：
 | Claude Code | `~/.claude.json` | `writeClaudeCodeConfig()` / `mergeMcpServers()` |
 | Codex | `~/.codex/config.toml` | `syncMcpToCodex()`（`installer-mcp.ts`）|
 | Gemini | `~/.gemini/settings.json` | `syncMcpToGemini()`（`installer-mcp.ts`）|
+
+带密钥的 MCP 不再把密钥放进 `args` 或镜像到其他运行时。安装器将真实子进程配置写入
+`~/.claude/.ccg/secrets/<server>.json`（owner-only），公开 MCP 配置只调用
+`mcp-secret-launcher.mjs`。遇到无法安全迁移的旧式 argv token 配置时关闭式失败。
 
 **`installer-mcp.ts:configureMcpInClaude()` 管线**（`src/utils/installer-mcp.ts:21`）：
 ```

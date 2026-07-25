@@ -10,37 +10,155 @@ permissions:
   contents: read
 
 jobs:
-  verify:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
+  node-gates:
+    name: Node ${{ matrix.node-version }} / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        node-version: [20, 22]
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
-          node-version: 22
+          node-version: ${{ matrix.node-version }}
 
-      - name: Enable pnpm
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+
+      - name: Enable pinned pnpm
         run: |
           corepack enable
           corepack prepare pnpm@10.17.1 --activate
+
+      - name: Install personal CCG dependencies
+        run: pnpm --dir ./components/ccg-workflow install --frozen-lockfile
+
+      - name: Audit production dependencies
+        if: runner.os == 'Linux' && matrix.node-version == 22
+        run: pnpm --dir ./components/ccg-workflow audit:prod
+
+      - name: Run all offline Harness contracts
+        run: pnpm harness:test
+
+      - name: Audit Trellis and CCG conflicts
+        run: node scripts/harness-adapter.mjs conflicts --ci
 
       - name: Verify personal source provenance
         shell: pwsh
         run: ./scripts/verify-sources.ps1
 
-      - name: Install CCG dependencies
-        run: pnpm --dir components/ccg-workflow install --frozen-lockfile
+      - name: Lint personal CCG
+        run: pnpm --dir ./components/ccg-workflow lint
 
-      - name: Lint
-        run: pnpm --dir components/ccg-workflow lint
+      - name: Typecheck personal CCG
+        run: pnpm --dir ./components/ccg-workflow typecheck
 
-      - name: Typecheck
-        run: pnpm --dir components/ccg-workflow typecheck
+      - name: Test personal CCG
+        if: runner.os != 'Windows'
+        run: pnpm --dir ./components/ccg-workflow test
 
-      - name: Test
-        run: pnpm --dir components/ccg-workflow test
+      # Windows ACL hardening invokes PowerShell and can exceed a test's
+      # 30-second bound under parallel runner load. Serialize files and allow
+      # one bounded retry without changing the frozen personal CCG source tree.
+      - name: Test personal CCG (Windows ACL-safe)
+        if: runner.os == 'Windows'
+        run: pnpm --dir ./components/ccg-workflow exec vitest run --no-file-parallelism --retry 1
 
-      - name: Build
-        run: pnpm --dir components/ccg-workflow build
+      - name: Build personal CCG
+        run: pnpm --dir ./components/ccg-workflow build
+
+      - name: Windows Grok offline security contract
+        if: runner.os == 'Windows' && matrix.node-version == 22
+        run: >-
+          pnpm --dir ./components/ccg-workflow exec vitest run
+          src/utils/__tests__/grokIntelligenceAcp.test.ts
+          src/utils/__tests__/grokIntelligenceRunner.test.ts
+          src/utils/__tests__/grokIntelligenceRouting.test.ts
+          src/utils/__tests__/grokIntelligenceDistribution.test.ts
+
+      - name: Windows CCG PowerShell doctor JSON contract
+        if: runner.os == 'Windows' && matrix.node-version == 22
+        shell: pwsh
+        run: |
+          $doctorJson = Join-Path $env:RUNNER_TEMP 'ccg-doctor.json'
+          $codexHome = Join-Path $env:RUNNER_TEMP 'codex-home'
+          & pwsh -NoProfile -ExecutionPolicy Bypass `
+            -File ./components/ccg-workflow/plugins/ccg/scripts/doctor.ps1 `
+            -CodexHome $codexHome `
+            -PluginRoot ./components/ccg-workflow/plugins/ccg `
+            -Json 1> $doctorJson
+          $doctorExit = $LASTEXITCODE
+          $payload = Get-Content -LiteralPath $doctorJson -Raw | ConvertFrom-Json
+          if (-not $payload.counts -or -not $payload.plugin_root) {
+            throw 'PowerShell doctor did not emit the expected JSON contract.'
+          }
+          Write-Host "Doctor JSON parsed (expected clean-runner exit=$doctorExit)."
+          exit 0
+
+  go-gates:
+    name: Go / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: "1.26.5"
+          cache-dependency-path: components/ccg-workflow/codeagent-wrapper/go.mod
+
+      - name: Go build
+        working-directory: components/ccg-workflow/codeagent-wrapper
+        run: go build .
+
+      - name: Go test
+        working-directory: components/ccg-workflow/codeagent-wrapper
+        run: go test -short ./...
+
+  platform-doctor:
+    name: Bootstrap and doctor / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: "1.26.5"
+          cache-dependency-path: components/ccg-workflow/codeagent-wrapper/go.mod
+
+      - name: Enable pinned pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.17.1 --activate
+
+      - name: Bootstrap, link the final component, and run Harness doctor
+        shell: pwsh
+        run: |
+          ./scripts/bootstrap.ps1 -LinkCcg
+          ccg --version
+          pnpm harness:uninstall

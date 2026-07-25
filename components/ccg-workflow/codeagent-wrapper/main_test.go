@@ -805,7 +805,7 @@ func TestRunCodexTask_WaitCannotCloseStdoutBeforeMessage(t *testing.T) {
 	fake := newFakeCmd(fakeCmdConfig{
 		StdoutPlan: []fakeStdoutEvent{
 			{Data: `{"type":"thread.started","thread_id":"fast-thread"}` + "\n"},
-			{Delay: 25 * time.Millisecond, Data: `{"type":"item.completed","item":{"type":"agent_message","text":"fast-message"}}` + "\n"},
+			{Data: `{"type":"item.completed","item":{"type":"agent_message","text":"fast-message"}}` + "\n"},
 		},
 	})
 	closing := &waitClosingCmd{inner: fake}
@@ -824,19 +824,20 @@ func TestRunCodexTask_WaitCannotCloseStdoutBeforeMessage(t *testing.T) {
 func TestRunCodexTask_CompletedProcessWinsContextDeadline(t *testing.T) {
 	defer resetTestHooks()
 
-	fake := newFakeCmd(fakeCmdConfig{
-		StdoutPlan: []fakeStdoutEvent{
-			{Delay: 40 * time.Millisecond, Data: `{"type":"item.completed","item":{"type":"agent_message","text":"completed"}}` + "\n"},
-		},
-	})
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
 	newCommandRunner = func(ctx context.Context, name string, args ...string) commandRunner {
-		return fake
+		return &execFakeRunner{
+			stdout: &deadlineDrainReadCloser{
+				reader: strings.NewReader(`{"type":"item.completed","item":{"type":"agent_message","text":"completed"}}`),
+				done:   ctx.Done(),
+			},
+			process: newFakeProcess(4242),
+		}
 	}
 	buildCodexArgsFn = func(cfg *Config, targetArg string) []string { return []string{targetArg} }
 	codexCommand = "completed-cmd"
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
-	defer cancel()
 	result := runCodexTaskWithContext(ctx, TaskSpec{Task: "ignored"}, nil, nil, false, false, 5)
 	if result.ExitCode != 0 || result.Message != "completed" {
 		t.Fatalf("completed process was reclassified by the later deadline: %+v", result)

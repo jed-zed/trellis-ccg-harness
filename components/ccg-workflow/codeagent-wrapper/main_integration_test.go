@@ -724,10 +724,11 @@ func TestRunStartupCleanupRemovesOrphansEndToEnd(t *testing.T) {
 
 	tempDir := setTempDirEnv(t, t.TempDir())
 
-	orphanA := createTempLog(t, tempDir, "codex-wrapper-5001.log")
-	orphanB := createTempLog(t, tempDir, "codex-wrapper-5002-extra.log")
-	orphanC := createTempLog(t, tempDir, "codex-wrapper-5003-suffix.log")
-	runningPID := 81234
+	pidBase := os.Getpid() + 1000
+	orphanA := createTempLog(t, tempDir, fmt.Sprintf("codex-wrapper-%d.log", pidBase))
+	orphanB := createTempLog(t, tempDir, fmt.Sprintf("codex-wrapper-%d-extra.log", pidBase+1))
+	orphanC := createTempLog(t, tempDir, fmt.Sprintf("codex-wrapper-%d-suffix.log", pidBase+2))
+	runningPID := pidBase + 3
 	runningLog := createTempLog(t, tempDir, fmt.Sprintf("codex-wrapper-%d.log", runningPID))
 	unrelated := createTempLog(t, tempDir, "wrapper.log")
 

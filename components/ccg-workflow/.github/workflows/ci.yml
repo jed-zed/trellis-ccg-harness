@@ -28,6 +28,10 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Audit production dependencies
+        if: runner.os == 'Linux' && matrix.node-version == 22
+        run: pnpm audit:prod
+
       - name: Type check
         run: pnpm typecheck
 

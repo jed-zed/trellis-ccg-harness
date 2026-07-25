@@ -8,4 +8,7 @@ async function main(): Promise<void> {
   cli.parse()
 }
 
-main().catch(console.error)
+main().catch((error) => {
+  console.error(error)
+  process.exitCode = 1
+})

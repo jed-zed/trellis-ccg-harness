@@ -4,13 +4,60 @@ import fs from 'fs-extra'
 import { homedir } from 'node:os'
 import { join } from 'pathe'
 import { installAceTool, installAceToolRs, installContextWeaver, installFastContext, installMcpServer, removeFastContextPrompt, syncMcpToCodex, syncMcpToGemini, uninstallAceTool, uninstallContextWeaver, uninstallFastContext, uninstallMcpServer, writeFastContextPrompt } from '../utils/installer'
+import { gitExecutableSource, npmSelector } from '../utils/third-party-sources'
+
+type McpActionResult = { success: boolean, message: string }
+
+function isOwnershipCollision(result: McpActionResult): boolean {
+  return !result.success
+    && /unowned collision|explicit adoption|显式接管/i.test(result.message)
+}
+
+async function confirmMcpAdoption(label: string): Promise<boolean> {
+  const { adopt } = await inquirer.prompt([{
+    type: 'confirm',
+    name: 'adopt',
+    message: `${label} 已存在且不归 CCG 管理。保存原配置并显式接管？`,
+    default: false,
+  }])
+  return adopt === true
+}
+
+async function installWithOwnershipPrompt<T extends McpActionResult>(
+  label: string,
+  install: (adoptExisting: boolean) => Promise<T>,
+): Promise<T> {
+  let result = await install(false)
+  if (
+    isOwnershipCollision(result)
+    && await confirmMcpAdoption(label)
+  ) {
+    result = await install(true)
+  }
+  return result
+}
 
 /**
  * Sync MCP mirrors to Codex & Gemini after any install/uninstall.
  * Silent on success — only logs failures.
  */
 async function syncMcpMirrors(): Promise<void> {
-  const [codex, gemini] = await Promise.all([syncMcpToCodex(), syncMcpToGemini()])
+  let codex = await syncMcpToCodex()
+  if (
+    isOwnershipCollision(codex)
+    && await confirmMcpAdoption('Codex 中的同名 MCP')
+  ) {
+    codex = await syncMcpToCodex({ adoptExisting: true })
+  }
+
+  let gemini = await syncMcpToGemini()
+  if (
+    isOwnershipCollision(gemini)
+    && await confirmMcpAdoption('Gemini 中的同名 MCP')
+  ) {
+    gemini = await syncMcpToGemini({ adoptExisting: true })
+  }
+
   const synced: string[] = []
   if (codex.success && codex.synced.length > 0) synced.push(`Codex(${codex.synced.join(',')})`)
   if (gemini.success && gemini.synced.length > 0) synced.push(`Gemini(${gemini.synced.join(',')})`)
@@ -144,7 +191,13 @@ async function handleInstallContextWeaver(): Promise<void> {
   console.log()
   console.log(ansis.yellow('⏳ 正在配置 ContextWeaver MCP...'))
 
-  const result = await installContextWeaver({ siliconflowApiKey: apiKey.trim() })
+  const result = await installWithOwnershipPrompt(
+    'ContextWeaver MCP',
+    adoptExisting => installContextWeaver(
+      { siliconflowApiKey: apiKey.trim() },
+      { adoptExisting },
+    ),
+  )
 
   console.log()
   if (result.success) {
@@ -179,10 +232,13 @@ async function handleInstallFastContext(): Promise<void> {
   console.log()
   console.log(ansis.yellow('⏳ 正在配置 fast-context MCP...'))
 
-  const result = await installFastContext({
-    apiKey: answers.apiKey?.trim() || undefined,
-    includeSnippets: answers.includeSnippets,
-  })
+  const result = await installWithOwnershipPrompt(
+    'fast-context MCP',
+    adoptExisting => installFastContext({
+      apiKey: answers.apiKey?.trim() || undefined,
+      includeSnippets: answers.includeSnippets,
+    }, { adoptExisting }),
+  )
 
   console.log()
   if (result.success) {
@@ -289,11 +345,15 @@ async function handleGrokSearch(): Promise<void> {
   console.log()
   console.log(ansis.yellow('⏳ 正在安装 grok-search MCP...'))
 
-  const result = await installMcpServer(
-    'grok-search',
-    'uvx',
-    ['--from', 'git+https://github.com/GuDaStudio/GrokSearch@grok-with-tavily', 'grok-search'],
-    env,
+  const result = await installWithOwnershipPrompt(
+    'grok-search MCP',
+    adoptExisting => installMcpServer(
+      'grok-search',
+      'uvx',
+      ['--from', gitExecutableSource('grokSearch').selector, 'grok-search'],
+      env,
+      { adoptExisting },
+    ),
   )
 
   console.log()
@@ -311,10 +371,10 @@ async function handleGrokSearch(): Promise<void> {
 
 // 辅助工具 MCP 配置
 const AUXILIARY_MCPS = [
-  { id: 'context7', name: 'Context7', desc: '获取最新库文档', command: 'npx', args: ['-y', '@upstash/context7-mcp@latest'] },
-  { id: 'Playwright', name: 'Playwright', desc: '浏览器自动化/测试', command: 'npx', args: ['-y', '@playwright/mcp@latest'] },
-  { id: 'mcp-deepwiki', name: 'DeepWiki', desc: '知识库查询', command: 'npx', args: ['-y', 'mcp-deepwiki@latest'] },
-  { id: 'exa', name: 'Exa', desc: '搜索引擎（需 API Key）', command: 'npx', args: ['-y', 'exa-mcp-server@latest'], requiresApiKey: true, apiKeyEnv: 'EXA_API_KEY' },
+  { id: 'context7', name: 'Context7', desc: '获取最新库文档', command: 'npx', args: ['-y', npmSelector('@upstash/context7-mcp')] },
+  { id: 'Playwright', name: 'Playwright', desc: '浏览器自动化/测试', command: 'npx', args: ['-y', npmSelector('@playwright/mcp')] },
+  { id: 'mcp-deepwiki', name: 'DeepWiki', desc: '知识库查询', command: 'npx', args: ['-y', npmSelector('mcp-deepwiki')] },
+  { id: 'exa', name: 'Exa', desc: '搜索引擎（需 API Key）', command: 'npx', args: ['-y', npmSelector('exa-mcp-server')], requiresApiKey: true, apiKeyEnv: 'EXA_API_KEY' },
 ]
 
 async function handleAuxiliary(): Promise<void> {
@@ -357,7 +417,16 @@ async function handleAuxiliary(): Promise<void> {
     }
 
     console.log(ansis.yellow(`⏳ 正在安装 ${mcp.name}...`))
-    const result = await installMcpServer(mcp.id, mcp.command, mcp.args, env)
+    const result = await installWithOwnershipPrompt(
+      `${mcp.name} MCP`,
+      adoptExisting => installMcpServer(
+        mcp.id,
+        mcp.command,
+        mcp.args,
+        env,
+        { adoptExisting },
+      ),
+    )
 
     if (result.success) {
       console.log(ansis.green(`✓ ${mcp.name} 安装成功`))

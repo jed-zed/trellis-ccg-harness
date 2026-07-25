@@ -48,6 +48,7 @@ CONTROL_CHAR_PATTERN = re.compile(r"[\x00-\x1f\x7f]")
 WINDOWS_DRIVE_PATTERN = re.compile(r"^[A-Za-z]:[\\/]")
 SCP_LIKE_REMOTE_PATTERN = re.compile(r"^(?:([^@/:\\]+)@)?([A-Za-z0-9.-]+):(.+)$")
 LOCAL_PREVIEW_HOSTS = {"127.0.0.1", "localhost", "::1"}
+TASK_ROOTS = ((".ccg", "tasks"), (".trellis", "tasks"))
 
 
 def utc_now() -> str:
@@ -81,22 +82,35 @@ def resolve_output_root(workdir: Path, output_root: Path) -> Path:
     return resolved
 
 
+def supported_task_roots(workdir: Path) -> list[Path]:
+    return [(workdir.joinpath(*parts)).resolve() for parts in TASK_ROOTS]
+
+
+def task_root_for(workdir: Path, candidate: Path) -> Path | None:
+    for root in supported_task_roots(workdir):
+        if candidate.parent == root:
+            return root
+    return None
+
+
 def find_active_task_dir(workdir: Path) -> Path | None:
-    tasks_dir = workdir / ".ccg" / "tasks"
-    if not tasks_dir.exists():
-        return None
-    candidates: list[Path] = []
-    for entry in tasks_dir.iterdir():
-        task_file = entry / "task.json"
-        if entry.name == "archive" or not entry.is_dir() or not task_file.exists():
+    for tasks_dir in supported_task_roots(workdir):
+        if not tasks_dir.exists():
             continue
-        try:
-            task = json.loads(task_file.read_text(encoding="utf-8"))
-        except json.JSONDecodeError:
-            continue
-        if task.get("status") not in {"completed", "archived"}:
-            candidates.append(entry)
-    return sorted(candidates, key=lambda p: p.name, reverse=True)[0] if candidates else None
+        candidates: list[Path] = []
+        for entry in tasks_dir.iterdir():
+            task_file = entry / "task.json"
+            if entry.name == "archive" or not entry.is_dir() or not task_file.exists():
+                continue
+            try:
+                task = json.loads(task_file.read_text(encoding="utf-8"))
+            except json.JSONDecodeError:
+                continue
+            if task.get("status") not in {"completed", "archived"}:
+                candidates.append(entry)
+        if candidates:
+            return sorted(candidates, key=lambda p: p.name, reverse=True)[0]
+    return None
 
 
 def resolve_task_dir(workdir: Path, task_dir: str = "", task_id: str = "") -> Path | None:
@@ -106,17 +120,32 @@ def resolve_task_dir(workdir: Path, task_dir: str = "", task_id: str = "") -> Pa
             candidate = workdir / candidate
         candidate = candidate.resolve()
     elif task_id:
-        candidate = (workdir / ".ccg" / "tasks" / task_id).resolve()
+        matches = [
+            root / task_id
+            for root in supported_task_roots(workdir)
+            if (root / task_id / "task.json").exists()
+        ]
+        if len(matches) > 1:
+            roots = ", ".join(str(path.parent) for path in matches)
+            raise ValueError(f"--task-id is ambiguous across task roots ({roots}); pass --task-dir.")
+        candidate = matches[0].resolve() if matches else (workdir / ".ccg" / "tasks" / task_id).resolve()
     else:
         candidate = find_active_task_dir(workdir)
     if candidate is None:
         return None
-    tasks_root = (workdir / ".ccg" / "tasks").resolve()
-    if candidate.parent != tasks_root:
-        raise ValueError(f"CCG task directory must be a direct child of {tasks_root}: {candidate}")
+    tasks_root = task_root_for(workdir, candidate)
+    if tasks_root is None:
+        supported = ", ".join(str(root) for root in supported_task_roots(workdir))
+        raise ValueError(f"Task directory must be a direct child of a supported task root ({supported}): {candidate}")
     if not (candidate / "task.json").exists():
-        raise ValueError(f"CCG task directory is missing task.json: {candidate}")
+        raise ValueError(f"Task directory is missing task.json: {candidate}")
     return candidate
+
+
+def task_evidence_root(task_dir: Path) -> Path:
+    if task_dir.parent.parent.name == ".trellis":
+        return task_dir / ".ccg-evidence"
+    return task_dir
 
 
 def default_output_root(workdir: Path, task_dir: Path | None, output_root: str) -> Path:
@@ -124,7 +153,7 @@ def default_output_root(workdir: Path, task_dir: Path | None, output_root: str) 
         return resolve_output_root(workdir, Path(output_root)).resolve()
     if task_dir is None:
         raise ValueError("--task-dir or --task-id is required when --output-root is omitted.")
-    return (task_dir / "gptpro").resolve()
+    return (task_evidence_root(task_dir) / "gptpro").resolve()
 
 
 def default_evidence_file(task_dir: Path | None, evidence_file: str = "") -> Path | None:
@@ -138,7 +167,7 @@ def default_evidence_file(task_dir: Path | None, evidence_file: str = "") -> Pat
         return resolved
     if task_dir is None:
         return None
-    return (task_dir / "evidence.json").resolve()
+    return (task_evidence_root(task_dir) / "evidence.json").resolve()
 
 
 def ensure_within_dir(path_value: Path, base_dir: Path, label: str) -> None:
@@ -158,7 +187,7 @@ def resolve_evidence_artifact(task_dir: Path, artifact_file: str) -> Path:
     candidate = Path(artifact_file).expanduser()
     if candidate.is_absolute():
         resolved = candidate.resolve()
-    elif artifact_file.replace("\\", "/").startswith((".ccg/", ".codex/")):
+    elif artifact_file.replace("\\", "/").startswith((".ccg/", ".codex/", ".trellis/")):
         resolved = (task_project_root(task_dir) / candidate).resolve()
     else:
         resolved = (task_dir / candidate).resolve()
@@ -278,7 +307,7 @@ def validate_required_gemini_gate(
     response_file: Path,
 ) -> dict[str, Any]:
     if evidence_file is None:
-        evidence_file = task_dir / "evidence.json"
+        evidence_file = default_evidence_file(task_dir)
     evidence_file = evidence_file.resolve()
     if not evidence_file.exists():
         raise ValueError(f"Canonical Gemini gate evidence file not found: {evidence_file}")
@@ -1375,7 +1404,7 @@ def create_session(
         raise ValueError("CCG_GEMINI_RESPONSE_FILE is required before GPT Pro bridge session creation.")
     if policy == "required" and role == "gate":
         if task_dir_path is None:
-            raise ValueError("Canonical Gemini gate validation requires an active CCG task directory.")
+            raise ValueError("Canonical Gemini gate validation requires an active supported task directory.")
         response_value = str(gemini_evidence.get("response_file") or "")
         if not response_value:
             raise ValueError("Canonical Gemini gate validation requires a Gemini response file.")
@@ -2002,7 +2031,7 @@ def main(argv: list[str] | None = None) -> int:
         external_intelligence = None
         if args.require_external_intelligence:
             if task_dir is None:
-                raise ValueError("Required Grok external intelligence needs an active CCG task directory.")
+                raise ValueError("Required Grok external intelligence needs an active supported task directory.")
             if not args.expected_intelligence_mode or not args.expected_intelligence_depth:
                 raise ValueError("Required Grok external intelligence needs explicit expected mode and depth.")
             external_intelligence = validate_required_external_intelligence(

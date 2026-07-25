@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/guides/personal-source-provenance.md", "reason": "Defines authoritative personal Trellis and CCG source identity and runtime provenance rules."}
+{"file": ".trellis/spec/guides/layered-harness-adapter.md", "reason": "Defines lifecycle authority, model policy, provider separation, and conflict severity for the adapter."}

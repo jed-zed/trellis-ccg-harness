@@ -5,6 +5,7 @@ coverage/
 
 # Harness runtime
 .harness-cache/
+.harness-init-*/
 .harness-backup-*/
 output/
 tmp/
@@ -14,6 +15,7 @@ tmp/
 .codex/ccg/
 **/.ccg/
 **/.codex/ccg/
+**/.ccg-evidence/
 
 # Local configuration and credentials
 .env

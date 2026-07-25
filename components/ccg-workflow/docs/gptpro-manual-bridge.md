@@ -36,6 +36,17 @@ Canonical evidence is:
 .ccg/tasks/<task-id>/evidence.json
 ```
 
+When Trellis owns task lifecycle, pass `.trellis/tasks/<task-id>` through `--task-dir`. The bridge
+keeps adapter evidence isolated from Trellis lifecycle metadata:
+
+```text
+.trellis/tasks/<task-id>/.ccg-evidence/gptpro/<session-id>/
+.trellis/tasks/<task-id>/.ccg-evidence/evidence.json
+```
+
+The bridge never creates a parallel `.ccg/tasks/<task-id>` for a Trellis task and never writes CCG
+gate fields into the Trellis `task.json`.
+
 ## Command Contract
 
 - `/ccg:gptpro-plan` = ordinary `/ccg:plan` first, then manual GPT Pro planning second opinion.

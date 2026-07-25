@@ -4,7 +4,7 @@
       "command": "npx",
       "args": [
         "-y",
-        "@upstash/context7-mcp@latest"
+        "@upstash/context7-mcp@3.2.4"
       ],
       "note": "Current documentation lookup for libraries, frameworks, SDKs, CLIs, and cloud services."
     },
@@ -13,7 +13,7 @@
       "args": [
         "-y",
         "--prefer-online",
-        "fast-context-mcp@latest"
+        "fast-context-mcp@1.5.2"
       ],
       "note": "Supplementary semantic code search. Prefer ace-tool when the user has configured it globally."
     }

@@ -19,6 +19,7 @@ export {
   installAceTool,
   installAceToolRs,
   installCodexMode,
+  recoverCodexMode,
   uninstallCodexMode,
   uninstallWorkflows,
   uninstallAceTool,

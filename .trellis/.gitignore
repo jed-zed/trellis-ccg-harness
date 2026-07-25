@@ -17,6 +17,7 @@
 
 # Task directory runtime files
 .plan-log
+tasks/**/.ccg-evidence/
 
 # Atomic update temp files
 *.tmp

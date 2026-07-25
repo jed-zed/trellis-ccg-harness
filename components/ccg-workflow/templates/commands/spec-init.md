@@ -34,7 +34,7 @@ Bind the proposal as --dependency, the selected artifact as --target, and any av
      ```
    - If not found, install globally:
      ```bash
-     npm install -g @fission-ai/openspec@latest
+     npm install -g @fission-ai/openspec@1.6.0
      ```
    - After installation, verify again:
      ```bash

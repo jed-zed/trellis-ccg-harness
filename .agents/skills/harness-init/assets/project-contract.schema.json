@@ -1,0 +1,218 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/jed-zed/trellis-ccg-harness/schemas/project-contract.schema.json",
+  "title": "Trellis CCG Harness Project Contract",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "status",
+    "project",
+    "authorities",
+    "workflow",
+    "toolchain",
+    "qualityGates",
+    "skills",
+    "security",
+    "providers",
+    "hooks",
+    "source",
+    "ci",
+    "unresolvedDecisions",
+    "approval"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "status": {
+      "enum": [
+        "draft",
+        "approved",
+        "ready"
+      ]
+    },
+    "project": {
+      "type": "object",
+      "required": [
+        "name",
+        "purpose",
+        "repositoryRoot",
+        "adoptionMode"
+      ]
+    },
+    "authorities": {
+      "type": "object",
+      "required": [
+        "lifecycle",
+        "tasks",
+        "requirements",
+        "specifications",
+        "intelligence",
+        "workspaceWriter"
+      ],
+      "properties": {
+        "lifecycle": {
+          "const": "trellis"
+        },
+        "tasks": {
+          "const": ".trellis/tasks"
+        },
+        "requirements": {
+          "const": ".trellis/tasks"
+        },
+        "specifications": {
+          "const": ".trellis/spec"
+        },
+        "intelligence": {
+          "const": "ccg"
+        },
+        "workspaceWriter": {
+          "const": "codex"
+        }
+      }
+    },
+    "workflow": {
+      "type": "object",
+      "required": [
+        "dispatchMode",
+        "planningApprovalRequired",
+        "taskLifecycle",
+        "managedProjectPaths",
+        "ignoredRuntimePaths",
+        "forbiddenTrackedPaths"
+      ],
+      "properties": {
+        "dispatchMode": {
+          "const": "inline"
+        },
+        "planningApprovalRequired": {
+          "const": true
+        }
+      }
+    },
+    "toolchain": {
+      "type": "object"
+    },
+    "qualityGates": {
+      "type": "object"
+    },
+    "skills": {
+      "type": "object",
+      "required": [
+        "globalPolicy",
+        "globalEssential",
+        "repositoryProfile",
+        "selectionMode",
+        "installMode",
+        "projectSelection"
+      ],
+      "properties": {
+        "globalPolicy": {
+          "const": "minimal-essential-only"
+        },
+        "globalEssential": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$"
+          },
+          "uniqueItems": true,
+          "allOf": [
+            {
+              "contains": {
+                "const": "grill-me"
+              }
+            },
+            {
+              "contains": {
+                "const": "harness-init"
+              }
+            }
+          ]
+        },
+        "repositoryProfile": {
+          "const": "user-saved"
+        },
+        "selectionMode": {
+          "const": "recommend-and-approve"
+        },
+        "installMode": {
+          "const": "copy"
+        },
+        "projectSelection": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "reason"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$"
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "security": {
+      "type": "object",
+      "required": [
+        "dataClassification",
+        "secretPolicy",
+        "networkPolicy",
+        "credentialFieldsForbidden",
+        "forbiddenTrackedPaths"
+      ],
+      "properties": {
+        "secretPolicy": {
+          "const": "environment-or-owned-secret-store"
+        },
+        "credentialFieldsForbidden": {
+          "const": true
+        }
+      }
+    },
+    "providers": {
+      "type": "object"
+    },
+    "hooks": {
+      "type": "object",
+      "properties": {
+        "globalMutationAllowed": {
+          "const": false
+        }
+      }
+    },
+    "source": {
+      "type": "object"
+    },
+    "ci": {
+      "type": "object",
+      "properties": {
+        "offlineByDefault": {
+          "const": true
+        }
+      }
+    },
+    "unresolvedDecisions": {
+      "type": "array"
+    },
+    "approval": {
+      "type": "object",
+      "required": [
+        "approvedAt",
+        "approvedBy"
+      ]
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,13 +1,14 @@
 {
   "schemaVersion": 1,
-  "capturedAt": "2026-07-23T09:31:29.1653035-06:00",
+  "capturedAt": "2026-07-25T17:54:55.463Z",
   "harness": {
     "repository": "https://github.com/jed-zed/trellis-ccg-harness",
     "visibility": "private"
   },
   "trellis": {
     "package": "@mindfoldhq/trellis",
-    "version": "0.6.8",
+    "version": "0.6.9",
+    "integrity": "sha512-QAi3W+KXb32grrx4PjbNS7WP7JT5IqlwTH78dZDY5tX0E3O/9mCZPGgxDDuVVbJiGD1qcyaFwsUJZhfHZpA+2A==",
     "upstream": "https://github.com/mindfold-ai/trellis",
     "sourceMode": "latest-generated-project-assets",
     "preUpgradeAudit": {
@@ -23,12 +24,9 @@
     "authoritativeRepository": "https://github.com/jed-zed/ccg-gptpro-worflow",
     "authoritativeRemoteNameInSourceCheckout": "gptpro",
     "originalUpstream": "https://github.com/fengshao1227/ccg-workflow",
-    "commit": "7fba2c309b3c6a54ab8e7ea4b47a8a0b53321e13",
-    "gitTree": "dba60d54e4d869f77a047ef8f66c4600f61f4963",
-    "mergeBaseWithOriginalAtCapture": "2afa99e15b092db07dc0592bd7bd141918a17af9",
-    "personalOnlyCommitsAtCapture": 20,
-    "originalOnlyCommitsAtCapture": 25,
+    "commit": "84d9dd80de74daa1a8ab81e399fef49c47d2043a",
+    "gitTree": "c8afbd5a0b9766e1bd3a0c42fee3610388a65cae",
     "snapshotPath": "components/ccg-workflow",
-    "sourceMode": "tracked-tree-from-local-personal-main"
+    "sourceMode": "tracked-tree-from-explicit-personal-commit"
   }
 }

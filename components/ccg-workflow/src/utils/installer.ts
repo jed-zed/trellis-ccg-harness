@@ -1,14 +1,13 @@
 import type { InstallResult } from '../types'
 import { execFileSync } from 'node:child_process'
-import { homedir } from 'node:os'
+import { createHash } from 'node:crypto'
 import ansis from 'ansis'
 import fs from 'fs-extra'
 import { basename, join } from 'pathe'
 import { getLegacyCommandIds, getWorkflowById } from './installer-data'
 import { PACKAGE_ROOT, injectConfigVariables, replaceHomePathsInTemplate } from './installer-template'
-import { readCcgConfig } from './config'
+import { installCodexModeAt, recoverCodexModeAt, uninstallCodexModeAt } from './codex-mode'
 import { installSkillCommands } from './skill-registry'
-import { version as packageVersion } from '../../package.json'
 
 // ═══════════════════════════════════════════════════════
 // Re-exports — all consumers import from './installer'
@@ -41,7 +40,10 @@ export {
   uninstallFastContext,
   uninstallMcpServer,
 } from './installer-mcp'
-export type { ContextWeaverConfig } from './installer-mcp'
+export type {
+  ContextWeaverConfig,
+  McpInstallOptions,
+} from './installer-mcp'
 
 export {
   removeFastContextPrompt,
@@ -65,6 +67,20 @@ export type { SkillMeta } from './skill-registry'
  * When this differs from the installed binary, update triggers re-download.
  */
 export const EXPECTED_BINARY_VERSION = '5.12.2'
+export const BINARY_INSTALL_FAILURE_POLICY = 'fatal' as const
+
+/**
+ * Trusted digests published by the authoritative personal fork's `preset`
+ * release. A candidate must match before it is made executable or started.
+ */
+export const EXPECTED_BINARY_SHA256: Readonly<Record<string, string>> = Object.freeze({
+  'codeagent-wrapper-darwin-amd64': '92f90c76cceb13cbeb259efe9e1d54b65d0e75e2dfc9c40336ca0f903293e610',
+  'codeagent-wrapper-darwin-arm64': '40310340f61eccd4fb2566f6a257eeee2b0b3f463233e07c4e4763c9809ba222',
+  'codeagent-wrapper-linux-amd64': '6e0b3e7c891fac65ec4949b69d0eda648a015898c320faeb937dce1095846955',
+  'codeagent-wrapper-linux-arm64': '0184f6a1cd804948377f2e627bbd59076c0cc78f776a55147e95ed66a43569f0',
+  'codeagent-wrapper-windows-amd64.exe': 'bd3d9b298d3aea84152c4603bfcb86e67f454aceab9acf33e46a34c2fabf9b43',
+  'codeagent-wrapper-windows-arm64.exe': '7a5dc7cf6b295598fb4a133cdc6b0244c7f4149c11f3501dd72014676afa8790',
+})
 
 // ═══════════════════════════════════════════════════════
 // Install context — shared across sub-functions
@@ -99,17 +115,16 @@ function normalizeTemplateContent(content: string): string {
 // Binary download
 // ═══════════════════════════════════════════════════════
 
-const GITHUB_REPO = 'fengshao1227/ccg-workflow'
+const GITHUB_REPO = 'jed-zed/ccg-gptpro-worflow'
 const RELEASE_TAG = 'preset'
 
-/** Download sources: R2 CDN first (China-friendly) → GitHub fallback (global) */
+/** Only the user's authoritative personal release is an executable source. */
 const BINARY_SOURCES = [
-  { name: 'Cloudflare CDN', url: 'https://github.20031227.xyz/preset', timeoutMs: 30_000 },
-  { name: 'GitHub Release', url: `https://github.com/${GITHUB_REPO}/releases/download/${RELEASE_TAG}`, timeoutMs: 120_000 },
+  { name: 'Personal GitHub Release', url: `https://github.com/${GITHUB_REPO}/releases/download/${RELEASE_TAG}`, timeoutMs: 120_000 },
 ]
 
 /**
- * Download binary from a single URL with retry.
+ * Download a binary candidate from one authoritative URL with bounded retries.
  * Uses curl for proxy support (reads HTTPS_PROXY / ALL_PROXY env vars automatically).
  * Falls back to Node.js fetch if curl is unavailable.
  */
@@ -118,16 +133,13 @@ async function downloadFromUrl(url: string, destPath: string, timeoutMs: number,
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
-      // Prefer curl — auto-reads HTTPS_PROXY / ALL_PROXY for proxy support
-      const { execSync } = await import('node:child_process')
-      execSync(
-        `curl -fsSL --max-time ${timeoutSec} -o "${destPath}" "${url}"`,
+      // Prefer curl — auto-reads HTTPS_PROXY / ALL_PROXY for proxy support.
+      // Use argv rather than a shell command so paths cannot change execution.
+      execFileSync(
+        'curl',
+        ['-fsSL', '--max-time', String(timeoutSec), '-o', destPath, url],
         { stdio: 'pipe', timeout: timeoutMs + 5000 },
       )
-
-      if (process.platform !== 'win32') {
-        await fs.chmod(destPath, 0o755)
-      }
       return true
     }
     catch {
@@ -149,10 +161,8 @@ async function downloadFromUrl(url: string, destPath: string, timeoutMs: number,
         const buffer = Buffer.from(await response.arrayBuffer())
         clearTimeout(timer)
 
-        await fs.writeFile(destPath, buffer)
-        if (process.platform !== 'win32') {
-          await fs.chmod(destPath, 0o755)
-        }
+        // Keep the candidate non-executable until its trusted digest matches.
+        await fs.writeFile(destPath, buffer, { mode: 0o600 })
         return true
       }
       catch {
@@ -167,13 +177,15 @@ async function downloadFromUrl(url: string, destPath: string, timeoutMs: number,
   return false
 }
 
-/**
- * Download codeagent-wrapper binary with dual-source fallback.
- * Strategy: R2 mirror (60s) → GitHub Release (120s). Uses curl for proxy support.
- */
+/** Download a codeagent-wrapper candidate from the personal release only. */
 interface BinaryDownloadResult {
   downloaded: boolean
-  observedVersions: string[]
+  observedDigests: string[]
+}
+
+async function sha256File(filePath: string): Promise<string> {
+  const bytes = await fs.readFile(filePath)
+  return createHash('sha256').update(bytes).digest('hex')
 }
 
 async function readBinaryVersion(binaryPath: string): Promise<string | null> {
@@ -188,43 +200,61 @@ async function readBinaryVersion(binaryPath: string): Promise<string | null> {
 }
 
 /**
- * Replace an installed binary only after the candidate reports the expected version.
- * A rejected candidate is removed while the currently installed binary is preserved.
+ * Replace an installed binary only after the candidate matches the trusted
+ * digest and reports the expected version. Digest verification always happens
+ * before chmod or process creation.
  */
 export async function promoteBinaryCandidate(
   candidatePath: string,
   destPath: string,
   expectedVersion: string,
-): Promise<{ promoted: boolean, actualVersion: string | null }> {
+  expectedSha256: string,
+): Promise<{
+  promoted: boolean
+  actualVersion: string | null
+  actualSha256: string | null
+  reason: 'integrity-mismatch' | 'version-mismatch' | null
+}> {
+  const actualSha256 = await sha256File(candidatePath)
+  if (actualSha256 !== expectedSha256) {
+    await fs.remove(candidatePath)
+    return { promoted: false, actualVersion: null, actualSha256, reason: 'integrity-mismatch' }
+  }
+
+  if (process.platform !== 'win32') {
+    await fs.chmod(candidatePath, 0o755)
+  }
+
   const actualVersion = await readBinaryVersion(candidatePath)
   if (actualVersion !== expectedVersion) {
     await fs.remove(candidatePath)
-    return { promoted: false, actualVersion }
+    return { promoted: false, actualVersion, actualSha256, reason: 'version-mismatch' }
   }
 
   await fs.move(candidatePath, destPath, { overwrite: true })
-  return { promoted: true, actualVersion }
+  return { promoted: true, actualVersion, actualSha256, reason: null }
 }
 
 async function downloadBinaryFromRelease(
   binaryName: string,
   destPath: string,
-  expectedVersion: string,
+  expectedSha256: string,
 ): Promise<BinaryDownloadResult> {
-  const observedVersions: string[] = []
+  const observedDigests: string[] = []
   for (const source of BINARY_SOURCES) {
     const url = `${source.url}/${binaryName}`
     const ok = await downloadFromUrl(url, destPath, source.timeoutMs)
     if (!ok) continue
 
-    const actualVersion = await readBinaryVersion(destPath)
-    if (actualVersion === expectedVersion) {
-      return { downloaded: true, observedVersions }
+    const actualSha256 = await sha256File(destPath)
+    if (actualSha256 === expectedSha256) {
+      return { downloaded: true, observedDigests }
     }
-    if (actualVersion) observedVersions.push(actualVersion)
+    observedDigests.push(actualSha256)
+    await fs.remove(destPath)
   }
   await fs.remove(destPath)
-  return { downloaded: false, observedVersions }
+  return { downloaded: false, observedDigests }
 }
 
 // ═══════════════════════════════════════════════════════
@@ -590,186 +620,22 @@ async function installSkillGeneratedCommands(ctx: InstallContext): Promise<void>
  * Files are installed to ~/.codex/ (global) and user copies AGENTS.md to project root.
  */
 export async function installCodexMode(): Promise<{ success: boolean, message: string }> {
-  const codexTemplateDir = join(PACKAGE_ROOT, 'templates', 'codex')
-  if (!(await fs.pathExists(codexTemplateDir))) {
-    return { success: false, message: 'Codex template directory not found' }
-  }
-
-  try {
-    const codexHome = join(homedir(), '.codex')
-    await fs.ensureDir(join(codexHome, 'agents'))
-
-    // Read CCG config once — reused for template variable injection across
-    // AGENTS.md + hooks/ccg-workflow.py so model routing (frontend/backend)
-    // stays consistent with what the user configured (issue: codex mode still
-    // referenced gemini after the antigravity default switch).
-    const config = await readCcgConfig()
-    const injectOpts = {
-      routing: config?.routing as any,
-      liteMode: config?.performance?.liteMode || false,
-      mcpProvider: config?.mcp?.provider || 'skip',
-    }
-
-    const configSrc = join(codexTemplateDir, 'config.toml')
-    const configDest = join(codexHome, 'config.toml')
-    if (await fs.pathExists(configSrc) && !(await fs.pathExists(configDest))) {
-      await fs.copy(configSrc, configDest)
-    }
-
-    const agentsSrc = join(codexTemplateDir, 'agents')
-    if (await fs.pathExists(agentsSrc)) {
-      await fs.copy(agentsSrc, join(codexHome, 'agents'), { overwrite: true })
-    }
-
-    const agentsMdSrc = join(codexTemplateDir, 'AGENTS.md')
-    if (await fs.pathExists(agentsMdSrc)) {
-      // Always inject — injectConfigVariables falls back to sane defaults
-      // (antigravity/codex) when no config, so placeholders never leak.
-      let content = await fs.readFile(agentsMdSrc, 'utf-8')
-      content = injectConfigVariables(content, injectOpts)
-      content = replaceHomePathsInTemplate(content, join(homedir(), '.claude'))
-      await fs.writeFile(join(codexHome, 'AGENTS.md'), content, 'utf-8')
-    }
-
-    // hooks/ — inject template variables into ccg-workflow.py so the guidance
-    // it emits references the user's actual frontend model, not hardcoded gemini.
-    const hooksSrc = join(codexTemplateDir, 'hooks')
-    if (await fs.pathExists(hooksSrc)) {
-      const hooksDest = join(codexHome, 'hooks')
-      await fs.ensureDir(hooksDest)
-      for (const file of await fs.readdir(hooksSrc)) {
-        const srcFile = join(hooksSrc, file)
-        const destFile = join(hooksDest, file)
-        if (file.endsWith('.py')) {
-          let content = await fs.readFile(srcFile, 'utf-8')
-          content = injectConfigVariables(content, injectOpts)
-          await fs.writeFile(destFile, content, 'utf-8')
-        }
-        else {
-          await fs.copy(srcFile, destFile, { overwrite: true })
-        }
-      }
-    }
-
-    // hooks.json — resolve the `~/.codex/...` hook command to an absolute path.
-    // Codex does not reliably expand `~` when spawning the hook command, so a
-    // relative/tilde path made it look for `.codex/hooks/` in the project dir.
-    const hooksJsonSrc = join(codexTemplateDir, 'hooks.json')
-    if (await fs.pathExists(hooksJsonSrc)) {
-      let content = await fs.readFile(hooksJsonSrc, 'utf-8')
-      const absHome = homedir().replace(/\\/g, '/')
-      content = content.replace(/~\//g, `${absHome}/`)
-      await fs.writeFile(join(codexHome, 'hooks.json'), content, 'utf-8')
-    }
-
-    // Write version marker so external tools can check which CCG version installed Codex mode
-    await fs.writeFile(join(codexHome, '.ccg-version'), packageVersion, 'utf-8')
-
-    return {
-      success: true,
-      message: `Codex mode installed:\n  ~/.codex/AGENTS.md\n  ~/.codex/config.toml\n  ~/.codex/hooks.json\n  ~/.codex/hooks/ccg-workflow.py\n  ~/.codex/agents/ccg-implement.toml\n  ~/.codex/agents/ccg-review.toml\n  ~/.codex/agents/ccg-research.toml\n  ~/.codex/.ccg-version (${packageVersion})`,
-    }
-  }
-  catch (error) {
-    return { success: false, message: `Failed to install Codex mode: ${error}` }
-  }
+  return installCodexModeAt()
 }
 
 /**
  * Uninstall CCG Codex mode — only removes files installed by CCG, preserves user files.
  */
 export async function uninstallCodexMode(): Promise<{ success: boolean, removed: string[], skipped: string[] }> {
-  const codexHome = join(homedir(), '.codex')
-  const removed: string[] = []
-  const skipped: string[] = []
-
-  // CCG-managed files (exact paths)
-  const ccgFiles = [
-    join(codexHome, 'agents', 'ccg-implement.toml'),
-    join(codexHome, 'agents', 'ccg-review.toml'),
-    join(codexHome, 'agents', 'ccg-research.toml'),
-    join(codexHome, 'hooks', 'ccg-workflow.py'),
-    join(codexHome, 'hooks.json'),
-    join(codexHome, '.ccg-version'),
-  ]
-
-  // AGENTS.md — only remove if it contains CCG marker
-  const agentsMd = join(codexHome, 'AGENTS.md')
-
-  try {
-    for (const file of ccgFiles) {
-      if (await fs.pathExists(file)) {
-        await fs.remove(file)
-        removed.push(file.replace(homedir(), '~'))
-      }
-    }
-
-    if (await fs.pathExists(agentsMd)) {
-      const content = await fs.readFile(agentsMd, 'utf-8')
-      if (content.includes('<!-- CCG:START')) {
-        await fs.remove(agentsMd)
-        removed.push('~/.codex/AGENTS.md')
-      }
-      else {
-        skipped.push('~/.codex/AGENTS.md (not managed by CCG)')
-      }
-    }
-
-    // config.toml — never delete (user may have custom settings)
-    skipped.push('~/.codex/config.toml (preserved — may contain user settings)')
-
-    // Clean up empty dirs
-    for (const dir of ['agents', 'hooks']) {
-      const dirPath = join(codexHome, dir)
-      if (await fs.pathExists(dirPath)) {
-        const files = await fs.readdir(dirPath)
-        if (files.length === 0) {
-          await fs.remove(dirPath)
-          removed.push(`~/.codex/${dir}/ (empty, removed)`)
-        }
-      }
-    }
-
-    return { success: true, removed, skipped }
-  }
-  catch (error) {
-    return { success: false, removed, skipped: [...skipped, `Error: ${error}`] }
-  }
+  return uninstallCodexModeAt()
 }
 
-async function _installCodexFilesInternal(ctx: InstallContext): Promise<void> {
-  const codexTemplateDir = join(ctx.templateDir, 'codex')
-  if (!(await fs.pathExists(codexTemplateDir))) return
-
-  try {
-    const codexHome = join(homedir(), '.codex')
-    await fs.ensureDir(join(codexHome, 'agents'))
-
-    // .codex/config.toml (merge, don't overwrite user's existing config)
-    const configSrc = join(codexTemplateDir, 'config.toml')
-    const configDest = join(codexHome, 'config.toml')
-    if (await fs.pathExists(configSrc)) {
-      if (!(await fs.pathExists(configDest))) {
-        await fs.copy(configSrc, configDest)
-      }
-    }
-
-    // .codex/agents/*.toml
-    const agentsSrc = join(codexTemplateDir, 'agents')
-    if (await fs.pathExists(agentsSrc)) {
-      await fs.copy(agentsSrc, join(codexHome, 'agents'), { overwrite: true })
-    }
-
-    // AGENTS.md → ~/.codex/AGENTS.md (global fallback)
-    const agentsMdSrc = join(codexTemplateDir, 'AGENTS.md')
-    if (await fs.pathExists(agentsMdSrc)) {
-      await fs.copy(agentsMdSrc, join(codexHome, 'AGENTS.md'), { overwrite: true })
-    }
-  }
-  catch (error) {
-    // Non-fatal: Codex mode is optional
-    ctx.result.errors.push(`Codex files install warning: ${error}`)
-  }
+export async function recoverCodexMode(): Promise<{
+  success: boolean
+  recovered: boolean
+  message: string
+}> {
+  return recoverCodexModeAt()
 }
 
 /**
@@ -808,7 +674,10 @@ export async function verifyBinary(installDir: string): Promise<boolean> {
   const wrapperName = process.platform === 'win32' ? 'codeagent-wrapper.exe' : 'codeagent-wrapper'
   const wrapperPath = join(binDir, wrapperName)
 
-  if (!(await fs.pathExists(wrapperPath))) return false
+  const binaryName = getBinaryName()
+  const expectedSha256 = binaryName ? EXPECTED_BINARY_SHA256[binaryName] : null
+  if (!(await fs.pathExists(wrapperPath)) || !expectedSha256) return false
+  if (await sha256File(wrapperPath) !== expectedSha256) return false
 
   return (await readBinaryVersion(wrapperPath)) !== null
 }
@@ -822,14 +691,18 @@ export async function verifyBinaryVersion(installDir: string): Promise<boolean> 
   const wrapperName = process.platform === 'win32' ? 'codeagent-wrapper.exe' : 'codeagent-wrapper'
   const wrapperPath = join(binDir, wrapperName)
 
+  const binaryName = getBinaryName()
+  const expectedSha256 = binaryName ? EXPECTED_BINARY_SHA256[binaryName] : null
+  if (!expectedSha256 || !(await fs.pathExists(wrapperPath))) return false
+  if (await sha256File(wrapperPath) !== expectedSha256) return false
   return (await readBinaryVersion(wrapperPath)) === EXPECTED_BINARY_VERSION
 }
 
 /**
- * Show prominent red-box warning when codeagent-wrapper binary download failed.
- * Used by both init and update flows to provide manual fix instructions.
+ * Explain how to recover after a fatal codeagent-wrapper installation failure.
+ * Initialization is not successful until a pinned binary is verified.
  */
-export function showBinaryDownloadWarning(binDir: string): void {
+export function showBinaryInstallFailure(binDir: string): void {
   const binaryExt = process.platform === 'win32' ? '.exe' : ''
   const platformLabel = process.platform === 'darwin'
     ? (process.arch === 'arm64' ? 'darwin-arm64' : 'darwin-amd64')
@@ -842,12 +715,12 @@ export function showBinaryDownloadWarning(binDir: string): void {
 
   console.log()
   console.log(ansis.red.bold(`  ╔════════════════════════════════════════════════════════════╗`))
-  console.log(ansis.red.bold(`  ║  ⚠  codeagent-wrapper 下载失败                            ║`))
-  console.log(ansis.red.bold(`  ║     Binary download failed (network issue)                 ║`))
+  console.log(ansis.red.bold(`  ║  ✗  codeagent-wrapper 安装失败，初始化已停止              ║`))
+  console.log(ansis.red.bold(`  ║     Binary verification failed; initialization stopped     ║`))
   console.log(ansis.red.bold(`  ╚════════════════════════════════════════════════════════════╝`))
   console.log()
-  console.log(ansis.yellow(`  多模型协作命令 (/ccg:workflow, /ccg:plan 等) 需要此文件才能工作。`))
-  console.log(ansis.yellow(`  Multi-model commands require this binary to work.`))
+  console.log(ansis.yellow(`  当前安装不可用；固定版本二进制通过摘要和版本校验后才算成功。`))
+  console.log(ansis.yellow(`  This installation is unusable until the pinned binary passes verification.`))
   console.log()
   console.log(ansis.cyan(`  手动修复 / Manual fix:`))
   console.log()
@@ -866,14 +739,20 @@ export function showBinaryDownloadWarning(binDir: string): void {
     console.log(ansis.cyan(`       chmod +x "${binDir}/${destFileName}"`))
     console.log()
   }
-  console.log(ansis.white(`    或重新安装 / Or re-install:`))
-  console.log(ansis.cyan(`       npx ccg-workflow@latest`))
+  console.log(ansis.white(`    3. 重新运行并等待成功结果 / Re-run and require success:`))
+  console.log(ansis.cyan(`       ccg init --force`))
   console.log()
 }
 
+function recordFatalBinaryFailure(ctx: InstallContext, message: string): void {
+  ctx.result.binInstalled = false
+  ctx.result.success = false
+  ctx.result.errors.push(`Fatal codeagent-wrapper installation failure: ${message}`)
+}
+
 /**
- * Download and install codeagent-wrapper binary for current platform.
- * Skips download if binary already exists and passes `--version` check.
+ * Download and install codeagent-wrapper for the current platform.
+ * Existing and downloaded bytes must match the pinned digest before execution.
  */
 async function installBinaryFile(ctx: InstallContext): Promise<void> {
   let candidateBinary: string | null = null
@@ -883,18 +762,31 @@ async function installBinaryFile(ctx: InstallContext): Promise<void> {
 
     const binaryName = getBinaryName()
     if (!binaryName) {
-      ctx.result.errors.push(`Unsupported platform: ${process.platform}`)
-      ctx.result.success = false
+      recordFatalBinaryFailure(
+        ctx,
+        `unsupported platform: ${process.platform}`,
+      )
       return
     }
 
     const binaryExt = process.platform === 'win32' ? '.exe' : ''
     const destBinary = join(binDir, `codeagent-wrapper${binaryExt}`)
+    const expectedSha256 = EXPECTED_BINARY_SHA256[binaryName]
+    if (!expectedSha256) {
+      recordFatalBinaryFailure(
+        ctx,
+        `no trusted SHA-256 is recorded for ${binaryName}.`,
+      )
+      return
+    }
 
-    // Check if binary exists, is functional, AND version matches
+    // Verify installed bytes before executing the binary.
     if (await fs.pathExists(destBinary)) {
-      const installedVersion = await readBinaryVersion(destBinary)
-      if (installedVersion === EXPECTED_BINARY_VERSION) {
+      const installedDigest = await sha256File(destBinary)
+      const installedVersion = installedDigest === expectedSha256
+        ? await readBinaryVersion(destBinary)
+        : null
+      if (installedDigest === expectedSha256 && installedVersion === EXPECTED_BINARY_VERSION) {
         // Binary exists, works, and version matches — skip download
         ctx.result.binPath = binDir
         ctx.result.binInstalled = true
@@ -904,40 +796,56 @@ async function installBinaryFile(ctx: InstallContext): Promise<void> {
     }
 
     candidateBinary = join(binDir, `.codeagent-wrapper-download-${process.pid}-${Date.now()}${binaryExt}`)
-    const download = await downloadBinaryFromRelease(binaryName, candidateBinary, EXPECTED_BINARY_VERSION)
+    const download = await downloadBinaryFromRelease(binaryName, candidateBinary, expectedSha256)
 
     if (download.downloaded) {
       try {
-        const promotion = await promoteBinaryCandidate(candidateBinary, destBinary, EXPECTED_BINARY_VERSION)
+        const promotion = await promoteBinaryCandidate(
+          candidateBinary,
+          destBinary,
+          EXPECTED_BINARY_VERSION,
+          expectedSha256,
+        )
         if (promotion.promoted) {
           ctx.result.binPath = binDir
           ctx.result.binInstalled = true
         }
         else {
-          ctx.result.errors.push(
-            `Binary version mismatch: expected ${EXPECTED_BINARY_VERSION}, got ${promotion.actualVersion ?? 'unknown'}. Existing binary was preserved.`,
+          const detail = promotion.reason === 'integrity-mismatch'
+            ? `Binary integrity mismatch: expected ${expectedSha256}, got ${promotion.actualSha256 ?? 'unknown'}.`
+            : `Binary version mismatch: expected ${EXPECTED_BINARY_VERSION}, got ${promotion.actualVersion ?? 'unknown'}.`
+          recordFatalBinaryFailure(
+            ctx,
+            `${detail} Existing binary was preserved.`,
           )
         }
       }
       catch (verifyError) {
-        ctx.result.errors.push(`Binary verification failed (non-blocking): ${verifyError}`)
+        recordFatalBinaryFailure(
+          ctx,
+          `binary verification failed: ${verifyError}`,
+        )
         await fs.remove(candidateBinary)
       }
     }
     else {
-      const observed = [...new Set(download.observedVersions)]
+      const observed = [...new Set(download.observedDigests)]
       if (observed.length > 0) {
-        ctx.result.errors.push(
-          `Binary version mismatch: expected ${EXPECTED_BINARY_VERSION}, downloaded ${observed.join(', ')}. Existing binary was preserved.`,
+        recordFatalBinaryFailure(
+          ctx,
+          `binary integrity mismatch: expected ${expectedSha256}, downloaded ${observed.join(', ')}. Existing binary was preserved.`,
         )
       }
       else {
-        ctx.result.errors.push(`Failed to download binary: ${binaryName} from GitHub Release (after 3 attempts). Check network or visit https://github.com/${GITHUB_REPO}/releases/tag/${RELEASE_TAG}`)
+        recordFatalBinaryFailure(
+          ctx,
+          `failed to download ${binaryName} from the personal GitHub release after bounded retries. Check network or visit https://github.com/${GITHUB_REPO}/releases/tag/${RELEASE_TAG}`,
+        )
       }
     }
   }
   catch (error) {
-    ctx.result.errors.push(`Failed to install codeagent-wrapper (non-blocking): ${error}`)
+    recordFatalBinaryFailure(ctx, String(error))
   }
   finally {
     if (candidateBinary) await fs.remove(candidateBinary).catch(() => {})
@@ -1045,6 +953,34 @@ async function installHookScripts(ctx: InstallContext): Promise<void> {
  * Register CCG hooks in ~/.claude/settings.json.
  * Merges with existing hooks — does not overwrite user's other hooks.
  */
+export function buildNodeHookCommand(
+  scriptPath: string,
+  platform: NodeJS.Platform = process.platform,
+): string {
+  const quoted = platform === 'win32'
+    ? `"${scriptPath.replace(/"/g, '""')}"`
+    : `"${scriptPath.replace(/["\\$`]/g, '\\$&')}"`
+  return `node ${quoted}`
+}
+
+async function writePrivateJsonAtomic(path: string, value: unknown): Promise<void> {
+  const temporary = `${path}.tmp-${process.pid}-${Date.now()}`
+  try {
+    await fs.writeFile(temporary, `${JSON.stringify(value, null, 2)}\n`, {
+      encoding: 'utf8',
+      mode: 0o600,
+    })
+    if (process.platform !== 'win32')
+      await fs.chmod(temporary, 0o600)
+    await fs.move(temporary, path, { overwrite: true })
+    if (process.platform !== 'win32')
+      await fs.chmod(path, 0o600)
+  }
+  finally {
+    await fs.remove(temporary)
+  }
+}
+
 async function registerHooksInSettings(ctx: InstallContext): Promise<void> {
   const settingsPath = join(ctx.installDir, 'settings.json')
   const hooksDir = join(ctx.installDir, 'hooks', 'ccg')
@@ -1053,29 +989,34 @@ async function registerHooksInSettings(ctx: InstallContext): Promise<void> {
     let settings: Record<string, unknown> = {}
     if (await fs.pathExists(settingsPath)) {
       try {
-        settings = JSON.parse(await fs.readFile(settingsPath, 'utf-8'))
+        const parsed = JSON.parse(await fs.readFile(settingsPath, 'utf-8'))
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
+          throw new Error('root value must be an object')
+        settings = parsed
       }
-      catch {
-        settings = {}
+      catch (error) {
+        throw new Error(`settings.json is malformed; original bytes were preserved: ${error}`)
       }
     }
 
+    if (settings.hooks !== undefined && (!settings.hooks || typeof settings.hooks !== 'object' || Array.isArray(settings.hooks)))
+      throw new Error('settings.json hooks must be an object; original bytes were preserved.')
     const hooks = (settings.hooks || {}) as Record<string, unknown[]>
 
     const ccgHookDefs = {
       UserPromptSubmit: {
         hooks: [
-          { type: 'command', command: `node ${join(hooksDir, 'workflow-state.js')}`, timeout: 10000 },
-          { type: 'command', command: `node ${join(hooksDir, 'skill-router.js')}`, timeout: 5000 },
+          { type: 'command', command: buildNodeHookCommand(join(hooksDir, 'workflow-state.js')), timeout: 10000 },
+          { type: 'command', command: buildNodeHookCommand(join(hooksDir, 'skill-router.js')), timeout: 5000 },
         ],
       },
       SessionStart: {
         matcher: 'startup|clear|compact',
-        hooks: [{ type: 'command', command: `node ${join(hooksDir, 'session-start.js')}`, timeout: 15000 }],
+        hooks: [{ type: 'command', command: buildNodeHookCommand(join(hooksDir, 'session-start.js')), timeout: 15000 }],
       },
       PreToolUse: {
         matcher: 'Bash|Agent',
-        hooks: [{ type: 'command', command: `node ${join(hooksDir, 'subagent-context.js')}`, timeout: 15000 }],
+        hooks: [{ type: 'command', command: buildNodeHookCommand(join(hooksDir, 'subagent-context.js')), timeout: 15000 }],
       },
     }
 
@@ -1096,7 +1037,7 @@ async function registerHooksInSettings(ctx: InstallContext): Promise<void> {
     }
 
     settings.hooks = hooks
-    await fs.writeFile(settingsPath, JSON.stringify(settings, null, 2), 'utf-8')
+    await writePrivateJsonAtomic(settingsPath, settings)
   }
   catch (error) {
     ctx.result.errors.push(`Failed to register hooks in settings.json: ${error}`)
@@ -1156,7 +1097,7 @@ export async function installWorkflows(
   if (!(await fs.pathExists(ctx.templateDir))) {
     const errorMsg = `Template directory not found: ${ctx.templateDir} (PACKAGE_ROOT=${PACKAGE_ROOT}). `
       + `This usually means the npm package is incomplete or the cache is corrupted. `
-      + `Try: npm cache clean --force && npx ccg-workflow@latest`
+      + `Try: npm cache clean --force && ccg init --force`
     ctx.result.errors.push(errorMsg)
     ctx.result.success = false
     return ctx.result
@@ -1190,6 +1131,8 @@ export async function installWorkflows(
     )
     ctx.result.success = false
   }
+  if (ctx.result.errors.length > 0)
+    ctx.result.success = false
 
   ctx.result.configPath = join(installDir, 'commands', 'ccg')
   return ctx.result

@@ -52,18 +52,14 @@ else {
   Add-Pass "Node.js $nodeVersion"
 }
 
-$pythonVersion = Read-Version "python"
-if (-not $pythonVersion) {
-  Add-Failure "Python 3.9+ is missing."
-}
-elseif ($pythonVersion -notmatch 'Python\s+(\d+)\.(\d+)') {
-  Add-Failure "Could not parse Python version: $pythonVersion"
-}
-elseif ([int]$Matches[1] -lt 3 -or ([int]$Matches[1] -eq 3 -and [int]$Matches[2] -lt 9)) {
-  Add-Failure "Python 3.9+ is required; found $pythonVersion."
+$pythonResolver = Join-Path $PSScriptRoot "python-resolver.mjs"
+$pythonJson = & node $pythonResolver 2>&1
+if ($LASTEXITCODE -ne 0) {
+  Add-Failure "Python 3.9+ resolution failed: $($pythonJson -join [Environment]::NewLine)"
 }
 else {
-  Add-Pass $pythonVersion
+  $python = ($pythonJson -join [Environment]::NewLine) | ConvertFrom-Json
+  Add-Pass "Python $($python.version) ($($python.command))"
 }
 
 $trellisVersion = Read-Version "trellis"
@@ -85,12 +81,74 @@ else {
   Add-Pass "pnpm $pnpmVersion"
 }
 
+$goVersion = Read-Version "go" @("version")
+if (-not $goVersion) {
+  Add-Failure "Go is missing; CCG wrapper verification requires Go."
+}
+else {
+  Add-Pass "$goVersion"
+}
+
+$ccgRoot = Join-Path $RepoRoot ([string]$manifest.ccg.snapshotPath)
+$ccgBin = Join-Path $ccgRoot "bin/ccg.mjs"
+$localCcgVersion = & node $ccgBin --version 2>&1
+$localCcgText = ($localCcgVersion -join [Environment]::NewLine).Trim()
+$expectedCcgPattern = "(?:^|[/@])$([Regex]::Escape([string]$manifest.ccg.version))(?:$|\s)"
+if ($LASTEXITCODE -ne 0) {
+  Add-Failure "The activated CCG CLI cannot run from its final Harness path."
+}
+elseif ($localCcgText -ne [string]$manifest.ccg.version -and $localCcgText -notmatch $expectedCcgPattern) {
+  Add-Failure "Activated CCG CLI must be $($manifest.ccg.version); found $($localCcgVersion -join ' ')."
+}
+else {
+  Add-Pass "Activated CCG CLI $($manifest.ccg.version)"
+}
+
+$transactionState = Join-Path $RepoRoot ".harness-cache"
+$transactionJournal = Join-Path $transactionState "transaction-journal.json"
+$transactionLock = Join-Path $transactionState "transaction.lock"
+if (Test-Path -LiteralPath $transactionJournal) {
+  Add-Failure "Interrupted transaction journal found. Run pnpm harness:recover."
+}
+else {
+  Add-Pass "No interrupted transaction journal"
+}
+if (Test-Path -LiteralPath $transactionLock) {
+  Add-Failure "Transaction lock residue found. Run pnpm harness:recover."
+}
+else {
+  Add-Pass "No transaction lock residue"
+}
+foreach ($runtimeDirectory in @("staging", "discard", "file-discard")) {
+  $runtimePath = Join-Path $transactionState $runtimeDirectory
+  $residue = Get-ChildItem -LiteralPath $runtimePath -Force -ErrorAction SilentlyContinue |
+    Select-Object -First 1
+  if ($residue) {
+    Add-Failure "Transaction $runtimeDirectory residue found. Run pnpm harness:recover."
+  }
+}
+
 try {
   & (Join-Path $PSScriptRoot "verify-sources.ps1") -RepoRoot $RepoRoot -Index:$Index
   Add-Pass "Personal source provenance and Git tree"
 }
 catch {
   Add-Failure $_.Exception.Message
+}
+
+$adapterScript = Join-Path $PSScriptRoot "harness-adapter.mjs"
+$adapterArguments = @($adapterScript, "conflicts")
+if ($Index) {
+  $adapterArguments += "--index"
+}
+$adapterOutput = & node @adapterArguments 2>&1
+$adapterExitCode = $LASTEXITCODE
+$adapterOutput | ForEach-Object { Write-Output $_ }
+if ($adapterExitCode -eq 0) {
+  Add-Pass "Layered adapter conflict audit"
+}
+else {
+  Add-Failure "Layered adapter conflict audit exited with code $adapterExitCode."
 }
 
 $origin = (& git -C $RepoRoot remote get-url origin 2>$null).Trim()
@@ -133,3 +191,5 @@ if ($failures.Count -gt 0) {
 
 Write-Output ""
 Write-Output "Harness doctor passed."
+$global:LASTEXITCODE = 0
+exit 0

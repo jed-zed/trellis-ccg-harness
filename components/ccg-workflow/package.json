@@ -5,16 +5,16 @@
   "type": "module",
   "packageManager": "pnpm@10.17.1",
   "author": {
-    "name": "CCG Contributors"
+    "name": "jed-zed"
   },
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/fengshao1227/ccg-workflow.git"
+    "url": "https://github.com/jed-zed/ccg-gptpro-worflow.git"
   },
-  "homepage": "https://ccg.fengshao1227.com",
+  "homepage": "https://github.com/jed-zed/ccg-gptpro-worflow#readme",
   "bugs": {
-    "url": "https://github.com/fengshao1227/ccg-workflow/issues"
+    "url": "https://github.com/jed-zed/ccg-gptpro-worflow/issues"
   },
   "engines": {
     "node": ">=20"
@@ -37,6 +37,7 @@
   "types": "dist/index.d.mts",
   "files": [
     "bin/ccg.mjs",
+    "third-party-sources.json",
     "dist",
     "templates/commands/",
     "templates/commands-legacy/",
@@ -68,6 +69,7 @@
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "pnpm build",
     "test": "vitest run",
+    "audit:prod": "pnpm audit --prod --audit-level high",
     "lint": "eslint",
     "lint:fix": "eslint --fix",
     "docs:dev": "vitepress dev docs",
@@ -79,11 +81,10 @@
     "cac": "^6.7.14",
     "fs-extra": "^11.3.2",
     "i18next": "^25.5.2",
-    "i18next-fs-backend": "^2.6.0",
     "inquirer": "^12.9.6",
     "ora": "^9.0.0",
     "pathe": "^2.0.3",
-    "smol-toml": "^1.4.2"
+    "smol-toml": "^1.7.0"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

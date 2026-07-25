@@ -46,16 +46,25 @@ Hard boundaries:
 
 ## Required Inputs
 
-1. Locate the active task under `.ccg/tasks/<task-id>/task.json`.
+Resolve `<task-dir>` and `<evidence-root>` before continuing:
+
+- Native CCG: `<task-dir> = .ccg/tasks/<task-id>` and `<evidence-root> = <task-dir>`.
+- Trellis authority: `<task-dir> = .trellis/tasks/<task-id>` and
+  `<evidence-root> = <task-dir>/.ccg-evidence`.
+
+For Trellis authority, never create a parallel `.ccg/tasks/<task-id>` and never write CCG gate
+fields into Trellis `task.json`.
+
+1. Locate the active task at `<task-dir>/task.json`.
 2. Resolve review scope from `$ARGUMENTS`, `git diff HEAD`, the active plan, or changed files.
 3. Run `/ccg:grok-verify` with the exact plan, diff, and every changed dependency/lock input.
    Validate the canonical Grok artifact and manifest hashes plus the task pointer. Never pass raw JSONL.
 4. Run or verify the ordinary `/ccg:review` route first and write a concise routing evidence file,
-   for example `.ccg/tasks/<task-id>/evidence/routing.md`, plus a routing summary file.
+   for example `<evidence-root>/evidence/routing.md`, plus a routing summary file.
    The routing evidence must identify the current orchestrator, the routed model evidence that
    actually exists, `claudeEvidenceStatus: automatic|manual_handoff|skipped_by_user|blocked`, the
    ordinary reviewer conclusion, and any skipped/failed model steps.
-5. Validate required Gemini review/gate evidence from `.ccg/tasks/<task-id>/evidence.json`.
+5. Validate required Gemini review/gate evidence from `<evidence-root>/evidence.json`.
    Legacy `task.json.gemini_evidence` or `task.json.gemini_gate` may be normalized for read
    compatibility, but do not expand large evidence arrays into `task.json`.
 
@@ -94,7 +103,7 @@ Then invoke the task-local bridge:
 python ~/.claude/.ccg/engine/tools/gptpro/gptpro_bridge.py \
   --mode review \
   --workdir "$WORKDIR" \
-  --task-dir ".ccg/tasks/<task-id>" \
+  --task-dir "<task-dir>" \
   --source-command "/ccg:gptpro-review" \
   --prompt-file "<prompt-file>" \
   --slug "<task-id>-review" \
@@ -118,15 +127,15 @@ automatic failure or blocked Claude evidence.
 Expected artifacts:
 
 ```text
-.ccg/tasks/<task-id>/gptpro/<session-id>/status.json
-.ccg/tasks/<task-id>/gptpro/<session-id>/round-1/prompt.md
-.ccg/tasks/<task-id>/gptpro/<session-id>/round-1/response.md
-.ccg/tasks/<task-id>/evidence.json
+<evidence-root>/gptpro/<session-id>/status.json
+<evidence-root>/gptpro/<session-id>/round-1/prompt.md
+<evidence-root>/gptpro/<session-id>/round-1/response.md
+<evidence-root>/evidence.json
 ```
 
 ## Manual Wait State
 
-After bridge creation, update the active task:
+After bridge creation, update the active task only when native CCG owns lifecycle:
 
 ```json
 {
@@ -136,6 +145,9 @@ After bridge creation, update the active task:
 }
 ```
 
+For a Trellis task, do not write those CCG gate fields into `task.json`; preserve Trellis lifecycle
+state and use bridge `status.json` for the manual wait state.
+
 Report only the preview URL and artifact paths, then stop the current turn.
 
 Continue only after:
@@ -143,7 +155,7 @@ Continue only after:
 - `status.json` shows the current round response saved;
 - `response.md` is non-empty;
 - `response_sha256` is present for the saved round;
-- `.ccg/tasks/<task-id>/evidence.json` contains the GPT Pro item.
+- `<evidence-root>/evidence.json` contains the GPT Pro item.
 
 ## Round Budget
 

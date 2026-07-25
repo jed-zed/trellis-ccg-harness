@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
 import fs from 'fs-extra'
 
@@ -210,8 +210,14 @@ function writeGrokExternalEvidence(
   return { artifactFile, manifestFile, artifactSha256, manifestSha256 }
 }
 
-function writeGeminiGateEvidence(taskDir: string, artifactFile: string, response: string): void {
-  const evidencePath = join(taskDir, 'evidence.json')
+function writeGeminiGateEvidence(
+  taskDir: string,
+  artifactFile: string,
+  response: string,
+  evidenceFile = 'evidence.json',
+): void {
+  const evidencePath = join(taskDir, evidenceFile)
+  fs.ensureDirSync(dirname(evidencePath))
   const canonical = fs.pathExistsSync(evidencePath) ? fs.readJsonSync(evidencePath) : { schemaVersion: 1, items: [] }
   canonical.items.push({
     id: 'gemini-gate-1',
@@ -289,6 +295,24 @@ describe('GPT Pro manual bridge', () => {
     expect(exc).toContain('## Task For GPT Pro')
     expect(exc).toContain('decide whether the current execution route should proceed')
     expect(exc).toContain('supplement the route with')
+  })
+
+  it('documents the Trellis task adapter without creating a second lifecycle authority', () => {
+    const surfaces = [
+      'docs/gptpro-manual-bridge.md',
+      'plugins/ccg/skills/ccg-gptpro-bridge/SKILL.md',
+      'templates/commands/gptpro-plan.md',
+      'templates/commands/gptpro-review.md',
+      'templates/commands/gptpro-exc.md',
+      'plugins/ccg/commands/gptpro-plan.md',
+      'plugins/ccg/commands/gptpro-review.md',
+      'plugins/ccg/commands/gptpro-exc.md',
+    ]
+    for (const relativePath of surfaces) {
+      const content = readFileSync(join(PACKAGE_ROOT, ...relativePath.split('/')), 'utf-8')
+      expect(content, relativePath).toContain('.trellis/tasks/<task-id>')
+      expect(content, relativePath).toContain('.ccg-evidence')
+    }
   })
 
   it('keeps Grok evidence ahead of ordinary GPT Pro workflow routing on every surface', () => {
@@ -504,6 +528,52 @@ describe('GPT Pro manual bridge', () => {
       '--require-external-intelligence',
     ], root)
     expect(stderr).toMatch(/explicit expected mode and depth/i)
+    expect(fs.pathExistsSync(join(taskDir, 'gptpro'))).toBe(false)
+  })
+
+  maybeIt('stores bridge evidence in an adapter-owned directory for a Trellis task', () => {
+    const root = join(TMP_ROOT, 'trellis-task-root')
+    const taskDir = join(root, '.trellis', 'tasks', '07-25-harness-review')
+    const evidenceDir = join(taskDir, '.ccg-evidence', 'evidence')
+    fs.ensureDirSync(evidenceDir)
+    const task = {
+      id: '07-25-harness-review',
+      title: 'Review the Harness',
+      status: 'in_progress',
+    }
+    fs.writeJsonSync(join(taskDir, 'task.json'), task)
+    const geminiResponse = 'Gemini reviewed the current Harness diff.'
+    writeFileSync(join(evidenceDir, 'gemini.md'), geminiResponse, 'utf-8')
+    writeGeminiGateEvidence(
+      taskDir,
+      '.ccg-evidence/evidence/gemini.md',
+      geminiResponse,
+      '.ccg-evidence/evidence.json',
+    )
+
+    const output = runPython(PYTHON!, [
+      BRIDGE,
+      '--mode',
+      'review',
+      '--workdir',
+      root,
+      '--task-dir',
+      '.trellis/tasks/07-25-harness-review',
+      '--prompt',
+      'Review the Trellis-owned task without creating CCG task authority.',
+      '--gemini-response-file',
+      join(evidenceDir, 'gemini.md'),
+      '--gemini-summary',
+      'Gemini review evidence is available.',
+    ], root)
+
+    const statusFile = parseOutputPath(output, 'CCG_GPTPRO_STATUS_FILE')
+    const status = fs.readJsonSync(statusFile)
+    expect(status.task_dir).toBe('.trellis/tasks/07-25-harness-review')
+    expect(status.session_dir).toContain('.trellis/tasks/07-25-harness-review/.ccg-evidence/gptpro/')
+    expect(status.evidence_file).toBe('.trellis/tasks/07-25-harness-review/.ccg-evidence/evidence.json')
+    expect(fs.readJsonSync(join(taskDir, 'task.json'))).toEqual(task)
+    expect(fs.pathExistsSync(join(taskDir, 'evidence.json'))).toBe(false)
     expect(fs.pathExistsSync(join(taskDir, 'gptpro'))).toBe(false)
   })
 

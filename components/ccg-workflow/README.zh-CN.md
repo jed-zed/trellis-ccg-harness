@@ -4,22 +4,21 @@
 
 <img src="assets/logo/ccg-logo-cropped.png" alt="CCG Workflow" width="400">
 
-[![GitHub stars](https://img.shields.io/github/stars/fengshao1227/ccg-workflow?style=social)](https://github.com/fengshao1227/ccg-workflow)
-[![NPM Downloads](https://img.shields.io/npm/dt/ccg-workflow?style=flat-square&color=blue)](https://www.npmjs.com/package/ccg-workflow)
-[![npm version](https://img.shields.io/npm/v/ccg-workflow.svg)](https://www.npmjs.com/package/ccg-workflow)
+[![GitHub stars](https://img.shields.io/github/stars/jed-zed/ccg-gptpro-worflow?style=social)](https://github.com/jed-zed/ccg-gptpro-worflow)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
-[![CI](https://github.com/fengshao1227/ccg-workflow/actions/workflows/ci.yml/badge.svg)](https://github.com/fengshao1227/ccg-workflow/actions/workflows/ci.yml)
-[![codecov](https://codecov.io/gh/fengshao1227/ccg-workflow/graph/badge.svg)](https://codecov.io/gh/fengshao1227/ccg-workflow)
+[![CI](https://github.com/jed-zed/ccg-gptpro-worflow/actions/workflows/ci.yml/badge.svg)](https://github.com/jed-zed/ccg-gptpro-worflow/actions/workflows/ci.yml)
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-Compatible-green.svg)](https://claude.ai/code)
 [![Node](https://img.shields.io/badge/Node.js-%3E%3D20-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
-[![Follow on X](https://img.shields.io/badge/X-@CCG__Workflow-black?logo=x&logoColor=white)](https://x.com/CCG_Workflow)
-![star](https://atomgit.com/fengshao1227/ccg-workflow/star/badge.svg)
-[![Docs](https://img.shields.io/badge/文档站-ccg.fengshao1227.com-blue?style=for-the-badge&logo=readthedocs&logoColor=white)](https://ccg.fengshao1227.com/)
 [![Ask DeepWiki](https://img.shields.io/badge/Ask-DeepWiki-blue?logo=data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHBhdGggZD0iTTEyIDJDNi40OCAyIDIgNi40OCAyIDEyczQuNDggMTAgMTAgMTAgMTAtNC40OCAxMC0xMFMxNy41MiAyIDEyIDJ6bTEgMTdoLTJ2LTJoMnYyem0yLjA3LTcuNzVsLS45Ljkydi4wMUM0LjE3IDEyLjE3IDE0IDEzIDE0IDEzaC0yYzAtMS4xLjktMiAyLTJzMi0uOSAyLTItLjktMi0yLTJINmMwLTIuMjEgMS43OS00IDQtNGgyYzIuMjEgMCA0IDEuNzkgNCA0IDAgLjg4LS4zNiAxLjY4LS45MyAyLjI1eiIgZmlsbD0id2hpdGUiLz48L3N2Zz4=)](https://deepwiki.com/fengshao1227/ccg-workflow)
 
-[简体中文](./README.zh-CN.md) | [English](./README.md) | [**完整文档**](https://ccg.fengshao1227.com/)
+[简体中文](./README.zh-CN.md) | [English](./README.md)
 
 </div>
+
+> 这是 `jed-zed` 的个人发行版，由
+> [`trellis-ccg-harness`](https://github.com/jed-zed/trellis-ccg-harness)
+> 管理。项目保留上游署名，但以个人仓库、固定来源清单和 Harness
+> 事务式更新器为唯一权威来源。
 
 ## ♥️ Sponsor
 
@@ -222,11 +221,11 @@ CCG 引擎:
 ## 快速开始
 
 ```bash
-# 安装（交互式 4 步向导）
-npx ccg-workflow
-
-# 或非交互式使用默认配置
-npx ccg-workflow init --skip-prompt
+# 从已经审核的个人仓库 40 位完整 commit 开始
+corepack enable
+pnpm install --frozen-lockfile
+pnpm build
+node bin/ccg.mjs init
 ```
 
 需要 **Node.js 20+** 和 **Claude Code CLI**。Codex CLI、Gemini CLI 和 Grok CLI 为可选（启用多模型功能）。
@@ -234,18 +233,19 @@ npx ccg-workflow init --skip-prompt
 ## CLI 命令大全
 
 ```bash
-npx ccg-workflow                          # 交互式菜单
-npx ccg-workflow init                     # 4 步安装向导
-npx ccg-workflow doctor                   # 环境健康检查
-npx ccg-workflow status                   # 安装概况
-npx ccg-workflow codex-mode install       # 安装 Codex 主导模式
-npx ccg-workflow codex-mode uninstall     # 卸载 Codex 主导模式
-npx ccg-workflow uninstall                # 卸载 CCG
-npx ccg-workflow config mcp               # 配置 MCP Token
-npx ccg-workflow diagnose-mcp             # 诊断 MCP 问题
-ccg grok login                             # 直接进行官方 Grok 浏览器登录
-ccg doctor --grok                          # 非付费 Grok 合约检查
-ccg doctor --grok-live                     # 显式付费 Web/X 冒烟
+node bin/ccg.mjs                          # 交互式菜单
+node bin/ccg.mjs init                     # 4 步安装向导
+node bin/ccg.mjs doctor                   # 环境健康检查
+node bin/ccg.mjs status                   # 安装概况
+node bin/ccg.mjs codex-mode install       # 安装 Codex 主导模式
+node bin/ccg.mjs codex-mode uninstall     # 卸载 Codex 主导模式
+node bin/ccg.mjs uninstall                # 卸载 CCG
+node bin/ccg.mjs config mcp               # 配置 MCP Token
+node bin/ccg.mjs diagnose-mcp             # 静态 MCP 诊断
+node bin/ccg.mjs diagnose-mcp --smoke     # 显式、有界的 stdio 握手
+node bin/ccg.mjs grok login               # 直接进行官方 Grok 浏览器登录
+node bin/ccg.mjs doctor --grok            # 非付费 Grok 合约检查
+node bin/ccg.mjs doctor --grok-live       # 显式付费 Web/X 冒烟
 ```
 
 ## 配置
@@ -274,22 +274,34 @@ ccg doctor --grok-live                     # 显式付费 Web/X 冒烟
 | `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` | 未设置 | 设为 `1` 启用 Agent Teams 并行 |
 | `XAI_API_KEY` | 未设置 | 经批准的无界面/CI Grok 情报运行所用显式 API Key |
 
-## 更新 / 卸载
+## 安全与所有权
+
+- Wrapper 二进制只从个人 Release 下载，并在 `chmod` 或执行前校验固定 SHA-256。
+- 可执行 npm/Git 依赖都以精确版本或完整 commit 记录在 `third-party-sources.json`，不使用可变的 `@latest`。
+- MCP 密钥放在仅所有者可读的文件中，由本地启动器加载，不进入进程参数，也不镜像到其他运行时。
+- Codex 模式使用摘要绑定的所有权清单和托管区块；安装、更新和卸载会保留无关用户文件，并对损坏配置或被修改的托管状态关闭式失败。
+- `diagnose-mcp --smoke` 必须显式启用，仅支持 stdio，限制时间与输出，脱敏诊断并终止完整子进程树。
+
+## 更新 / 回滚 / 卸载
+
+内置公开 npm 更新器已禁用。在 `trellis-ccg-harness` 根目录使用个人仓库的完整 commit：
 
 ```bash
-npx ccg-workflow@latest     # 更新到最新版
-npx ccg-workflow doctor     # 更新后健康检查
-npx ccg-workflow uninstall  # 彻底卸载
+pnpm harness:update -- --ccg-commit <40-character-commit>
+pnpm harness:doctor
+pnpm harness:rollback
+pnpm harness:uninstall
 ```
 
 ## 致谢
 
+- [fengshao1227/ccg-workflow](https://github.com/fengshao1227/ccg-workflow) — CCG 上游项目
 - [cexll/myclaude](https://github.com/cexll/myclaude) — codeagent-wrapper 灵感来源
 - [UfoMiao/zcf](https://github.com/UfoMiao/zcf) — Git 工具参考
 - [mindfold-ai/Trellis](https://github.com/mindfold-ai/Trellis) — Hook 状态注入模式
 - [ace-tool](https://linux.do/t/topic/1344562) — MCP 代码检索
 
-## 贡献者
+## 上游贡献者
 
 <!-- readme: contributors -start -->
 <table>
@@ -308,16 +320,10 @@ npx ccg-workflow uninstall  # 彻底卸载
 </table>
 <!-- readme: contributors -end -->
 
-## 联系
+## 支持
 
-- **X (Twitter)**: [@CCG_Workflow](https://x.com/CCG_Workflow)
-- **Email**: [fengshao1227@gmail.com](mailto:fengshao1227@gmail.com)
-- **Issues**: [GitHub Issues](https://github.com/fengshao1227/ccg-workflow/issues)
-- **社区**: [Linux.do](https://linux.do)
-
-## Star 历史
-
-[![Star History Chart](https://api.star-history.com/svg?repos=fengshao1227/ccg-workflow&type=timeline&legend=top-left)](https://www.star-history.com/#fengshao1227/ccg-workflow&type=timeline&legend=top-left)
+- **个人分支问题**: [GitHub Issues](https://github.com/jed-zed/ccg-gptpro-worflow/issues)
+- **上游社区**: [Linux.do](https://linux.do)
 
 ## 许可证
 
@@ -325,4 +331,4 @@ MIT
 
 ---
 
-v3.3.0 | [Issues](https://github.com/fengshao1227/ccg-workflow/issues) | [Contributing](./CONTRIBUTING.md)
+v3.3.0 | [Issues](https://github.com/jed-zed/ccg-gptpro-worflow/issues) | [Contributing](./CONTRIBUTING.md)
