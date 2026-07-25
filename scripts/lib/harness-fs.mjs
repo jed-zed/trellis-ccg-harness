@@ -188,7 +188,12 @@ export async function safeRemove(
   if (!details.isDirectory() && !details.isFile()) {
     throw new Error(`${label} is not a regular filesystem entry.`);
   }
-  await rm(resolved, { recursive: details.isDirectory(), force: true });
+  const removeRecursively = details.isDirectory();
+  await rm(resolved, {
+    recursive: removeRecursively,
+    force: true,
+    ...(removeRecursively ? { maxRetries: 5, retryDelay: 100 } : {}),
+  });
 }
 
 function modeOf(details) {
