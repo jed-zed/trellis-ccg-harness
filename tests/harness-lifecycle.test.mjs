@@ -442,6 +442,49 @@ test("ordinary global package identity detects non-manifest file changes", async
   }
 });
 
+test("ordinary global package stays content-bound beneath a canonicalized parent", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "npm canonical parent-"));
+  const actualGlobalRoot = path.join(root, "actual", "node_modules");
+  const linkedGlobalRoot = path.join(root, "linked-node-modules");
+  const packageRoot = path.join(
+    actualGlobalRoot,
+    "@mindfoldhq",
+    "trellis",
+  );
+  try {
+    mkdirSync(packageRoot, { recursive: true });
+    writeFileSync(
+      path.join(packageRoot, "package.json"),
+      `${JSON.stringify({
+        name: "@mindfoldhq/trellis",
+        version: "0.6.9",
+      })}\n`,
+    );
+    writeFileSync(path.join(packageRoot, "runtime.mjs"), "old-runtime\n");
+    symlinkSync(
+      actualGlobalRoot,
+      linkedGlobalRoot,
+      process.platform === "win32" ? "junction" : "dir",
+    );
+
+    const before = await inspectGlobalPackage(
+      linkedGlobalRoot,
+      "@mindfoldhq/trellis",
+    );
+    assert.equal(before.sourcePath, undefined);
+    assert.match(before.contentIdentity.digest, /^[a-f0-9]{64}$/);
+
+    writeFileSync(path.join(packageRoot, "runtime.mjs"), "new-runtime\n");
+    const after = await inspectGlobalPackage(
+      linkedGlobalRoot,
+      "@mindfoldhq/trellis",
+    );
+    assert.equal(globalPackageSnapshotsEqual(before, after), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("an isolated npm prefix keeps a local global link and CLI working with spaces", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "isolated npm prefix-"));
   const prefix = path.join(root, "global prefix with spaces");

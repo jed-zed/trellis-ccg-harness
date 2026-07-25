@@ -424,9 +424,7 @@ export async function inspectGlobalPackage(globalRoot, packageName) {
   ) {
     throw new Error(`Global package manifest is invalid: ${entryPath}`);
   }
-  const isLink =
-    entryDetails.isSymbolicLink() ||
-    normalizedPath(canonicalPath) !== normalizedPath(entryPath);
+  const isLink = entryDetails.isSymbolicLink();
   const contentIdentity = isLink
     ? null
     : await buildContentIdentity(canonicalPath);

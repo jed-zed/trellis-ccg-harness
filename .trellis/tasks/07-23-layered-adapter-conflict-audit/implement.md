@@ -63,10 +63,10 @@ security reference files.
 
 ## Completion evidence
 
-- Harness root tests: 98 passed, 0 failed, including three real replacement
+- Harness root tests: 99 passed, 0 failed, including three real replacement
   hard-kill boundaries, source residue rejection, snapshot rotation, full-tree
-  npm identity, linked Skill-export rejection, exact contract idempotence, and
-  shared Windows `py -3` resolution.
+  npm identity under canonicalized Windows parent paths, linked Skill-export
+  rejection, exact contract idempotence, and shared Windows `py -3` resolution.
 - Local conflict audit: 0 blocking, 0 warnings, 3 information findings, 15
   checks passed.
 - The imported personal CCG source is bound to commit
