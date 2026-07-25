@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   mkdirSync,
   mkdtempSync,
+  realpathSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -345,7 +346,7 @@ test("global package identity resolves the real npm entry target with spaces", a
     assert.equal(observed.version, "3.3.0");
     assert.equal(
       path.resolve(observed.sourcePath),
-      path.resolve(source),
+      realpathSync(source),
     );
     assert.match(observed.packageJsonSha256, /^[a-f0-9]{64}$/);
   } finally {
@@ -395,7 +396,7 @@ test("an isolated npm prefix keeps a local global link and CLI working with spac
       globalRoot,
       "ccg-workflow",
     );
-    assert.equal(path.resolve(observed.sourcePath), path.resolve(source));
+    assert.equal(path.resolve(observed.sourcePath), realpathSync(source));
 
     const command =
       process.platform === "win32"
