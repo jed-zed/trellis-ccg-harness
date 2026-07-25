@@ -152,7 +152,7 @@ security reference files.
 - [x] Reuse the shared Python resolver for adapter task context.
 - [x] Validate exact contract ownership and schema identity on repeat apply.
 - [x] Recheck Windows MCP secret ACLs at launch and terminate child trees.
-- [ ] Run final Harness/CCG gates, source verification, doctor, and CI.
+- [x] Run final Harness/CCG gates, source verification, doctor, and CI.
 
 ### Final review repair: terminal cleanup and monotonic policy state
 
@@ -169,7 +169,7 @@ security reference files.
 - [x] Make policy version direction authoritative: migrate intact older
   versions, reject same-version content conflicts, and reject future-version
   downgrade attempts without mutation.
-- [ ] Update initializer documentation and PR #2 description, rerun focused and
+- [x] Update initializer documentation and PR #2 description, rerun focused and
   full Trellis/CCG gates plus CI, reply to and resolve the GitHub review
   threads, then return the PR to Ready.
 
@@ -248,3 +248,10 @@ security reference files.
 - Repository visibility is now declared as `public` in
   `harness.sources.json` and checked against live GitHub state by doctor,
   matching the repository owner's explicit decision.
+- Harness CI run `30172566509` passed all ten jobs on implementation Head
+  `80a7ece`: Node 20/22 on Linux and Windows, Go on Linux/Windows/macOS, and
+  bootstrap/doctor on Linux/Windows/macOS. The Linux jobs executed the POSIX
+  permission-race regression; both Windows jobs passed the ACL-safe CCG suite.
+- PR #2 now targets `main`, has an updated non-stacked description, is Ready
+  for review, and both review threads have a commit-linked reply and resolved
+  state.

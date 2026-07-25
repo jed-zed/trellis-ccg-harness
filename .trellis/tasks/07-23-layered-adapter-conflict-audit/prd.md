@@ -145,7 +145,7 @@ Adopt the recommended layered-adapter architecture without losing the complete p
 - [x] Policy upgrades are monotonic: older supported versions may upgrade only
   from intact projections, same-version digest conflicts fail closed, and an
   initializer never downgrades a newer project policy.
-- [ ] PR #2 description, review threads, verification evidence, and Ready state
+- [x] PR #2 description, review threads, verification evidence, and Ready state
   match the final post-fix Head.
 
 ## Constraints
