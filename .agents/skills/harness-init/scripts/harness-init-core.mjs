@@ -1822,7 +1822,9 @@ async function transactionOwnerIsAlive(
   if (!(await isProcessAlive(owner.pid))) return false;
   const observed = await readProcessIdentity(owner.pid);
   if (owner.processIdentity.startsWith("fallback:")) {
-    return owner.pid !== process.pid;
+    return owner.pid === process.pid
+      ? observed === owner.processIdentity
+      : true;
   }
   if (typeof observed === "string") {
     return observed === owner.processIdentity;

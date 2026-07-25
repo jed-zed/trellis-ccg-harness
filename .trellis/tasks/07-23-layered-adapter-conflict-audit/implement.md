@@ -86,7 +86,7 @@ Trellis task. Codex owns the final plan, edits, tests, and review.
   user-scoped key outside the target repository.
 - [x] Bind owner liveness to PID plus process-instance identity on Linux,
   Windows, and macOS, with conservative fallback on unsupported platforms.
-- [x] Rerun the full Harness and CCG quality/security gates, push the final Head,
+- [ ] Rerun the full Harness and CCG quality/security gates, push the final Head,
   resolve the new review threads, and wait for all CI jobs.
 
 ## Verification
@@ -277,3 +277,8 @@ security reference files.
 - Harness CI run `30173637878` passed all ten jobs on Head `291e16a`,
   including Linux process/permission coverage and both Windows ACL-safe Node
   matrices. Both new review threads have commit-linked replies and are resolved.
+- Metadata-only Head `1b49e38` exposed a Windows Node 20 fallback-identity race:
+  the concurrent-apply test accepted a second initializer after the platform
+  query fell back. The fix compares the complete fallback process-instance
+  identity for the current PID; ten repeated focused runs and the full local
+  Harness suite pass before resubmission.

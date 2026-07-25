@@ -626,6 +626,8 @@ test(
 
 test("the project initializer lock rejects a concurrent apply", async () => {
   const value = fixture();
+  const fallbackIdentity =
+    `fallback:test:${process.pid}:concurrent-apply`;
   let releaseFirst;
   let signalLocked;
   const locked = new Promise((resolve) => {
@@ -640,6 +642,7 @@ test("the project initializer lock rejects a concurrent apply", async () => {
       repoRoot: value.repoRoot,
       contractPath,
       skillRoot: SKILL_ROOT,
+      readProcessIdentity: async () => fallbackIdentity,
       faultInjector: async (phase) => {
         if (phase === "after-journal") {
           signalLocked();
@@ -653,6 +656,7 @@ test("the project initializer lock rejects a concurrent apply", async () => {
         repoRoot: value.repoRoot,
         contractPath,
         skillRoot: SKILL_ROOT,
+        readProcessIdentity: async () => fallbackIdentity,
       }),
       /initializer|lock|running/i,
     );
