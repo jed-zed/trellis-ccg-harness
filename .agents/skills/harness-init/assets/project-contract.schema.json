@@ -11,6 +11,7 @@
     "workflow",
     "toolchain",
     "qualityGates",
+    "skills",
     "security",
     "providers",
     "hooks",
@@ -94,6 +95,73 @@
     },
     "qualityGates": {
       "type": "object"
+    },
+    "skills": {
+      "type": "object",
+      "required": [
+        "globalPolicy",
+        "globalEssential",
+        "repositoryProfile",
+        "selectionMode",
+        "installMode",
+        "projectSelection"
+      ],
+      "properties": {
+        "globalPolicy": {
+          "const": "minimal-essential-only"
+        },
+        "globalEssential": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$"
+          },
+          "uniqueItems": true,
+          "allOf": [
+            {
+              "contains": {
+                "const": "grill-me"
+              }
+            },
+            {
+              "contains": {
+                "const": "harness-init"
+              }
+            }
+          ]
+        },
+        "repositoryProfile": {
+          "const": "user-saved"
+        },
+        "selectionMode": {
+          "const": "recommend-and-approve"
+        },
+        "installMode": {
+          "const": "copy"
+        },
+        "projectSelection": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "reason"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$"
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
     },
     "security": {
       "type": "object",

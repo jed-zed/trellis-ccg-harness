@@ -49,6 +49,23 @@ its strict ownership record and filesystem fingerprint still match; the
 original-before-first-management baseline is immutable across repeat bootstrap.
 User edits are preserved and reported for manual handling.
 
+Project Skill provisioning is a separate approval and ownership boundary:
+
+1. the first initialization refines and saves a user-level repository profile
+   at `~/.agents/harness/skill-repository.json`;
+2. later initializations reuse the canonical saved path unless it is no longer
+   a directory;
+3. read-only catalog discovery validates bounded `SKILL.md` frontmatter,
+   rejects duplicate names and links, and never executes repository content;
+4. the approved project contract binds each selected name and reason to an
+   owned `.agents/skills/<name>` target;
+5. installation copies a bounded, link-free snapshot and records profile,
+   source, and copied-tree digests in `.harness/project-skills.json`.
+
+Only `harness-init` and `grill-me` are required global defaults. Removing or
+moving pre-existing global Skills is deliberately outside initialization and
+requires a separate ownership-aware migration.
+
 ## Alternatives Considered
 
 - **Directly execute CCG source helpers:** rejected because the component is a
@@ -74,6 +91,11 @@ User edits are preserved and reported for manual handling.
 - Child processes receive an environment with credential-like and Claude
   variables removed.
 - Commands are executed with argument arrays and `shell: false`.
+- User-profile parent directories and catalog/project Skill trees reject
+  symbolic links and reparse points; project copies are bounded by depth, file
+  count, individual file size, and total size.
+- Skill profile and project manifests contain canonical paths or digests, never
+  provider credentials, and are written only after explicit approval.
 - Provider response content is not persisted; the probe emits capability
   counts and status only.
 - Bootstrap and lifecycle operations record exactly which global npm state they
@@ -96,6 +118,19 @@ is not exposed to untrusted task input.
   the Harness adapter.
 
 ## Change History
+
+### 2026-07-25 - Reusable project Skill provisioning
+
+**Change:** Added first-run user Skill-repository profiles, minimal global
+essentials, approved project selection, bounded copy snapshots, and an owned
+project Skill manifest.
+
+**Reason:** Reusable domain/task Skills belong in a user-selected catalog, while
+each project should receive only the small approved subset relevant to its
+constraints.
+
+**Impact:** Harness initialization contract, user profile storage, project
+`.agents/skills/`, documentation, threat model, and offline regression tests.
 
 ### 2026-07-23 - Layered adapter
 

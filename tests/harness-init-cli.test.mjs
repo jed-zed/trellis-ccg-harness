@@ -92,6 +92,42 @@ test("draft contracts are rejected without mutating the project", async () => {
   }
 });
 
+test("project Skill contracts enforce minimal globals and owned targets", () => {
+  const missingGlobal = approvedContract();
+  missingGlobal.skills.globalEssential = ["harness-init"];
+  assert.throws(
+    () => validateProjectContract(missingGlobal),
+    /globalEssential.*grill-me/i,
+  );
+
+  const duplicateGlobal = approvedContract();
+  duplicateGlobal.skills.projectSelection = [
+    {
+      name: "harness-init",
+      reason: "Must remain global.",
+    },
+  ];
+  duplicateGlobal.workflow.managedProjectPaths = [
+    ".agents/skills/harness-init",
+  ];
+  assert.throws(
+    () => validateProjectContract(duplicateGlobal),
+    /global essential/i,
+  );
+
+  const unmanagedTarget = approvedContract();
+  unmanagedTarget.skills.projectSelection = [
+    {
+      name: "test-first",
+      reason: "Needed for implementation work.",
+    },
+  ];
+  assert.throws(
+    () => validateProjectContract(unmanagedTarget),
+    /managedProjectPaths.*test-first/i,
+  );
+});
+
 test("approved contracts atomically create the owned Harness contract", async () => {
   const value = fixture();
   try {

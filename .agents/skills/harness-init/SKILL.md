@@ -1,6 +1,6 @@
 ---
 name: harness-init
-description: "Initialize or adopt the Trellis plus CCG Harness only after discovering and approving project constraints. Use at project start, when bringing an existing repository into the Harness, or when rebuilding missing .harness, .trellis, project Skill, hook, provider, quality-gate, source, update, and rollback contracts."
+description: "Use when starting a new project, adopting an existing repository into the Trellis plus CCG Harness, repairing missing Harness state, or selecting project-specific Skills from a reusable Skill repository."
 ---
 
 # Harness Init
@@ -8,7 +8,8 @@ description: "Initialize or adopt the Trellis plus CCG Harness only after discov
 Establish the project's Harness contract before development begins. Discover
 repository facts first, use `grill-me` for the decisions only the user can make,
 then initialize Trellis and CCG after the user explicitly approves the complete
-constraint summary.
+constraint summary. On the first trigger, also refine and persist the user's
+Skill profile; later projects reuse that saved path and policy.
 
 ## Non-Negotiable Gates
 
@@ -34,6 +35,46 @@ constraint summary.
 6. **Preserve existing ownership.** Treat every existing project or global file
    as user-owned until an ownership manifest or managed block proves otherwise.
    Merge or back up approved changes; never silently replace valid content.
+7. **Keep global Skills minimal.** The default global essentials are
+   `harness-init` and `grill-me`. Put task- or domain-specific Skills in the
+   user-selected Skill repository and copy only the approved relevant subset
+   into the project-level `.agents/skills/`.
+
+## Phase 0: First-Run Skill Profile
+
+Start every trigger with read-only `inspect`. Its `skillRepository` result
+decides the branch:
+
+- **First trigger (`configured: false`)** — after repository discovery, use
+  `grill-me` one question at a time to refine the initialization Skill:
+  1. the absolute, dedicated Skill repository path (not an active global
+     `.agents/skills` or `.codex/skills` tree);
+  2. the minimal global essential set (recommend `harness-init` and
+     `grill-me`);
+  3. reusable selection guidance and explicit exclusions;
+  4. confirmation that project Skills use approved copy snapshots rather than
+     links.
+- **Later trigger (`configured: true`)** — use the saved path. Do not ask for
+  the Skill repository path again. If the saved path is unavailable or invalid,
+  fail closed and ask only for a replacement path.
+
+Before approval, `catalog-skills --repository "<path>"` is read-only. Include
+the proposed profile in the final initialization summary. Only after explicit
+approval may the profile be saved:
+
+```powershell
+node scripts/harness-init.mjs configure-skills `
+  --repository "<absolute-skill-repository>" `
+  --global-essential "harness-init,grill-me" `
+  --guidance "<approved-selection-guidance>" `
+  --exclude "<approved-exclusions>" `
+  --approved
+```
+
+The saved user profile lives at
+`~/.agents/harness/skill-repository.json`. Do not automatically delete or move
+pre-existing global Skills; global cleanup is a separate ownership-aware,
+explicitly approved migration.
 
 ## Phase 1: Read-Only Discovery
 
@@ -49,6 +90,7 @@ inspection command:
 
 ```powershell
 node scripts/harness-init.mjs inspect --repo-root "<repository>"
+node scripts/harness-init.mjs catalog-skills
 ```
 
 An exported standalone Skill can run the same command through
@@ -81,6 +123,10 @@ Present a compact inventory with four sections:
 4. **Out of scope or deferred** — decisions that are safe to defer without
    changing the initial Harness behavior.
 
+Use the discovered project facts, saved guidance, Skill descriptions, and
+exclusions to recommend a small relevant project Skill set. Give one reason per
+Skill. Do not install every catalog entry.
+
 Do not write this inventory to the repository yet. Keep it in the conversation
 until the approval gate is satisfied.
 
@@ -96,10 +142,16 @@ Typical order:
 2. repository, package, and architecture authority;
 3. lifecycle, task, requirement, and spec authority;
 4. supported platforms, runtimes, and toolchain;
-5. quality gates and definition of done;
-6. security, data, secrets, network, and provider boundaries;
-7. hook and global-configuration policy;
-8. source provenance, dependency updates, rollback, and CI.
+5. recommended project Skill set and per-Skill rationale;
+6. quality gates and definition of done;
+7. security, data, secrets, network, and provider boundaries;
+8. hook and global-configuration policy;
+9. source provenance, dependency updates, rollback, and CI.
+
+Present the recommended Skill set as one decision and obtain explicit approval
+to add, remove, or accept it. Record the result in `skills.projectSelection`;
+each selected Skill also requires its `.agents/skills/<name>` target in
+`workflow.managedProjectPaths`.
 
 After each answer, recompute the remaining inventory. Do not ask about a later
 choice if the latest answer made it irrelevant. Do not batch questions into a
@@ -119,6 +171,8 @@ contract:
 - approved constraints and conventions;
 - in-scope and out-of-scope Harness behavior;
 - files and global locations that would change;
+- minimal global essentials, saved Skill repository profile, and exact
+  project-level Skill selection with reasons;
 - exact initialization and offline validation commands;
 - update, rollback, and uninstall expectations;
 - residual risks and deliberately deferred items.
@@ -150,9 +204,22 @@ After approval:
    non-inline dispatch, Claude enablement, and collisions with user-owned
    `.harness/` state. It creates `.harness/project.json`, its JSON Schema, and
    an ownership manifest only after approval.
-4. Reconcile project-local Skills, instructions, hooks, ignores, and adapter
-   files through managed blocks or ownership-aware copies. Do not mutate global
-   configuration unless it was listed and explicitly approved.
+4. Re-read the saved catalog, ensure it still matches the approved selection,
+   then install the exact project-level Skill copies:
+
+   ```powershell
+   node scripts/harness-init.mjs catalog-skills
+   node scripts/harness-init.mjs install-skills `
+     --repo-root "<repository>" `
+     --skills "<approved-comma-separated-names>" `
+     --approved
+   ```
+
+   The installer rejects global essentials, profile exclusions, unapproved
+   names, source links, source drift, and user-owned target collisions. It
+   records source and tree digests in `.harness/project-skills.json`. Reconcile
+   other project instructions, hooks, ignores, and adapter files through
+   managed blocks or ownership-aware copies.
 5. Load `trellis-spec-bootstrap` to generate or refresh code-backed
    `.trellis/spec/` guidelines. Existing code is the evidence source; templates
    are not the specification.

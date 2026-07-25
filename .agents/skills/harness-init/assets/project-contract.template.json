@@ -43,6 +43,17 @@
     "requiredCiChecks": [],
     "definitionOfDone": []
   },
+  "skills": {
+    "globalPolicy": "minimal-essential-only",
+    "globalEssential": [
+      "grill-me",
+      "harness-init"
+    ],
+    "repositoryProfile": "user-saved",
+    "selectionMode": "recommend-and-approve",
+    "installMode": "copy",
+    "projectSelection": []
+  },
   "security": {
     "dataClassification": null,
     "secretPolicy": "environment-or-owned-secret-store",

@@ -37,6 +37,23 @@ decisions that remain unresolved.
 - How are tasks started, resumed, checked, finished, and archived?
 - Which existing conventions should `trellis-spec-bootstrap` extract from code?
 
+## Skill Profile and Placement
+
+- Is this the first Harness initialization, or is a saved user Skill repository
+  profile already available?
+- What absolute repository path contains reusable task and domain Skills?
+- Which Skills are truly global essentials? Default to only `harness-init` and
+  `grill-me`.
+- What reusable selection guidance and explicit exclusions should be saved?
+- Which small project-relevant Skill set is recommended, why is each Skill
+  needed, and has the user explicitly approved the exact selection?
+- Does every selected Skill have an owned `.agents/skills/<name>` target in the
+  project contract?
+- Does project installation use bounded, link-free copies with a digest
+  manifest rather than mutable links?
+- If global cleanup is desired, is it handled as a separate ownership-aware
+  migration rather than an initialization side effect?
+
 ## Toolchain and Platforms
 
 - Required languages, runtimes, versions, package managers, compilers, and
@@ -94,5 +111,7 @@ decisions that remain unresolved.
 - All user-owned blocking decisions are resolved.
 - The proposed file/global changes are explicit.
 - The user approved the latest complete summary.
+- The saved Skill repository profile is valid or its replacement was approved.
+- The exact project Skill selection and reasons match the managed project paths.
 - The final project contract contains no credentials or placeholder decisions.
 - Doctor, conflict, source, quality, security, and CI gates are recorded.

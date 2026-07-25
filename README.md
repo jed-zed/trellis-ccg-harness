@@ -73,25 +73,46 @@ pwsh -NoProfile -File .\scripts\bootstrap.ps1 -LinkCcg
 这个 Skill 位于 [`.agents/skills/harness-init`](.agents/skills/harness-init)，
 执行顺序固定为：
 
-1. 只读检查仓库、工具链、现有规范、Hook、CI、来源与安全边界；
-2. 对仓库无法回答的决定调用 `grill-me`，每轮只问一个问题，并给出推荐项与取舍；
-3. 汇总完整项目约束，等待用户对最新版摘要明确批准；
-4. 批准后由可执行验证器拒绝草稿、凭据、越权 provider 和已有目录冲突，
+1. 首次触发时用 `grill-me` 细化 Skill 使用规范，让用户指定一个独立
+   Skill 仓库路径（不能与正在加载的全局 Skill 目录重叠），并把路径与
+   最小全局 Skill 集保存在用户配置中；以后初始化直接复用，不重复询问有效路径；
+2. 只读检查仓库、工具链、现有规范、Hook、CI、来源与安全边界，并从
+   已保存仓库中推荐一小组与本项目相关的 Skill；
+3. 对仓库无法回答的决定调用 `grill-me`，每轮只问一个问题，并给出推荐项与取舍；
+4. 汇总完整项目约束和逐项 Skill 选择理由，等待用户对最新版摘要明确批准；
+5. 批准后由可执行验证器拒绝草稿、凭据、越权 provider 和已有目录冲突，
    再原子写入 `.harness/project.json`、Schema 与所有权清单；
-5. 协调 Trellis/CCG，并通过
+6. 把批准的非全局 Skill 复制到项目级 `.agents/skills/`，写入
+   `.harness/project-skills.json`，并校验仓库快照摘要、契约选择与目标所有权；
+7. 协调 Trellis/CCG，并通过
    `trellis-spec-bootstrap` 生成基于现有代码事实的规范；
-6. 运行离线 doctor、冲突、来源和质量门禁。
+8. 运行离线 doctor、冲突、来源和质量门禁。
 
 初始化阶段默认不调用 Grok、Claude、GPT Pro、付费模型或联网服务，
-也不会读取密钥值。现有文件在没有所有权清单前一律按用户资产处理。
+也不会读取密钥值。全局默认只保留 `harness-init` 与 `grill-me` 两个
+必要 Skill；现有全局 Skill 不会被初始化过程擅自删除或移动，清理由独立的
+所有权感知迁移处理。现有文件在没有所有权清单前一律按用户资产处理。
 
 ```powershell
 # 只读发现；不会创建 .harness
 node .\scripts\harness-init.mjs inspect --repo-root .
 
+# 首次细化并批准后保存 Skill 仓库；以后 catalog-skills 自动复用此路径
+node .\scripts\harness-init.mjs configure-skills `
+  --repository <absolute-skill-repository> `
+  --global-essential "harness-init,grill-me" `
+  --guidance "<approved-selection-guidance>" `
+  --exclude "<optional-comma-separated-exclusions>" `
+  --approved
+node .\scripts\harness-init.mjs catalog-skills
+
 # grill-me 完成且用户批准最终约束后
 node .\scripts\harness-init.mjs validate --contract .\approved-contract.json
 node .\scripts\harness-init.mjs apply --repo-root . --contract .\approved-contract.json
+node .\scripts\harness-init.mjs install-skills `
+  --repo-root . `
+  --skills "<approved-comma-separated-skill-names>" `
+  --approved
 
 # 把可独立运行的初始化 Skill 导出到另一个项目；遇到同名目录会拒绝覆盖
 node .\scripts\harness-init.mjs export-skill --target <repository>

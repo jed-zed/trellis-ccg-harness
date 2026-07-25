@@ -91,3 +91,40 @@ test('harness-init delegates contract mutation to the executable validator', asy
   assert.equal(schema.properties.authorities.properties.lifecycle.const, 'trellis')
   assert.equal(schema.properties.workflow.properties.dispatchMode.const, 'inline')
 })
+
+test('harness-init refines and reuses a minimal-global project Skill profile', async () => {
+  const skill = await readSkillFile('SKILL.md')
+  const template = JSON.parse(
+    await readSkillFile('assets', 'project-contract.template.json'),
+  )
+  const schema = JSON.parse(
+    await readSkillFile('assets', 'project-contract.schema.json'),
+  )
+
+  assert.match(skill, /first trigger|first-run/i)
+  assert.match(skill, /Skill repository/i)
+  assert.match(skill, /global.*(?:minimal|essential)/is)
+  assert.match(skill, /project(?:-local|-level).*\.agents\/skills/is)
+  assert.match(skill, /saved path|do not ask.*path again/is)
+  assert.match(skill, /configure-skills/)
+  assert.match(skill, /catalog-skills/)
+  assert.match(skill, /install-skills/)
+  assert.match(skill, /recommend[\s\S]*explicit approval/i)
+  assert.deepEqual(template.skills, {
+    globalPolicy: 'minimal-essential-only',
+    globalEssential: ['grill-me', 'harness-init'],
+    repositoryProfile: 'user-saved',
+    selectionMode: 'recommend-and-approve',
+    installMode: 'copy',
+    projectSelection: [],
+  })
+  assert.ok(schema.required.includes('skills'))
+  assert.equal(
+    schema.properties.skills.properties.globalPolicy.const,
+    'minimal-essential-only',
+  )
+  assert.equal(
+    schema.properties.skills.properties.installMode.const,
+    'copy',
+  )
+})
