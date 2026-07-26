@@ -201,6 +201,53 @@ test("source verifier rejects authoritative and component dirty state", () => {
   }
 });
 
+test("CCG update preflight permits checkout drift but still binds the recorded commit tree", () => {
+  const value = fixture();
+  try {
+    writeSourceFiles(value.sourceRoot, "newer checkout");
+    commitAll(value.sourceRoot, "newer personal source");
+    write(path.join(value.sourceRoot, "untracked.txt"), "unrelated worktree state\n");
+
+    const strict = verify(value);
+    assert.notEqual(strict.status, 0);
+    assert.match(
+      `${strict.stdout}\n${strict.stderr}`,
+      /checkout HEAD mismatch|checkout is dirty/i,
+    );
+
+    const preflight = verify(value, ["-AllowAuthoritativeCheckoutDrift"]);
+    assert.equal(preflight.status, 0, `${preflight.stdout}\n${preflight.stderr}`);
+
+    const componentResidue = path.join(
+      value.harnessRoot,
+      "components",
+      "ccg-workflow",
+      "residue.txt",
+    );
+    write(componentResidue, "untracked component drift\n");
+    const dirtyComponent = verify(value, ["-AllowAuthoritativeCheckoutDrift"]);
+    assert.notEqual(dirtyComponent.status, 0);
+    assert.match(
+      `${dirtyComponent.stdout}\n${dirtyComponent.stderr}`,
+      /component is dirty/i,
+    );
+    rmSync(componentResidue);
+
+    const manifestPath = path.join(value.harnessRoot, "harness.sources.json");
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    manifest.ccg.gitTree = "f".repeat(40);
+    writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+    const forgedTree = verify(value, ["-AllowAuthoritativeCheckoutDrift"]);
+    assert.notEqual(forgedTree.status, 0);
+    assert.match(
+      `${forgedTree.stdout}\n${forgedTree.stderr}`,
+      /authoritative commit to Git tree mismatch/i,
+    );
+  } finally {
+    value.cleanup();
+  }
+});
+
 test("index verification reads the staged tree and rejects untracked residue", () => {
   const value = fixture();
   try {

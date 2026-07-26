@@ -75,6 +75,43 @@ Adopt the recommended layered-adapter architecture without losing the complete p
   newly initialized projects through the existing `harness-init` source and
   ownership-aware apply path. Preserve Trellis-managed and user-owned
   `AGENTS.md` content.
+- Keep Codex-native Harness and CCG operation completely independent from
+  user-level and project-level `.claude/` directories. Codex-mode install,
+  routing, doctor, initialization, and plugin instructions must not create,
+  restore, read as a runtime dependency, or write `~/.claude/` or project
+  `.claude/`.
+- Put the Codex CCG runtime configuration and route entry point under
+  `~/.codex/ccg/` or the installed Codex plugin/CLI package. Legacy
+  Claude-oriented CCG commands may remain available to other users, but the
+  Harness and Codex-mode paths must never invoke them.
+- Initialize Trellis project integrations for this distribution through
+  `.agents/` and `.codex/` only. The absence of generated project `.claude/`
+  assets is the expected healthy state.
+- Bundle all 14 public Harness platform Skills, including `grill-me`, in the
+  Harness distribution and project them globally as owned copies. `grill-me`
+  is no longer an external runtime prerequisite.
+- Publish the 45 personal Skills as a separate private catalog until each
+  Skill's provenance and licence permit public redistribution. The public
+  Harness baseline must work without that catalog; authenticated users may opt
+  into it, use another local Git catalog, or skip it.
+- Migrate selected personal Skills into project-local link-free owned snapshots
+  only after an explicit source and selection decision.
+- Split guided initialization into two explicit phases. Global Init installs
+  and verifies the Harness-wide runtime; Project Init discovers one repository,
+  recommends project Skills from its technology choices, captures its complete
+  constraints, obtains approval, and applies the contract plus required gates.
+- During Global Init, inspect installed and authenticated state for the Codex,
+  Gemini, Grok, and Claude Code CLIs without mutating them. Offer installation
+  for missing optional/required tools and assisted login for installed but
+  unauthenticated tools, with separate explicit approval before every network,
+  installation, or login action.
+- Skip Claude Code by default because installing or authenticating it may create
+  `~/.claude/`. Opting into Claude authentication exits the zero-`.claude`
+  acceptance profile, but Harness and CCG still may not read or write any
+  `.claude/` path.
+- Make global Skill projection, project selection revision, backup, rollback,
+  and global `AGENTS.md` repository discovery ownership-aware, transactional,
+  idempotent, and fail-closed on user edits or concurrent drift.
 
 ## Acceptance Criteria
 
@@ -161,12 +198,57 @@ Adopt the recommended layered-adapter architecture without losing the complete p
 - [x] `harness-init mark-ready` atomically promotes an intact approved contract
   and its ownership digest, is idempotent after success, and refuses contract,
   schema, policy, block, or ownership drift without mutation.
+- [x] Codex-mode CCG install, route, doctor, plugin guidance, and Harness
+  initialization pass tests proving they do not create or depend on any
+  `.claude/` directory.
+- [x] The project remains functional with root `.claude/` absent, while
+  `.agents/`, `.codex/`, Trellis hooks, Skills, and adapter gates pass.
+- [x] The 14 platform Skills are globally available from owned Harness
+  projections, the 45 personal Skills are recoverably migrated to the local
+  Skill repository, and `ponytail` plus `caveman` are installed in this project
+  as ordinary link-free snapshots.
+- [x] Repeated global/project Skill apply is unchanged; edited projections,
+  linked sources, invalid ready revisions, transaction interruption, and
+  concurrent drift fail closed or recover deterministically.
+- [ ] The released Codex-only CCG is versioned `3.3.1`, all user-facing
+  package/plugin/config metadata agrees, and the Harness snapshot plus
+  `harness.sources.json` bind its exact committed tree.
+- [ ] A fresh Harness installation projects all 14 bundled public platform
+  Skills, including `grill-me`, without relying on an existing global Skill
+  checkout or a personal catalog.
+- [ ] Initial setup offers host-native structured choices where the host
+  supports them; the TTY fallback presents numbered one-at-a-time choices, and
+  automation has explicit non-interactive flags with no implicit selection.
+- [ ] Global Init reports installation and authentication status for Codex,
+  Gemini, Grok, and Claude Code; installs/verifies Trellis, the CCG Codex-only
+  CLI/plugin, and all 14 platform Skills; then records the user's private/local/
+  skipped personal-catalog decision.
+- [ ] Every network access, tool installation, and authentication action has a
+  distinct preview and approval. Declining one optional action leaves a clear
+  skipped/residual status instead of blocking unrelated offline setup.
+- [ ] Claude Code is skipped by default. If the user explicitly selects its
+  installation or login, the result is marked outside the zero-`.claude`
+  acceptance profile while the Harness/CCG no-`.claude` invariant remains.
+- [ ] Project Init derives recommended project Skills from repository evidence
+  and confirmed technology choices, obtains approval for the complete project
+  constraint summary, writes the owned contract, and runs the required doctor,
+  conflict, quality, security, and readiness gates.
+- [ ] Setup offers three personal-catalog choices: the authenticated private
+  catalog, an existing local Git catalog, or skip. Its default/public baseline
+  does not require the private catalog.
+- [ ] A clean-install acceptance run under a new temporary user home completes
+  the supported bootstrap and initialization flow and proves no user-level or
+  project `.claude/` directory was created.
+- [ ] Harness and CCG changes are pushed only after all required local and
+  remote CI gates are green; release tags are created from the verified `main`
+  commits.
 - [ ] PR #2 description, review threads, verification evidence, and Ready state
   match the final post-fix Head.
 
 ## Constraints
 
 - Do not call Claude during planning, implementation, review, or verification.
+- Do not restore or create `C:\Users\29933\.claude` or project `.claude/`.
 - Do not call Grok during this implementation; retain only the optional provider contract and offline tests.
 - Do not modify or restage the two Windows endpoint-protection false-positive files.
 - Do not write the supplied API key to Git, task artifacts, shell history, logs, or test fixtures.
@@ -178,7 +260,9 @@ Adopt the recommended layered-adapter architecture without losing the complete p
 - Replacing the CCG official Grok CLI/ACP implementation.
 - Mutating unrelated user-level Codex content outside ownership-aware managed
   blocks and manifest entries.
-- Enabling Claude assets generated by Trellis.
+- Enabling or restoring Claude assets generated by Trellis.
 - Editing Ponytail/Caveman Skills, CodeGraph/fast-context MCPs, plugin caches,
-  or the recorded personal CCG component snapshot.
+  or the two protected CCG security reference files. Canonical personal CCG
+  source may change only for the approved Codex decoupling and must be rebuilt,
+  tested, and installed through supported package/plugin paths.
 - Automatically creating or refreshing a CodeGraph index.

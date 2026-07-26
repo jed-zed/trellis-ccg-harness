@@ -30,21 +30,24 @@ test("recorded Trellis version keeps the Harness-owned inline and hook boundarie
   assert.match(commands, /scripts[\\/]python-hook-runner\.mjs/);
   assert.doesNotMatch(commands, /python -X utf8/);
 
-  for (const platformRoot of [".agents", ".claude"]) {
-    assert.equal(
-      existsSync(
-        path.join(
-          ROOT,
-          platformRoot,
-          "skills",
-          "trellis-spec-bootstarp",
-          "SKILL.md",
-        ),
+  assert.equal(
+    existsSync(path.join(ROOT, ".claude")),
+    false,
+    "the Harness project must not project any Claude runtime assets",
+  );
+  assert.equal(
+    existsSync(
+      path.join(
+        ROOT,
+        ".agents",
+        "skills",
+        "trellis-spec-bootstarp",
+        "SKILL.md",
       ),
-      false,
-      `${platformRoot} must not expose the misspelled duplicate skill`,
-    );
-  }
+    ),
+    false,
+    ".agents must not expose the misspelled duplicate skill",
+  );
 
   assert.match(await text(".gitattributes"), /journal-\*\.md\s+merge=union/);
 });

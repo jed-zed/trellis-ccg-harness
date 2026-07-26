@@ -17,8 +17,14 @@ runtime model policy, and provider boundaries deterministic.
 - `verify-sources.ps1`: verifies Trellis/CCG versions and the exact personal CCG
   Git tree, authoritative checkout, dirty state, and optional staged index
   without trusting unreadable working-tree files.
-- `bootstrap.ps1`: installs dependencies and optionally links the personal CCG
-  CLI inside a rollback-capable ownership transaction.
+- `install.ps1`: public, user-facing Global Setup. It previews and obtains
+  explicit approval for exact Trellis/CCG installation, Codex mode, the
+  snapshot-local Codex plugin, all 14 bundled platform Skills, catalog choice,
+  and Global Init. Provider CLI install/login selections remain unexecuted
+  guidance that needs a separate approval.
+- `bootstrap.ps1`: internal toolchain bootstrap. It installs dependencies and
+  optionally links the personal CCG CLI inside a rollback-capable ownership
+  transaction; users normally enter through `pnpm setup`.
 - `harness-init.mjs`: performs read-only discovery, persists an explicitly
   approved user Skill-repository profile, applies only a credential-free
   project contract plus the ownership-recorded collaboration-policy block in
@@ -49,12 +55,19 @@ personal CCG source implementation.
 ## Quick Use
 
 ```powershell
+pnpm setup
 node .\scripts\harness-adapter.mjs context
 node .\scripts\harness-adapter.mjs conflicts
+node .\scripts\harness-init.mjs global-init --non-interactive --home-dir <absolute-user-home> --catalog-mode skip --provider-actions "codex=later,gemini=later,grok=later,claude=skip" --approved
 node .\scripts\harness-init.mjs inspect --repo-root .
-node .\scripts\harness-init.mjs configure-skills --repository <absolute-path> --global-essential "harness-init,grill-me" --approved
+node .\scripts\harness-init.mjs project-init --repo-root . --home-dir <absolute-user-home> --contract <approved-contract.json> --no-project-skills --non-interactive --approved
+node .\scripts\harness-init.mjs configure-skills --repository <absolute-path> --global-essential "grill-me,harness-init,trellis-before-dev,trellis-brainstorm,trellis-break-loop,trellis-channel,trellis-check,trellis-continue,trellis-finish-work,trellis-meta,trellis-session-insight,trellis-spec-bootstrap,trellis-start,trellis-update-spec" --approved
 node .\scripts\harness-init.mjs catalog-skills
 node .\scripts\harness-init.mjs install-skills --repo-root . --skills "<approved-names>" --approved
+node .\scripts\harness-init.mjs skill-migration-plan --repo-root . --repository <absolute-path> --skills "<approved-names>"
+node .\scripts\harness-init.mjs skill-migration-apply --repo-root . --repository <absolute-path> --skills "<approved-names>" --inventory-sha256 <sha256> --approved
+node .\scripts\harness-init.mjs skill-migration-status --repo-root .
+node .\scripts\harness-init.mjs skill-migration-rollback --repo-root . --backup-id <id> --approved
 node .\scripts\harness-init.mjs mark-ready --repo-root .
 pnpm harness:test
 pwsh -NoProfile -File .\scripts\doctor.ps1
@@ -64,6 +77,21 @@ pnpm harness:rollback
 pnpm harness:recover
 pnpm harness:uninstall
 ```
+
+`pnpm setup` is Global Setup and runs Global Init. It never calls legacy
+`ccg init`. Non-interactive execution intentionally requires the complete
+catalog/provider flags plus `-Approved`, `-ApproveTrellis`, `-ApproveCcgCli`,
+`-ApproveCodexMode`, `-ApproveCcgPlugin`, and `-ApproveGlobalInit`.
+`bootstrap.ps1` remains available to lifecycle tooling and maintainers, but is
+not the public installation flow.
+
+CCG package and marketplace identity use the release base version, while the
+plugin manifest and Harness ownership record use the exact `+codex.<build>`
+version from that same snapshot. Codex inspection may expose either the exact
+base version or that exact plugin build; setup accepts only those two values
+from the recorded local marketplace/source. A different build, source path,
+marketplace, duplicate, or ownership record fails closed. Codex cache
+directories use the exact plugin-build version.
 
 The optional Grok probe is explicit and reads credentials only from
 `HARNESS_GROK_*` process environment variables.
@@ -75,7 +103,17 @@ The repository must be dedicated and cannot overlap active global
 Project installation copies a bounded, link-free snapshot into
 `.agents/skills/` and records source/profile/tree digests in
 `.harness/project-skills.json`; it never installs an unapproved catalog entry
-or silently overwrites user-owned paths.
+or silently overwrites user-owned paths. Ready-project revision records clean,
+credential-free catalog remotes, preserves existing approved selection
+reasons, and uses a neutral project-specific reason for newly selected Skills.
+
+The platform migration seeds or validates a user-selected, credential-free Git
+catalog of any bounded size, keeps all 14 Harness platform Skills global,
+projects the repository path into an independently owned global `AGENTS.md`
+block, revises an intact `ready` project through schema-v3 ownership when
+project Skills are selected, and moves old globals only into a recoverable
+backup. Planning and status are read-only; apply and rollback require explicit
+approval and fail closed on digest drift.
 
 Lifecycle operations never fetch from the public CCG upstream or a mutable npm
 selector. CCG update accepts only the personal repository, a clean

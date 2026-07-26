@@ -1,7 +1,8 @@
 [CmdletBinding()]
 param(
   [string]$RepoRoot = (Split-Path -Parent $PSScriptRoot),
-  [switch]$Index
+  [switch]$Index,
+  [string]$CcgUpdateTargetVersion
 )
 
 $ErrorActionPreference = "Stop"
@@ -39,6 +40,59 @@ function Add-Pass([string]$Message) {
 function Add-Warning([string]$Message) {
   $warnings.Add($Message)
   Write-Output "WARN  $Message"
+}
+
+function Test-CcgUpdateTargetDrift($Finding) {
+  # The lifecycle derives this version from the validated target commit. Keep
+  # the exception exact so arbitrary runtime drift remains blocking.
+  if (
+    -not $CcgUpdateTargetVersion -or
+    [string]$Finding.status -ne "conflict" -or
+    [string]$Finding.id -notin @("ccg-runtime-cli", "ccg-plugin-cache")
+  ) {
+    return $false
+  }
+  $expected = [string]$Finding.evidence.expected
+  $actual = [string]$Finding.evidence.actual
+  if (
+    $expected -ne [string]$manifest.ccg.version -or
+    -not $actual -or
+    $actual -eq "missing"
+  ) {
+    return $false
+  }
+  if ([string]$Finding.id -eq "ccg-runtime-cli") {
+    return $actual -eq $CcgUpdateTargetVersion
+  }
+  return (
+    $actual -eq $CcgUpdateTargetVersion -or
+    $actual.StartsWith(
+      "$CcgUpdateTargetVersion+",
+      [StringComparison]::OrdinalIgnoreCase
+    )
+  )
+}
+
+function Write-AdapterFinding($Finding) {
+  $label = if ([string]$Finding.status -eq "ok") {
+    "PASS"
+  }
+  elseif ([string]$Finding.severity -eq "blocking") {
+    "BLOCK"
+  }
+  elseif ([string]$Finding.severity -eq "warning") {
+    "WARN"
+  }
+  else {
+    "INFO"
+  }
+  Write-Output "$($label.PadRight(5)) $($Finding.id): $($Finding.summary)"
+  if ([string]$Finding.status -ne "ok" -and $null -ne $Finding.evidence) {
+    Write-Output "      evidence: $($Finding.evidence | ConvertTo-Json -Compress -Depth 10)"
+  }
+  if ([string]$Finding.status -ne "ok" -and $Finding.action) {
+    Write-Output "      action: $($Finding.action)"
+  }
 }
 
 $nodeVersion = Read-Version "node"
@@ -91,17 +145,25 @@ else {
 
 $ccgRoot = Join-Path $RepoRoot ([string]$manifest.ccg.snapshotPath)
 $ccgBin = Join-Path $ccgRoot "bin/ccg.mjs"
-$localCcgVersion = & node $ccgBin --version 2>&1
-$localCcgText = ($localCcgVersion -join [Environment]::NewLine).Trim()
-$expectedCcgPattern = "(?:^|[/@])$([Regex]::Escape([string]$manifest.ccg.version))(?:$|\s)"
-if ($LASTEXITCODE -ne 0) {
-  Add-Failure "The activated CCG CLI cannot run from its final Harness path."
-}
-elseif ($localCcgText -ne [string]$manifest.ccg.version -and $localCcgText -notmatch $expectedCcgPattern) {
-  Add-Failure "Activated CCG CLI must be $($manifest.ccg.version); found $($localCcgVersion -join ' ')."
+if ($CcgUpdateTargetVersion) {
+  Add-Pass (
+    "Current CCG snapshot uses package/source verification; local CLI smoke " +
+    "is deferred to strict post-replacement verification"
+  )
 }
 else {
-  Add-Pass "Activated CCG CLI $($manifest.ccg.version)"
+  $localCcgVersion = & node $ccgBin --version 2>&1
+  $localCcgText = ($localCcgVersion -join [Environment]::NewLine).Trim()
+  $expectedCcgPattern = "(?:^|[/@])$([Regex]::Escape([string]$manifest.ccg.version))(?:$|\s)"
+  if ($LASTEXITCODE -ne 0) {
+    Add-Failure "The activated CCG CLI cannot run from its final Harness path."
+  }
+  elseif ($localCcgText -ne [string]$manifest.ccg.version -and $localCcgText -notmatch $expectedCcgPattern) {
+    Add-Failure "Activated CCG CLI must be $($manifest.ccg.version); found $($localCcgVersion -join ' ')."
+  }
+  else {
+    Add-Pass "Activated CCG CLI $($manifest.ccg.version)"
+  }
 }
 
 $transactionState = Join-Path $RepoRoot ".harness-cache"
@@ -129,7 +191,14 @@ foreach ($runtimeDirectory in @("staging", "discard", "file-discard")) {
 }
 
 try {
-  & (Join-Path $PSScriptRoot "verify-sources.ps1") -RepoRoot $RepoRoot -Index:$Index
+  $verifySourceArguments = @{
+    RepoRoot = $RepoRoot
+    Index = $Index
+  }
+  if ($CcgUpdateTargetVersion) {
+    $verifySourceArguments.AllowAuthoritativeCheckoutDrift = $true
+  }
+  & (Join-Path $PSScriptRoot "verify-sources.ps1") @verifySourceArguments
   Add-Pass "Personal source provenance and Git tree"
 }
 catch {
@@ -141,14 +210,88 @@ $adapterArguments = @($adapterScript, "conflicts")
 if ($Index) {
   $adapterArguments += "--index"
 }
+if ($CcgUpdateTargetVersion) {
+  $adapterArguments += "--json"
+}
 $adapterOutput = & node @adapterArguments 2>&1
 $adapterExitCode = $LASTEXITCODE
-$adapterOutput | ForEach-Object { Write-Output $_ }
-if ($adapterExitCode -eq 0) {
-  Add-Pass "Layered adapter conflict audit"
+if (-not $CcgUpdateTargetVersion) {
+  $adapterOutput | ForEach-Object { Write-Output $_ }
+  if ($adapterExitCode -eq 0) {
+    Add-Pass "Layered adapter conflict audit"
+  }
+  else {
+    Add-Failure "Layered adapter conflict audit exited with code $adapterExitCode."
+  }
 }
 else {
-  Add-Failure "Layered adapter conflict audit exited with code $adapterExitCode."
+  $adapterReport = $null
+  try {
+    $adapterReport = ($adapterOutput -join [Environment]::NewLine) | ConvertFrom-Json
+    if ($null -eq $adapterReport.findings -or $null -eq $adapterReport.summary) {
+      throw "Adapter report is missing findings or summary."
+    }
+  }
+  catch {
+    Add-Failure "Layered adapter conflict audit returned invalid JSON: $($_.Exception.Message)"
+  }
+  if ($adapterReport) {
+    $blockingFindings = [System.Collections.Generic.List[object]]::new()
+    $runtimeTargetRejected = $false
+    $runtimeFindings = @(
+      $adapterReport.findings |
+        Where-Object { [string]$_.id -eq "ccg-runtime-cli" }
+    )
+    if ($runtimeFindings.Count -ne 1) {
+      Add-Failure (
+        "CCG update preflight requires exactly one global CCG runtime finding; " +
+        "found $($runtimeFindings.Count)."
+      )
+      $runtimeTargetRejected = $true
+    }
+    foreach ($finding in @($adapterReport.findings)) {
+      if ([string]$finding.id -eq "ccg-runtime-cli") {
+        $runtimeVersion = [string]$finding.evidence.actual
+        if ($runtimeVersion -ne $CcgUpdateTargetVersion) {
+          $reportedRuntimeVersion = if ($runtimeVersion) {
+            $runtimeVersion
+          }
+          else {
+            "missing"
+          }
+          Add-Failure (
+            "Global CCG runtime must match update target " +
+            "$CcgUpdateTargetVersion; found $reportedRuntimeVersion."
+          )
+          $runtimeTargetRejected = $true
+          continue
+        }
+      }
+      if (Test-CcgUpdateTargetDrift $finding) {
+        Add-Warning (
+          "CCG update preflight permits $($finding.id) target drift: " +
+          "$($finding.evidence.expected) -> $($finding.evidence.actual)."
+        )
+        continue
+      }
+      Write-AdapterFinding $finding
+      if (
+        [string]$finding.status -eq "conflict" -and
+        [string]$finding.severity -eq "blocking"
+      ) {
+        $blockingFindings.Add($finding)
+      }
+    }
+    if ($adapterExitCode -notin @(0, 2)) {
+      Add-Failure "Layered adapter conflict audit exited unexpectedly with code $adapterExitCode."
+    }
+    elseif ($blockingFindings.Count -gt 0) {
+      Add-Failure "Layered adapter conflict audit exited with code 2."
+    }
+    elseif (-not $runtimeTargetRejected) {
+      Add-Pass "Layered adapter conflict audit for CCG update target $CcgUpdateTargetVersion"
+    }
+  }
 }
 
 $origin = (& git -C $RepoRoot remote get-url origin 2>$null).Trim()

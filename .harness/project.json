@@ -128,7 +128,19 @@
     "globalPolicy": "minimal-essential-only",
     "globalEssential": [
       "grill-me",
-      "harness-init"
+      "harness-init",
+      "trellis-before-dev",
+      "trellis-brainstorm",
+      "trellis-break-loop",
+      "trellis-channel",
+      "trellis-check",
+      "trellis-continue",
+      "trellis-finish-work",
+      "trellis-meta",
+      "trellis-session-insight",
+      "trellis-spec-bootstrap",
+      "trellis-start",
+      "trellis-update-spec"
     ],
     "repositoryProfile": "user-saved",
     "selectionMode": "recommend-and-approve",

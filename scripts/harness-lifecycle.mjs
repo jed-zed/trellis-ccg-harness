@@ -510,16 +510,30 @@ async function exportCommit(checkout, commit, temporaryRoot, exclusions = []) {
   };
 }
 
-function runHarnessDoctor(repoRoot) {
+export function buildHarnessDoctorArguments(
+  repoRoot,
+  { ccgUpdateTargetVersion = null } = {},
+) {
+  const doctorArguments = [
+    "-NoProfile",
+    "-File",
+    path.join(repoRoot, "scripts", "doctor.ps1"),
+    "-RepoRoot",
+    repoRoot,
+  ];
+  if (ccgUpdateTargetVersion) {
+    doctorArguments.push(
+      "-CcgUpdateTargetVersion",
+      ccgUpdateTargetVersion,
+    );
+  }
+  return doctorArguments;
+}
+
+function runHarnessDoctor(repoRoot, options = {}) {
   run(
     "pwsh",
-    [
-      "-NoProfile",
-      "-File",
-      path.join(repoRoot, "scripts", "doctor.ps1"),
-      "-RepoRoot",
-      repoRoot,
-    ],
+    buildHarnessDoctorArguments(repoRoot, options),
     { cwd: repoRoot },
   );
 }
@@ -546,6 +560,32 @@ function validateResolvedUpdateSource(resolved, args, manifest) {
     },
     actual: { repository, commit, gitTree },
   });
+}
+
+function readTargetCcgVersion(resolved, source, manifest) {
+  let targetPackage;
+  try {
+    targetPackage = JSON.parse(
+      git(
+        resolved.checkout,
+        ["show", `${source.commit}:package.json`],
+        { capture: true },
+      ),
+    );
+  } catch (error) {
+    throw new Error(
+      `Target CCG package manifest is missing or invalid: ${error.message}`,
+    );
+  }
+  if (targetPackage.name !== manifest.ccg.package) {
+    throw new Error(
+      `Target CCG package mismatch: expected ${manifest.ccg.package}, `
+      + `got ${targetPackage.name ?? "missing"}.`,
+    );
+  }
+  const version = String(targetPackage.version ?? "");
+  compareSemanticVersions(version, version);
+  return version;
 }
 
 async function prepareUpdateCandidate(args, manifest, resolved, temporaryRoot) {
@@ -768,6 +808,15 @@ function collectWorktreeChanges(worktree) {
     ),
   );
   const changed = [...new Set([...tracked, ...untracked])].sort();
+  const claudeChanges = changed.filter(
+    (relative) =>
+      relative === ".claude" || relative.startsWith(".claude/"),
+  );
+  if (claudeChanges.length > 0) {
+    throw new Error(
+      `Trellis candidate retained forbidden Claude runtime changes: ${claudeChanges.join(", ")}.`,
+    );
+  }
   const conflicts = changed.filter((relative) =>
     relative.endsWith(".new"),
   );
@@ -783,6 +832,27 @@ function collectWorktreeChanges(worktree) {
       !relative.startsWith(".trellis/spec/") &&
       !relative.startsWith(".trellis/workspace/"),
   );
+}
+
+function restoreProjectClaudeBaseline(worktree) {
+  const tracked = splitNullList(
+    git(
+      worktree,
+      ["ls-tree", "-r", "--name-only", "-z", "HEAD", "--", ".claude"],
+      { capture: true },
+    ),
+  );
+  if (tracked.length > 0) {
+    git(worktree, [
+      "restore",
+      "--source=HEAD",
+      "--staged",
+      "--worktree",
+      "--",
+      ".claude",
+    ]);
+  }
+  git(worktree, ["clean", "-fd", "--", ".claude"], { capture: true });
 }
 
 async function addSparseTrellisWorktree(repoRoot, worktree) {
@@ -893,6 +963,7 @@ async function prepareTrellisWorktree(
     worktree,
     args.trellisVersion,
   );
+  restoreProjectClaudeBaseline(worktree);
   await updateTrellisCandidateProvenance(
     worktree,
     manifest,
@@ -993,6 +1064,11 @@ async function updateCcgHarness(args, manifest) {
     path.join(tmpdir(), "trellis-ccg-export-"),
   );
   try {
+    const source = validateResolvedUpdateSource(resolved, args, manifest);
+    const targetVersion = readTargetCcgVersion(resolved, source, manifest);
+    runHarnessDoctor(args.repoRoot, {
+      ccgUpdateTargetVersion: targetVersion,
+    });
     const prepared = await prepareUpdateCandidate(
       args,
       manifest,
@@ -1078,8 +1154,8 @@ async function updateHarness(args) {
   const manifest = await readJson(
     path.join(args.repoRoot, "harness.sources.json"),
   );
-  runHarnessDoctor(args.repoRoot);
   if (args.trellisVersion) {
+    runHarnessDoctor(args.repoRoot);
     return updateTrellisHarness(args, manifest);
   }
   return updateCcgHarness(args, manifest);

@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import path from "node:path";
 
 import {
@@ -100,24 +100,53 @@ function checkPluginCache({
   add,
   homeDir,
 }) {
-  const pluginManifestPath = path.join(
+  const pluginCacheRoot = path.join(
     homeDir,
     ".codex",
     "plugins",
     "cache",
     "ccg-gptpro-worflow",
     "ccg",
-    sources.ccg.version,
-    ".codex-plugin",
-    "plugin.json",
   );
   let pluginVersion = null;
   try {
-    pluginVersion = readJson(pluginManifestPath).version;
+    const candidates = readdirSync(pluginCacheRoot, {
+      withFileTypes: true,
+    })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name)
+      .filter(
+        (version) =>
+          version === sources.ccg.version ||
+          version.startsWith(`${sources.ccg.version}+`),
+      )
+      .sort((left, right) => right.localeCompare(left));
+    for (const candidate of candidates) {
+      const manifest = readJson(
+        path.join(
+          pluginCacheRoot,
+          candidate,
+          ".codex-plugin",
+          "plugin.json",
+        ),
+      );
+      if (
+        manifest.version === candidate &&
+        (
+          manifest.version === sources.ccg.version ||
+          manifest.version.startsWith(`${sources.ccg.version}+`)
+        )
+      ) {
+        pluginVersion = manifest.version;
+        break;
+      }
+    }
   } catch {
     // A missing user cache is setup drift, not source drift.
   }
-  const matches = pluginVersion === sources.ccg.version;
+  const matches =
+    pluginVersion === sources.ccg.version ||
+    pluginVersion?.startsWith(`${sources.ccg.version}+`);
   add(
     "ccg-plugin-cache",
     pluginVersion && !matches ? "blocking" : "warning",
@@ -211,6 +240,54 @@ export function runUserStateChecks(context) {
   checkPromptHookOverlap(context);
 }
 
+function directoryEntries(directory) {
+  try {
+    return readdirSync(directory, { withFileTypes: true });
+  } catch (error) {
+    if (error?.code === "ENOENT") return [];
+    throw error;
+  }
+}
+
+function findHarnessClaudeAssets(repoRoot) {
+  const claudeRoot = path.join(repoRoot, ".claude");
+  const found = [];
+  for (const directory of ["agents", "skills"]) {
+    for (const entry of directoryEntries(path.join(claudeRoot, directory))) {
+      if (
+        entry.name.startsWith("trellis-") ||
+        entry.name === "ccg" ||
+        entry.name.startsWith("ccg-")
+      ) {
+        found.push(`.claude/${directory}/${entry.name}`);
+      }
+    }
+  }
+  for (const relative of [
+    "commands/trellis",
+    "commands/ccg",
+    "hooks/inject-subagent-context.py",
+    "hooks/inject-workflow-state.py",
+    "hooks/session-start.py",
+    ".ccg",
+    "plan",
+  ]) {
+    if (existsSync(path.join(claudeRoot, ...relative.split("/")))) {
+      found.push(`.claude/${relative}`);
+    }
+  }
+  const settings = readTextIfPresent(path.join(claudeRoot, "settings.json"));
+  if (
+    settings &&
+    /trellis|ccg|inject-(?:subagent-context|workflow-state)|session-start/i.test(
+      settings,
+    )
+  ) {
+    found.push(".claude/settings.json");
+  }
+  return found.sort();
+}
+
 export function runInformationalChecks({
   repoRoot,
   contract,
@@ -225,12 +302,25 @@ export function runInformationalChecks({
       ? "Grok is enabled by project policy."
       : "Grok is optional and disabled; it does not block the Harness.",
   );
-  if (existsSync(path.join(repoRoot, ".claude"))) {
+  const claudeRoot = path.join(repoRoot, ".claude");
+  const harnessClaudeAssets = findHarnessClaudeAssets(repoRoot);
+  if (harnessClaudeAssets.length > 0) {
     add(
-      "generated-claude-assets",
+      "harness-claude-assets",
+      "blocking",
+      "conflict",
+      "Harness, Trellis, or CCG runtime assets remain under project .claude.",
+      { paths: harnessClaudeAssets },
+      "Migrate the owned assets to .agents/.codex and remove only the identified Claude-runtime residue.",
+    );
+  } else if (existsSync(claudeRoot)) {
+    add(
+      "user-claude-assets",
       "info",
       "info",
-      "Trellis-generated Claude assets are present but inert under the model policy.",
+      "Unrecognized project .claude content is user-owned and was not modified.",
+      undefined,
+      "Review it manually if a completely empty project Claude surface is required.",
     );
   }
   if (

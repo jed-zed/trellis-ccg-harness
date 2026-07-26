@@ -35,10 +35,81 @@ Skill profile; later projects reuse that saved path and policy.
 6. **Preserve existing ownership.** Treat every existing project or global file
    as user-owned until an ownership manifest or managed block proves otherwise.
    Merge or back up approved changes; never silently replace valid content.
-7. **Keep global Skills minimal.** The default global essentials are
-   `harness-init` and `grill-me`. Put task- or domain-specific Skills in the
-   user-selected Skill repository and copy only the approved relevant subset
-   into the project-level `.agents/skills/`.
+7. **Keep the Harness platform global.** The global baseline is `grill-me`
+   plus all 13 Harness/Trellis platform Skills: `harness-init`,
+   `trellis-before-dev`, `trellis-brainstorm`, `trellis-break-loop`,
+   `trellis-channel`, `trellis-check`, `trellis-continue`,
+   `trellis-finish-work`, `trellis-meta`, `trellis-session-insight`,
+   `trellis-spec-bootstrap`, `trellis-start`, and `trellis-update-spec`.
+   Optional task/domain Skills live in an explicitly approved Git catalog and only the
+   approved relevant subset is copied into project-level `.agents/skills/`.
+
+## Guided Entry Points
+
+Initialization has two explicit, independently resumable commands:
+
+- `global-init` installs the 14 bundled platform Skills as link-free owned
+  copies under an explicit or current user home, records the `skip`/`local`/
+  `clone` catalog decision, and performs read-only Codex, Gemini, Grok, and
+  Claude Code CLI/authentication status checks.
+- `project-init` inspects one repository, derives its technology stack and
+  catalog recommendations, verifies that the approved contract, selected
+  Skills, and managed paths agree, then calls only the existing owned
+  apply/install path. It must leave the contract `approved` until the separately
+  reported quality, security, doctor, and conflict gates pass.
+
+When the host provides a native structured-choice control, the agent **must**
+use that host tool for every unresolved choice, mark the recommendation, and
+ask only one question per tool call. Do not emulate a native control in prose.
+The executable itself is the terminal fallback: it presents one numbered TTY
+choice at a time. In non-interactive mode it never reads stdin and requires
+complete flags plus `--approved`.
+
+Global Init never installs a provider CLI or starts a login implicitly.
+`install` and `login` remain selectable preview choices: Global Init records
+them as unexecuted pending actions with safe command or official-documentation
+guidance, `requiresSeparateApproval: true`, and returns
+`needs-provider-actions`. A later approved Global Init may resolve only those
+pending actions to `keep` or `later`; platform and catalog identity must remain
+unchanged. Claude Code defaults to `skip`; selecting its external install/login
+path records `zeroClaudeProfile: false` immediately and that exit is sticky
+when the pending action is later resolved. Harness code remains forbidden from
+reading or writing any `.claude/` path.
+
+Safe non-interactive public-baseline example:
+
+```powershell
+node scripts/harness-init.mjs global-init `
+  --non-interactive `
+  --home-dir "<explicit-user-home>" `
+  --catalog-mode skip `
+  --provider-actions "codex=later,gemini=later,grok=later,claude=skip" `
+  --approved
+```
+
+For an existing local Git catalog, add `--catalog-mode local --repository
+"<catalog-working-tree>"`. For a separately approved clone, use
+`--catalog-mode clone --repository "<new-local-working-tree>" --catalog-url
+"<credential-free-url>" --allow-network`; the saved profile contains only the
+canonical local working-tree path.
+
+After the complete project contract and exact Skill set are approved:
+
+```powershell
+node scripts/harness-init.mjs project-init `
+  --non-interactive `
+  --home-dir "<explicit-user-home>" `
+  --repo-root "<repository>" `
+  --contract "<approved-contract.json>" `
+  --skills "<approved-comma-separated-names>" `
+  --approved
+```
+
+Use `--no-project-skills` instead of `--skills` when the approved catalog
+decision is `skip` or no optional project Skill is selected. A successful
+`project-init` returns `approved-awaiting-gates` and the exact follow-up
+`mark-ready` command. Run that command only after every approved required gate
+passes; do not treat Project Init itself as readiness evidence.
 
 ## Phase 0: First-Run Skill Profile
 
@@ -47,10 +118,9 @@ decides the branch:
 
 - **First trigger (`configured: false`)** — after repository discovery, use
   `grill-me` one question at a time to refine the initialization Skill:
-  1. the absolute, dedicated Skill repository path (not an active global
+1. the absolute, explicitly approved Skill catalog path (not an active global
      `.agents/skills` or `.codex/skills` tree);
-  2. the minimal global essential set (recommend `harness-init` and
-     `grill-me`);
+  2. the fixed 14-Skill global Harness platform baseline listed above;
   3. reusable selection guidance and explicit exclusions;
   4. confirmation that project Skills use approved copy snapshots rather than
      links.
@@ -65,7 +135,7 @@ approval may the profile be saved:
 ```powershell
 node scripts/harness-init.mjs configure-skills `
   --repository "<absolute-skill-repository>" `
-  --global-essential "harness-init,grill-me" `
+  --global-essential "grill-me,harness-init,trellis-before-dev,trellis-brainstorm,trellis-break-loop,trellis-channel,trellis-check,trellis-continue,trellis-finish-work,trellis-meta,trellis-session-insight,trellis-spec-bootstrap,trellis-start,trellis-update-spec" `
   --guidance "<approved-selection-guidance>" `
   --exclude "<approved-exclusions>" `
   --approved
@@ -73,8 +143,31 @@ node scripts/harness-init.mjs configure-skills `
 
 The saved user profile lives at
 `~/.agents/harness/skill-repository.json`. Do not automatically delete or move
-pre-existing global Skills; global cleanup is a separate ownership-aware,
-explicitly approved migration.
+pre-existing global Skills outside an explicitly approved migration.
+
+For a platform migration, first select an existing explicit Git catalog, choose
+any approved project-Skill subset (or none), retain the read-only inventory
+digest, and only then apply. The migration never creates, moves, or assumes a
+fixed private catalog:
+
+```powershell
+node scripts/harness-init.mjs skill-migration-plan `
+  --repo-root "<harness-repository>" `
+  --repository "<absolute-skill-catalog>" `
+  --skills "<approved-comma-separated-names>"
+node scripts/harness-init.mjs skill-migration-apply `
+  --repo-root "<harness-repository>" `
+  --repository "<absolute-skill-catalog>" `
+  --skills "<approved-comma-separated-names>" `
+  --inventory-sha256 "<approved-inventory-sha256>" `
+  --approved
+```
+
+Use `skill-migration-status` for read-only audit and
+`skill-migration-rollback --backup-id <id> --approved` for exact,
+ownership-checked restoration. Omit the Skill list when no optional project
+Skills are approved. The explicit catalog is source-only and remains untouched
+after rollback.
 
 ## Phase 1: Read-Only Discovery
 
@@ -171,7 +264,7 @@ contract:
 - approved constraints and conventions;
 - in-scope and out-of-scope Harness behavior;
 - files and global locations that would change;
-- minimal global essentials, saved Skill repository profile, and exact
+- fixed global platform baseline, saved Skill repository profile, and exact
   project-level Skill selection with reasons;
 - exact initialization and offline validation commands;
 - update, rollback, and uninstall expectations;
@@ -276,7 +369,7 @@ After approval:
    node scripts/harness-init.mjs mark-ready --repo-root "<repository>"
    ```
 
-   `mark-ready` verifies the schema-v2 ownership, contract, schema, pinned
+   `mark-ready` verifies schema-v2 or schema-v3 ownership, contract, schema, pinned
    policy, and managed `AGENTS.md` block, then atomically updates only the
    contract status and ownership digest. Record gate commands in the contract,
    not transient logs or secrets.

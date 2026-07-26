@@ -26,6 +26,36 @@ import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import {
+  AGENTS_PERSONAL_SKILLS,
+  auditSkillPlatformMigration as auditSkillPlatformMigrationCore,
+  applySkillPlatformMigration as applySkillPlatformMigrationCore,
+  CODEX_PERSONAL_SKILLS,
+  GLOBAL_PLATFORM_SKILLS,
+  HARNESS_PROJECTED_SKILLS,
+  planSkillPlatformMigration,
+  rollbackSkillPlatformMigration,
+  seedPersonalSkillRepository,
+} from "./skill-platform-migration.mjs";
+import {
+  assertCloneSourceHasNoCredentials,
+  GUIDED_INIT_PROVIDER_NAMES,
+  describeProviderAction,
+  detectTechnologyStack,
+  inspectProviderCliStatuses,
+  installBundledPlatformSkills,
+  loadGlobalInitState,
+  preparePersonalSkillCatalog,
+  recommendProjectSkillsFromCatalog,
+  recordGlobalInitState,
+  validateProviderActions,
+} from "./guided-init.mjs";
+
+export {
+  inspectProviderCliStatuses,
+  installBundledPlatformSkills,
+  preparePersonalSkillCatalog,
+};
 
 const CONTRACT_STATUSES = new Set(["draft", "approved", "ready"]);
 const MANIFEST_CANDIDATES = [
@@ -47,7 +77,7 @@ const ALLOWED_POLICY_KEYS = new Set([
   "credentialFieldsForbidden",
   "secretPolicy",
 ]);
-const REQUIRED_GLOBAL_SKILLS = new Set(["grill-me", "harness-init"]);
+const REQUIRED_GLOBAL_SKILLS = new Set(GLOBAL_PLATFORM_SKILLS);
 const SKILL_NAME = /^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$/;
 const SKILL_CATALOG_MAX_DEPTH = 10;
 const SKILL_CATALOG_MAX_ENTRIES = 10_000;
@@ -65,6 +95,7 @@ const COLLABORATION_BLOCK_END = "<!-- HARNESS-COLLABORATION:END -->";
 const PROJECT_POLICY_VERSION = 2;
 const COLLABORATION_MARKER_FORMAT_VERSION = 1;
 const PROJECT_OWNERSHIP_SCHEMA_VERSION = 2;
+const PROJECT_SKILL_OWNERSHIP_SCHEMA_VERSION = 3;
 const PROJECT_POLICY_RELATIVE_PATH =
   ".harness/policies/collaboration-policy.md";
 const PROJECT_TRANSACTION_PREFIX = ".harness-init-txn-";
@@ -90,6 +121,7 @@ const PROJECT_TRANSACTION_TARGETS = new Set([
   ".harness/project.json",
   ".harness/project.schema.json",
   ".harness/ownership.json",
+  ".harness/project-skills.json",
 ]);
 
 async function exists(target) {
@@ -432,6 +464,7 @@ export async function loadSkillRepositoryProfile({
 
 export async function saveSkillRepositoryProfile({
   approved,
+  createOnly = false,
   excludedSkills = [],
   globalEssentialSkills,
   homeDir = homedir(),
@@ -498,7 +531,12 @@ export async function saveSkillRepositoryProfile({
       flag: "wx",
       mode: 0o600,
     });
-    await rename(temporary, target);
+    if (createOnly) {
+      await link(temporary, target);
+      await rm(temporary, { force: true });
+    } else {
+      await rename(temporary, target);
+    }
   } catch (error) {
     await rm(temporary, { force: true });
     throw error;
@@ -746,27 +784,91 @@ function projectSkillManifestIdentity(manifest) {
     schemaVersion: manifest.schemaVersion,
     owner: manifest.owner,
     profileSha256: manifest.profileSha256,
+    repository: manifest.repository,
     managedPaths: manifest.managedPaths,
     skills: manifest.skills,
   });
 }
 
+function normalizeCredentialFreeRepositoryRemotes(remotes) {
+  if (!Array.isArray(remotes)) {
+    throw new Error("Project Skill repository remotes must be an array.");
+  }
+  const normalized = [];
+  const identities = new Set();
+  for (const remote of remotes) {
+    assertExactKeys(
+      remote,
+      ["name", "url"],
+      "Project Skill repository remote",
+    );
+    if (
+      typeof remote.name !== "string" ||
+      !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(remote.name)
+    ) {
+      throw new Error("Project Skill repository remote name is invalid.");
+    }
+    let url;
+    try {
+      url = assertCloneSourceHasNoCredentials(remote.url);
+    } catch {
+      throw new Error(
+        "Project Skill repository remotes must be credential-free.",
+      );
+    }
+    const key = `${remote.name}\0${url}`;
+    if (identities.has(key)) {
+      throw new Error("Project Skill repository remote identity is duplicated.");
+    }
+    identities.add(key);
+    normalized.push({ name: remote.name, url });
+  }
+  return normalized.sort(
+    (left, right) =>
+      left.name.localeCompare(right.name) ||
+      left.url.localeCompare(right.url),
+  );
+}
+
 function validateProjectSkillManifest(manifest) {
+  const allowedKeys = [
+    "schemaVersion",
+    "status",
+    "owner",
+    "profileSha256",
+    "installedAt",
+    "managedPaths",
+    "skills",
+  ];
+  if (manifest?.schemaVersion === 2) allowedKeys.push("repository");
   assertExactKeys(
     manifest,
-    [
-      "schemaVersion",
-      "status",
-      "owner",
-      "profileSha256",
-      "installedAt",
-      "managedPaths",
-      "skills",
-    ],
+    allowedKeys,
     "Project Skill manifest",
   );
-  if (manifest.schemaVersion !== 1) {
-    throw new Error("Project Skill manifest schemaVersion must be 1.");
+  if (![1, 2].includes(manifest.schemaVersion)) {
+    throw new Error("Project Skill manifest schemaVersion must be 1 or 2.");
+  }
+  if (manifest.schemaVersion === 2) {
+    assertExactKeys(
+      manifest.repository,
+      ["path", "branch", "commit", "tree", "clean", "remotes"],
+      "Project Skill repository identity",
+    );
+    if (
+      !path.isAbsolute(manifest.repository.path) ||
+      manifest.repository.branch !== "main" ||
+      !/^[a-f0-9]{40,64}$/.test(manifest.repository.commit) ||
+      !/^[a-f0-9]{40,64}$/.test(manifest.repository.tree) ||
+      manifest.repository.clean !== true ||
+      canonicalJson(
+        normalizeCredentialFreeRepositoryRemotes(
+          manifest.repository.remotes,
+        ),
+      ) !== canonicalJson(manifest.repository.remotes)
+    ) {
+      throw new Error("Project Skill repository identity is invalid.");
+    }
   }
   if (!["pending", "ready"].includes(manifest.status)) {
     throw new Error("Project Skill manifest status is invalid.");
@@ -1126,6 +1228,539 @@ export async function installProjectSkills({
     manifestPath,
     installedSkills: skills.map((entry) => entry.name),
   };
+}
+
+async function readCleanSkillRepositoryIdentity(repositoryPath) {
+  const runGit = async (...args) => {
+    const { stdout } = await execFile(
+      "git",
+      ["-C", repositoryPath, ...args],
+      {
+        encoding: "utf8",
+        windowsHide: true,
+      },
+    );
+    return String(stdout ?? "").trim();
+  };
+  const remoteNames = (await runGit("remote"))
+    .split(/\r?\n/)
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .sort((left, right) => left.localeCompare(right));
+  const remotes = [];
+  for (const name of remoteNames) {
+    const urls = (await runGit("remote", "get-url", "--all", name))
+      .split(/\r?\n/)
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+    if (urls.length === 0) {
+      throw new Error(
+        "Project Skill repository remote identity is incomplete.",
+      );
+    }
+    for (const url of urls) remotes.push({ name, url });
+  }
+  const clean = (await runGit("status", "--porcelain")) === "";
+  if (!clean) {
+    throw new Error(
+      "Project Skill revision requires a clean catalog repository.",
+    );
+  }
+  return normalizeRepositoryIdentity({
+    path: await realpath(repositoryPath),
+    branch: await runGit("branch", "--show-current"),
+    commit: await runGit("rev-parse", "HEAD"),
+    tree: await runGit("rev-parse", "HEAD^{tree}"),
+    clean,
+    remotes,
+  });
+}
+
+function normalizeRepositoryIdentity(identity) {
+  assertExactKeys(
+    identity,
+    ["path", "branch", "commit", "tree", "clean", "remotes"],
+    "Project Skill repository identity",
+  );
+  const remotes = normalizeCredentialFreeRepositoryRemotes(identity.remotes);
+  if (
+    !path.isAbsolute(identity.path) ||
+    identity.branch !== "main" ||
+    identity.clean !== true ||
+    !/^[a-f0-9]{40,64}$/.test(identity.commit) ||
+    !/^[a-f0-9]{40,64}$/.test(identity.tree)
+  ) {
+    throw new Error("Project Skill repository identity is invalid.");
+  }
+  return {
+    path: path.resolve(identity.path),
+    branch: identity.branch,
+    commit: identity.commit,
+    tree: identity.tree,
+    clean: true,
+    remotes,
+  };
+}
+
+export async function reviseReadyProjectSkills({
+  approved,
+  repoRoot,
+  homeDir = homedir(),
+  selectedSkills,
+  globalEssentialSkills,
+  repositoryIdentity = null,
+  now = () => new Date(),
+  skillRoot = DEFAULT_SKILL_ROOT,
+  faultInjector,
+  isProcessAlive,
+  readProcessIdentity,
+  provenanceKeyPath,
+}) {
+  if (approved !== true) {
+    throw new Error("Ready project Skill revision requires explicit approval.");
+  }
+  const root = path.resolve(repoRoot);
+  const sourceSkill = path.resolve(skillRoot);
+  const harnessDir = path.join(root, ".harness");
+  const projectPath = path.join(harnessDir, "project.json");
+  const ownershipPath = path.join(harnessDir, "ownership.json");
+  const schemaPath = path.join(harnessDir, "project.schema.json");
+  const policyPath = path.join(
+    root,
+    ...PROJECT_POLICY_RELATIVE_PATH.split("/"),
+  );
+  const agentsPath = path.join(root, "AGENTS.md");
+  const manifestPath = path.join(harnessDir, "project-skills.json");
+  const profile = await loadSkillRepositoryProfile({ homeDir });
+  if (!profile) {
+    throw new Error(
+      "Ready project Skill revision requires a saved Skill repository profile.",
+    );
+  }
+  const requested = normalizeUniqueStrings(
+    selectedSkills,
+    "Selected project Skills",
+    { skillNames: true },
+  );
+  const essentials = normalizeUniqueStrings(
+    globalEssentialSkills,
+    "Global essential Skills",
+    { skillNames: true },
+  );
+  if (
+    canonicalJson(essentials) !==
+    canonicalJson(profile.globalEssentialSkills)
+  ) {
+    throw new Error(
+      "Ready project Skill revision essentials differ from the saved profile.",
+    );
+  }
+  for (const name of requested) {
+    if (
+      essentials.includes(name) ||
+      profile.selection.excludedSkills.includes(name)
+    ) {
+      throw new Error(
+        `Selected project Skill is global or excluded: ${name}.`,
+      );
+    }
+  }
+  const identity = repositoryIdentity
+    ? normalizeRepositoryIdentity(repositoryIdentity)
+    : await readCleanSkillRepositoryIdentity(profile.repositoryPath);
+  if (
+    normalizeResolvedPath(identity.path) !==
+    normalizeResolvedPath(profile.repositoryPath)
+  ) {
+    throw new Error(
+      "Project Skill repository identity differs from the saved profile.",
+    );
+  }
+
+  const [
+    projectFingerprint,
+    ownershipFingerprint,
+    schemaFingerprint,
+    policyFingerprint,
+    agentsFingerprint,
+  ] = await Promise.all([
+    readFileFingerprint(projectPath, "Harness project contract"),
+    readFileFingerprint(ownershipPath, "Harness ownership manifest"),
+    readFileFingerprint(schemaPath, "Harness project schema"),
+    readFileFingerprint(policyPath, "Harness collaboration policy"),
+    readFileFingerprint(agentsPath, "AGENTS.md"),
+  ]);
+  if (
+    !projectFingerprint.exists ||
+    !ownershipFingerprint.exists ||
+    !schemaFingerprint.exists ||
+    !policyFingerprint.exists ||
+    !agentsFingerprint.exists
+  ) {
+    throw new Error(
+      "Ready project Skill revision requires complete Harness ownership.",
+    );
+  }
+  const contract = JSON.parse(projectFingerprint.bytes.toString("utf8"));
+  validateProjectContract(contract);
+  if (contract.status !== "ready") {
+    throw new Error("Project contract must remain ready during Skill revision.");
+  }
+  const currentOwnership = validateExistingProjectOwnership(
+    JSON.parse(ownershipFingerprint.bytes.toString("utf8")),
+    projectFingerprint.sha256,
+    schemaFingerprint.sha256,
+  );
+  const managedBlock = currentOwnership.managedBlocks?.find(
+    (entry) => entry?.path === "AGENTS.md",
+  );
+  const currentBlock = findCollaborationBlock(
+    agentsFingerprint.bytes.toString("utf8"),
+  );
+  if (
+    !managedBlock ||
+    currentBlock === null ||
+    sha256(currentBlock) !== managedBlock.renderedBlockSha256
+  ) {
+    throw new Error(
+      "Managed project collaboration policy is missing or modified.",
+    );
+  }
+  const sourcePolicyFingerprint = await readFileFingerprint(
+    path.join(sourceSkill, "assets", "collaboration-policy.md"),
+    "Harness collaboration policy asset",
+  );
+  const sourceSchemaFingerprint = await readFileFingerprint(
+    path.join(sourceSkill, "assets", "project-contract.schema.json"),
+    "Harness project contract schema asset",
+  );
+  if (!sourceSchemaFingerprint.exists) {
+    throw new Error("Harness project contract schema asset does not exist.");
+  }
+  const sourceSchemaBytes = canonicalJsonBytes(sourceSchemaFingerprint.bytes);
+  const sourceSchemaSha256 = sha256(sourceSchemaBytes);
+  validateOwnedPolicyProjection(
+    currentOwnership,
+    managedBlock,
+    policyFingerprint,
+    sourcePolicyFingerprint.sha256,
+    sha256(
+      renderCollaborationBlock(
+        sourcePolicyFingerprint.bytes.toString("utf8"),
+      ),
+    ),
+  );
+
+  const catalog = await discoverSkillCatalog({
+    repositoryPath: profile.repositoryPath,
+  });
+  const catalogByName = new Map(catalog.map((entry) => [entry.name, entry]));
+  const skills = [];
+  for (const name of requested) {
+    const catalogEntry = catalogByName.get(name);
+    if (!catalogEntry) {
+      throw new Error(`Selected Skill is missing from the repository: ${name}`);
+    }
+    const sourcePath = path.join(
+      profile.repositoryPath,
+      ...catalogEntry.relativePath.split("/"),
+    );
+    const snapshot = await snapshotSkillTree(sourcePath);
+    const skillDefinition = snapshot.files.find(
+      (entry) => entry.path === "SKILL.md",
+    );
+    if (skillDefinition?.sha256 !== catalogEntry.skillSha256) {
+      throw new Error(`Skill source changed during revision: ${name}`);
+    }
+    skills.push({
+      name,
+      sourceRelativePath: catalogEntry.relativePath,
+      targetPath: `.agents/skills/${name}`,
+      skillSha256: catalogEntry.skillSha256,
+      treeSha256: snapshot.treeSha256,
+      fileCount: snapshot.fileCount,
+      totalBytes: snapshot.totalBytes,
+    });
+  }
+  const managedSkillPaths = [
+    ".harness/project-skills.json",
+    ...skills.map((entry) => entry.targetPath),
+  ];
+  const nonSkillManagedPaths = contract.workflow.managedProjectPaths.filter(
+    (entry) =>
+      entry !== ".harness/project-skills.json" &&
+      !entry.startsWith(".agents/skills/"),
+  );
+  const approvedReasons = new Map(
+    contract.skills.projectSelection.map((entry) => [
+      entry.name,
+      entry.reason,
+    ]),
+  );
+  const candidateContract = {
+    ...contract,
+    workflow: {
+      ...contract.workflow,
+      managedProjectPaths: [
+        ...nonSkillManagedPaths,
+        ...managedSkillPaths,
+      ],
+    },
+    skills: {
+      ...contract.skills,
+      globalEssential: essentials,
+      projectSelection: skills.map((entry) => ({
+        name: entry.name,
+        reason:
+          approvedReasons.get(entry.name) ??
+          "Approved as a project-specific Skill for this repository.",
+      })),
+    },
+  };
+  validateProjectContract(candidateContract);
+  const profileSha256 = sha256(canonicalJson(profile));
+  const readyManifest = validateProjectSkillManifest({
+    schemaVersion: 2,
+    status: "ready",
+    owner: "trellis-ccg-harness",
+    profileSha256,
+    repository: identity,
+    installedAt: now().toISOString(),
+    managedPaths: managedSkillPaths,
+    skills,
+  });
+  const candidateContractBytes = Buffer.from(
+    canonicalJson(candidateContract),
+  );
+  const manifestBytes = Buffer.from(canonicalJson(readyManifest));
+  const nextOwnership = {
+    ...currentOwnership,
+    schemaVersion: PROJECT_SKILL_OWNERSHIP_SCHEMA_VERSION,
+    contractSha256: sha256(candidateContractBytes),
+    schemaSha256: sourceSchemaSha256,
+    projectSkillsManifestSha256: sha256(manifestBytes),
+    managedPaths: [
+      ...new Set([
+        ...currentOwnership.managedPaths,
+        ...managedSkillPaths,
+      ]),
+    ],
+  };
+  const nextOwnershipBytes = Buffer.from(canonicalJson(nextOwnership));
+
+  if (
+    projectFingerprint.sha256 === sha256(candidateContractBytes) &&
+    schemaFingerprint.sha256 === sourceSchemaSha256 &&
+    currentOwnership.schemaVersion ===
+      PROJECT_SKILL_OWNERSHIP_SCHEMA_VERSION
+  ) {
+    const existingManifestFingerprint = await readFileFingerprint(
+      manifestPath,
+      "Project Skill manifest",
+    );
+    if (
+      !existingManifestFingerprint.exists ||
+      existingManifestFingerprint.sha256 !==
+        currentOwnership.projectSkillsManifestSha256
+    ) {
+      throw new Error("Owned Project Skill manifest is missing or modified.");
+    }
+    const existingManifest = validateProjectSkillManifest(
+      JSON.parse(existingManifestFingerprint.bytes.toString("utf8")),
+    );
+    if (
+      projectSkillManifestIdentity(existingManifest) !==
+      projectSkillManifestIdentity(readyManifest)
+    ) {
+      throw new Error(
+        "Existing Project Skill manifest differs from the approved revision.",
+      );
+    }
+    for (const skill of skills) {
+      const target = path.join(root, ...skill.targetPath.split("/"));
+      const snapshot = await snapshotSkillTree(target);
+      if (snapshot.treeSha256 !== skill.treeSha256) {
+        throw new Error(`Managed Project Skill drifted: ${skill.name}`);
+      }
+    }
+    return {
+      status: "unchanged",
+      projectPath,
+      manifestPath,
+      installedSkills: skills.map((entry) => entry.name),
+    };
+  }
+  if (
+    currentOwnership.schemaVersion ===
+      PROJECT_SKILL_OWNERSHIP_SCHEMA_VERSION ||
+    (await pathEntryExists(manifestPath))
+  ) {
+    throw new Error(
+      "Ready project already has a different owned Skill revision; explicit replacement is required.",
+    );
+  }
+
+  const provenanceKey = await loadProjectProvenanceKey(
+    root,
+    provenanceKeyPath,
+  );
+  const lock = await acquireProjectLock(root, {
+    isProcessAlive,
+    readProcessIdentity,
+    provenanceKey,
+    faultInjector,
+  });
+  const targetParent = path.join(root, ".agents", "skills");
+  const stage = path.join(
+    targetParent,
+    `.harness-skill-revision-${randomUUID()}`,
+  );
+  const installedTargets = [];
+  try {
+    await recoverProjectTransactions(root, {
+      isProcessAlive,
+      readProcessIdentity,
+      provenanceKey,
+    });
+    await assertFingerprintUnchanged(
+      projectPath,
+      projectFingerprint,
+      "Harness project contract",
+    );
+    await assertFingerprintUnchanged(
+      ownershipPath,
+      ownershipFingerprint,
+      "Harness ownership manifest",
+    );
+    await assertFingerprintUnchanged(
+      schemaPath,
+      schemaFingerprint,
+      "Harness project schema",
+    );
+    await assertFingerprintUnchanged(
+      policyPath,
+      policyFingerprint,
+      "Harness collaboration policy",
+    );
+    await assertFingerprintUnchanged(
+      agentsPath,
+      agentsFingerprint,
+      "AGENTS.md",
+    );
+    await assertFingerprintUnchanged(
+      path.join(sourceSkill, "assets", "project-contract.schema.json"),
+      sourceSchemaFingerprint,
+      "Harness project contract schema asset",
+    );
+    await ensureSafeDirectoryChain(
+      root,
+      targetParent,
+      "Project Skill directory",
+      { create: true },
+    );
+    await mkdir(stage, { mode: 0o700 });
+    for (const skill of skills) {
+      const target = path.join(root, ...skill.targetPath.split("/"));
+      if (await pathEntryExists(target)) {
+        throw new Error(
+          `Project Skill target is user-owned; refusing collision: ${skill.targetPath}`,
+        );
+      }
+      const source = path.join(
+        profile.repositoryPath,
+        ...skill.sourceRelativePath.split("/"),
+      );
+      const staged = path.join(stage, skill.name);
+      const copied = await snapshotSkillTree(source, { copyTo: staged });
+      if (copied.treeSha256 !== skill.treeSha256) {
+        throw new Error(
+          `Project Skill source changed while staging: ${skill.name}`,
+        );
+      }
+      await rename(staged, target);
+      installedTargets.push(target);
+      if (faultInjector) {
+        await faultInjector(`after-project-skill:${skill.name}`);
+      }
+    }
+    await runProjectTransaction({
+      root,
+      lock,
+      provenanceKey,
+      faultInjector,
+      preconditions: [
+        { path: PROJECT_POLICY_RELATIVE_PATH, expected: policyFingerprint },
+        { path: "AGENTS.md", expected: agentsFingerprint },
+      ],
+      targets: [
+        {
+          path: ".harness/project.schema.json",
+          bytes: sourceSchemaBytes,
+          mode: schemaFingerprint.mode,
+          expectedOriginal: schemaFingerprint,
+        },
+        {
+          path: ".harness/project.json",
+          bytes: candidateContractBytes,
+          mode: projectFingerprint.mode,
+          expectedOriginal: projectFingerprint,
+        },
+        {
+          path: ".harness/project-skills.json",
+          bytes: manifestBytes,
+          mode: 0o600,
+          expectedOriginal: await readFileFingerprint(
+            manifestPath,
+            "Project Skill manifest",
+          ),
+        },
+        {
+          path: ".harness/ownership.json",
+          bytes: nextOwnershipBytes,
+          mode: ownershipFingerprint.mode,
+          expectedOriginal: ownershipFingerprint,
+        },
+      ],
+    });
+    return {
+      status: "revised",
+      projectPath,
+      manifestPath,
+      contractSha256: sha256(candidateContractBytes),
+      projectSkillsManifestSha256: sha256(manifestBytes),
+      installedSkills: skills.map((entry) => entry.name),
+    };
+  } catch (error) {
+    for (const target of installedTargets.reverse()) {
+      await rm(target, { recursive: true, force: true });
+    }
+    throw error;
+  } finally {
+    await rm(stage, { recursive: true, force: true });
+    await lock.release();
+  }
+}
+
+export {
+  AGENTS_PERSONAL_SKILLS,
+  CODEX_PERSONAL_SKILLS,
+  GLOBAL_PLATFORM_SKILLS,
+  HARNESS_PROJECTED_SKILLS,
+  planSkillPlatformMigration,
+  rollbackSkillPlatformMigration,
+  seedPersonalSkillRepository,
+};
+
+export async function applySkillPlatformMigration(options) {
+  return applySkillPlatformMigrationCore({
+    ...options,
+    reviseProjectSkills:
+      options?.reviseProjectSkills ?? reviseReadyProjectSkills,
+  });
+}
+
+export async function auditSkillPlatformMigration(options) {
+  return auditSkillPlatformMigrationCore(options);
 }
 
 function assertSafeProjectPaths(values, label) {
@@ -2746,20 +3381,37 @@ function validateExistingProjectOwnership(
   ];
   if (
     !ownership ||
-    ![1, PROJECT_OWNERSHIP_SCHEMA_VERSION].includes(
+    ![
+      1,
+      PROJECT_OWNERSHIP_SCHEMA_VERSION,
+      PROJECT_SKILL_OWNERSHIP_SCHEMA_VERSION,
+    ].includes(
       ownership.schemaVersion,
     ) ||
     ownership.owner !== "trellis-ccg-harness" ||
     ownership.contractSha256 !== contractSha256 ||
     (ownership.schemaSha256 !== undefined &&
       ownership.schemaSha256 !== schemaSha256) ||
-    (ownership.schemaVersion === PROJECT_OWNERSHIP_SCHEMA_VERSION &&
+    (ownership.schemaVersion >= PROJECT_OWNERSHIP_SCHEMA_VERSION &&
       ownership.schemaSha256 !== schemaSha256) ||
     !Array.isArray(ownership.managedPaths) ||
     !legacyPaths.every((entry) => ownership.managedPaths.includes(entry))
   ) {
     throw new Error(
       "The existing .harness ownership is not a compatible Harness-managed project contract.",
+    );
+  }
+  if (
+    ownership.schemaVersion === PROJECT_SKILL_OWNERSHIP_SCHEMA_VERSION &&
+    (
+      !/^[a-f0-9]{64}$/.test(
+        String(ownership.projectSkillsManifestSha256 ?? ""),
+      ) ||
+      !ownership.managedPaths.includes(".harness/project-skills.json")
+    )
+  ) {
+    throw new Error(
+      "The existing .harness project Skill ownership is incomplete or invalid.",
     );
   }
   return ownership;
@@ -2772,9 +3424,7 @@ function validateOwnedPolicyProjection(
   expectedSourceSha256,
   expectedRenderedBlockSha256,
 ) {
-  if (
-    ownership.schemaVersion !== PROJECT_OWNERSHIP_SCHEMA_VERSION
-  ) {
+  if (ownership.schemaVersion < PROJECT_OWNERSHIP_SCHEMA_VERSION) {
     if (policyFingerprint.exists) {
       throw new Error(
         "The project policy path exists without schema-v2 ownership; refusing to overwrite user state.",
@@ -2950,13 +3600,13 @@ export async function applyProjectContract({
     const currentAgents = agentsFingerprint.exists
       ? agentsFingerprint.bytes.toString("utf8")
       : "";
-    const ownership = buildProjectOwnership(
+    let ownership = buildProjectOwnership(
       contractSha256,
       schemaSha256,
       policyBytes,
       collaborationBlock,
     );
-    const nextOwnershipBytes = Buffer.from(canonicalJson(ownership));
+    let nextOwnershipBytes = Buffer.from(canonicalJson(ownership));
     const targets = [];
     const preconditions = [];
     let status = "applied";
@@ -3099,6 +3749,28 @@ export async function applyProjectContract({
         contractSha256,
         targetSchemaFingerprint.sha256,
       );
+      if (
+        currentOwnership.schemaVersion ===
+        PROJECT_SKILL_OWNERSHIP_SCHEMA_VERSION
+      ) {
+        ownership = {
+          ...ownership,
+          schemaVersion: PROJECT_SKILL_OWNERSHIP_SCHEMA_VERSION,
+          projectSkillsManifestSha256:
+            currentOwnership.projectSkillsManifestSha256,
+          managedPaths: [
+            ...new Set([
+              ...ownership.managedPaths,
+              ...currentOwnership.managedPaths.filter(
+                (entry) =>
+                  entry === ".harness/project-skills.json" ||
+                  entry.startsWith(".agents/skills/"),
+              ),
+            ]),
+          ],
+        };
+        nextOwnershipBytes = Buffer.from(canonicalJson(ownership));
+      }
       if (targetSchemaFingerprint.sha256 === schemaSha256) {
         preconditions.push({
           path: ".harness/project.schema.json",
@@ -3530,6 +4202,291 @@ export async function inspectProject(
   };
 }
 
+export async function runGlobalInit({
+  allowNetwork = false,
+  approved,
+  catalogMode,
+  catalogPath = null,
+  catalogUrl = null,
+  execFileImpl,
+  homeDir = homedir(),
+  now = () => new Date(),
+  providerActions,
+  providerRunCommand,
+  providerStatusOverrides = null,
+  skillRoot,
+}) {
+  if (approved !== true) {
+    throw new Error("Global Init requires --approved.");
+  }
+  const actions = validateProviderActions(providerActions);
+  const providers = await inspectProviderCliStatuses({
+    runCommand: providerRunCommand,
+    statusOverrides: providerStatusOverrides,
+  });
+  for (const name of GUIDED_INIT_PROVIDER_NAMES) {
+    if (
+      actions[name] !== "later" &&
+      !providers[name].choices.includes(actions[name])
+    ) {
+      throw new Error(
+        `Provider action ${actions[name]} is not valid for ${name} status ${providers[name].status}.`,
+      );
+    }
+  }
+  const existingProfile = await loadSkillRepositoryProfile({ homeDir });
+  const existingGlobalState = await loadGlobalInitState({ homeDir });
+  if (existingGlobalState) {
+    if (existingGlobalState.catalog.mode !== catalogMode) {
+      throw new Error(
+        "Existing Global Init catalog mode is immutable.",
+      );
+    }
+    if (catalogMode !== "skip") {
+      const requestedCatalogPath = catalogPath
+        ? await realpath(path.resolve(catalogPath))
+        : null;
+      if (
+        requestedCatalogPath === null ||
+        path.resolve(existingGlobalState.catalog.repositoryPath) !==
+          path.resolve(requestedCatalogPath)
+      ) {
+        throw new Error(
+          "Existing Global Init catalog path is immutable.",
+        );
+      }
+    }
+  }
+  const allowExistingClone =
+    catalogMode === "clone" &&
+    existingProfile !== null &&
+    existingGlobalState?.catalog?.mode === "clone" &&
+    path.resolve(existingProfile.repositoryPath) ===
+      path.resolve(catalogPath ?? "") &&
+    path.resolve(existingGlobalState.catalog.repositoryPath) ===
+      path.resolve(catalogPath ?? "");
+  const catalog = await preparePersonalSkillCatalog({
+    allowExistingClone,
+    allowNetwork,
+    catalogMode,
+    catalogPath,
+    catalogUrl,
+    execFileImpl,
+  });
+  const sourceSkillRoot = path.resolve(skillRoot ?? DEFAULT_SKILL_ROOT);
+  const platform = await installBundledPlatformSkills({
+    approved,
+    homeDir,
+    now,
+    platformSkillsRoot: path.dirname(sourceSkillRoot),
+  });
+  let profileStatus = "skipped";
+  if (catalog.repositoryPath) {
+    const canonicalRepository = await realpath(catalog.repositoryPath);
+    if (existingProfile) {
+      if (
+        path.resolve(existingProfile.repositoryPath) !==
+          path.resolve(canonicalRepository) ||
+        canonicalJson(existingProfile.globalEssentialSkills) !==
+          canonicalJson(
+            [...GLOBAL_PLATFORM_SKILLS].sort((left, right) =>
+              left.localeCompare(right),
+            ),
+          )
+      ) {
+        throw new Error(
+          "Existing Skill repository profile differs from the approved Global Init catalog.",
+        );
+      }
+      profileStatus = "unchanged";
+    } else {
+      await saveSkillRepositoryProfile({
+        approved,
+        createOnly: true,
+        globalEssentialSkills: GLOBAL_PLATFORM_SKILLS,
+        homeDir,
+        now,
+        repositoryPath: canonicalRepository,
+        selectionGuidance: [
+          "Recommend only Skills relevant to confirmed project technology and constraints.",
+        ],
+      });
+      profileStatus = "configured";
+    }
+  }
+  const providerActionReports = GUIDED_INIT_PROVIDER_NAMES.map((name) =>
+    describeProviderAction(name, actions[name], providers[name].status),
+  );
+  const pendingProviderActions = providerActionReports.filter(
+    (entry) => entry.pending,
+  );
+  const state = await recordGlobalInitState({
+    catalog,
+    homeDir,
+    pendingProviderActions,
+    platformManifestPath: platform.manifestPath,
+    providerActions: actions,
+  });
+  return {
+    status:
+      pendingProviderActions.length > 0
+        ? "needs-provider-actions"
+        : platform.status === "unchanged" &&
+            profileStatus !== "configured" &&
+            state.status === "unchanged"
+          ? "unchanged"
+          : "initialized",
+    platform,
+    catalog,
+    profileStatus,
+    providers,
+    providerActions: actions,
+    pendingProviderActions,
+    zeroClaudeProfile: state.state.zeroClaudeProfile,
+    residualActions: providerActionReports.filter(
+      (entry) => entry.action !== "keep",
+    ),
+  };
+}
+
+export async function recommendProjectSkills({
+  homeDir = homedir(),
+  repoRoot,
+}) {
+  const facts = await inspectProject(repoRoot, { homeDir });
+  let packageManifest = null;
+  if (facts.manifests.includes("package.json")) {
+    try {
+      packageManifest = await readJson(
+        path.join(facts.repositoryRoot, "package.json"),
+      );
+    } catch {
+      packageManifest = null;
+    }
+  }
+  const technologyStack = detectTechnologyStack(
+    facts.manifests,
+    packageManifest,
+  );
+  const profile = await loadSkillRepositoryProfile({ homeDir });
+  const catalog = profile
+    ? await discoverSkillCatalog({ repositoryPath: profile.repositoryPath })
+    : [];
+  return {
+    facts,
+    technologyStack,
+    catalogConfigured: profile !== null,
+    recommendations: recommendProjectSkillsFromCatalog({
+      catalog,
+      technologyStack,
+    }),
+  };
+}
+
+export async function runProjectInit({
+  approved,
+  contractPath,
+  homeDir = homedir(),
+  now = () => new Date(),
+  repoRoot,
+  selectedSkills,
+  skillRoot,
+}) {
+  if (approved !== true) {
+    throw new Error("Project Init requires --approved.");
+  }
+  const requested = normalizeUniqueStrings(
+    selectedSkills,
+    "Selected project Skills",
+    { skillNames: true },
+  );
+  const contract = await readJson(contractPath);
+  validateProjectContract(contract, { requireApproved: true });
+  const approvedSelection = [...contract.skills.projectSelection]
+    .map((entry) => entry.name)
+    .sort((left, right) => left.localeCompare(right));
+  if (canonicalJson(requested) !== canonicalJson(approvedSelection)) {
+    throw new Error(
+      "Project Init Skill selection differs from the approved contract.",
+    );
+  }
+  const managedSkillPaths = contract.workflow.managedProjectPaths
+    .filter((entry) => entry.startsWith(".agents/skills/"))
+    .sort((left, right) => left.localeCompare(right));
+  const expectedSkillPaths = requested
+    .map((name) => `.agents/skills/${name}`)
+    .sort((left, right) => left.localeCompare(right));
+  if (canonicalJson(managedSkillPaths) !== canonicalJson(expectedSkillPaths)) {
+    throw new Error(
+      "Approved Project Skill selection and managed paths must match exactly.",
+    );
+  }
+  if (
+    requested.length > 0 &&
+    !contract.workflow.managedProjectPaths.includes(
+      ".harness/project-skills.json",
+    )
+  ) {
+    throw new Error(
+      "Approved managed paths must include .harness/project-skills.json.",
+    );
+  }
+  const discovery = await recommendProjectSkills({ homeDir, repoRoot });
+  if (requested.length > 0 && !discovery.catalogConfigured) {
+    throw new Error(
+      "Selected Project Skills require a configured personal Skill catalog.",
+    );
+  }
+  const catalogNames = new Set(
+    discovery.catalogConfigured
+      ? (
+          await discoverSkillCatalog({
+            repositoryPath: (
+              await loadSkillRepositoryProfile({ homeDir })
+            ).repositoryPath,
+          })
+        ).map((entry) => entry.name)
+      : [],
+  );
+  for (const name of requested) {
+    if (!catalogNames.has(name)) {
+      throw new Error(`Approved Project Skill is absent from catalog: ${name}`);
+    }
+  }
+  const sourceSkillRoot = path.resolve(skillRoot ?? DEFAULT_SKILL_ROOT);
+  const applied = await applyProjectContract({
+    repoRoot,
+    contractPath,
+    skillRoot: sourceSkillRoot,
+  });
+  const projectSkills =
+    requested.length > 0
+      ? await installProjectSkills({
+          approved,
+          homeDir,
+          now,
+          repoRoot,
+          selectedSkills: requested,
+        })
+      : {
+          status: "skipped",
+          installedSkills: [],
+        };
+  const markReadyCommand =
+    `node scripts/harness-init.mjs mark-ready --repo-root ` +
+    `"${path.resolve(repoRoot)}"`;
+  return {
+    status: "approved-awaiting-gates",
+    discovery,
+    applied,
+    projectSkills,
+    next: {
+      action: "run-approved-quality-gates-then-mark-ready",
+      command: markReadyCommand,
+    },
+  };
+}
+
 export async function exportHarnessInitSkill({
   sourceSkillRoot,
   targetRepo,
@@ -3598,10 +4555,29 @@ function commaSeparatedValues(value, label) {
   return values;
 }
 
+function commaSeparatedAssignments(value, label) {
+  const assignments = {};
+  for (const entry of commaSeparatedValues(value, label)) {
+    const separator = entry.indexOf("=");
+    if (separator <= 0 || separator === entry.length - 1) {
+      throw new Error(`${label} entries must use name=value.`);
+    }
+    const name = entry.slice(0, separator).trim();
+    const selected = entry.slice(separator + 1).trim();
+    if (Object.hasOwn(assignments, name)) {
+      throw new Error(`${label} contains duplicate name ${name}.`);
+    }
+    assignments[name] = selected;
+  }
+  return assignments;
+}
+
 function parseCliArgs(argv) {
   const [command, ...args] = argv;
   if (
     ![
+      "global-init",
+      "project-init",
       "inspect",
       "validate",
       "apply",
@@ -3610,6 +4586,11 @@ function parseCliArgs(argv) {
       "configure-skills",
       "catalog-skills",
       "install-skills",
+      "revise-project-skills",
+      "skill-migration-plan",
+      "skill-migration-apply",
+      "skill-migration-status",
+      "skill-migration-rollback",
     ].includes(command)
   ) {
     throw new Error(
@@ -3619,6 +4600,8 @@ function parseCliArgs(argv) {
   const result = {
     command,
     repoRoot: process.cwd(),
+    repoRootExplicit: false,
+    homeDir: null,
     contractPath: null,
     targetRepo: null,
     repositoryPath: null,
@@ -3626,12 +4609,25 @@ function parseCliArgs(argv) {
     selectionGuidance: [],
     excludedSkills: [],
     selectedSkills: [],
+    inventorySha256: null,
+    backupId: null,
+    catalogMode: null,
+    catalogUrl: null,
+    providerActions: null,
+    allowNetwork: false,
+    nonInteractive: false,
+    noProjectSkills: false,
+    selectedSkillsExplicit: false,
     approved: false,
   };
   for (let index = 0; index < args.length; index++) {
     const option = args[index];
     if (option === "--repo-root") {
       result.repoRoot = path.resolve(requireOption(args, index, option));
+      result.repoRootExplicit = true;
+      index++;
+    } else if (option === "--home-dir") {
+      result.homeDir = path.resolve(requireOption(args, index, option));
       index++;
     } else if (option === "--contract") {
       result.contractPath = path.resolve(requireOption(args, index, option));
@@ -3672,6 +4668,32 @@ function parseCliArgs(argv) {
           option,
         ),
       );
+      result.selectedSkillsExplicit = true;
+      index++;
+    } else if (option === "--no-project-skills") {
+      result.noProjectSkills = true;
+      result.selectedSkillsExplicit = true;
+    } else if (option === "--catalog-mode") {
+      result.catalogMode = requireOption(args, index, option);
+      index++;
+    } else if (option === "--catalog-url") {
+      result.catalogUrl = requireOption(args, index, option);
+      index++;
+    } else if (option === "--provider-actions") {
+      result.providerActions = commaSeparatedAssignments(
+        requireOption(args, index, option),
+        option,
+      );
+      index++;
+    } else if (option === "--allow-network") {
+      result.allowNetwork = true;
+    } else if (option === "--non-interactive") {
+      result.nonInteractive = true;
+    } else if (option === "--inventory-sha256") {
+      result.inventorySha256 = requireOption(args, index, option);
+      index++;
+    } else if (option === "--backup-id") {
+      result.backupId = requireOption(args, index, option);
       index++;
     } else if (option === "--approved") {
       result.approved = true;
@@ -3709,6 +4731,89 @@ function parseCliArgs(argv) {
   if (command === "install-skills" && !result.approved) {
     throw new Error("install-skills requires --approved.");
   }
+  if (
+    ["skill-migration-plan", "skill-migration-apply"].includes(command) &&
+    !result.repositoryPath
+  ) {
+    throw new Error(`${command} requires --repository <directory>.`);
+  }
+  if (
+    ["revise-project-skills", "skill-migration-apply"].includes(command) &&
+    result.selectedSkills.length === 0
+  ) {
+    throw new Error(`${command} requires --skills <names>.`);
+  }
+  if (
+    ["revise-project-skills", "skill-migration-apply", "skill-migration-rollback"].includes(
+      command,
+    ) &&
+    !result.approved
+  ) {
+    throw new Error(`${command} requires --approved.`);
+  }
+  if (
+    command === "skill-migration-apply" &&
+    !/^[a-f0-9]{64}$/.test(String(result.inventorySha256 ?? ""))
+  ) {
+    throw new Error(
+      "skill-migration-apply requires --inventory-sha256 <sha256>.",
+    );
+  }
+  if (command === "skill-migration-rollback" && !result.backupId) {
+    throw new Error(
+      "skill-migration-rollback requires --backup-id <backup-id>.",
+    );
+  }
+  if (command === "global-init" && result.nonInteractive) {
+    if (!result.approved) {
+      throw new Error("global-init --non-interactive requires --approved.");
+    }
+    if (!result.homeDir) {
+      throw new Error(
+        "global-init --non-interactive requires explicit --home-dir.",
+      );
+    }
+    if (!result.catalogMode) {
+      throw new Error(
+        "global-init --non-interactive requires --catalog-mode.",
+      );
+    }
+    if (!result.providerActions) {
+      throw new Error(
+        "global-init --non-interactive requires --provider-actions.",
+      );
+    }
+  }
+  if (command === "project-init") {
+    if (!result.contractPath) {
+      throw new Error("project-init requires --contract <path>.");
+    }
+    if (result.noProjectSkills && result.selectedSkills.length > 0) {
+      throw new Error(
+        "project-init cannot combine --skills with --no-project-skills.",
+      );
+    }
+    if (result.nonInteractive) {
+      if (!result.approved) {
+        throw new Error("project-init --non-interactive requires --approved.");
+      }
+      if (!result.homeDir) {
+        throw new Error(
+          "project-init --non-interactive requires explicit --home-dir.",
+        );
+      }
+      if (!result.repoRootExplicit) {
+        throw new Error(
+          "project-init --non-interactive requires explicit --repo-root.",
+        );
+      }
+      if (!result.selectedSkillsExplicit) {
+        throw new Error(
+          "project-init --non-interactive requires --skills or --no-project-skills.",
+        );
+      }
+    }
+  }
   return result;
 }
 
@@ -3717,19 +4822,176 @@ const DEFAULT_SKILL_ROOT = path.resolve(
   "..",
 );
 
+async function numberedTtyChoice({
+  stdin,
+  stdout,
+  question,
+  options,
+  recommended,
+}) {
+  if (!stdin?.isTTY || !stdout?.isTTY) {
+    throw new Error(
+      "Interactive Harness Init requires a TTY; use complete non-interactive flags.",
+    );
+  }
+  const { createInterface } = await import("node:readline/promises");
+  const terminal = createInterface({ input: stdin, output: stdout });
+  try {
+    stdout.write(`${question}\n`);
+    options.forEach((option, index) => {
+      const suffix = option === recommended ? " (recommended)" : "";
+      stdout.write(`  ${index + 1}. ${option}${suffix}\n`);
+    });
+    const answer = await terminal.question("Select one number: ");
+    const selected = Number(answer);
+    if (
+      !Number.isInteger(selected) ||
+      selected < 1 ||
+      selected > options.length
+    ) {
+      throw new Error("Interactive selection must be one listed number.");
+    }
+    return options[selected - 1];
+  } finally {
+    terminal.close();
+  }
+}
+
+async function resolveInteractiveGlobalArgs(
+  args,
+  {
+    homeDir,
+    promptChoice,
+    providerRunCommand,
+    stdin,
+    stdout,
+  },
+) {
+  const ask =
+    promptChoice ??
+    ((question) =>
+      numberedTtyChoice({
+        stdin,
+        stdout,
+        ...question,
+      }));
+  if (!args.catalogMode) {
+    args.catalogMode = await ask({
+      question: "Choose the personal Skill catalog source.",
+      options: ["skip", "local", "clone"],
+      recommended: "skip",
+    });
+  }
+  const providers = await inspectProviderCliStatuses({
+    runCommand: providerRunCommand,
+  });
+  if (!args.providerActions) {
+    args.providerActions = {};
+    for (const name of GUIDED_INIT_PROVIDER_NAMES) {
+      args.providerActions[name] = await ask({
+        question:
+          name === "claude"
+            ? "Choose the Claude Code action. Install/login leaves the zero-.claude profile."
+            : `Choose the ${name} CLI action for status ${providers[name].status}.`,
+        options: providers[name].choices,
+        recommended: providers[name].recommendedAction,
+      });
+    }
+  }
+  if (!args.approved) {
+    const approval = await ask({
+      question:
+        `Approve Global Init for ${path.resolve(args.homeDir ?? homeDir)} ` +
+        `with catalog mode ${args.catalogMode}?`,
+      options: ["approve", "cancel"],
+      recommended: "approve",
+    });
+    if (approval !== "approve") {
+      throw new Error("Global Init approval was declined; no state changed.");
+    }
+    args.approved = true;
+  }
+  return { args, providers };
+}
+
 export async function runHarnessInitCli(
   argv,
   {
     homeDir = homedir(),
     now = () => new Date(),
+    promptChoice = null,
+    providerRunCommand,
     skillRoot = DEFAULT_SKILL_ROOT,
+    stdin = process.stdin,
     stdout = process.stdout,
   } = {},
 ) {
   const args = parseCliArgs(argv);
+  const effectiveHomeDir = args.homeDir ?? homeDir;
   let result;
-  if (args.command === "inspect") {
-    result = await inspectProject(args.repoRoot, { homeDir });
+  if (args.command === "global-init") {
+    let providerStatusOverrides = null;
+    if (!args.nonInteractive) {
+      const resolved = await resolveInteractiveGlobalArgs(args, {
+        homeDir: effectiveHomeDir,
+        promptChoice,
+        providerRunCommand,
+        stdin,
+        stdout,
+      });
+      providerStatusOverrides = Object.fromEntries(
+        Object.entries(resolved.providers).map(([name, value]) => [
+          name,
+          value.status,
+        ]),
+      );
+    }
+    result = await runGlobalInit({
+      allowNetwork: args.allowNetwork,
+      approved: args.approved,
+      catalogMode: args.catalogMode,
+      catalogPath: args.repositoryPath,
+      catalogUrl: args.catalogUrl,
+      homeDir: effectiveHomeDir,
+      now,
+      providerActions: args.providerActions,
+      providerRunCommand,
+      providerStatusOverrides,
+      skillRoot,
+    });
+  } else if (args.command === "project-init") {
+    if (!args.nonInteractive && !args.approved) {
+      const ask =
+        promptChoice ??
+        ((question) =>
+          numberedTtyChoice({
+            stdin,
+            stdout,
+            ...question,
+          }));
+      const approval = await ask({
+        question:
+          `Approve Project Init for ${args.repoRoot} with ` +
+          `${args.selectedSkills.length} selected project Skills?`,
+        options: ["approve", "cancel"],
+        recommended: "approve",
+      });
+      if (approval !== "approve") {
+        throw new Error("Project Init approval was declined; no state changed.");
+      }
+      args.approved = true;
+    }
+    result = await runProjectInit({
+      approved: args.approved,
+      contractPath: args.contractPath,
+      homeDir: effectiveHomeDir,
+      now,
+      repoRoot: args.repoRoot,
+      selectedSkills: args.selectedSkills,
+      skillRoot,
+    });
+  } else if (args.command === "inspect") {
+    result = await inspectProject(args.repoRoot, { homeDir: effectiveHomeDir });
   } else if (args.command === "validate") {
     const contract = await readJson(args.contractPath);
     validateProjectContract(contract);
@@ -3759,18 +5021,20 @@ export async function runHarnessInitCli(
       approved: args.approved,
       excludedSkills: args.excludedSkills,
       globalEssentialSkills: args.globalEssentialSkills,
-      homeDir,
+      homeDir: effectiveHomeDir,
       now,
       repositoryPath: args.repositoryPath,
       selectionGuidance: args.selectionGuidance,
     });
     result = {
       status: "configured",
-      configPath: skillRepositoryProfilePath(homeDir),
+      configPath: skillRepositoryProfilePath(effectiveHomeDir),
       profile,
     };
   } else if (args.command === "catalog-skills") {
-    const profile = await loadSkillRepositoryProfile({ homeDir });
+    const profile = await loadSkillRepositoryProfile({
+      homeDir: effectiveHomeDir,
+    });
     const repositoryPath =
       args.repositoryPath ?? profile?.repositoryPath ?? null;
     if (!repositoryPath) {
@@ -3794,13 +5058,65 @@ export async function runHarnessInitCli(
           !excludedSkills.includes(entry.name),
       ),
     };
-  } else {
+  } else if (args.command === "install-skills") {
     result = await installProjectSkills({
       approved: args.approved,
-      homeDir,
+      homeDir: effectiveHomeDir,
       now,
       repoRoot: args.repoRoot,
       selectedSkills: args.selectedSkills,
+    });
+  } else if (args.command === "revise-project-skills") {
+    const profile = await loadSkillRepositoryProfile({
+      homeDir: effectiveHomeDir,
+    });
+    if (!profile) {
+      throw new Error(
+        "revise-project-skills requires a configured Skill repository profile.",
+      );
+    }
+    result = await reviseReadyProjectSkills({
+      approved: args.approved,
+      repoRoot: args.repoRoot,
+      homeDir: effectiveHomeDir,
+      now,
+      skillRoot,
+      selectedSkills: args.selectedSkills,
+      globalEssentialSkills:
+        args.globalEssentialSkills.length > 0
+          ? args.globalEssentialSkills
+          : profile.globalEssentialSkills,
+    });
+  } else if (args.command === "skill-migration-plan") {
+    result = await planSkillPlatformMigration({
+      repoRoot: args.repoRoot,
+      homeDir: effectiveHomeDir,
+      repositoryPath: args.repositoryPath,
+      projectSkills:
+        args.selectedSkills.length > 0 ? args.selectedSkills : undefined,
+    });
+  } else if (args.command === "skill-migration-apply") {
+    result = await applySkillPlatformMigration({
+      approved: args.approved,
+      expectedInventorySha256: args.inventorySha256,
+      repoRoot: args.repoRoot,
+      homeDir: effectiveHomeDir,
+      repositoryPath: args.repositoryPath,
+      projectSkills: args.selectedSkills,
+      now,
+    });
+  } else if (args.command === "skill-migration-status") {
+    result = await auditSkillPlatformMigration({
+      repoRoot: args.repoRoot,
+      homeDir: effectiveHomeDir,
+      repositoryPath: args.repositoryPath,
+    });
+  } else {
+    result = await rollbackSkillPlatformMigration({
+      approved: args.approved,
+      backupId: args.backupId,
+      repoRoot: args.repoRoot,
+      homeDir: effectiveHomeDir,
     });
   }
   stdout.write(canonicalJson(result));

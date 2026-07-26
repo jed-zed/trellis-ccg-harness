@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import {
   existsSync,
   mkdirSync,
@@ -14,13 +15,27 @@ import path from "node:path";
 import test from "node:test";
 
 import {
+  applyProjectContract,
+  auditSkillPlatformMigration,
+  applySkillPlatformMigration,
   discoverSkillCatalog,
+  GLOBAL_PLATFORM_SKILLS,
+  HARNESS_PROJECTED_SKILLS,
   inspectProject,
   installProjectSkills,
   loadSkillRepositoryProfile,
+  markProjectReady,
+  planSkillPlatformMigration,
+  reviseReadyProjectSkills,
+  rollbackSkillPlatformMigration,
   runHarnessInitCli,
   saveSkillRepositoryProfile,
+  seedPersonalSkillRepository,
 } from "../.agents/skills/harness-init/scripts/harness-init-core.mjs";
+
+const ALL_GLOBAL_PLATFORM_SKILLS = [...GLOBAL_PLATFORM_SKILLS].sort((left, right) =>
+  left.localeCompare(right),
+);
 
 function fixture() {
   const root = mkdtempSync(path.join(tmpdir(), "harness-skill-profile-"));
@@ -93,6 +108,7 @@ function initializeProjectContract(
   contract.source.updatePolicy = "explicit-version";
   contract.source.rollbackPolicy = "transactional";
   contract.source.uninstallPolicy = "ownership-aware";
+  contract.skills.globalEssential = [...GLOBAL_PLATFORM_SKILLS];
   contract.skills.projectSelection = selectedSkills.map((name) => ({
     name,
     reason: `Selected for ${name} project work.`,
@@ -113,7 +129,7 @@ test("approved first-run Skill refinement persists and is reused by inspection",
     const profile = await saveSkillRepositoryProfile({
       approved: true,
       excludedSkills: ["cloud-production-deploy"],
-      globalEssentialSkills: ["harness-init", "grill-me"],
+      globalEssentialSkills: ALL_GLOBAL_PLATFORM_SKILLS,
       homeDir: value.homeDir,
       now: () => new Date("2026-07-25T12:00:00.000Z"),
       repositoryPath: value.skillRepository,
@@ -127,10 +143,7 @@ test("approved first-run Skill refinement persists and is reused by inspection",
       profile.repositoryPath,
       await realpath(value.skillRepository),
     );
-    assert.deepEqual(profile.globalEssentialSkills, [
-      "grill-me",
-      "harness-init",
-    ]);
+    assert.deepEqual(profile.globalEssentialSkills, ALL_GLOBAL_PLATFORM_SKILLS);
     assert.equal(profile.selection.installMode, "copy");
     assert.equal(profile.selection.approvalRequired, true);
     assert.equal(profile.refinedAt, "2026-07-25T12:00:00.000Z");
@@ -158,14 +171,14 @@ test("approved first-run Skill refinement persists and is reused by inspection",
       configured: true,
       path: await realpath(value.skillRepository),
       available: true,
-      globalEssentialSkills: ["grill-me", "harness-init"],
+      globalEssentialSkills: ALL_GLOBAL_PLATFORM_SKILLS,
     });
 
     await assert.rejects(
       saveSkillRepositoryProfile({
         approved: true,
         excludedSkills: ["grill-me"],
-        globalEssentialSkills: ["harness-init", "grill-me"],
+        globalEssentialSkills: ALL_GLOBAL_PLATFORM_SKILLS,
         homeDir: value.homeDir,
         repositoryPath: value.skillRepository,
       }),
@@ -187,7 +200,7 @@ test("approved first-run Skill refinement persists and is reused by inspection",
     await assert.rejects(
       saveSkillRepositoryProfile({
         approved: true,
-        globalEssentialSkills: ["harness-init", "grill-me"],
+        globalEssentialSkills: ALL_GLOBAL_PLATFORM_SKILLS,
         homeDir: homeAlias,
         repositoryPath: activeGlobalRoot,
       }),
@@ -203,7 +216,7 @@ test("saved Skill repository availability requires a directory", async () => {
   try {
     await saveSkillRepositoryProfile({
       approved: true,
-      globalEssentialSkills: ["harness-init", "grill-me"],
+      globalEssentialSkills: ALL_GLOBAL_PLATFORM_SKILLS,
       homeDir: value.homeDir,
       repositoryPath: value.skillRepository,
     });
@@ -234,7 +247,7 @@ test("Skill profile storage rejects a linked user configuration directory", asyn
     await assert.rejects(
       saveSkillRepositoryProfile({
         approved: true,
-        globalEssentialSkills: ["harness-init", "grill-me"],
+        globalEssentialSkills: ALL_GLOBAL_PLATFORM_SKILLS,
         homeDir: value.homeDir,
         repositoryPath: value.skillRepository,
       }),
@@ -357,7 +370,7 @@ test("approved Skill selection installs owned project copies and is repeatable",
     );
     await saveSkillRepositoryProfile({
       approved: true,
-      globalEssentialSkills: ["harness-init", "grill-me"],
+      globalEssentialSkills: ALL_GLOBAL_PLATFORM_SKILLS,
       homeDir: value.homeDir,
       repositoryPath: value.skillRepository,
     });
@@ -451,7 +464,7 @@ test("project Skill install rejects essentials, exclusions, and user collisions"
     await saveSkillRepositoryProfile({
       approved: true,
       excludedSkills: ["test-first"],
-      globalEssentialSkills: ["harness-init", "grill-me"],
+      globalEssentialSkills: ALL_GLOBAL_PLATFORM_SKILLS,
       homeDir: value.homeDir,
       repositoryPath: value.skillRepository,
     });
@@ -485,7 +498,7 @@ test("project Skill install rejects essentials, exclusions, and user collisions"
     writeFileSync(path.join(target, "user.txt"), "keep\n");
     await saveSkillRepositoryProfile({
       approved: true,
-      globalEssentialSkills: ["harness-init", "grill-me"],
+      globalEssentialSkills: ALL_GLOBAL_PLATFORM_SKILLS,
       homeDir: value.homeDir,
       repositoryPath: value.skillRepository,
     });
@@ -526,7 +539,7 @@ test("project Skill install rejects a structurally incomplete contract", async (
           },
           skills: {
             globalPolicy: "minimal-essential-only",
-            globalEssential: ["grill-me", "harness-init"],
+            globalEssential: ALL_GLOBAL_PLATFORM_SKILLS,
             repositoryProfile: "user-saved",
             selectionMode: "recommend-and-approve",
             installMode: "copy",
@@ -550,7 +563,7 @@ test("project Skill install rejects a structurally incomplete contract", async (
     );
     await saveSkillRepositoryProfile({
       approved: true,
-      globalEssentialSkills: ["harness-init", "grill-me"],
+      globalEssentialSkills: ALL_GLOBAL_PLATFORM_SKILLS,
       homeDir: value.homeDir,
       repositoryPath: value.skillRepository,
     });
@@ -590,7 +603,7 @@ test("CLI configures once, catalogs from the saved path, and installs an approve
         "--repository",
         value.skillRepository,
         "--global-essential",
-        "harness-init,grill-me",
+        GLOBAL_PLATFORM_SKILLS.join(","),
         "--guidance",
         "Prefer test-first Skills.",
         "--exclude",
@@ -642,6 +655,262 @@ test("CLI configures once, catalogs from the saved path, and installs an approve
       true,
     );
     assert.equal(writes.length, 3);
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("Skill platform migration exposes read-only planning and transactional lifecycle APIs", async () => {
+  assert.equal(typeof planSkillPlatformMigration, "function");
+  assert.equal(typeof seedPersonalSkillRepository, "function");
+  assert.equal(typeof reviseReadyProjectSkills, "function");
+  assert.equal(typeof applySkillPlatformMigration, "function");
+  assert.equal(typeof auditSkillPlatformMigration, "function");
+  assert.equal(typeof rollbackSkillPlatformMigration, "function");
+});
+
+function initializeCatalog(repository, gitEnv) {
+  writeSkill(repository, "quality/test-first", "test-first", "Use when adding focused tests.");
+  writeSkill(
+    repository,
+    "architecture/review-notes",
+    "review-notes",
+    "Use when recording architecture review findings.",
+  );
+  writeSkill(repository, "optional/unused", "unused-example", "Use only when explicitly selected.");
+  execFileSync("git", ["init", "-b", "main"], { cwd: repository, env: gitEnv });
+  execFileSync("git", ["add", "--all"], { cwd: repository, env: gitEnv });
+  execFileSync("git", ["commit", "-m", "test: initialize explicit catalog"], {
+    cwd: repository,
+    env: gitEnv,
+  });
+}
+
+function populateSkillPlatformFixture(value, gitEnv) {
+  const harnessRoot = path.join(value.repoRoot, ".agents", "skills");
+  const agentsRoot = path.join(value.homeDir, ".agents", "skills");
+  for (const name of HARNESS_PROJECTED_SKILLS) {
+    writeSkill(
+      harnessRoot,
+      name,
+      name,
+      `Use when running canonical Harness platform workflow ${name}.`,
+    );
+  }
+  for (const name of HARNESS_PROJECTED_SKILLS
+    .slice(0, 10)
+    .filter((name) => name !== "grill-me")) {
+    writeSkill(
+      agentsRoot,
+      name,
+      name,
+      `Use when obsolete global platform workflow ${name} runs.`,
+    );
+  }
+  writeSkill(
+    agentsRoot,
+    "grill-me",
+    "grill-me",
+    "Use when running canonical Harness platform workflow grill-me.",
+  );
+  mkdirSync(path.join(value.homeDir, ".codex"), { recursive: true });
+  writeFileSync(
+    path.join(value.homeDir, ".codex", "AGENTS.md"),
+    "# Existing global instructions\n",
+  );
+  initializeCatalog(value.skillRepository, gitEnv);
+  const preserved = path.join(value.root, "preserved-state");
+  mkdirSync(preserved);
+  writeFileSync(path.join(preserved, "keep.txt"), "preserve exactly\n");
+  return { agentsRoot, harnessRoot, preserved };
+}
+
+async function initializeReadyFixtureProject(value) {
+  initializeProjectContract(value.repoRoot, []);
+  const approvedContract = path.join(value.root, "approved-project.json");
+  writeFileSync(
+    approvedContract,
+    readFileSync(path.join(value.repoRoot, ".harness", "project.json")),
+  );
+  rmSync(path.join(value.repoRoot, ".harness"), {
+    recursive: true,
+    force: true,
+  });
+  await applyProjectContract({
+    repoRoot: value.repoRoot,
+    contractPath: approvedContract,
+    skillRoot: path.resolve(".agents", "skills", "harness-init"),
+  });
+  await markProjectReady({ repoRoot: value.repoRoot });
+}
+
+test("platform migration uses an explicit arbitrary catalog and approved project subset", async () => {
+  const value = fixture();
+  const gitEnv = {
+    ...process.env,
+    GIT_AUTHOR_NAME: "Harness Tests",
+    GIT_AUTHOR_EMAIL: "harness-tests@example.invalid",
+    GIT_COMMITTER_NAME: "Harness Tests",
+    GIT_COMMITTER_EMAIL: "harness-tests@example.invalid",
+  };
+  const selected = ["review-notes", "test-first"];
+  try {
+    const roots = populateSkillPlatformFixture(value, gitEnv);
+    await initializeReadyFixtureProject(value);
+    await saveSkillRepositoryProfile({
+      approved: true,
+      globalEssentialSkills: [...GLOBAL_PLATFORM_SKILLS],
+      homeDir: value.homeDir,
+      repositoryPath: value.skillRepository,
+    });
+    const preservedBefore = readFileSync(path.join(roots.preserved, "keep.txt"), "utf8");
+
+    const inventory = await planSkillPlatformMigration({
+      repoRoot: value.repoRoot,
+      homeDir: value.homeDir,
+      repositoryPath: value.skillRepository,
+      projectSkills: selected,
+      preservedPaths: [roots.preserved],
+    });
+    assert.equal(inventory.platform.length, 14);
+    assert.equal(inventory.catalog.length, 3);
+    assert.deepEqual(
+      inventory.catalogSkills.map((entry) => entry.name),
+      ["review-notes", "test-first"],
+    );
+    assert.equal(inventory.platform.filter((entry) => entry.action === "replace").length, 9);
+    assert.equal(inventory.platform.filter((entry) => entry.action === "add").length, 4);
+    assert.equal(inventory.platform.filter((entry) => entry.action === "preserve").length, 1);
+
+    const emptySelection = await planSkillPlatformMigration({
+      repoRoot: value.repoRoot,
+      homeDir: value.homeDir,
+      repositoryPath: value.skillRepository,
+      projectSkills: [],
+      preservedPaths: [roots.preserved],
+    });
+    assert.deepEqual(emptySelection.catalogSkills, []);
+
+    const driftTarget = path.join(value.skillRepository, "quality", "test-first", "SKILL.md");
+    const driftOriginal = readFileSync(driftTarget);
+    writeFileSync(driftTarget, Buffer.concat([driftOriginal, Buffer.from("\n# drift\n")]));
+    await assert.rejects(
+      applySkillPlatformMigration({
+        approved: true,
+        expectedInventorySha256: inventory.inventorySha256,
+        repoRoot: value.repoRoot,
+        homeDir: value.homeDir,
+        repositoryPath: value.skillRepository,
+        projectSkills: selected,
+        preservedPaths: [roots.preserved],
+        gitEnv,
+      }),
+      /inventory|drift/i,
+    );
+    writeFileSync(driftTarget, driftOriginal);
+
+    const result = await applySkillPlatformMigration({
+      approved: true,
+      expectedInventorySha256: inventory.inventorySha256,
+      repoRoot: value.repoRoot,
+      homeDir: value.homeDir,
+      repositoryPath: value.skillRepository,
+      projectSkills: selected,
+      preservedPaths: [roots.preserved],
+      gitEnv,
+      now: () => new Date("2026-07-26T12:00:00.000Z"),
+    });
+    assert.equal(result.status, "migrated");
+    assert.equal(readFileSync(path.join(roots.preserved, "keep.txt"), "utf8"), preservedBefore);
+    assert.equal(existsSync(path.join(value.repoRoot, ".agents", "skills", "review-notes", "SKILL.md")), true);
+    assert.equal(existsSync(path.join(value.repoRoot, ".agents", "skills", "test-first", "SKILL.md")), true);
+    assert.equal(existsSync(path.join(value.skillRepository, "optional", "unused", "SKILL.md")), true);
+
+    const globalOwnership = JSON.parse(
+      readFileSync(path.join(value.homeDir, ".agents", "harness", "global-skills.json"), "utf8"),
+    );
+    assert.equal(globalOwnership.schemaVersion, 2);
+    assert.equal(globalOwnership.managedPlatformSkills.length, 14);
+    assert.deepEqual(
+      globalOwnership.catalogSkills.map((entry) => entry.name),
+      ["review-notes", "test-first"],
+    );
+
+    const audit = await auditSkillPlatformMigration({
+      repoRoot: value.repoRoot,
+      homeDir: value.homeDir,
+      repositoryPath: value.skillRepository,
+      gitEnv,
+    });
+    assert.deepEqual(audit.issues, []);
+    assert.equal(audit.status, "ready");
+    const repeated = await applySkillPlatformMigration({
+      approved: true,
+      expectedInventorySha256: inventory.inventorySha256,
+      repoRoot: value.repoRoot,
+      homeDir: value.homeDir,
+      repositoryPath: value.skillRepository,
+      projectSkills: selected,
+      preservedPaths: [roots.preserved],
+      gitEnv,
+    });
+    assert.equal(repeated.status, "unchanged");
+
+    const globalAgentsPath = path.join(value.homeDir, ".codex", "AGENTS.md");
+    const globalAgentsBytes = readFileSync(globalAgentsPath);
+    writeFileSync(globalAgentsPath, Buffer.concat([globalAgentsBytes, Buffer.from("\nuser edit\n")]));
+    await assert.rejects(
+      rollbackSkillPlatformMigration({
+        approved: true,
+        backupId: result.backupId,
+        repoRoot: value.repoRoot,
+        homeDir: value.homeDir,
+      }),
+      /intact|modified|drift/i,
+    );
+    writeFileSync(globalAgentsPath, globalAgentsBytes);
+
+    const rolledBack = await rollbackSkillPlatformMigration({
+      approved: true,
+      backupId: result.backupId,
+      repoRoot: value.repoRoot,
+      homeDir: value.homeDir,
+    });
+    assert.equal(rolledBack.status, "rolled-back");
+    assert.equal(existsSync(path.join(value.repoRoot, ".agents", "skills", "review-notes")), false);
+    assert.equal(existsSync(path.join(value.repoRoot, ".agents", "skills", "test-first")), false);
+    const afterRollback = await auditSkillPlatformMigration({
+      repoRoot: value.repoRoot,
+      homeDir: value.homeDir,
+      repositoryPath: value.skillRepository,
+      gitEnv,
+    });
+    assert.equal(afterRollback.status, "unmanaged");
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("platform migration refuses a user-edited legacy grill-me projection", async () => {
+  const value = fixture();
+  const gitEnv = {
+    ...process.env,
+    GIT_AUTHOR_NAME: "Harness Tests",
+    GIT_AUTHOR_EMAIL: "harness-tests@example.invalid",
+    GIT_COMMITTER_NAME: "Harness Tests",
+    GIT_COMMITTER_EMAIL: "harness-tests@example.invalid",
+  };
+  try {
+    const roots = populateSkillPlatformFixture(value, gitEnv);
+    writeSkill(roots.agentsRoot, "grill-me", "grill-me", "User-customized clarification workflow.");
+    await assert.rejects(
+      planSkillPlatformMigration({
+        repoRoot: value.repoRoot,
+        homeDir: value.homeDir,
+        repositoryPath: value.skillRepository,
+      }),
+      /grill-me.*user-owned/i,
+    );
   } finally {
     value.cleanup();
   }

@@ -92,7 +92,7 @@ test('harness-init delegates contract mutation to the executable validator', asy
   assert.equal(schema.properties.workflow.properties.dispatchMode.const, 'inline')
 })
 
-test('harness-init refines and reuses a minimal-global project Skill profile', async () => {
+test('harness-init refines and reuses the 14-Skill global platform profile', async () => {
   const skill = await readSkillFile('SKILL.md')
   const template = JSON.parse(
     await readSkillFile('assets', 'project-contract.template.json'),
@@ -112,7 +112,22 @@ test('harness-init refines and reuses a minimal-global project Skill profile', a
   assert.match(skill, /recommend[\s\S]*explicit approval/i)
   assert.deepEqual(template.skills, {
     globalPolicy: 'minimal-essential-only',
-    globalEssential: ['grill-me', 'harness-init'],
+    globalEssential: [
+      'grill-me',
+      'harness-init',
+      'trellis-before-dev',
+      'trellis-brainstorm',
+      'trellis-break-loop',
+      'trellis-channel',
+      'trellis-check',
+      'trellis-continue',
+      'trellis-finish-work',
+      'trellis-meta',
+      'trellis-session-insight',
+      'trellis-spec-bootstrap',
+      'trellis-start',
+      'trellis-update-spec',
+    ],
     repositoryProfile: 'user-saved',
     selectionMode: 'recommend-and-approve',
     installMode: 'copy',

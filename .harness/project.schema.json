@@ -116,6 +116,8 @@
             "type": "string",
             "pattern": "^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$"
           },
+          "minItems": 14,
+          "maxItems": 14,
           "uniqueItems": true,
           "allOf": [
             {
@@ -126,6 +128,66 @@
             {
               "contains": {
                 "const": "harness-init"
+              }
+            },
+            {
+              "contains": {
+                "const": "trellis-before-dev"
+              }
+            },
+            {
+              "contains": {
+                "const": "trellis-brainstorm"
+              }
+            },
+            {
+              "contains": {
+                "const": "trellis-break-loop"
+              }
+            },
+            {
+              "contains": {
+                "const": "trellis-channel"
+              }
+            },
+            {
+              "contains": {
+                "const": "trellis-check"
+              }
+            },
+            {
+              "contains": {
+                "const": "trellis-continue"
+              }
+            },
+            {
+              "contains": {
+                "const": "trellis-finish-work"
+              }
+            },
+            {
+              "contains": {
+                "const": "trellis-meta"
+              }
+            },
+            {
+              "contains": {
+                "const": "trellis-session-insight"
+              }
+            },
+            {
+              "contains": {
+                "const": "trellis-spec-bootstrap"
+              }
+            },
+            {
+              "contains": {
+                "const": "trellis-start"
+              }
+            },
+            {
+              "contains": {
+                "const": "trellis-update-spec"
               }
             }
           ]

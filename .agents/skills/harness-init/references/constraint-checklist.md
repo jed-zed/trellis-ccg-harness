@@ -41,9 +41,11 @@ decisions that remain unresolved.
 
 - Is this the first Harness initialization, or is a saved user Skill repository
   profile already available?
-- What absolute repository path contains reusable task and domain Skills?
-- Which Skills are truly global essentials? Default to only `harness-init` and
-  `grill-me`.
+- What explicit Git catalog path or approved clone source contains reusable task
+  and domain Skills, if any?
+- Does the global baseline contain exactly `grill-me` plus the 13
+  Harness/Trellis platform Skills, with ownership-managed projections for all
+  14 Harness sources?
 - What reusable selection guidance and explicit exclusions should be saved?
 - Which small project-relevant Skill set is recommended, why is each Skill
   needed, and has the user explicitly approved the exact selection?
@@ -51,8 +53,14 @@ decisions that remain unresolved.
   project contract?
 - Does project installation use bounded, link-free copies with a digest
   manifest rather than mutable links?
-- If global cleanup is desired, is it handled as a separate ownership-aware
-  migration rather than an initialization side effect?
+- If global cleanup is desired, does a read-only inventory bind the 14 fixed
+  platform Skills, the explicit catalog identity, and the user-approved project
+  Skill subset (which may be empty) before an ownership-aware migration?
+- Is the selected catalog an explicit Git working tree with recorded branch,
+  commit, tree, clean state, remotes, and link-free Skill trees? Its Skill
+  count and layout are catalog-defined rather than Harness-defined.
+- Are the backup manifest, global managed block, project schema-v3 ownership,
+  audit, and rollback identities intact?
 
 ## Toolchain and Platforms
 

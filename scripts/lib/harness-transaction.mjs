@@ -613,11 +613,6 @@ function isTrellisManagedPath(relative) {
   }
   return [
     ".agents/skills/trellis-",
-    ".claude/agents/trellis-",
-    ".claude/commands/trellis/",
-    ".claude/skills/trellis-",
-    ".claude/hooks/",
-    ".claude/settings.json",
     ".codex/agents/trellis-",
     ".codex/hooks/",
     ".codex/hooks.json",

@@ -1,6 +1,6 @@
 # Trellis CCG Harness
 
-这是 `jed-zed` 的个人 AI 开发 Harness：用最新版 Trellis 管理任务、PRD、规范和工程记忆，用个人定制版 CCG 管理 Codex、Gemini、Claude、Grok、GPT Pro、外部证据和质量门禁。
+这是 `jed-zed` 的 AI 开发 Harness：用 Trellis 管理任务、PRD、规范和工程记忆，用 Codex-only CCG 管理 Codex、Gemini、Grok、GPT Pro、外部证据和质量门禁。
 
 > 重要：本仓库里的 CCG 不是重新从原作者仓库下载的默认版本。权威来源是 [`jed-zed/ccg-gptpro-worflow`](https://github.com/jed-zed/ccg-gptpro-worflow) 的个人主线；精确 commit、Git tree 和捕获时间只以 [`harness.sources.json`](harness.sources.json) 为准。原作者仓库只作为上游来源和版权归属记录。
 
@@ -40,7 +40,7 @@ CCG 智能层
 - GPT Pro plan/review/execute 证据桥；
 - Codex 原生插件、commands、skills 和 doctor；
 - CCG 自动搜索路由和 fail-closed 验证；
-- Gemini 预览、Claude 协作与完整回归测试。
+- Gemini 预览、可选外部 Provider 引导与完整回归测试。
 
 为了避免把这些工作替换成原作者当前版本，Harness 的更新和验证都以个人 fork URL、commit 和 Git tree 为准。
 
@@ -53,29 +53,80 @@ CCG 智能层
 - PowerShell 7+
 - pnpm/Corepack
 - Go（CCG wrapper 的 test/build 门禁必需）
-- 按需安装 Codex、Claude Code、Gemini、Grok CLI
+- Codex CLI（精确安装本地 CCG Codex 插件所必需）
+- Gemini、Grok、Claude Code CLI 均为独立可选 provider；Global Setup 不会替你安装或登录
 
 ```powershell
-git clone https://github.com/jed-zed/trellis-ccg-harness.git
+git clone --branch v0.2.0 --depth 1 https://github.com/jed-zed/trellis-ccg-harness.git
 Set-Location trellis-ccg-harness
+corepack enable
+corepack prepare pnpm@10.17.1 --activate
 
-# 安装依赖并构建个人 CCG
-pwsh -NoProfile -File .\scripts\bootstrap.ps1
-
-# 如果要让全局 ccg 命令直接指向本仓库的个人快照
-pwsh -NoProfile -File .\scripts\bootstrap.ps1 -LinkCcg
+# 公开基线：逐项预览、选择和批准；个人 Skill catalog 默认跳过
+pnpm setup
 ```
 
-## 项目初始化 Skill
+`pnpm setup` 是面向用户的 **Global Setup**，每个用户环境运行一次。它会：
+
+1. 在任何写入前预览并检查精确 Trellis 版本、CCG 3.3.1 CLI、`ccg
+   codex-mode install`、当前 Harness snapshot 的本地 Codex marketplace /
+   CCG 插件、14 个 bundled platform Skills、个人 catalog 选择和 provider
+   状态；
+2. 交互模式逐项确认核心动作，随后执行 Global Init；自动化模式必须给出
+   完整 flags 和所有批准开关；
+3. 对相同 snapshot 保持幂等；同名 marketplace/plugin 来自其他路径或版本时
+   fail closed，不会覆盖；
+4. 只把 provider 的 `install` / `login` 选择记录为待单独批准动作并输出
+   status/guidance，绝不把安装或登录塞进本次总授权；
+5. Claude 默认 `skip`。显式选择 Claude 安装/登录会被标为退出
+   zero-`.claude` profile，但仍不会由 Global Setup 执行；
+6. 每个 Harness-owned 步骤后比较用户级和项目级 `.claude` 状态；已有内容
+   保持不变，任何创建或修改都会立即停止后续步骤。
+
+公开、无私人 catalog 的非交互示例：
+
+```powershell
+pnpm setup -- `
+  -NonInteractive `
+  -HomeDir <absolute-user-home> `
+  -CatalogMode skip `
+  -ProviderActions "codex=later,gemini=later,grok=later,claude=skip" `
+  -Approved `
+  -ApproveTrellis `
+  -ApproveCcgCli `
+  -ApproveCodexMode `
+  -ApproveCcgPlugin `
+  -ApproveGlobalInit
+```
+
+`scripts/bootstrap.ps1` 仍是 Harness 生命周期和维护者使用的内部工具链安装
+入口，不等价于 Global Setup，也不会替代 Global Init。Global Setup 不调用
+legacy `ccg init`。
+
+## Global Init 与 Project Init
+
+- **Global Init**：由 `pnpm setup` 调用，管理用户级 Trellis/CCG runtime、
+  Codex plugin、14 个公开 bundled platform Skills、provider 状态与个人
+  catalog 决策。
+- **Project Init**：每个项目单独执行，先只读发现仓库，再批准项目约束与
+  项目 Skill 选择，最后写入该项目的 Harness contract 并运行 gates。
+
+公开基线路径应先用 `CatalogMode skip` 跑通。之后如确实需要个人 Skills，
+可重新运行 Global Init，选择已有本地 Git catalog（`local`），或在单独
+批准联网后 clone 已有权限的 catalog（`clone`）；私人 catalog 不是公开
+Harness 的运行前提。
+
+## Project Init / 项目初始化 Skill
 
 在新项目开始或把已有仓库接入 Harness 时，先让 Codex 使用
 `$harness-init`（也可以直接说“使用 harness-init 初始化本项目”）。
 这个 Skill 位于 [`.agents/skills/harness-init`](.agents/skills/harness-init)，
 执行顺序固定为：
 
-1. 首次触发时用 `grill-me` 细化 Skill 使用规范，让用户指定一个独立
-   Skill 仓库路径（不能与正在加载的全局 Skill 目录重叠），并把路径与
-   最小全局 Skill 集保存在用户配置中；以后初始化直接复用，不重复询问有效路径；
+1. 首次触发时用 `grill-me` 细化 Skill 使用规范，并让用户选择跳过个人
+   catalog、使用已有本地 Git catalog，或在单独批准联网后 clone
+   credential-free catalog URL；只有选择 catalog 时才保存其规范路径，
+   以后初始化可直接复用；
 2. 只读检查仓库、工具链、现有规范、Hook、CI、来源与安全边界，并从
    已保存仓库中推荐一小组与本项目相关的 Skill；
 3. 对仓库无法回答的决定调用 `grill-me`，每轮只问一个问题，并给出推荐项与取舍；
@@ -94,10 +145,11 @@ pwsh -NoProfile -File .\scripts\bootstrap.ps1 -LinkCcg
 8. 运行离线 doctor、冲突、来源和质量门禁；全部通过后用所有权感知
    `mark-ready` 原子推进合同状态和摘要。
 
-初始化阶段默认不调用 Grok、Claude、GPT Pro、付费模型或联网服务，
-也不会读取密钥值。全局默认只保留 `harness-init` 与 `grill-me` 两个
-必要 Skill；现有全局 Skill 不会被初始化过程擅自删除或移动，清理由独立的
-所有权感知迁移处理。现有文件在没有所有权清单前一律按用户资产处理。
+Project Init 默认不调用 Grok、Claude、GPT Pro、付费模型或联网服务，
+也不会读取密钥值。14 个公开 platform Skills 已由 Global Init 安装；
+Project Init 只从已明确选择的私人/本地 catalog 安装项目相关 Skills。
+现有全局 Skill 不会被初始化过程擅自删除或移动，清理由独立的所有权感知
+迁移处理。现有文件在没有所有权清单前一律按用户资产处理。
 协作规则的发行版上游来源是
 [`collaboration-policy.md`](.agents/skills/harness-init/assets/collaboration-policy.md)；
 每个初始化项目固定一份项目来源到
@@ -117,10 +169,19 @@ pwsh -NoProfile -File .\scripts\bootstrap.ps1 -LinkCcg
 # 只读发现；不会创建 .harness
 node .\scripts\harness-init.mjs inspect --repo-root .
 
+# 公开基线 Project Init：批准的 contract 不选择私人项目 Skills
+node .\scripts\harness-init.mjs project-init `
+  --repo-root . `
+  --home-dir <absolute-user-home> `
+  --contract .\approved-contract.json `
+  --no-project-skills `
+  --non-interactive `
+  --approved
+
 # 首次细化并批准后保存 Skill 仓库；以后 catalog-skills 自动复用此路径
 node .\scripts\harness-init.mjs configure-skills `
   --repository <absolute-skill-repository> `
-  --global-essential "harness-init,grill-me" `
+  --global-essential "grill-me,harness-init,trellis-before-dev,trellis-brainstorm,trellis-break-loop,trellis-channel,trellis-check,trellis-continue,trellis-finish-work,trellis-meta,trellis-session-insight,trellis-spec-bootstrap,trellis-start,trellis-update-spec" `
   --guidance "<approved-selection-guidance>" `
   --exclude "<optional-comma-separated-exclusions>" `
   --approved

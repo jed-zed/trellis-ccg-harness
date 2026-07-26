@@ -36,6 +36,26 @@ The complete Trellis + personal CCG combination is the Harness. The middle layer
 - Claude is disabled by default in this Harness and explicitly disabled for this task.
 - GPT Pro remains an explicit manual evidence route.
 
+## Claude-clean Codex boundary
+
+The prior “generated Claude assets are present but inert” disposition is
+superseded by the user's approved isolation requirement. Healthy Codex-mode
+state has no Harness- or CCG-owned files under user-level or project-level
+`.claude/`.
+
+- Trellis projects in this distribution project platform assets only to
+  `.agents/` and `.codex/`.
+- Codex-native CCG configuration lives under `~/.codex/ccg/`; route execution
+  is exposed by the installed CCG CLI/plugin package instead of a
+  `~/.claude/.ccg/engine/...` path.
+- Codex plugin instructions use that stable CLI route and explicitly keep
+  Claude disabled. They do not call Claude wrappers.
+- Legacy Claude-mode source can remain for compatibility outside this Harness,
+  but no Codex-mode command imports it as runtime state or creates `.claude/`.
+- Conflict audit treats Harness/CCG-owned `.claude/` residue as drift, while
+  preserving unrelated user-owned content in projects that are not being
+  cleaned by an explicitly approved migration.
+
 ## Grok provider boundary
 
 Two adapters are intentionally distinct:
@@ -51,7 +71,7 @@ Findings use `blocking`, `warning`, or `info`.
 
 - Blocking: source/version authority drift, tracked runtime state, missing canonical task, forbidden model route, provider credential confusion.
 - Warning: user/project hook overlap, unavailable optional API, missing optional plugin cache.
-- Info: intentional generated assets or inert nested workflow files.
+- Info: inert nested workflow files and other non-runtime references.
 
 The conflict command exits `2` when any blocking finding exists and `0` otherwise.
 
@@ -255,6 +275,87 @@ The contract and ownership manifest are replaced in one authenticated
 project-policy transaction with digest and identity preconditions. Concurrent
 drift rolls back; an intact ready contract returns unchanged.
 
+## Global Skill platform
+
+The Harness repository is canonical for all 14 public platform Skills:
+the 13 Trellis/Harness Skills plus `grill-me`. The initializer projects those
+owned copies globally through an ownership manifest and recoverable
+transaction. A clean machine must never depend on a pre-existing external
+`grill-me` installation.
+
+All other reusable personal Skills reside in the separate
+`I:\ai\codex-skill-repository` catalog. Until every Skill's provenance and
+licence permits redistribution, its release repository is private. The Harness
+core remains public and fully usable without the catalog. Global discovery
+records an opted-in catalog in a dedicated managed block in `~/.codex/AGENTS.md`;
+the profile is stored under `~/.agents/harness/`. Existing global copies are
+moved to a recoverable backup only after staged byte verification.
+
+Project selection is an explicit revision of the ready project contract.
+Selected Skills are copied as ordinary files into `.agents/skills/`, with
+source and installed digests in `.harness/project-skills.json`. Links,
+junctions, collisions, user-modified owned files, stale contract identity, and
+concurrent drift fail closed. The current project selects `ponytail` and
+`caveman`.
+
+### Interactive selection contract
+
+The supported guided initializer asks one unresolved decision at a time. When
+the host exposes a native structured-choice UI, it must use that UI and mark
+the recommended choice. A terminal-only invocation falls back to a numbered
+TTY prompt. Non-interactive invocations must pass explicit source and Skill
+selection flags; they never infer consent or silently choose a personal
+catalog.
+
+Guided setup is split into two independently resumable phases:
+
+1. **Global Init:** inventory first, then install and verify the global Harness
+   platform. It covers Trellis, the CCG Codex-only CLI/plugin, all 14 bundled
+   platform Skills, and the personal Skill catalog decision. It also probes the
+   installed/authenticated state of the Codex, Gemini, Grok, and Claude Code
+   CLIs. A missing tool receives an install/skip choice; an installed but
+   unauthenticated tool receives a login-now/later choice and safe assistance.
+   Each network request, installation, and authentication launch is its own
+   previewed approval boundary. One approval never authorizes later actions.
+2. **Project Init:** inspect repository facts and technology selections, propose
+   only relevant project Skills, resolve remaining decisions one at a time,
+   display the complete secret-free constraint summary, and require approval
+   before contract or project mutation. Apply then runs the owned transaction,
+   project Skill snapshots, code-backed spec handoff, doctor/conflict checks,
+   applicable quality/security gates, and readiness promotion.
+
+Status probing is read-only and must distinguish `not installed`, `installed
+but authentication unknown`, `installed unauthenticated`, `authenticated`, and
+`skipped`. Login helpers may open the vendor's supported interactive flow but
+must not request, persist, or print tokens. Offline/non-interactive operation
+can supply explicit desired states and receives a deterministic residual-action
+report rather than an implicit login attempt.
+
+Claude Code is a special optional branch and is skipped by default because its
+own installer or login flow may create `~/.claude/`. Explicitly choosing that
+branch leaves the zero-`.claude` acceptance profile. This exception authorizes
+only the external Claude tool's own behavior: Harness and CCG remain forbidden
+from reading, creating, restoring, or writing `.claude/` paths in all profiles.
+
+The personal catalog decision has exactly three branches: use the configured
+authenticated private catalog, select an existing local Git catalog, or skip
+optional personal Skills. Project Skill selection follows only after the
+catalog decision and is copied as link-free owned snapshots. This preserves a
+fully functional public Harness baseline while allowing the owner to reproduce
+the private personal environment.
+
+### Release provenance
+
+CCG Codex-only changes are published as `3.3.1` only when package, plugin, and
+Codex configuration version declarations agree. The Harness imports that exact
+committed tracked tree and records its commit/tree identity in
+`harness.sources.json`. Harness `main` and release tags are pushed only after
+the corresponding local gates and remote CI are green.
+
+> Historical note: earlier migration evidence accurately described `grill-me`
+> as an external global dependency at that time. It is retained below as
+> historical evidence; this section supersedes it for the release contract.
+
 ## CI boundary
 
 The root workflow owns all executable gates. Nested component workflows are
@@ -269,3 +370,13 @@ the authoritative personal checkout, committed there, and then imported as an
 exact tracked tree with an updated Harness manifest. The two
 endpoint-protection-blocked reference files are never read, modified, restored,
 or staged from the local working tree.
+
+## Clean-install acceptance boundary
+
+The release gate creates a new, empty temporary user home and runs the
+documented bootstrap plus guided/non-interactive initializer path against that
+home. It asserts the expected `.agents/`, `.codex/`, ownership manifests, and
+selected project snapshots, and asserts that neither the temporary home nor
+the initialized project contains `.claude/`. The test may use an explicit
+test-only home override; production defaults continue to use the actual user
+home.

@@ -420,6 +420,100 @@ test("clean fixture has no blocking conflicts", () => {
   }
 });
 
+test("Codex plugin cache accepts an owned base-version cachebuster", () => {
+  const fixture = createFixture();
+  try {
+    const cacheRoot = path.join(
+      fixture.homeDir,
+      ".codex",
+      "plugins",
+      "cache",
+      "ccg-gptpro-worflow",
+      "ccg",
+    );
+    rmSync(path.join(cacheRoot, "3.3.0"), {
+      recursive: true,
+      force: true,
+    });
+    writeJson(
+      path.join(
+        cacheRoot,
+        "3.3.0+codex.20260726153650",
+        ".codex-plugin",
+        "plugin.json",
+      ),
+      { name: "ccg", version: "3.3.0+codex.20260726153650" },
+    );
+    const report = auditConflicts(fixture.repoRoot, {
+      runner: fixture.runner,
+      homeDir: fixture.homeDir,
+    });
+    const finding = report.findings.find(
+      (item) => item.id === "ccg-plugin-cache",
+    );
+    assert.equal(finding.status, "ok");
+    assert.equal(
+      finding.evidence.actual,
+      "3.3.0+codex.20260726153650",
+    );
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("Trellis assets under project .claude are blocking conflicts", () => {
+  const fixture = createFixture();
+  try {
+    writeText(
+      path.join(
+        fixture.repoRoot,
+        ".claude",
+        "skills",
+        "trellis-check",
+        "SKILL.md",
+      ),
+      "# stale Trellis projection\n",
+    );
+    const report = auditConflicts(fixture.repoRoot, {
+      runner: fixture.runner,
+      homeDir: fixture.homeDir,
+    });
+    const finding = report.findings.find(
+      (item) => item.id === "harness-claude-assets",
+    );
+    assert.equal(finding.severity, "blocking");
+    assert.equal(finding.status, "conflict");
+    assert.equal(conflictExitCode(report), 2);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("unrelated project .claude content is reported but preserved", () => {
+  const fixture = createFixture();
+  try {
+    const userFile = path.join(
+      fixture.repoRoot,
+      ".claude",
+      "user-owned.md",
+    );
+    writeText(userFile, "keep\n");
+    const report = auditConflicts(fixture.repoRoot, {
+      runner: fixture.runner,
+      homeDir: fixture.homeDir,
+    });
+    const finding = report.findings.find(
+      (item) => item.id === "user-claude-assets",
+    );
+    assert.equal(finding.severity, "info");
+    assert.equal(finding.status, "info");
+    assert.equal(conflictExitCode(report), 0);
+    assert.equal(readFileSync(userFile, "utf8"), "keep\n");
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test("source, runtime state, provider, and Claude drift are blocking", () => {
   const fixture = createFixture();
   try {

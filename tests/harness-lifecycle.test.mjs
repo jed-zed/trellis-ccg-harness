@@ -29,6 +29,7 @@ import {
   validateBootstrapOwnership,
   validateUpdateSource,
 } from "../scripts/lib/harness-lifecycle.mjs";
+import { buildHarnessDoctorArguments } from "../scripts/harness-lifecycle.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -142,6 +143,31 @@ test("update parsing accepts exactly one explicit CCG or Trellis target", () => 
         "1.2.3-alpha..1",
       ]),
     /semantic version/i,
+  );
+});
+
+test("CCG update doctor mode is explicit and target-version bound", () => {
+  const repoRoot = path.resolve("C:/harness");
+  assert.deepEqual(buildHarnessDoctorArguments(repoRoot), [
+    "-NoProfile",
+    "-File",
+    path.join(repoRoot, "scripts", "doctor.ps1"),
+    "-RepoRoot",
+    repoRoot,
+  ]);
+  assert.deepEqual(
+    buildHarnessDoctorArguments(repoRoot, {
+      ccgUpdateTargetVersion: "3.3.1",
+    }),
+    [
+      "-NoProfile",
+      "-File",
+      path.join(repoRoot, "scripts", "doctor.ps1"),
+      "-RepoRoot",
+      repoRoot,
+      "-CcgUpdateTargetVersion",
+      "3.3.1",
+    ],
   );
 });
 

@@ -46,6 +46,19 @@ jobs:
       - name: Run all offline Harness contracts
         run: pnpm harness:test
 
+      - name: Test public Global Setup with isolated user state
+        if: runner.os == 'Linux' && matrix.node-version == 22
+        shell: pwsh
+        run: |
+          $setupHome = Join-Path $env:RUNNER_TEMP 'harness-setup-home'
+          $npmPrefix = Join-Path $env:RUNNER_TEMP 'harness-setup-npm'
+          New-Item -ItemType Directory -Path $setupHome, $npmPrefix -Force | Out-Null
+          $env:HOME = $setupHome
+          $env:USERPROFILE = $setupHome
+          $env:CODEX_HOME = Join-Path $setupHome '.codex'
+          $env:NPM_CONFIG_PREFIX = $npmPrefix
+          node --test ./tests/install-script.test.mjs
+
       - name: Audit Trellis and CCG conflicts
         run: node scripts/harness-adapter.mjs conflicts --ci
 

@@ -1284,6 +1284,34 @@ test("managed file updates reject paths outside the Trellis-owned surface", asyn
   }
 });
 
+test("managed Trellis updates reject every project .claude path", async () => {
+  const value = managedFilesFixture();
+  try {
+    const candidateFile = path.join(
+      value.candidateRoot,
+      ".claude",
+      "skills",
+      "trellis-start",
+      "SKILL.md",
+    );
+    mkdirSync(path.dirname(candidateFile), { recursive: true });
+    writeFileSync(candidateFile, "must not install\n");
+    await assert.rejects(
+      replaceManagedFilesTransaction({
+        repoRoot: value.repoRoot,
+        candidateRoot: value.candidateRoot,
+        paths: [".claude/skills/trellis-start/SKILL.md"],
+        kind: "trellis",
+        previous: { version: "0.6.8" },
+        current: { version: "0.6.9" },
+      }),
+      /managed|allowed|surface/i,
+    );
+  } finally {
+    value.cleanup();
+  }
+});
+
 test("uninstall planning only selects unchanged Harness-owned global state", () => {
   const repoRoot = path.resolve("C:/harness");
   const snapshot = (overrides = {}) => {

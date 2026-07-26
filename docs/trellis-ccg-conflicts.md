@@ -16,7 +16,8 @@ implementation; the adapter is only their internal boundary.
 | Direct execution from the CCG source snapshot | Warning | Source-package helper behavior can differ from the installed plugin runtime | Fixed by policy: source helpers are not the Harness runtime |
 | Project and user `UserPromptSubmit` hooks | Warning | Both scopes register the Trellis workflow-state hook | Fixed locally: the user-level fallback detects the project hook and yields; the audit verifies the precedence marker |
 | Grok provider unavailable | Warning | Tested third-party gateways did not provide a working authenticated Grok inference and search channel | Deferred: Grok is disabled and optional, so ordinary work remains unblocked |
-| Generated `.claude/` project assets | Info | Trellis generates multi-platform assets | Intentional and inert while Claude is disabled |
+| Harness/Trellis/CCG assets under project `.claude/` | Blocking | They reconnect Codex initialization to the Claude runtime surface | Fixed: Codex-native initialization and Trellis upgrades retain only `.agents/` and `.codex/`; the audit blocks recognized residue |
+| Unrecognized user-owned project `.claude/` content | Info | It may belong to a separate user workflow | Preserved: the Harness reports it but never deletes it automatically |
 | Nested CCG GitHub workflows | Info | The personal source snapshot includes its own `.github/workflows/` | Intentional provenance; only root workflows execute in this repository |
 | Command names | Info | Trellis and CCG expose separate command families | No collision: `trellis` and `ccg` remain distinct namespaces |
 
