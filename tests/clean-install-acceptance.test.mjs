@@ -20,6 +20,14 @@ const ACCEPTANCE_SCRIPT = path.join(
   "scripts",
   "clean-install-acceptance.ps1",
 );
+const PUBLIC_HARNESS_ORIGIN =
+  "https://github.com/jed-zed/trellis-ccg-harness.git";
+const PUBLIC_BASELINE_CONTRACT = path.join(
+  ROOT,
+  "tests",
+  "fixtures",
+  "public-baseline-approved-contract.json",
+);
 const GLOBAL_PLATFORM_SKILLS = [
   "grill-me",
   "harness-init",
@@ -250,6 +258,59 @@ function commandManifest(root, runner, behavior = {}) {
     `${JSON.stringify({ schemaVersion: 1, phases }, null, 2)}\n`,
   );
   return manifest;
+}
+
+function createLiveBootstrapProbe(root) {
+  const probe = path.join(root, "live-bootstrap-probe.ps1");
+  write(
+    probe,
+    String.raw`$ErrorActionPreference = "Stop"
+$prefix = $env:NPM_CONFIG_PREFIX
+$repository = $env:HARNESS_ACCEPTANCE_REPO
+$probeRoot = Join-Path $repository ".acceptance"
+New-Item -ItemType Directory -Path $prefix, $probeRoot -Force | Out-Null
+Set-Content -LiteralPath (Join-Path $prefix "trellis.cmd") -Encoding ascii -Value @(
+  "@echo off",
+  "echo 0.6.9"
+)
+$ccgBin = Join-Path $prefix "node_modules/ccg-workflow/bin"
+New-Item -ItemType Directory -Path $ccgBin -Force | Out-Null
+Set-Content -LiteralPath (Join-Path $ccgBin "ccg.mjs") -Encoding utf8NoBOM -Value (
+  "console.log('3.3.1');"
+)
+Set-Content -LiteralPath (Join-Path $prefix "ccg.cmd") -Encoding ascii -Value @(
+  "@echo off",
+  "node ""%~dp0\node_modules\ccg-workflow\bin\ccg.mjs"" %*"
+)
+$trellisVersion = ((& trellis --version) | Select-Object -Last 1).Trim()
+$adapterCcg = Join-Path $env:APPDATA "npm/node_modules/ccg-workflow/bin/ccg.mjs"
+$origin = ((& git -C $repository remote get-url origin) | Select-Object -Last 1).Trim()
+Set-Content -LiteralPath (Join-Path $probeRoot "trellis-version.txt") -Value $trellisVersion
+Set-Content -LiteralPath (Join-Path $probeRoot "adapter-ccg-visible.txt") -Value (
+  (Test-Path -LiteralPath $adapterCcg -PathType Leaf).ToString().ToLowerInvariant()
+)
+Set-Content -LiteralPath (Join-Path $probeRoot "origin.txt") -Value $origin
+`,
+  );
+  return probe;
+}
+
+function runLiveBootstrapProbe(value) {
+  const manifest = JSON.parse(readFileSync(value.manifest, "utf8"));
+  const probe = createLiveBootstrapProbe(value.fixtureRoot);
+  manifest.phases.bootstrap = [
+    {
+      executable: "pwsh",
+      arguments: ["-NoProfile", "-File", probe],
+      workingDirectory: "{repo}",
+    },
+  ];
+  write(value.manifest, `${JSON.stringify(manifest, null, 2)}\n`);
+  return runAcceptance(value, [
+    "-Live",
+    "-ProjectContract",
+    PUBLIC_BASELINE_CONTRACT,
+  ]);
 }
 
 function fixture(behavior = {}) {
@@ -492,6 +553,84 @@ test("live mode requires an explicit approved project contract before cloning", 
     value.cleanup();
   }
 });
+
+test(
+  "Windows live bootstrap exposes newly installed isolated npm shims to its doctor",
+  { skip: process.platform !== "win32" },
+  () => {
+    const value = fixture();
+    try {
+      runLiveBootstrapProbe(value);
+      assert.equal(
+        readFileSync(
+          path.join(
+            value.workingRoot,
+            "harness",
+            ".acceptance",
+            "trellis-version.txt",
+          ),
+          "utf8",
+        ).trim(),
+        "0.6.9",
+      );
+      assert.deepEqual(findClaudeDirectories(value.workingRoot), []);
+    } finally {
+      value.cleanup();
+    }
+  },
+);
+
+test(
+  "Windows live runtime exposes an arbitrary isolated npm prefix through APPDATA",
+  { skip: process.platform !== "win32" },
+  () => {
+    const value = fixture();
+    try {
+      runLiveBootstrapProbe(value);
+      assert.equal(
+        readFileSync(
+          path.join(
+            value.workingRoot,
+            "harness",
+            ".acceptance",
+            "adapter-ccg-visible.txt",
+          ),
+          "utf8",
+        ).trim(),
+        "true",
+      );
+      assert.deepEqual(findClaudeDirectories(value.workingRoot), []);
+    } finally {
+      value.cleanup();
+    }
+  },
+);
+
+test(
+  "local live materialization assigns the fixed public origin without changing the exact ref",
+  { skip: process.platform !== "win32" },
+  () => {
+    const value = fixture();
+    try {
+      runLiveBootstrapProbe(value);
+      const checkout = path.join(value.workingRoot, "harness");
+      assert.equal(
+        readFileSync(
+          path.join(checkout, ".acceptance", "origin.txt"),
+          "utf8",
+        ).trim(),
+        PUBLIC_HARNESS_ORIGIN,
+      );
+      assert.equal(
+        readFileSync(path.join(checkout, "release-marker.txt"), "utf8"),
+        "selected-ref\n",
+      );
+      assert.deepEqual(findClaudeDirectories(value.workingRoot), []);
+    } finally {
+      value.cleanup();
+    }
+  },
+);
 
 test("automatic cleanup removes only its generated acceptance root", () => {
   const value = fixture();

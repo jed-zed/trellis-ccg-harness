@@ -45,6 +45,7 @@ $GlobalPlatformSkills = @(
   "trellis-start",
   "trellis-update-spec"
 )
+$PublicHarnessOrigin = "https://github.com/jed-zed/trellis-ccg-harness.git"
 $ExplicitPhaseOverrides = [System.Collections.Generic.HashSet[string]]::new(
   [System.StringComparer]::OrdinalIgnoreCase
 )
@@ -74,10 +75,12 @@ function Get-CommandInterface {
     }
     liveDefaultPhases = $RequiredPhases
     liveCommands = Get-LiveDefaultPhases
+    localLiveOrigin = $PublicHarnessOrigin
     liveRequirements = @(
       "-ProjectContract must name an approved public-baseline contract.",
       "Manifest gates append to the built-in doctor/conflicts/ccg doctor list.",
-      "A contract with requiredLocalCommands requires structured manifest gates."
+      "A contract with requiredLocalCommands requires structured manifest gates.",
+      "A local -Live source is materialized locally at the exact ref, then its isolated checkout origin is assigned the fixed public Harness URL."
     )
   }
 }
@@ -401,6 +404,84 @@ function Assert-IsolatedCommand([string]$Name, [string]$ExpectedRoot) {
   }
 }
 
+function Get-CommandDirectories([string[]]$Names) {
+  $directories = [System.Collections.Generic.List[string]]::new()
+  foreach ($name in $Names) {
+    foreach ($command in @(Get-Command $name -All -ErrorAction SilentlyContinue)) {
+      $commandPath = if ($command.Path) { $command.Path } else { $command.Source }
+      if ([string]::IsNullOrWhiteSpace($commandPath) -or
+          -not (Test-Path -LiteralPath $commandPath -PathType Leaf)) {
+        continue
+      }
+      $directories.Add((Get-FullPath (Split-Path -Parent $commandPath)))
+    }
+  }
+  return @($directories | Select-Object -Unique)
+}
+
+function Get-PathEntriesWithoutDirectories(
+  [string]$PathValue,
+  [string[]]$ExcludedDirectories
+) {
+  $comparison = if ($IsWindows) {
+    [System.StringComparison]::OrdinalIgnoreCase
+  }
+  else {
+    [System.StringComparison]::Ordinal
+  }
+  $entries = [System.Collections.Generic.List[string]]::new()
+  foreach ($entry in @($PathValue -split [System.IO.Path]::PathSeparator)) {
+    if ([string]::IsNullOrWhiteSpace($entry)) {
+      continue
+    }
+    $fullEntry = try {
+      Get-FullPath $entry
+    }
+    catch {
+      $entry
+    }
+    $excluded = $false
+    foreach ($directory in $ExcludedDirectories) {
+      if ([string]::Equals($fullEntry, $directory, $comparison)) {
+        $excluded = $true
+        break
+      }
+    }
+    if (-not $excluded) {
+      $entries.Add($entry)
+    }
+  }
+  return @($entries | Select-Object -Unique)
+}
+
+function Initialize-WindowsNpmPrefixIdentity(
+  [string]$AppDataRoot,
+  [string]$PrefixRoot
+) {
+  if (-not $IsWindows) {
+    return $null
+  }
+  New-Item -ItemType Directory -Path $AppDataRoot -Force | Out-Null
+  $conventionalPrefix = Join-Path $AppDataRoot "npm"
+  $comparison = [System.StringComparison]::OrdinalIgnoreCase
+  if ([string]::Equals(
+      (Get-FullPath $conventionalPrefix),
+      (Get-FullPath $PrefixRoot),
+      $comparison
+    )) {
+    return $null
+  }
+  if (Test-Path -LiteralPath $conventionalPrefix) {
+    throw (
+      "Isolated APPDATA npm identity already exists outside the requested " +
+      "prefix: $conventionalPrefix"
+    )
+  }
+  New-Item -ItemType Junction -Path $conventionalPrefix -Target $PrefixRoot |
+    Out-Null
+  return $conventionalPrefix
+}
+
 function Assert-CcgArtifacts([string]$AcceptanceCodexRoot) {
   Assert-FileExists (Join-Path $AcceptanceCodexRoot ".ccg-version") "CCG Codex-mode version marker"
 }
@@ -470,31 +551,6 @@ function Assert-ProjectArtifacts(
   }
 }
 
-function New-TrellisBootstrapShim([string]$Directory) {
-  New-Item -ItemType Directory -Path $Directory -Force | Out-Null
-  if ($IsWindows) {
-    $shim = Join-Path $Directory "trellis.cmd"
-    Set-Content -LiteralPath $shim -Encoding ascii -Value @(
-      "@echo off",
-      "echo 0.0.0",
-      "exit /b 0"
-    )
-    return $shim
-  }
-  $shim = Join-Path $Directory "trellis"
-  Set-Content -LiteralPath $shim -Encoding utf8NoBOM -Value @(
-    "#!/bin/sh",
-    "echo 0.0.0"
-  )
-  [System.IO.File]::SetUnixFileMode(
-    $shim,
-    [System.IO.UnixFileMode]::UserRead -bor
-      [System.IO.UnixFileMode]::UserWrite -bor
-      [System.IO.UnixFileMode]::UserExecute
-  )
-  return $shim
-}
-
 function Assert-SafeGeneratedCleanup([string]$PathValue) {
   $canonical = Get-FullPath $PathValue
   $temporaryRoot = (Get-FullPath ([System.IO.Path]::GetTempPath())).TrimEnd(
@@ -536,8 +592,15 @@ if ([string]::IsNullOrWhiteSpace($UserProfileRoot)) {
 if ([string]::IsNullOrWhiteSpace($CodexRoot)) {
   $CodexRoot = Join-Path $HomeRoot ".codex"
 }
+$AppDataRoot = Join-Path $UserProfileRoot "AppData/Roaming"
+$LocalAppDataRoot = Join-Path $UserProfileRoot "AppData/Local"
 if ([string]::IsNullOrWhiteSpace($NpmPrefixRoot)) {
-  $NpmPrefixRoot = Join-Path $HomeRoot ".npm-global"
+  $NpmPrefixRoot = if ($IsWindows) {
+    Join-Path $AppDataRoot "npm"
+  }
+  else {
+    Join-Path $HomeRoot ".npm-global"
+  }
 }
 if ([string]::IsNullOrWhiteSpace($ProjectRoot)) {
   $ProjectRoot = Join-Path $WorkingRoot "project"
@@ -548,6 +611,8 @@ $UserProfileRoot = Get-FullPath $UserProfileRoot
 $CodexRoot = Get-FullPath $CodexRoot
 $NpmPrefixRoot = Get-FullPath $NpmPrefixRoot
 $ProjectRoot = Get-FullPath $ProjectRoot
+$AppDataRoot = Get-FullPath (Join-Path $UserProfileRoot "AppData/Roaming")
+$LocalAppDataRoot = Get-FullPath (Join-Path $UserProfileRoot "AppData/Local")
 $ProjectContractIsolated = if ($null -ne $ProjectContractSource) {
   Join-Path $WorkingRoot "approved-project-contract.json"
 }
@@ -610,7 +675,25 @@ $StartedAt = [DateTime]::UtcNow
 $RunError = $null
 $ReportJson = $null
 $OriginalPath = $env:PATH
-$BootstrapShimRoot = Join-Path $WorkingRoot "bootstrap-shims"
+$OriginalPathEntries = @(
+  $OriginalPath -split [System.IO.Path]::PathSeparator |
+    Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+)
+$OriginalRuntimeCommandDirectories = @(
+  Get-CommandDirectories @("trellis", "ccg")
+)
+$BootstrapBasePathEntries = @(
+  Get-PathEntriesWithoutDirectories (
+    $OriginalPath
+  ) $OriginalRuntimeCommandDirectories
+)
+$IsolatedNpmPathEntries = if ($IsWindows) {
+  @($NpmPrefixRoot, (Join-Path $NpmPrefixRoot "bin"))
+}
+else {
+  @((Join-Path $NpmPrefixRoot "bin"), $NpmPrefixRoot)
+}
+$CheckoutOrigin = $null
 
 function Invoke-AcceptancePhase([string]$PhaseName, [object[]]$Commands) {
   $phaseStart = [DateTime]::UtcNow
@@ -716,11 +799,6 @@ try {
     }
   }
 
-  $bootstrapShim = $null
-  if ($Live) {
-    $bootstrapShim = New-TrellisBootstrapShim $BootstrapShimRoot
-  }
-
   $env:HOME = $HomeRoot
   $env:USERPROFILE = $UserProfileRoot
   $env:CODEX_HOME = $CodexRoot
@@ -729,8 +807,8 @@ try {
   $env:XDG_CONFIG_HOME = Join-Path $HomeRoot ".config"
   $env:XDG_CACHE_HOME = Join-Path $HomeRoot ".cache"
   $env:XDG_DATA_HOME = Join-Path $HomeRoot ".local/share"
-  $env:APPDATA = Join-Path $UserProfileRoot "AppData/Roaming"
-  $env:LOCALAPPDATA = Join-Path $UserProfileRoot "AppData/Local"
+  $env:APPDATA = $AppDataRoot
+  $env:LOCALAPPDATA = $LocalAppDataRoot
   $env:GIT_CONFIG_GLOBAL = Join-Path $HomeRoot ".gitconfig"
   $env:GIT_CONFIG_NOSYSTEM = "1"
   $env:HARNESS_ACCEPTANCE_REPO = $CheckoutRoot
@@ -743,13 +821,13 @@ try {
   $env:HARNESS_ACCEPTANCE_CONTRACT = $ProjectContractIsolated
   $env:HARNESS_ACCEPTANCE_LIVE = if ($Live) { "1" } else { "0" }
   $env:NO_UPDATE_NOTIFIER = "1"
-  $pathEntries = @(
-    $BootstrapShimRoot,
-    $NpmPrefixRoot,
-    (Join-Path $NpmPrefixRoot "bin")
-  )
-  if (-not [string]::IsNullOrWhiteSpace($OriginalPath)) {
-    $pathEntries += $OriginalPath
+  Initialize-WindowsNpmPrefixIdentity $AppDataRoot $NpmPrefixRoot | Out-Null
+  $pathEntries = @($IsolatedNpmPathEntries)
+  if ($Live) {
+    $pathEntries += $BootstrapBasePathEntries
+  }
+  else {
+    $pathEntries += $OriginalPathEntries
   }
   $env:PATH = $pathEntries -join [System.IO.Path]::PathSeparator
   New-Item -ItemType File -Path $env:GIT_CONFIG_GLOBAL -Force | Out-Null
@@ -788,6 +866,22 @@ try {
     "--detach",
     $HarnessRef
   ) "Harness ref checkout failed"
+  $sourceCommandCount = 2
+  if ($Live -and $null -ne $localSource) {
+    Invoke-NativeCommand "git" @(
+      "-C",
+      $CheckoutRoot,
+      "remote",
+      "set-url",
+      "origin",
+      $PublicHarnessOrigin
+    ) "Could not assign the fixed public Harness origin"
+    $sourceCommandCount++
+  }
+  $CheckoutOrigin = (& git -C $CheckoutRoot remote get-url origin).Trim()
+  if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($CheckoutOrigin)) {
+    throw "Could not resolve the materialized Harness checkout origin."
+  }
   $ResolvedRef = (& git -C $CheckoutRoot rev-parse HEAD).Trim()
   if ($LASTEXITCODE -ne 0 -or
       $ResolvedRef -notmatch '^[a-f0-9]{40}$') {
@@ -798,7 +892,7 @@ try {
   $PhaseRecords.Add([ordered]@{
     name = "source"
     status = "passed"
-    commandCount = 2
+    commandCount = $sourceCommandCount
     startedAt = $sourceStart.ToString("o")
     completedAt = [DateTime]::UtcNow.ToString("o")
   })
@@ -806,7 +900,9 @@ try {
   Invoke-AcceptancePhase "bootstrap" $Phases["bootstrap"]
   Assert-BootstrapArtifacts $CheckoutRoot
   if ($Live) {
-    Remove-Item -LiteralPath $bootstrapShim -Force
+    $env:PATH = @(
+      $IsolatedNpmPathEntries + $OriginalPathEntries
+    ) -join [System.IO.Path]::PathSeparator
     Assert-IsolatedCommand "trellis" $NpmPrefixRoot
     Assert-IsolatedCommand "ccg" $NpmPrefixRoot
   }
@@ -847,6 +943,7 @@ finally {
     status = if ($null -eq $RunError) { "passed" } else { "failed" }
     mode = if ($Live) { "live" } else { "offline" }
     source = $HarnessSource
+    checkoutOrigin = $CheckoutOrigin
     requestedRef = $HarnessRef
     resolvedRef = if ($null -ne $ResolvedRef) { $ResolvedRef } else { $null }
     startedAt = $StartedAt.ToString("o")
