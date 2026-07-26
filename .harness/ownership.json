@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 2,
+  "owner": "trellis-ccg-harness",
+  "contractSha256": "1eb835f84bc71b7e325f33ac00738cc75c2ecc83f249e948b9d7938eb87b9d10",
+  "schemaSha256": "42fb032caa82d7b129ddcb042a99e29b34705ba80b7098768be01b723828a1ad",
+  "policy": {
+    "policyVersion": 2,
+    "markerFormatVersion": 1,
+    "sourcePath": ".harness/policies/collaboration-policy.md",
+    "sourceSha256": "364a44df641fbb5ed8417c689b51e196677dfca9024bc65e99b99e95b1c54843",
+    "renderedBlockSha256": "d34b1f31735817b2707b6ff7848c83db9ceb364022456992ef9c1b1e13676d5c"
+  },
+  "managedPaths": [
+    ".harness/ownership.json",
+    ".harness/policies/collaboration-policy.md",
+    ".harness/project.json",
+    ".harness/project.schema.json"
+  ],
+  "managedBlocks": [
+    {
+      "path": "AGENTS.md",
+      "startMarker": "<!-- HARNESS-COLLABORATION:START -->",
+      "endMarker": "<!-- HARNESS-COLLABORATION:END -->",
+      "markerFormatVersion": 1,
+      "renderedBlockSha256": "d34b1f31735817b2707b6ff7848c83db9ceb364022456992ef9c1b1e13676d5c"
+    }
+  ]
+}

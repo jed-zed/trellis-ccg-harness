@@ -1,0 +1,211 @@
+{
+  "schemaVersion": 1,
+  "status": "ready",
+  "project": {
+    "name": "trellis-ccg-harness",
+    "purpose": "Provide a reproducible personal AI development Harness combining Trellis lifecycle authority with the reviewed personal CCG intelligence and quality layer.",
+    "repositoryRoot": ".",
+    "adoptionMode": "existing-harness-repair-and-rebaseline"
+  },
+  "authorities": {
+    "lifecycle": "trellis",
+    "tasks": ".trellis/tasks",
+    "requirements": ".trellis/tasks",
+    "specifications": ".trellis/spec",
+    "intelligence": "ccg",
+    "workspaceWriter": "codex"
+  },
+  "workflow": {
+    "dispatchMode": "inline",
+    "planningApprovalRequired": true,
+    "taskLifecycle": [
+      "plan",
+      "implement",
+      "check",
+      "finish",
+      "archive"
+    ],
+    "managedProjectPaths": [
+      ".harness/project.json",
+      ".harness/project.schema.json",
+      ".harness/ownership.json",
+      ".harness/policies/collaboration-policy.md"
+    ],
+    "ignoredRuntimePaths": [
+      ".ccg",
+      ".codex/ccg",
+      ".harness-cache",
+      "components/ccg-workflow/node_modules",
+      "components/ccg-workflow/dist",
+      "components/ccg-workflow/coverage",
+      "components/ccg-workflow/output",
+      "components/ccg-workflow/tmp"
+    ],
+    "forbiddenTrackedPaths": [
+      ".ccg",
+      ".codex/ccg",
+      "components/ccg-workflow/.ccg",
+      "components/ccg-workflow/.codex/ccg",
+      "components/ccg-workflow/node_modules",
+      "components/ccg-workflow/output",
+      "components/ccg-workflow/tmp"
+    ]
+  },
+  "toolchain": {
+    "languages": [
+      "JavaScript",
+      "TypeScript",
+      "Go",
+      "Python",
+      "PowerShell"
+    ],
+    "runtimes": [
+      "Node.js >=20",
+      "Python >=3.9",
+      "PowerShell >=7",
+      "Go"
+    ],
+    "packageManagers": [
+      "pnpm 10.17.1",
+      "npm for ownership-aware global tools only"
+    ],
+    "platforms": [
+      "Windows",
+      "Ubuntu",
+      "macOS"
+    ],
+    "commands": {
+      "install": [
+        "pnpm bootstrap"
+      ],
+      "build": [
+        "pnpm ccg:build",
+        "go build ./..."
+      ],
+      "lint": [
+        "pnpm ccg:lint"
+      ],
+      "format": [],
+      "typecheck": [
+        "pnpm ccg:typecheck"
+      ],
+      "test": [
+        "pnpm harness:test",
+        "pnpm ccg:test",
+        "go test -short ./..."
+      ],
+      "package": []
+    }
+  },
+  "qualityGates": {
+    "requiredLocalCommands": [
+      "node --test tests/harness-init-cli.test.mjs",
+      "pnpm doctor",
+      "pnpm harness:conflicts",
+      "pnpm harness:test",
+      "pnpm verify:sources",
+      "pnpm ccg:lint",
+      "pnpm ccg:typecheck",
+      "pnpm ccg:test",
+      "pnpm ccg:build",
+      "go test -short ./...",
+      "go build ./..."
+    ],
+    "requiredCiChecks": [
+      "Harness CI Node 20 and 22 on Ubuntu and Windows",
+      "Harness CI Go on Ubuntu Windows and macOS",
+      "Harness CI bootstrap and doctor on Ubuntu Windows and macOS"
+    ],
+    "definitionOfDone": [
+      "All required offline local commands pass",
+      "Harness conflict audit has no blocking findings",
+      "Personal CCG Git tree matches harness.sources.json",
+      "No credentials or runtime evidence are tracked",
+      "Cross-platform CI passes before publication"
+    ]
+  },
+  "skills": {
+    "globalPolicy": "minimal-essential-only",
+    "globalEssential": [
+      "grill-me",
+      "harness-init"
+    ],
+    "repositoryProfile": "user-saved",
+    "selectionMode": "recommend-and-approve",
+    "installMode": "copy",
+    "projectSelection": []
+  },
+  "security": {
+    "dataClassification": "public-source-code-no-credentials",
+    "secretPolicy": "environment-or-owned-secret-store",
+    "networkPolicy": "offline-by-default-explicit-manual-providers-only",
+    "credentialFieldsForbidden": true,
+    "forbiddenTrackedPaths": [
+      ".env",
+      ".ccg",
+      ".codex/ccg",
+      "credentials.json"
+    ]
+  },
+  "providers": {
+    "codex": {
+      "enabled": true,
+      "workspaceWrite": true
+    },
+    "gemini": {
+      "enabled": true,
+      "workspaceWrite": false
+    },
+    "claude": {
+      "enabled": false,
+      "workspaceWrite": false
+    },
+    "grok": {
+      "enabled": false,
+      "manualOnly": true,
+      "workspaceWrite": false
+    },
+    "gptPro": {
+      "enabled": true,
+      "manualOnly": true,
+      "workspaceWrite": false
+    }
+  },
+  "hooks": {
+    "projectAuthorities": [
+      ".codex/hooks.json"
+    ],
+    "globalMutationAllowed": false,
+    "ownershipManifest": ".harness/ownership.json"
+  },
+  "source": {
+    "repositories": [
+      "https://github.com/jed-zed/trellis-ccg-harness",
+      "https://github.com/jed-zed/ccg-gptpro-worflow",
+      "https://github.com/mindfold-ai/trellis"
+    ],
+    "dependencyPolicy": "locked-and-source-verified",
+    "updatePolicy": "explicit-version-or-commit-with-full-gates",
+    "rollbackPolicy": "transactional-and-ownership-aware",
+    "uninstallPolicy": "remove-only-owned-unchanged-state"
+  },
+  "ci": {
+    "platforms": [
+      "ubuntu-latest",
+      "windows-latest",
+      "macos-latest"
+    ],
+    "runtimeMatrix": [
+      "Node.js 20",
+      "Node.js 22",
+      "Python 3.12",
+      "Go 1.26.5"
+    ],
+    "offlineByDefault": true
+  },
+  "unresolvedDecisions": [],
+  "approval": {
+    "approvedAt": "2026-07-25T21:56:50.8840650+00:00",
+    "approvedBy": "jed18859103958-cyber"
+  }
+}
