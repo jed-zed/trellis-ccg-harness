@@ -152,12 +152,8 @@ function fixture() {
     [
       "param(",
       "  [string]$RepoRoot,",
-      "  [switch]$Index,",
-      "  [switch]$AllowAuthoritativeCheckoutDrift",
+      "  [switch]$Index",
       ")",
-      "if (-not $AllowAuthoritativeCheckoutDrift) {",
-      '  throw "CCG update preflight did not permit external checkout drift."',
-      "}",
       'Write-Output "Source verification passed."',
       "exit 0",
       "",

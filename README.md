@@ -103,6 +103,17 @@ pnpm setup -- `
 入口，不等价于 Global Setup，也不会替代 Global Init。Global Setup 不调用
 legacy `ccg init`。
 
+维护者可用提交或发布标签运行完整的公开 clean-install 验收。该命令在系统
+临时目录创建隔离的 `HOME`、`USERPROFILE`、`CODEX_HOME`、npm prefix 和
+项目目录，逐阶段检查没有创建或修改 `.claude`：
+
+```powershell
+pwsh -NoProfile -File .\scripts\clean-install-acceptance.ps1 `
+  -Live `
+  -HarnessRef v0.2.0 `
+  -ProjectContract .\tests\fixtures\public-baseline-approved-contract.json
+```
+
 ## Global Init 与 Project Init
 
 - **Global Init**：由 `pnpm setup` 调用，管理用户级 Trellis/CCG runtime、

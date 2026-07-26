@@ -2,7 +2,6 @@
 param(
   [string]$RepoRoot = (Split-Path -Parent $PSScriptRoot),
   [switch]$Index,
-  [switch]$AllowAuthoritativeCheckoutDrift,
   [string]$AuthoritativeCheckout = $env:HARNESS_CCG_SOURCE_CHECKOUT
 )
 
@@ -86,15 +85,13 @@ function Assert-AuthoritativeCommitTree {
   }
 
   $verificationRoot = $null
-  $sourceRoot = $Checkout
+  $sourceRoot = if ([string]::IsNullOrWhiteSpace($Checkout)) {
+    $null
+  }
+  else {
+    $Checkout
+  }
   try {
-    if (-not $sourceRoot) {
-      $sibling = Join-Path (Split-Path -Parent $RepoRoot) "ccg-workflow"
-      if (Test-Path -LiteralPath (Join-Path $sibling ".git")) {
-        $sourceRoot = $sibling
-      }
-    }
-
     if ($sourceRoot) {
       $sourceRoot = [System.IO.Path]::GetFullPath($sourceRoot)
       if (-not (Test-Path -LiteralPath (Join-Path $sourceRoot ".git"))) {
@@ -106,16 +103,11 @@ function Assert-AuthoritativeCommitTree {
       }
       $remoteUrl = Invoke-GitAt -WorkingTree $sourceRoot remote get-url $remoteName
       Assert-Equal "CCG authoritative checkout remote" (Normalize-RepositoryUrl $repository) (Normalize-RepositoryUrl $remoteUrl)
-      # The lifecycle validates its selected target checkout separately. Update
-      # preflight still proves this recorded commit's tree in the authoritative
-      # repository, but does not require an unrelated worktree to stay at it.
-      if (-not $AllowAuthoritativeCheckoutDrift) {
-        $head = Invoke-GitAt -WorkingTree $sourceRoot rev-parse HEAD
-        Assert-Equal "CCG authoritative checkout HEAD" $commit $head
-        $dirty = Invoke-GitAt -WorkingTree $sourceRoot status --porcelain --untracked-files=normal
-        if ($dirty) {
-          throw "Authoritative CCG checkout is dirty; commit and clean it before updating the Harness snapshot."
-        }
+      $head = Invoke-GitAt -WorkingTree $sourceRoot rev-parse HEAD
+      Assert-Equal "CCG authoritative checkout HEAD" $commit $head
+      $dirty = Invoke-GitAt -WorkingTree $sourceRoot status --porcelain --untracked-files=normal
+      if ($dirty) {
+        throw "Authoritative CCG checkout is dirty; commit and clean it before updating the Harness snapshot."
       }
     }
     else {

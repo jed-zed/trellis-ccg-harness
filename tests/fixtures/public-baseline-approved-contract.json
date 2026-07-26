@@ -1,0 +1,155 @@
+{
+  "schemaVersion": 1,
+  "status": "approved",
+  "project": {
+    "name": "harness-public-clean-install",
+    "purpose": "Verify the public Harness baseline in an isolated project without a personal Skill catalog.",
+    "repositoryRoot": ".",
+    "adoptionMode": "clean-install-acceptance"
+  },
+  "authorities": {
+    "lifecycle": "trellis",
+    "tasks": ".trellis/tasks",
+    "requirements": ".trellis/tasks",
+    "specifications": ".trellis/spec",
+    "intelligence": "ccg",
+    "workspaceWriter": "codex"
+  },
+  "workflow": {
+    "dispatchMode": "inline",
+    "planningApprovalRequired": true,
+    "taskLifecycle": [
+      "planned",
+      "implemented",
+      "verified"
+    ],
+    "managedProjectPaths": [],
+    "ignoredRuntimePaths": [
+      ".ccg",
+      ".codex/ccg"
+    ],
+    "forbiddenTrackedPaths": [
+      ".ccg",
+      ".codex/ccg",
+      ".claude"
+    ]
+  },
+  "toolchain": {
+    "languages": [],
+    "runtimes": [
+      "Node.js >=20"
+    ],
+    "packageManagers": [],
+    "platforms": [
+      "Windows",
+      "Ubuntu",
+      "macOS"
+    ],
+    "commands": {
+      "install": [],
+      "build": [],
+      "lint": [],
+      "format": [],
+      "typecheck": [],
+      "test": [],
+      "package": []
+    }
+  },
+  "qualityGates": {
+    "requiredLocalCommands": [],
+    "requiredCiChecks": [],
+    "definitionOfDone": [
+      "Harness doctor and conflict audit pass",
+      "The project contract is marked ready only after the public acceptance gates pass",
+      "No user or project .claude tree is created or modified"
+    ]
+  },
+  "skills": {
+    "globalPolicy": "minimal-essential-only",
+    "globalEssential": [
+      "grill-me",
+      "harness-init",
+      "trellis-before-dev",
+      "trellis-brainstorm",
+      "trellis-break-loop",
+      "trellis-channel",
+      "trellis-check",
+      "trellis-continue",
+      "trellis-finish-work",
+      "trellis-meta",
+      "trellis-session-insight",
+      "trellis-spec-bootstrap",
+      "trellis-start",
+      "trellis-update-spec"
+    ],
+    "repositoryProfile": "user-saved",
+    "selectionMode": "recommend-and-approve",
+    "installMode": "copy",
+    "projectSelection": []
+  },
+  "security": {
+    "dataClassification": "public-source-code-no-credentials",
+    "secretPolicy": "environment-or-owned-secret-store",
+    "networkPolicy": "offline-by-default-explicit-public-fetch-only",
+    "credentialFieldsForbidden": true,
+    "forbiddenTrackedPaths": [
+      ".env",
+      ".ccg",
+      ".codex/ccg",
+      ".claude",
+      "credentials.json"
+    ]
+  },
+  "providers": {
+    "codex": {
+      "enabled": true,
+      "workspaceWrite": true
+    },
+    "gemini": {
+      "enabled": false,
+      "workspaceWrite": false
+    },
+    "claude": {
+      "enabled": false,
+      "workspaceWrite": false
+    },
+    "grok": {
+      "enabled": false,
+      "manualOnly": true,
+      "workspaceWrite": false
+    },
+    "gptPro": {
+      "enabled": false,
+      "manualOnly": true,
+      "workspaceWrite": false
+    }
+  },
+  "hooks": {
+    "projectAuthorities": [
+      ".codex/hooks.json"
+    ],
+    "globalMutationAllowed": false,
+    "ownershipManifest": ".harness/ownership.json"
+  },
+  "source": {
+    "repositories": [
+      "https://github.com/jed-zed/trellis-ccg-harness",
+      "https://github.com/jed-zed/ccg-gptpro-worflow",
+      "https://github.com/mindfold-ai/trellis"
+    ],
+    "dependencyPolicy": "locked-and-source-verified",
+    "updatePolicy": "explicit-version-or-commit",
+    "rollbackPolicy": "transactional-and-ownership-aware",
+    "uninstallPolicy": "remove-only-owned-unchanged-state"
+  },
+  "ci": {
+    "platforms": [],
+    "runtimeMatrix": [],
+    "offlineByDefault": true
+  },
+  "unresolvedDecisions": [],
+  "approval": {
+    "approvedAt": "2026-07-26T00:00:00.000Z",
+    "approvedBy": "trellis-ccg-harness-maintainers"
+  }
+}

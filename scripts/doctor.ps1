@@ -195,9 +195,6 @@ try {
     RepoRoot = $RepoRoot
     Index = $Index
   }
-  if ($CcgUpdateTargetVersion) {
-    $verifySourceArguments.AllowAuthoritativeCheckoutDrift = $true
-  }
   & (Join-Path $PSScriptRoot "verify-sources.ps1") @verifySourceArguments
   Add-Pass "Personal source provenance and Git tree"
 }

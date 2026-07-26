@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const VERIFY_SCRIPT = path.join(ROOT, "scripts", "verify-sources.ps1");
@@ -22,6 +22,7 @@ function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
     cwd: options.cwd,
     encoding: "utf8",
+    env: options.env ?? process.env,
     shell: false,
   });
   if (options.allowFailure) return result;
@@ -136,6 +137,10 @@ function fixture() {
 }
 
 function verify(value, extra = []) {
+  return verifyCheckout(value, value.sourceRoot, extra);
+}
+
+function verifyCheckout(value, checkout, extra = []) {
   return run(
     "pwsh",
     [
@@ -145,10 +150,40 @@ function verify(value, extra = []) {
       "-RepoRoot",
       value.harnessRoot,
       "-AuthoritativeCheckout",
-      value.sourceRoot,
+      checkout,
       ...extra,
     ],
     { allowFailure: true },
+  );
+}
+
+function fetchedSourceEnv(sourceRoot) {
+  const env = {
+    ...process.env,
+    GIT_ALLOW_PROTOCOL: "file",
+    GIT_CONFIG_COUNT: "1",
+    GIT_CONFIG_KEY_0: `url.${pathToFileURL(sourceRoot).href}.insteadOf`,
+    GIT_CONFIG_VALUE_0: PERSONAL_REPO,
+  };
+  delete env.HARNESS_CCG_SOURCE_CHECKOUT;
+  return env;
+}
+
+function verifyFetched(value, extra = []) {
+  return run(
+    "pwsh",
+    [
+      "-NoProfile",
+      "-File",
+      VERIFY_SCRIPT,
+      "-RepoRoot",
+      value.harnessRoot,
+      ...extra,
+    ],
+    {
+      allowFailure: true,
+      env: fetchedSourceEnv(value.sourceRoot),
+    },
   );
 }
 
@@ -201,7 +236,31 @@ test("source verifier rejects authoritative and component dirty state", () => {
   }
 });
 
-test("CCG update preflight permits checkout drift but still binds the recorded commit tree", () => {
+test("omitted checkout ignores a drifting sibling while explicit checkout remains strict", () => {
+  const value = fixture();
+  try {
+    const siblingRoot = path.join(value.fixtureRoot, "ccg-workflow");
+    mkdirSync(siblingRoot, { recursive: true });
+    initializeRepo(siblingRoot);
+    writeSourceFiles(siblingRoot, "drifting sibling");
+    commitAll(siblingRoot, "different sibling source");
+    git(siblingRoot, "remote", "add", "gptpro", PERSONAL_REPO);
+
+    const fetched = verifyFetched(value);
+    assert.equal(fetched.status, 0, `${fetched.stdout}\n${fetched.stderr}`);
+
+    const explicitSibling = verifyCheckout(value, siblingRoot);
+    assert.notEqual(explicitSibling.status, 0);
+    assert.match(
+      `${explicitSibling.stdout}\n${explicitSibling.stderr}`,
+      /checkout HEAD mismatch/i,
+    );
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("fetched verification binds the recorded commit tree and current component", () => {
   const value = fixture();
   try {
     writeSourceFiles(value.sourceRoot, "newer checkout");
@@ -215,8 +274,8 @@ test("CCG update preflight permits checkout drift but still binds the recorded c
       /checkout HEAD mismatch|checkout is dirty/i,
     );
 
-    const preflight = verify(value, ["-AllowAuthoritativeCheckoutDrift"]);
-    assert.equal(preflight.status, 0, `${preflight.stdout}\n${preflight.stderr}`);
+    const fetched = verifyFetched(value);
+    assert.equal(fetched.status, 0, `${fetched.stdout}\n${fetched.stderr}`);
 
     const componentResidue = path.join(
       value.harnessRoot,
@@ -225,7 +284,7 @@ test("CCG update preflight permits checkout drift but still binds the recorded c
       "residue.txt",
     );
     write(componentResidue, "untracked component drift\n");
-    const dirtyComponent = verify(value, ["-AllowAuthoritativeCheckoutDrift"]);
+    const dirtyComponent = verifyFetched(value);
     assert.notEqual(dirtyComponent.status, 0);
     assert.match(
       `${dirtyComponent.stdout}\n${dirtyComponent.stderr}`,
@@ -237,7 +296,7 @@ test("CCG update preflight permits checkout drift but still binds the recorded c
     const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
     manifest.ccg.gitTree = "f".repeat(40);
     writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
-    const forgedTree = verify(value, ["-AllowAuthoritativeCheckoutDrift"]);
+    const forgedTree = verifyFetched(value);
     assert.notEqual(forgedTree.status, 0);
     assert.match(
       `${forgedTree.stdout}\n${forgedTree.stderr}`,

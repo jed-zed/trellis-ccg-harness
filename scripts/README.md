@@ -69,6 +69,7 @@ node .\scripts\harness-init.mjs skill-migration-apply --repo-root . --repository
 node .\scripts\harness-init.mjs skill-migration-status --repo-root .
 node .\scripts\harness-init.mjs skill-migration-rollback --repo-root . --backup-id <id> --approved
 node .\scripts\harness-init.mjs mark-ready --repo-root .
+pwsh -NoProfile -File .\scripts\clean-install-acceptance.ps1 -Live -HarnessRef v0.2.0 -ProjectContract .\tests\fixtures\public-baseline-approved-contract.json
 pnpm harness:test
 pwsh -NoProfile -File .\scripts\doctor.ps1
 pnpm harness:update -- --trellis-version <exact-semantic-version>
