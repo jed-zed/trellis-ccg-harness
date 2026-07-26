@@ -1,3 +1,4 @@
-display_name: CCG Verify Module
-short_description: Check module structure and required documentation.
-default_prompt: verify-module <module-path>
+interface:
+  display_name: "CCG Verify Module"
+  short_description: "Check module structure and required documentation."
+  default_prompt: "Use $verify-module to run verify-module <module-path>."

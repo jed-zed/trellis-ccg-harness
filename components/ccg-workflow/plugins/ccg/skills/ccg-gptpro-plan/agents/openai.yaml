@@ -1,3 +1,4 @@
-display_name: CCG GPT Pro Plan
-short_description: Create a manual ChatGPT Pro planning second-opinion bridge.
-default_prompt: /ccg:gptpro-plan Add audit log planning coverage
+interface:
+  display_name: "CCG GPT Pro Plan"
+  short_description: "Create a manual ChatGPT Pro planning second-opinion bridge."
+  default_prompt: "Use $ccg-gptpro-plan to run /ccg:gptpro-plan Add audit log planning coverage."

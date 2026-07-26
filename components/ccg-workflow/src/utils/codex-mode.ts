@@ -2,10 +2,10 @@ import { createHash, randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
 import { isAbsolute, relative, resolve } from 'node:path'
 import fs from 'fs-extra'
-import { dirname, join } from 'pathe'
+import { join } from 'pathe'
 import { version as packageVersion } from '../../package.json'
-import { readCcgConfig } from './config'
-import { PACKAGE_ROOT, injectConfigVariables, replaceHomePathsInTemplate } from './installer-template'
+import { readCcgConfigAt } from './config'
+import { PACKAGE_ROOT, injectConfigVariables } from './installer-template'
 import {
   assertManagedPath,
   ensureManagedRoot,
@@ -252,6 +252,7 @@ function validateManagedRelativePath(value: unknown): string {
   const normalized = normalizedRelative(value)
   const allowed = normalized === '.ccg-version'
     || normalized === 'config.toml'
+    || normalized === 'ccg/config.toml'
     || /^(?:agents|hooks)\/[a-z0-9._-]+$/i.test(normalized)
   if (!allowed || normalized.includes('..'))
     throw new Error(`Codex mode ownership contains an unsafe path: ${value}`)
@@ -429,10 +430,11 @@ function validateTransactionTarget(value: unknown): string {
   const allowed = normalized === 'AGENTS.md'
     || normalized === 'hooks.json'
     || normalized === 'config.toml'
+    || normalized === 'ccg/config.toml'
     || normalized === '.ccg-version'
     || normalized === '.ccg/ownership.json'
     || /^(?:agents|hooks)\/[a-z0-9._-]+$/i.test(normalized)
-    || /^\.ccg\/backups\/[^/]+\/(?:AGENTS\.md|hooks\.json|config\.toml|\.ccg-version|(?:agents|hooks)\/[a-z0-9._-]+)$/i.test(normalized)
+    || /^\.ccg\/backups\/[^/]+\/(?:AGENTS\.md|hooks\.json|config\.toml|ccg\/config\.toml|\.ccg-version|(?:agents|hooks)\/[a-z0-9._-]+)$/i.test(normalized)
   if (!allowed || normalized.includes('..'))
     throw new Error(`Codex mode transaction target is invalid: ${value}`)
   return normalized
@@ -751,6 +753,7 @@ export async function installCodexModeAt(
     await ensureManagedRoot(codexHome)
     for (const relativePath of [
       '.ccg/ownership.json',
+      'ccg/config.toml',
       'hooks.json',
       'AGENTS.md',
     ]) {
@@ -773,7 +776,8 @@ export async function installCodexModeAt(
     const existingHooks = (await readJsonStrict(hooksPath, 'Codex hooks.json')) ?? {}
     const existingAgents = await fs.pathExists(agentsPath) ? await fs.readFile(agentsPath, 'utf8') : ''
 
-    const config = await readCcgConfig()
+    const ccgConfigPath = join(codexHome, 'ccg', 'config.toml')
+    const config = await readCcgConfigAt(ccgConfigPath)
     const injectOpts = {
       routing: config?.routing as any,
       liteMode: config?.performance?.liteMode || false,
@@ -781,10 +785,6 @@ export async function installCodexModeAt(
     }
     let agentsTemplate = await fs.readFile(join(templateDir, 'AGENTS.md'), 'utf8')
     agentsTemplate = injectConfigVariables(agentsTemplate, injectOpts)
-    agentsTemplate = replaceHomePathsInTemplate(
-      agentsTemplate,
-      join(dirname(codexHome), '.claude'),
-    )
     const block = managedBlock(agentsTemplate)
     const nextAgents = upsertManagedBlock(existingAgents, block, previous?.agentsBlock)
 
@@ -821,6 +821,7 @@ export async function installCodexModeAt(
       }
       planned.set(normalizedRelative(join('hooks', name)), bytes)
     }
+    planned.set('ccg/config.toml', await fs.readFile(join(templateDir, 'ccg-config.toml')))
     planned.set('.ccg-version', Buffer.from(packageVersion, 'utf8'))
 
     const configPath = join(codexHome, 'config.toml')

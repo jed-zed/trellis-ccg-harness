@@ -13,7 +13,7 @@ import { resolveEffectiveXPolicy, validateEvidencePackage } from '../../../templ
 
 const packageRoot = resolve('.')
 const tempRoot = join(tmpdir(), `ccg-grok-workflow-${Date.now()}`)
-const routeCommand = 'node ~/.claude/.ccg/engine/tools/grok-intelligence/route.mjs'
+const routeCommand = 'ccg route'
 let evidenceCounter = 0
 
 function hash(value: string | Buffer) {

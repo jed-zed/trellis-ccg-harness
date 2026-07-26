@@ -1,3 +1,4 @@
-display_name: CCG Init
-short_description: Initialize Codex-native CCG project artifacts.
-default_prompt: /ccg:init
+interface:
+  display_name: "CCG Init"
+  short_description: "Initialize Codex-native CCG project artifacts."
+  default_prompt: "Use $ccg-init to run /ccg:init."

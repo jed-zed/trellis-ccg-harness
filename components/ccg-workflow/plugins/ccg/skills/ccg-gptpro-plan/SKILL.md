@@ -14,19 +14,16 @@ Load and follow `skills/ccg-gptpro-bridge/SKILL.md`.
 ## Behavior
 
 - Treat the argument as a planning task or plan-review input.
-- Before ordinary planning or any Gemini, Claude, or GPT Pro handoff, write the bounded subject and run
-  `node ~/.claude/.ccg/engine/tools/grok-intelligence/route.mjs --workflow gptpro-plan --phase intake --task-file <request-file> --state-file <state-file>`.
+- Before ordinary planning or any Gemini or GPT Pro handoff, write the bounded subject and run
+  `ccg route --workflow gptpro-plan --phase intake --task-file <request-file> --state-file <state-file>`.
   Let the current orchestrator add a semantic mode/reason whenever external evidence is materially
   useful even if the user did not request search. When required, the shared route runs Grok contract evidence
   and require its canonical artifact, manifest, hashes, and active-task pointer. Exit `2`, `3`, or `4`
   stops the workflow; pass only the validated summary, claims, and provenance, never raw Grok output.
-- Run ordinary `/ccg:plan` semantics first. Preserve the current CCG orchestrator and model routing
-  for this installation. In Codex installs, ordinary planning must include Claude evidence unless
-  the user explicitly says not to use Claude.
-- If automatic Claude planning evidence fails or returns empty output, stop before GPT Pro and ask
-  the user to paste the generated Claude prompt into Claude Code, then copy the output back.
+- Run ordinary `/ccg:plan` semantics first. Preserve Codex as the planning authority and use only
+  the bounded Gemini evidence required by that workflow. Claude is disabled and is never a gate.
 - Before GPT Pro, write Base CCG Routing Evidence that records the current orchestrator, actual
-  routed model evidence, `claudeEvidenceStatus`, ordinary planning conclusion, and skipped/failed
+  routed model evidence, ordinary planning conclusion, and skipped/failed
   model steps.
 - Run Gemini according to ordinary planning rules before GPT Pro using the bundled Gemini preview
   helper with `--prompt-template plan`.
@@ -40,7 +37,7 @@ Load and follow `skills/ccg-gptpro-bridge/SKILL.md`.
 - Expected manual questions: 1.
 - Maximum manual questions: 2.
 - Round 2 only for blocker re-check or revised plan comparison.
-- Use `scripts/gptpro_bridge.py --mode plan --detach-preview --open-preview --gemini-response-file <CCG_GEMINI_RESPONSE_FILE> --gemini-summary-file <summary-file> --routing-evidence-file <routing-evidence-file> --routing-summary-file <routing-summary-file> --require-routing-evidence --require-claude-evidence [--require-external-intelligence --expected-intelligence-mode <route investigation_mode> --expected-intelligence-depth <route depth> when route status=valid and requirement=required]`; omit those three external-intelligence flags for `status=waived`.
+- Use `scripts/gptpro_bridge.py --mode plan --detach-preview --open-preview --gemini-response-file <CCG_GEMINI_RESPONSE_FILE> --gemini-summary-file <summary-file> --routing-evidence-file <routing-evidence-file> --routing-summary-file <routing-summary-file> --require-routing-evidence [--require-external-intelligence --expected-intelligence-mode <route investigation_mode> --expected-intelligence-depth <route depth> when route status=valid and requirement=required]`; omit those three external-intelligence flags for `status=waived`.
 - Read the saved response file only after the user manually saves it.
 - Summarize and synthesize validated Grok external intelligence, ordinary planning evidence, Gemini
   gate evidence, and GPT Pro findings in Chinese; the current orchestrator decides final plan edits.

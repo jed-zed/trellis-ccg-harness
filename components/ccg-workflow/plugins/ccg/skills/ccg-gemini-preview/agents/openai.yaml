@@ -1,3 +1,4 @@
-display_name: CCG Gemini Preview
-short_description: Run Gemini helper tasks with a live browser preview.
-default_prompt: /ccg:gemini-preview 请审查当前实现思路并给出建议
+interface:
+  display_name: "CCG Gemini Preview"
+  short_description: "Run Gemini helper tasks with a live browser preview."
+  default_prompt: "Use $ccg-gemini-preview to run /ccg:gemini-preview 请审查当前实现思路并给出建议."

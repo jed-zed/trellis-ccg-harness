@@ -7,7 +7,7 @@ conclusion, and any routed helper findings. Compare the Base CCG Routing Evidenc
 review scope, call out disagreements, and help the current orchestrator decide what is actually
 blocking.
 
-Do not assume missing Codex, Claude, Gemini, or other model evidence exists. GPT Pro is fourth
+Do not assume missing Codex, Gemini, or other helper evidence exists. GPT Pro is fourth
 evidence and must not replace routed models.
 
 ## Task For GPT Pro

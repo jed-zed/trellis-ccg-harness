@@ -1,3 +1,4 @@
-display_name: CCG Spec Impl
-short_description: Execute a CCG spec-backed plan.
-default_prompt: /ccg:spec-impl spec-name
+interface:
+  display_name: "CCG Spec Impl"
+  short_description: "Execute a CCG spec-backed plan."
+  default_prompt: "Use $ccg-spec-impl to run /ccg:spec-impl spec-name."

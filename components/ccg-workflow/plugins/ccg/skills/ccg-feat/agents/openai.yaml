@@ -1,3 +1,4 @@
-display_name: CCG Feature
-short_description: Implement a feature with Codex and bounded Gemini help.
-default_prompt: /ccg:feat Add the requested feature
+interface:
+  display_name: "CCG Feature"
+  short_description: "Implement a feature with Codex and bounded Gemini help."
+  default_prompt: "Use $ccg-feat to run /ccg:feat Add the requested feature."

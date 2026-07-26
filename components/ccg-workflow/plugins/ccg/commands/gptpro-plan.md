@@ -14,29 +14,26 @@ ordinary `/ccg:plan` semantics have already run.
 ## Contract
 
 Run the Grok intelligence decision by writing the bounded planning subject to the active task directory, then run
-`node ~/.claude/.ccg/engine/tools/grok-intelligence/route.mjs --workflow gptpro-plan --phase intake --task-file <request-file> --state-file <state-file>`
+`ccg route --workflow gptpro-plan --phase intake --task-file <request-file> --state-file <state-file>`
 before ordinary `/ccg:plan`. The main orchestrator adds `--semantic-mode contract|incident` and a
 reason when external evidence is materially useful even if the user did not request search. When external intelligence is
-required, the shared route must produce canonical source-backed evidence before any Gemini/Claude
+required, the shared route must produce canonical source-backed evidence before any Gemini
 planning evidence or GPT Pro session is created. Required exit 2/3/4 stops this workflow unless the
-user supplies an explicit route-state waiver with `node ~/.claude/.ccg/engine/tools/grok-intelligence/route.mjs waive --state-file <state-file> --reason "<user reason>"`; the waiver does not create evidence or claim verification passed. A waived route continues only through ordinary routing evidence and must omit the bridge's external-intelligence flags. Exit code `2`, `3`, or `4` stops before ordinary work.
+user supplies an explicit route-state waiver with `ccg route waive --state-file <state-file> --reason "<user reason>"`; the waiver does not create evidence or claim verification passed. A waived route continues only through ordinary routing evidence and must omit the bridge's external-intelligence flags. Exit code `2`, `3`, or `4` stops before ordinary work.
 Add `--require-external-intelligence` together with `--expected-intelligence-mode <route investigation_mode>` and `--expected-intelligence-depth <route depth>` only when the route state says `status=valid` and `requirement=required`.
 Then run ordinary `/ccg:plan`. Preserve the current CCG orchestrator semantics and the normal
-model routing for this installation, including Codex, Claude, Gemini, or any configured helper that
+model routing for this installation, including Codex, Gemini, or any configured helper that
 ordinary planning would use. GPT Pro is fourth evidence: it is appended as a manual planning second
 opinion after ordinary routing evidence exists. In this command GPT Pro is a risk-triggered
 external reviewer: it challenges the existing plan, but must not rewrite the whole plan or replace
 the current orchestrator's planning authority.
 
-Ordinary planning must include Claude evidence unless the user explicitly says Claude must not be
-used. First try `~/.claude/bin/codeagent-wrapper[.exe] --backend claude`. If the automatic Claude
-route fails or returns empty output, stop before creating the GPT Pro bridge, tell the user Claude
-evidence is missing, and offer a manual Claude Code handoff: write the Claude prompt to a file, ask
-the user to paste it into Claude Code, then paste/save Claude's response back before continuing.
+Claude is disabled in this Codex-native workflow. It is never invoked, required as evidence, or
+offered as a manual handoff before GPT Pro.
 
 GPT Pro is not a `codeagent-wrapper` backend and must not be routed through `model-router.md` as an
 automated model. Do not replace routed models, skip ordinary planning, or use GPT Pro to decide that
-missing Codex, Claude, or Gemini evidence exists.
+missing Codex or Gemini evidence exists.
 
 Plan-only boundary:
 
@@ -74,8 +71,7 @@ fields into Trellis `task.json`.
 4. Run or verify the ordinary `/ccg:plan` route first and write a concise routing evidence file,
    for example `<evidence-root>/evidence/routing.md`, plus a routing summary file.
    The routing evidence must identify the current orchestrator, the routed model evidence that
-   actually exists, `claudeEvidenceStatus: automatic|manual_handoff|skipped_by_user|blocked`, the
-   ordinary planner conclusion, and any skipped/failed model steps.
+   actually exists, the ordinary planner conclusion, and any skipped/failed model steps.
 5. Validate required Gemini planning/gate evidence from `<evidence-root>/evidence.json`.
    Legacy `task.json.gemini_evidence` or `task.json.gemini_gate` may be normalized for read
    compatibility, but do not expand large evidence arrays into `task.json`.
@@ -112,7 +108,7 @@ Create a concise prompt file with:
 Then invoke the task-local bridge:
 
 ```bash
-python ~/.claude/.ccg/engine/tools/gptpro/gptpro_bridge.py \
+python "<installed-ccg-plugin>/skills/ccg-gptpro-bridge/scripts/gptpro_bridge.py" \
   --mode plan \
   --workdir "$WORKDIR" \
   --task-dir "<task-dir>" \
@@ -126,15 +122,10 @@ python ~/.claude/.ccg/engine/tools/gptpro/gptpro_bridge.py \
   --routing-evidence-file "<routing-evidence-file>" \
   --routing-summary-file "<routing-summary-file>" \
   --require-routing-evidence \
-  --require-claude-evidence \
   [--require-external-intelligence --expected-intelligence-mode <route investigation_mode> --expected-intelligence-depth <route depth> when route status=valid and requirement=required] \
   --detach-preview \
   --open-preview
 ```
-
-If the user explicitly disabled Claude and routing evidence records
-`claudeEvidenceStatus: skipped_by_user`, omit `--require-claude-evidence`; do not omit it for
-automatic failure or blocked Claude evidence.
 
 Expected artifacts:
 

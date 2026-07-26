@@ -1,0 +1,24 @@
+[general]
+version = "3.3.1"
+language = "zh-CN"
+
+[intelligence]
+enabled = false
+auto_route = false
+provider = "grok-cli"
+transport = "acp"
+auth_mode = "browser_oauth"
+legacy_search_provider = "grok-search-mcp"
+allow_provider_fallback = false
+default_model = "grok-4.5"
+deep_research_model = ""
+deep_research_enabled = false
+live_checks_on_init = false
+artifact_root = ".codex/ccg/intelligence"
+max_retries = 2
+max_bundle_bytes = 16777216
+retention_days = 7
+exported_retention_days = 30
+cleanup_credential_artifacts = true
+require_web_search = true
+x_search_policy = "preferred"

@@ -1,3 +1,4 @@
-display_name: CCG Debug
-short_description: Debug failures with Codex-led reproduction and verification.
-default_prompt: /ccg:debug Fix this failure
+interface:
+  display_name: "CCG Debug"
+  short_description: "Debug failures with Codex-led reproduction and verification."
+  default_prompt: "Use $ccg-debug to run /ccg:debug Fix this failure."

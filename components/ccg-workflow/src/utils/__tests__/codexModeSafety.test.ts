@@ -165,6 +165,31 @@ describe('Codex mode ownership and reversibility', () => {
     expect(hooks.hooks.UserPromptSubmit).toHaveLength(1)
   })
 
+  it('installs a Claude-clean Codex runtime without creating or referencing .claude', async () => {
+    const codexHome = await makeCodexHome()
+    const claudeHome = join(codexHome, '..', '.claude')
+
+    const result = await codexMode.installCodexModeAt({
+      codexHome,
+      pythonCommand: 'python',
+    })
+
+    expect(result.success).toBe(true)
+    expect(await fs.pathExists(join(codexHome, 'ccg', 'config.toml'))).toBe(true)
+    expect(await fs.pathExists(claudeHome)).toBe(false)
+    const generated = [
+      join(codexHome, 'AGENTS.md'),
+      join(codexHome, 'hooks.json'),
+      join(codexHome, 'hooks', 'ccg-workflow.py'),
+      join(codexHome, 'ccg', 'config.toml'),
+    ]
+    for (const path of generated)
+      expect(await readFile(path, 'utf8'), path).not.toContain('.claude')
+    const hook = await readFile(join(codexHome, 'hooks', 'ccg-workflow.py'), 'utf8')
+    expect(hook).not.toContain('--backend claude')
+    expect(hook).toContain('Claude is disabled')
+  })
+
   it('rejects ownership paths that escape Codex home', async () => {
     const codexHome = await makeCodexHome()
     const victimPath = join(codexHome, '..', 'victim.txt')

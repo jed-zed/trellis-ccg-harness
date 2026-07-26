@@ -7,6 +7,7 @@ import { join } from 'pathe'
 import { configMcp } from './commands/config-mcp'
 import { doctor, status } from './commands/doctor'
 import { grokAccount } from './commands/grok'
+import { runCodexRoute } from './commands/route'
 import { diagnoseMcp, fixMcp } from './commands/diagnose-mcp'
 import { init } from './commands/init'
 import { showMainMenu } from './commands/menu'
@@ -81,14 +82,45 @@ function customizeHelp(sections: any[]): any[] {
   return sections
 }
 
+export function isCodexModeHelpRequest(args: readonly string[]): boolean {
+  if (args[0] !== 'codex-mode')
+    return false
+
+  const actionArgs = args.slice(1)
+  return actionArgs.length === 0
+    || actionArgs.some(arg => arg === 'help' || arg === '--help' || arg === '-h')
+}
+
+export function printCodexModeHelp(): void {
+  console.log([
+    ansis.cyan.bold(`CCG Codex-Led mode v${version}`),
+    '',
+    'Usage:',
+    '  ccg codex-mode <install|uninstall|recover>',
+    '',
+    'Actions:',
+    '  install    Install the managed Codex runtime under ~/.codex.',
+    '  uninstall  Remove only CCG-managed Codex runtime files.',
+    '  recover    Recover an interrupted Codex mode transaction.',
+    '',
+    'This command is non-interactive and only manages Codex-owned paths.',
+  ].join('\n'))
+}
+
 export async function setupCommands(cli: CAC): Promise<void> {
-  try {
-    const config = await readCcgConfig()
-    const defaultLang = config?.general?.language || 'zh-CN'
-    await initI18n(defaultLang)
-  }
-  catch {
+  const routeIndex = process.argv.indexOf('route')
+  if (routeIndex >= 0) {
     await initI18n('zh-CN')
+  }
+  else {
+    try {
+      const config = await readCcgConfig()
+      const defaultLang = config?.general?.language || 'zh-CN'
+      await initI18n(defaultLang)
+    }
+    catch {
+      await initI18n('zh-CN')
+    }
   }
 
   // Default command - show menu
@@ -182,6 +214,14 @@ export async function setupCommands(cli: CAC): Promise<void> {
     .option('--json', 'Print machine-readable status')
     .action(async (action: string, options: { json?: boolean }) => { await grokAccount(action, options) })
 
+  cli
+    .command('route', 'Run the Codex-native CCG intelligence route')
+    .allowUnknownOptions()
+    .action(() => {
+      const index = process.argv.indexOf('route')
+      process.exitCode = runCodexRoute(process.argv.slice(index + 1))
+    })
+
   // Status: show current installation overview
   cli
     .command('status', 'Show CCG installation status')
@@ -230,7 +270,7 @@ export async function setupCommands(cli: CAC): Promise<void> {
       }
       else {
         console.error(ansis.red(`Unknown action: ${action}`))
-        console.log(ansis.gray('Usage: ccg codex-mode <install|uninstall|recover>'))
+        printCodexModeHelp()
         process.exitCode = 1
       }
     })

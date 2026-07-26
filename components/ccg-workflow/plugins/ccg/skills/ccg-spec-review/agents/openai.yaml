@@ -1,3 +1,4 @@
-display_name: CCG Spec Review
-short_description: Review spec-backed CCG implementation consistency.
-default_prompt: /ccg:spec-review spec-name
+interface:
+  display_name: "CCG Spec Review"
+  short_description: "Review spec-backed CCG implementation consistency."
+  default_prompt: "Use $ccg-spec-review to run /ccg:spec-review spec-name."

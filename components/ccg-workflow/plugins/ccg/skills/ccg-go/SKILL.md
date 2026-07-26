@@ -15,7 +15,7 @@ Bootstrap contract: before invoking the route, create or reuse a safe `<task-id>
 Reuse this same task id throughout `/ccg:go`, including S and git-action routes.
 
 - Before inspecting or routing ordinary work, write the bounded request to the active task directory
-  and run `node ~/.claude/.ccg/engine/tools/grok-intelligence/route.mjs --workflow go --phase intake --task-file <request-file> --state-file <state-file>`.
+  and run `ccg route --workflow go --phase intake --task-file <request-file> --state-file <state-file>`.
   The controller must add `--semantic-mode contract|incident --semantic-reason <reason>` when its own
   judgment finds a material current-fact dependency even if the user did not ask to search. Supply
   plan/diff/dependency paths when present, re-run final external verification when their digests change,
@@ -33,4 +33,4 @@ Reuse this same task id throughout `/ccg:go`, including S and git-action routes.
 Do not bypass the GPT Pro manual handoff barrier. GPT Pro is manual evidence, not an automated model backend.
 GPT Pro routes inherit the matching ordinary command first: plan -> ordinary `/ccg:plan`, review ->
 ordinary `/ccg:review`, exc -> ordinary `/ccg:execute` preflight/routing evidence before manual GPT
-Pro second opinion. Do not replace routed Codex, Claude, Gemini, or helper evidence.
+Pro second opinion. Do not replace routed Codex, Gemini, or helper evidence.

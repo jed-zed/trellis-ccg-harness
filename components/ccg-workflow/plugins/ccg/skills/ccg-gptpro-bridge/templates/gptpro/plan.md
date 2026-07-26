@@ -6,7 +6,7 @@ The input should include the ordinary CCG planning route, the current orchestrat
 and any routed helper findings. Compare the Base CCG Routing Evidence with the CCG input, call out
 disagreements, and help the current orchestrator make the final plan.
 
-Do not assume missing Codex, Claude, Gemini, or other model evidence exists. GPT Pro is fourth
+Do not assume missing Codex, Gemini, or other helper evidence exists. GPT Pro is fourth
 evidence and must not replace routed models.
 
 Plan-only boundary: Do not execute implementation. Do not apply code changes. Do not ask Codex to continue directly into execution. Provide adversarial planning advice only.

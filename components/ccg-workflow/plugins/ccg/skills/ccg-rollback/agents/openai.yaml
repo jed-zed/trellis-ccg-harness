@@ -1,3 +1,4 @@
-display_name: CCG Rollback
-short_description: Plan safe revert and rollback commands.
-default_prompt: /ccg:rollback --dry-run
+interface:
+  display_name: "CCG Rollback"
+  short_description: "Plan safe revert and rollback commands."
+  default_prompt: "Use $ccg-rollback to run /ccg:rollback --dry-run."

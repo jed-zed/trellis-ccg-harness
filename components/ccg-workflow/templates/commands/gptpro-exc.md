@@ -15,11 +15,11 @@ code landing begins.
 ## Contract
 
 Run the Grok intelligence decision by writing the bounded execution subject to the active task directory, then run
-`node ~/.claude/.ccg/engine/tools/grok-intelligence/route.mjs --workflow gptpro-exc --phase intake --task-file <request-file> --state-file <state-file>`
+`ccg route --workflow gptpro-exc --phase intake --task-file <request-file> --state-file <state-file>`
 before ordinary `/ccg:execute` preflight. The main orchestrator adds a semantic mode/reason whenever
 current external evidence is material even if search was not requested. External API,
 dependency, deployment, security, and other current-contract routes require canonical Grok evidence;
-required exit 2/3/4 stops GPT Pro bridge creation unless the user runs `node ~/.claude/.ccg/engine/tools/grok-intelligence/route.mjs waive --state-file <state-file> --reason "<user reason>"`; this records a route-state waiver without creating evidence or claiming verification passed. A waived route continues only through ordinary routing evidence and must omit the bridge's external-intelligence flags. Exit code `2`, `3`, or `4`
+required exit 2/3/4 stops GPT Pro bridge creation unless the user runs `ccg route waive --state-file <state-file> --reason "<user reason>"`; this records a route-state waiver without creating evidence or claiming verification passed. A waived route continues only through ordinary routing evidence and must omit the bridge's external-intelligence flags. Exit code `2`, `3`, or `4`
 stops before ordinary work. Add `--require-external-intelligence` together with `--expected-intelligence-mode <route investigation_mode>` and `--expected-intelligence-depth <route depth>` only for a route with `status=valid` and `requirement=required`. Then run ordinary
 `/ccg:execute` through the preflight, plan load, model routing, prototype, or
 analysis-evidence phase. Preserve the current CCG orchestrator semantics and the normal execution

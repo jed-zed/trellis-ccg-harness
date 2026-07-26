@@ -1,3 +1,4 @@
-display_name: CCG Commit
-short_description: Prepare a safe commit message and gate checklist.
-default_prompt: /ccg:commit
+interface:
+  display_name: "CCG Commit"
+  short_description: "Prepare a safe commit message and gate checklist."
+  default_prompt: "Use $ccg-commit to run /ccg:commit."

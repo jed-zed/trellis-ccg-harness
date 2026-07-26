@@ -21,7 +21,7 @@ Initialize the current project for Codex-native CCG without overwriting user ins
   - `.codex/ccg/tmp/`
 - Do not overwrite `AGENTS.md`, `CLAUDE.md`, or existing project rules.
 - Only append a CCG section to `AGENTS.md` when the user explicitly asks.
-- Explain in Chinese that `.claude/plan/**` remains a legacy compatibility input, while new CCG artifacts belong under `.codex/ccg/**`.
+- Explain in Chinese that all Codex-owned CCG artifacts belong under `.codex/ccg/**`.
 
 ## Verification
 

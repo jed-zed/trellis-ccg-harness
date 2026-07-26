@@ -1,3 +1,4 @@
-display_name: CCG Spec Research
-short_description: Research requirements into constraints.
-default_prompt: /ccg:spec-research Describe the requirement
+interface:
+  display_name: "CCG Spec Research"
+  short_description: "Research requirements into constraints."
+  default_prompt: "Use $ccg-spec-research to run /ccg:spec-research Describe the requirement."

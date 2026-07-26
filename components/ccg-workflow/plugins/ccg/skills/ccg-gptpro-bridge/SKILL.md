@@ -8,10 +8,8 @@ description: Shared manual ChatGPT Pro bridge for CCG planning, review, and exec
 This manual bridge lets the user manually ask ChatGPT Pro after ordinary CCG plan/review/execute
 routing has already produced auditable evidence.
 
-The current CCG orchestrator remains final owner. In Claude installs that means Claude-led command
-semantics still apply; in Codex installs that means Codex-led command semantics still apply with
-mandatory Claude evidence unless the user explicitly says not to use Claude. GPT Pro does not
-replace ordinary routed Codex, Claude, Gemini, or other configured helper evidence.
+Codex remains the final owner. Claude is disabled and is neither routed nor required. GPT Pro does
+not replace ordinary Codex or Gemini evidence.
 Gemini evidence mode depends on the underlying ordinary command: required gate evidence for
 plan/review, and optional frontend/full-stack evidence for execution. GPT Pro provides a
 user-mediated manual second opinion as a risk-triggered external reviewer, not as a fourth
@@ -66,26 +64,19 @@ Before creating a GPT Pro bridge for `/ccg:gptpro-plan`, `/ccg:gptpro-review`, o
 Write Base CCG Routing Evidence before the GPT Pro handoff. It should summarize:
 
 - current orchestrator and command semantics;
-- routed Codex/Claude/Gemini/helper evidence that actually exists;
-- `claudeEvidenceStatus: automatic|manual_handoff|skipped_by_user|blocked`;
+- routed Codex/Gemini/helper evidence that actually exists;
 - ordinary orchestrator conclusion so far;
 - skipped, failed, or intentionally absent model steps.
-
-For Codex installs, Claude evidence is required before the GPT Pro bridge unless the user explicitly
-disabled Claude. If automatic `codeagent-wrapper --backend claude` fails or returns empty output,
-stop and ask the user to paste the generated prompt into Claude Code and copy the output back before
-creating the GPT Pro bridge. Do not let GPT Pro stand in for missing Claude evidence.
 
 Pass this evidence to the bridge:
 
 ```text
---routing-evidence-file <routing-evidence-file> --routing-summary-file <routing-summary-file> --require-routing-evidence --require-claude-evidence
+--routing-evidence-file <routing-evidence-file> --routing-summary-file <routing-summary-file> --require-routing-evidence
 ```
 
 The helper injects `Base CCG Routing Evidence` into `prompt.md` and records
 `routing_evidence.available`, `evidence_file`, `evidence_sha256`, `evidence_chars`, `summary_file`,
-`summary`, `summary_chars`, and `claudeEvidenceStatus` under `status.json`. Omit
-`--require-claude-evidence` only when the user explicitly disabled Claude.
+`summary`, and `summary_chars` under `status.json`.
 
 ## Gemini Evidence Modes
 
@@ -139,8 +130,8 @@ For `/ccg:gptpro-exc`, classify the evidence before writing the GPT Pro prompt:
   Routing Evidence are present. GPT Pro may add implementation sketches, localized pseudo patches,
   key function drafts, test samples, and verification commands.
 
-All code-like GPT Pro output is advisory / illustrative. Codex or Claude must reimplement it
-locally, run verification, and review the resulting diff.
+All code-like GPT Pro output is advisory / illustrative. Codex must reimplement it locally, run
+verification, and review the resulting diff.
 
 ## Project Access Context
 

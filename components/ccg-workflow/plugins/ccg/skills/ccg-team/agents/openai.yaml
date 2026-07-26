@@ -1,3 +1,4 @@
-display_name: CCG Team
-short_description: Route Codex-native CCG team workflows.
-default_prompt: /ccg:team
+interface:
+  display_name: "CCG Team"
+  short_description: "Route Codex-native CCG team workflows."
+  default_prompt: "Use $ccg-team to run /ccg:team."

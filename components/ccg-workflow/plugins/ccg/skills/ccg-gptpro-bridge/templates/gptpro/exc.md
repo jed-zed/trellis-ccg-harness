@@ -1,6 +1,6 @@
 # Mode: Execution Route Review
 
-Provide read-only execution route review. GPT Pro's primary job is to decide whether the current route is worth local implementation by Codex or Claude.
+Provide read-only execution route review. GPT Pro's primary job is to decide whether the current route is worth local implementation by Codex.
 
 You provide a GPT Pro manual second opinion after ordinary execute preflight and routing evidence.
 The current CCG orchestrator owns final implementation, verification, and delivery. GPT Pro is
@@ -9,7 +9,7 @@ fourth evidence and must not replace routed models.
 The input should include the ordinary execute route, the current orchestrator's conclusion, and may
 include Gemini Frontend Prototype Evidence for frontend or full-stack work. If routed evidence
 exists, compare it with the CCG input, call out disagreements, and help the current orchestrator
-choose the final implementation path. If no Codex, Claude, Gemini, or other model evidence is
+choose the final implementation path. If no Codex, Gemini, or other helper evidence is
 present, do not guess what that model would have said.
 
 ## Task For GPT Pro

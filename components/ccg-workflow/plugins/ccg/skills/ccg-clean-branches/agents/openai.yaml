@@ -1,3 +1,4 @@
-display_name: CCG Clean Branches
-short_description: Dry-run cleanup of safely merged branches.
-default_prompt: /ccg:clean-branches
+interface:
+  display_name: "CCG Clean Branches"
+  short_description: "Dry-run cleanup of safely merged branches."
+  default_prompt: "Use $ccg-clean-branches to run /ccg:clean-branches."

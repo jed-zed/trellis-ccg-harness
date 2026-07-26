@@ -772,7 +772,7 @@ async function main(argv = process.argv.slice(2)) {
     process.exitCode = result.exitCode
     return
   }
-  const configPath = resolve(args.config || resolve(homedir(), '.claude', '.ccg', 'config.toml'))
+  const configPath = resolve(args.config || resolve(homedir(), '.codex', 'ccg', 'config.toml'))
   const taskFile = args.taskFile ? await assertNoLinkedPath(repoRoot, args.taskFile, 'task file') : null
   const task = taskFile ? await readFile(taskFile.absolute, 'utf8') : String(args.task || '')
   const result = await runWorkflowRoute({

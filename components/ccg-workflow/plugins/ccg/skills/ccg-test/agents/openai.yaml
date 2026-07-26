@@ -1,3 +1,4 @@
-display_name: CCG Test
-short_description: Add or repair tests with Codex as implementer.
-default_prompt: /ccg:test Add focused tests
+interface:
+  display_name: "CCG Test"
+  short_description: "Add or repair tests with Codex as implementer."
+  default_prompt: "Use $ccg-test to run /ccg:test Add focused tests."

@@ -1,3 +1,4 @@
-display_name: CCG Context
-short_description: Manage Codex-native CCG context history.
-default_prompt: /ccg:context history
+interface:
+  display_name: "CCG Context"
+  short_description: "Manage Codex-native CCG context history."
+  default_prompt: "Use $ccg-context to run /ccg:context history."

@@ -22,9 +22,13 @@ export async function ensureCcgDir(): Promise<void> {
 }
 
 export async function readCcgConfig(): Promise<CcgConfig | null> {
-  if (!await fs.pathExists(CONFIG_FILE))
+  return readCcgConfigAt(CONFIG_FILE)
+}
+
+export async function readCcgConfigAt(configFile: string): Promise<CcgConfig | null> {
+  if (!await fs.pathExists(configFile))
     return null
-  const content = await fs.readFile(CONFIG_FILE, 'utf-8')
+  const content = await fs.readFile(configFile, 'utf-8')
   const parsed = parse(content) as unknown as CcgConfig
   return {
     ...parsed,

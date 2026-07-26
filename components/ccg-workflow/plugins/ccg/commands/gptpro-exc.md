@@ -15,28 +15,25 @@ code landing begins.
 ## Contract
 
 Run the Grok intelligence decision by writing the bounded execution subject to the active task directory, then run
-`node ~/.claude/.ccg/engine/tools/grok-intelligence/route.mjs --workflow gptpro-exc --phase intake --task-file <request-file> --state-file <state-file>`
+`ccg route --workflow gptpro-exc --phase intake --task-file <request-file> --state-file <state-file>`
 before ordinary `/ccg:execute` preflight. The main orchestrator adds a semantic mode/reason whenever
 current external evidence is material even if search was not requested. External API,
 dependency, deployment, security, and other current-contract routes require canonical Grok evidence;
-required exit 2/3/4 stops GPT Pro bridge creation unless the user runs `node ~/.claude/.ccg/engine/tools/grok-intelligence/route.mjs waive --state-file <state-file> --reason "<user reason>"`; this records a route-state waiver without creating evidence or claiming verification passed. A waived route continues only through ordinary routing evidence and must omit the bridge's external-intelligence flags. Exit code `2`, `3`, or `4`
+required exit 2/3/4 stops GPT Pro bridge creation unless the user runs `ccg route waive --state-file <state-file> --reason "<user reason>"`; this records a route-state waiver without creating evidence or claiming verification passed. A waived route continues only through ordinary routing evidence and must omit the bridge's external-intelligence flags. Exit code `2`, `3`, or `4`
 stops before ordinary work. Add `--require-external-intelligence` together with `--expected-intelligence-mode <route investigation_mode>` and `--expected-intelligence-depth <route depth>` only for a route with `status=valid` and `requirement=required`. Then run ordinary
 `/ccg:execute` through the preflight, plan load, model routing, prototype, or
 analysis-evidence phase. Preserve the current CCG orchestrator semantics and the normal execution
-routing for this installation, including Codex, Claude, Gemini, or any configured helper that
+routing for this installation, including Codex, Gemini, or any configured helper that
 ordinary execute would use. GPT Pro is fourth evidence: it is appended as a manual second opinion
 after ordinary routing evidence exists and before the ordinary execute owner applies final code.
-In this command GPT Pro decides whether the route is worth local implementation by Codex or Claude;
+In this command GPT Pro decides whether the route is worth local implementation by Codex;
 it is not a fourth implementation owner.
 
-Ordinary execution evidence must include Claude unless the user explicitly says Claude must not be
-used. First try `~/.claude/bin/codeagent-wrapper[.exe] --backend claude`. If the automatic Claude
-route fails or returns empty output, stop before creating the GPT Pro bridge, tell the user Claude
-evidence is missing, and offer a manual Claude Code handoff: write the Claude prompt to a file, ask
-the user to paste it into Claude Code, then paste/save Claude's response back before continuing.
+Claude is disabled in this Codex-native workflow. It is never invoked, required as evidence, or
+offered as a manual handoff before GPT Pro.
 
 GPT Pro provides manual helper evidence only. It must not write files, own delivery, replace routed
-models, or decide that missing Codex, Claude, or Gemini evidence exists.
+models, or decide that missing Codex or Gemini evidence exists.
 Any code sketch, localized pseudo patch, key function draft, test sample, or verification command
 from GPT Pro is advisory / illustrative only and must be reimplemented and verified locally by the
 ordinary execute owner.
@@ -75,8 +72,7 @@ fields into Trellis `task.json`.
    advice can still change the path safely. Write a concise routing evidence file, for example
    `<evidence-root>/evidence/routing.md`, plus a routing summary file. The routing evidence
    must identify the current orchestrator, the routed model evidence that actually exists, the
-   `claudeEvidenceStatus: automatic|manual_handoff|skipped_by_user|blocked`, ordinary execute
-   conclusion so far, and any skipped/failed model steps.
+   ordinary execute conclusion so far, and any skipped/failed model steps.
 5. Decide whether ordinary routing produced Gemini frontend/full-stack evidence:
    - backend/tooling-only: use `--gemini-policy optional --gemini-evidence-role frontend-prototype`
      without forcing a Gemini run;
@@ -110,7 +106,7 @@ Create a concise prompt file with:
 For backend/tooling-only execution route review:
 
 ```bash
-python ~/.claude/.ccg/engine/tools/gptpro/gptpro_bridge.py \
+python "<installed-ccg-plugin>/skills/ccg-gptpro-bridge/scripts/gptpro_bridge.py" \
   --mode exc \
   --workdir "$WORKDIR" \
   --task-dir "<task-dir>" \
@@ -122,15 +118,10 @@ python ~/.claude/.ccg/engine/tools/gptpro/gptpro_bridge.py \
   --routing-evidence-file "<routing-evidence-file>" \
   --routing-summary-file "<routing-summary-file>" \
   --require-routing-evidence \
-  --require-claude-evidence \
   [--require-external-intelligence --expected-intelligence-mode <route investigation_mode> --expected-intelligence-depth <route depth> when route status=valid and requirement=required] \
   --detach-preview \
   --open-preview
 ```
-
-If the user explicitly disabled Claude and routing evidence records
-`claudeEvidenceStatus: skipped_by_user`, omit `--require-claude-evidence`; do not omit it for
-automatic failure or blocked Claude evidence.
 
 For frontend/full-stack execution route review with Gemini evidence, also pass:
 

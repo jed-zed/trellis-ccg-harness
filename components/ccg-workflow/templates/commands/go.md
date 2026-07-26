@@ -27,7 +27,7 @@ Bootstrap contract: 在调用路由器之前，create or reuse 一个只含 `[a-
 有界的审计文件；后续阶段必须复用同一个 `<task-id>`，不得在路由后再生成第二个任务 ID。
 
 ```text
-node ~/.claude/.ccg/engine/tools/grok-intelligence/route.mjs --workflow go --phase intake --task-file ".ccg/tasks/<task-id>/intelligence-request.md" --state-file ".ccg/tasks/<task-id>/intelligence-route.json"
+ccg route --workflow go --phase intake --task-file ".ccg/tasks/<task-id>/intelligence-request.md" --state-file ".ccg/tasks/<task-id>/intelligence-route.json"
 ```
 
 确定性触发器由路由器识别；模糊但确实依赖外部能力、近期版本或服务状态时，主编排器追加

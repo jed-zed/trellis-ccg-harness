@@ -13,20 +13,16 @@ Load and follow `skills/ccg-gptpro-bridge/SKILL.md`.
 ## Behavior
 
 - Gather review input: plan, diff, touched files, test summary, or user-provided target.
-- Before ordinary review or any Gemini, Claude, or GPT Pro handoff, write the bounded subject and run
-  `node ~/.claude/.ccg/engine/tools/grok-intelligence/route.mjs --workflow gptpro-review --phase final-verify --task-file <request-file> --state-file <state-file> --trigger final_diff_verify --plan <plan> --diff <diff> --dependency <lockfile>`.
+- Before ordinary review or any Gemini or GPT Pro handoff, write the bounded subject and run
+  `ccg route --workflow gptpro-review --phase final-verify --task-file <request-file> --state-file <state-file> --trigger final_diff_verify --plan <plan> --diff <diff> --dependency <lockfile>`.
   Let the current orchestrator inherit or re-evaluate whether external verification is required. When required, bind it to
   the exact plan, diff, dependency locks, and test summary; require its canonical artifact, manifest,
   hashes, and active-task pointer. Exit `2`, `3`, or `4` stops the workflow, and raw Grok output is
   never embedded in the GPT Pro prompt.
-- Run ordinary `/ccg:review` semantics first. Ordinary review must include Claude review evidence
-  unless the user explicitly says Claude must not be used. First try the automatic
-  `~/.claude/bin/codeagent-wrapper[.exe] --backend claude` route. If it fails or returns empty
-  output, stop before GPT Pro, tell the user Claude evidence is missing, and offer a manual Claude
-  Code handoff: write the Claude prompt to a file, ask the user to paste it into Claude Code, then
-  paste/save Claude's response back before continuing.
+- Run ordinary `/ccg:review` semantics first. Preserve Codex as the review authority and use only
+  the bounded Gemini evidence required by that workflow. Claude is disabled and is never a gate.
 - Before GPT Pro, write Base CCG Routing Evidence that records the current orchestrator, actual
-  routed model evidence, `claudeEvidenceStatus`, ordinary review conclusion, and skipped/failed
+  routed model evidence, ordinary review conclusion, and skipped/failed
   model steps.
 - Run Gemini according to ordinary review rules before GPT Pro using the bundled Gemini preview
   helper with `--prompt-template review`.
@@ -40,9 +36,9 @@ Load and follow `skills/ccg-gptpro-bridge/SKILL.md`.
 - Expected manual questions: 1.
 - Maximum manual questions: 2.
 - Round 2 only after Codex fixes blocker findings.
-- Use `scripts/gptpro_bridge.py --mode review --detach-preview --open-preview --gemini-response-file <CCG_GEMINI_RESPONSE_FILE> --gemini-summary-file <summary-file> --routing-evidence-file <routing-evidence-file> --routing-summary-file <routing-summary-file> --require-routing-evidence --require-claude-evidence [--require-external-intelligence --expected-intelligence-mode <route investigation_mode> --expected-intelligence-depth <route depth> when route status=valid and requirement=required]`; omit those three external-intelligence flags for `status=waived`.
+- Use `scripts/gptpro_bridge.py --mode review --detach-preview --open-preview --gemini-response-file <CCG_GEMINI_RESPONSE_FILE> --gemini-summary-file <summary-file> --routing-evidence-file <routing-evidence-file> --routing-summary-file <routing-summary-file> --require-routing-evidence [--require-external-intelligence --expected-intelligence-mode <route investigation_mode> --expected-intelligence-depth <route depth> when route status=valid and requirement=required]`; omit those three external-intelligence flags for `status=waived`.
 - After response is saved, classify Critical/Major/Minor findings, false positives, required tests,
-  and Codex/Claude actions.
+  and Codex actions.
 - Report in Chinese and synthesize validated Grok external intelligence, ordinary review evidence,
   Gemini gate evidence, and GPT Pro findings.
 - The current CCG orchestrator remains final owner.

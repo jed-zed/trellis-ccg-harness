@@ -1,3 +1,4 @@
-display_name: CCG Worktree
-short_description: Manage Git worktrees with safety checks.
-default_prompt: /ccg:worktree list
+interface:
+  display_name: "CCG Worktree"
+  short_description: "Manage Git worktrees with safety checks."
+  default_prompt: "Use $ccg-worktree to run /ccg:worktree list."

@@ -1,7 +1,7 @@
 {
   "name": "ccg",
-  "version": "3.3.0",
-  "description": "Codex-native CCG workflow with automatic Grok external intelligence, manual GPT Pro evidence, spec, team, and quality gates. Codex remains the final implementation and verification owner.",
+  "version": "3.3.1+codex.1",
+  "description": "Codex-native CCG workflow with opt-in external intelligence, bounded Gemini review, spec, team, and quality gates. Claude is disabled and Codex remains the final implementation and verification owner.",
   "author": {
     "name": "jed-zed",
     "email": "noreply@example.com",
@@ -22,8 +22,8 @@
   "mcpServers": "./.mcp.json",
   "interface": {
     "displayName": "CCG GPT Pro Workflow",
-    "shortDescription": "Run CCG with automatic Grok intelligence and manual GPT Pro evidence",
-    "longDescription": "A Codex-native CCG fork where Codex owns planning, implementation, and verification. The official Grok Build CLI provides opt-in, source-backed Web/X external intelligence through an isolated ACP profile, Gemini and Claude provide bounded evidence, and GPT Pro remains a manual high-value reviewer. Includes hardened snapshots, canonical evidence, Git/context helpers, spec and team workflows, and local quality/security gates.",
+    "shortDescription": "Run Codex-native CCG with optional Gemini review and local quality gates",
+    "longDescription": "A Codex-native CCG fork where Codex owns planning, implementation, and verification. External intelligence is opt-in and disabled by default, Gemini may provide bounded read-only evidence, Claude is disabled, and GPT Pro remains manual-only. Includes hardened snapshots, canonical evidence, Git/context helpers, spec and team workflows, and local quality/security gates.",
     "developerName": "jed-zed",
     "category": "Coding",
     "capabilities": [
@@ -35,20 +35,8 @@
     "privacyPolicyURL": "https://github.com/jed-zed/ccg-gptpro-worflow",
     "termsOfServiceURL": "https://github.com/jed-zed/ccg-gptpro-worflow",
     "defaultPrompt": [
-      "/ccg:doctor",
-      "/ccg:go Add the requested feature",
-      "/ccg:gptpro-plan Add the requested feature",
-      "/ccg:gptpro-review Review the current change",
-      "/ccg:gptpro-exc Pair on this implementation",
-      "/ccg:grok-intel Research the current external contract",
-      "/ccg:grok-verify Verify this change against current external facts",
       "/ccg:plan Add the requested feature",
       "/ccg:execute .codex/ccg/plans/task.md",
-      "/ccg:feat Add the requested feature",
-      "/ccg:frontend Improve this UI",
-      "/ccg:backend Implement the backend task",
-      "/ccg:debug Fix this failure",
-      "/ccg:gemini-preview Review this plan",
       "/ccg:verify-change"
     ],
     "brandColor": "#2563EB",

@@ -1,3 +1,4 @@
-display_name: CCG Codex Exec
-short_description: Explicit Codex-led CCG execution alias.
-default_prompt: /ccg:codex-exec .codex/ccg/plans/task.md
+interface:
+  display_name: "CCG Codex Exec"
+  short_description: "Explicit Codex-led CCG execution alias."
+  default_prompt: "Use $ccg-codex-exec to run /ccg:codex-exec .codex/ccg/plans/task.md."

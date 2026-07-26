@@ -15,7 +15,10 @@ describe('Codex plugin release parity', () => {
     const codexMarketplaceVersion = readJson(join(root, '.codex-plugin', 'marketplace.json')).plugins[0].version
     const claudeMarketplaceVersion = readJson(join(root, '.claude-plugin', 'marketplace.json')).plugins[0].version
 
-    expect(pluginVersion).toBe(packageVersion)
+    expect(pluginVersion.split('+', 1)[0]).toBe(packageVersion)
+    expect(pluginVersion).toMatch(
+      new RegExp(`^${packageVersion.replaceAll('.', '\\.')}\\+codex\\.[a-z0-9-]+$`),
+    )
     expect(codexMarketplaceVersion).toBe(packageVersion)
     expect(claudeMarketplaceVersion).toBe(packageVersion)
   })
@@ -45,6 +48,41 @@ describe('Codex plugin release parity', () => {
     ]
     for (const [template, plugin] of pairs)
       expect(fs.readFileSync(plugin, 'utf8'), plugin).toBe(fs.readFileSync(template, 'utf8'))
+  })
+
+  it('keeps every Codex plugin surface independent from Claude runtime and evidence gates', () => {
+    const pluginRoot = join(root, 'plugins', 'ccg')
+    const pending = [pluginRoot]
+    const offenders: Array<{ path: string, pattern: string }> = []
+    const forbidden = [
+      '~/.claude',
+      '.claude/plan',
+      '--backend claude',
+      '--require-claude-evidence',
+      'claudeEvidenceStatus',
+    ]
+    while (pending.length > 0) {
+      const current = pending.pop()!
+      for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+        const path = join(current, entry.name)
+        if (entry.isDirectory()) {
+          pending.push(path)
+          continue
+        }
+        if (!/\.(?:md|json|toml|py|mjs)$/.test(entry.name))
+          continue
+        const content = fs.readFileSync(path, 'utf8')
+        for (const pattern of forbidden) {
+          if (content.includes(pattern)) {
+            offenders.push({
+              path: path.slice(pluginRoot.length + 1).replace(/\\/g, '/'),
+              pattern,
+            })
+          }
+        }
+      }
+    }
+    expect(offenders).toEqual([])
   })
 
   it('runs offline CI on Linux and Windows while keeping paid Grok smoke manual', () => {

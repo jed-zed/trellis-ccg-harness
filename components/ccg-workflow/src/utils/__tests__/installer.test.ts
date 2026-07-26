@@ -105,7 +105,7 @@ describe('workflow registry', () => {
   })
 })
 
-describe('Codex plugin ordinary CCG Claude parity', () => {
+describe('Codex plugin ordinary CCG Claude-clean parity', () => {
   const readPluginFile = (...segments: string[]) => readFileSync(join(CCG_PLUGIN_DIR, ...segments), 'utf-8')
 
   const ordinaryParityFiles = [
@@ -117,35 +117,24 @@ describe('Codex plugin ordinary CCG Claude parity', () => {
     ['skills/ccg-review/SKILL.md', readPluginFile('skills', 'ccg-review', 'SKILL.md')],
   ] as const
 
-  const oldClaudeDisablePhrases = [
-    'Do not call Claude-side wrappers',
-    'Do not call `~/.claude/bin/codeagent-wrapper.exe` or use Claude execution quota',
-    'Do not call `~/.claude/bin/codeagent-wrapper.exe` or any Claude-side execution wrapper',
-    'without calling the Claude-side wrapper',
-    'do not use Claude execution quota',
-  ]
-
-  it('does not reintroduce Claude-disable language in any ordinary plan/execute/review file', () => {
+  it('keeps ordinary plan/execute/review files independent from Claude runtime paths', () => {
     for (const [relativePath, content] of ordinaryParityFiles) {
-      for (const phrase of oldClaudeDisablePhrases) {
-        expect(content, `${relativePath} reintroduced old Claude-disable phrase: ${phrase}`).not.toContain(phrase)
-      }
-
-      expect(content, `${relativePath} must name the Codex-native parity rules`).toContain('Codex-native CCG parity rules')
-      expect(content, `${relativePath} must expose the Claude helper route`).toContain('--backend claude')
+      expect(content, `${relativePath} must not expose a Claude helper route`).not.toContain('--backend claude')
+      expect(content, `${relativePath} must not depend on .claude`).not.toContain('.claude')
+      expect(content, `${relativePath} must state the Codex-only boundary`).toContain('Claude is disabled')
     }
   })
 
-  it('requires plan artifacts to record both Gemini and Claude evidence', () => {
+  it('requires plan artifacts to record Gemini evidence and the Claude-disabled state', () => {
     const planCommand = readPluginFile('commands', 'plan.md')
     const planSkill = readPluginFile('skills', 'ccg-plan', 'SKILL.md')
 
-    expect(planCommand).toContain('Gemini and Claude must participate as read-only analysis evidence')
-    expect(planCommand).toContain('Do not write or present a final plan unless Codex has read non-empty Gemini and Claude outputs')
-    expect(planSkill).toContain('Gemini and Claude participation are mandatory')
-    expect(planSkill).toContain('**Claude 响应证据**')
-    expect(planSkill).toContain('### Claude 分析')
-    expect(planSkill).toContain('说明 Claude 是否参与，以及响应证据路径/摘要在哪里')
+    expect(planCommand).toContain('Gemini must participate as read-only analysis evidence')
+    expect(planCommand).toContain('Codex has read a non-empty Gemini output')
+    expect(planSkill).toContain('Gemini participation is mandatory')
+    expect(planSkill).toContain('**Claude 状态**：已禁用，未调用')
+    expect(planSkill).not.toContain('### Claude 分析')
+    expect(planSkill).toContain('说明 Claude 已禁用且未调用')
   })
 
   it('keeps execute contracts tied to risky/M+ triggers with Codex as final owner', () => {
@@ -159,21 +148,21 @@ describe('Codex plugin ordinary CCG Claude parity', () => {
       expect(content, `${relativePath} must keep Codex as final owner`).toMatch(/Codex .*final|final .*Codex|Codex owns/)
       expect(content, `${relativePath} must preserve M+ trigger language`).toContain('M+')
       expect(content, `${relativePath} must preserve risky-work trigger language`).toContain('risky')
-      expect(content, `${relativePath} must preserve dual-model review evidence`).toContain('review evidence')
-      expect(content, `${relativePath} must preserve Gemini + Claude evidence`).toMatch(/Gemini (?:\+|and) Claude/)
+      expect(content, `${relativePath} must preserve review evidence`).toContain('review')
+      expect(content, `${relativePath} must keep Claude disabled`).toContain('Claude is disabled')
     }
   })
 
-  it('keeps review contracts as Codex primary review plus Gemini and Claude evidence', () => {
+  it('keeps review contracts as Codex primary review plus optional Gemini evidence', () => {
     const reviewCommand = readPluginFile('commands', 'review.md')
     const reviewSkill = readPluginFile('skills', 'ccg-review', 'SKILL.md')
 
     expect(reviewCommand).toContain('Codex performs the primary review')
-    expect(reviewCommand).toContain('Gemini + Claude review evidence')
-    expect(reviewCommand).toContain('--backend claude')
+    expect(reviewCommand).toContain('Gemini may provide bounded second-pass review evidence')
+    expect(reviewCommand).not.toContain('--backend claude')
     expect(reviewSkill).toContain('Codex performs the primary review')
-    expect(reviewSkill).toContain('Gemini and Claude provide bounded second-pass review evidence')
-    expect(reviewSkill).toContain('--backend claude')
+    expect(reviewSkill).toContain('Gemini may provide bounded')
+    expect(reviewSkill).not.toContain('--backend claude')
   })
 
   it('keeps Claude backend allowed in generated Claude Code settings', () => {

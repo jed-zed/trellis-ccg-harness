@@ -1,3 +1,4 @@
-display_name: CCG Team Review
-short_description: Review CCG team outputs and verification.
-default_prompt: /ccg:team-review
+interface:
+  display_name: "CCG Team Review"
+  short_description: "Review CCG team outputs and verification."
+  default_prompt: "Use $ccg-team-review to run /ccg:team-review."

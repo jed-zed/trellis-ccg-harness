@@ -11,7 +11,7 @@ Bootstrap contract: before invoking the route, create or reuse a safe `<task-id>
 `.ccg/tasks/<task-id>/intelligence-request.md` with a file-writing tool rather than shell interpolation.
 Reuse this same task id throughout `/ccg:go`, including S and git-action routes.
 
-`node ~/.claude/.ccg/engine/tools/grok-intelligence/route.mjs --workflow go --phase intake --task-file ".ccg/tasks/<task-id>/intelligence-request.md" --state-file ".ccg/tasks/<task-id>/intelligence-route.json"`
+`ccg route --workflow go --phase intake --task-file ".ccg/tasks/<task-id>/intelligence-request.md" --state-file ".ccg/tasks/<task-id>/intelligence-route.json"`
 
 Append existing --plan, --diff, --target, and repeatable --dependency paths whenever those artifacts are available. Add `--semantic-mode contract|incident --semantic-reason "<Codex judgment>"` only for an explicit semantic decision. The runtime honors disabled config, persists the decision reason, and must be re-run after plan, dependency, target, diff, or phase digest changes. Stop ordinary work on exit code `2`, `3`, or `4`.
 
@@ -183,9 +183,8 @@ mkdir -p .ccg/tasks/{task-name}
 如果快捷路由选中的是 `/ccg:gptpro-plan`、`/ccg:gptpro-review` 或 `/ccg:gptpro-exc`，不要加载普通策略文件，直接读取对应命令模板并执行其契约：
 
 ```text
-Read("~/.claude/commands/ccg/gptpro-plan.md")
-Read("~/.claude/commands/ccg/gptpro-review.md")
-Read("~/.claude/commands/ccg/gptpro-exc.md")
+Use the installed `/ccg:gptpro-plan`, `/ccg:gptpro-review`, or
+`/ccg:gptpro-exc` Codex plugin surface.
 ```
 
 GPT Pro shortcuts inherit the matching ordinary command first:
@@ -199,7 +198,7 @@ requires the matching ordinary strategy to run before the manual GPT Pro bridge.
 只读取被选中的那一个命令文件。GPT Pro 是手动证据流程，不是 `codeagent-wrapper` 后端。
 
 ```
-Read("~/.claude/.ccg/engine/strategies/{selected-strategy}.md")
+Use the matching installed CCG Codex Skill.
 ```
 
 如果用户对分析结果提出异议（如"用完整协作模式"），**接受用户覆盖**，加载指定策略。
@@ -213,7 +212,7 @@ Read("~/.claude/.ccg/engine/strategies/{selected-strategy}.md")
 1. 标记为 `[required]` 的阶段**不可跳过**
 2. 标记为 `HARD STOP` 的 Gate **必须等待用户确认**
 3. 策略文件底部的 `## 铁律` 区块必须遵守
-4. 如需调用外部模型，先 `Read("~/.claude/.ccg/engine/model-router.md")` 获取调用模板
+4. 如需调用外部模型，遵守当前 Codex 项目规则；Claude 在 Codex-only 模式中禁用
 
 ---
 

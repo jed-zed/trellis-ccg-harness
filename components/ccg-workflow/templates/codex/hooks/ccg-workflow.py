@@ -223,8 +223,7 @@ def build_guidance(task, progress, root):
     if phase == "analysis":
         if complexity in ("M", "L", "XL"):
             parts.append("")
-            parts.append(f"⛔ {complexity} complexity: you MUST call BOTH the frontend model AND Claude for parallel analysis before coding.")
-            parts.append("Use the dual-model parallel template in AGENTS.md: --backend {{FRONTEND_PRIMARY}} & --backend claude with & + wait.")
+            parts.append(f"⛔ {complexity} complexity: create or reuse the Trellis/CCG plan before coding. Codex owns the analysis; Gemini may provide bounded read-only evidence when the task needs a second perspective.")
 
     # Phase: implementation — coding in progress
     elif phase == "implementation":
@@ -242,12 +241,12 @@ def build_guidance(task, progress, root):
     # Big changes without review
     if progress["changed_lines"] > 30 and phase != "review":
         parts.append("")
-        parts.append(f"⚠️ {progress['changed_lines']} lines changed. When done coding, you MUST call BOTH the frontend model AND Claude for dual-model review. Not just one — both.")
+        parts.append(f"⚠️ {progress['changed_lines']} lines changed. When done coding, Codex must perform the primary review and run the required quality gates. Gemini may provide bounded second-pass evidence for risky or complex changes.")
 
     # Review phase: enforce dual model
     if phase == "review":
         parts.append("")
-        parts.append("⛔ Review phase: call BOTH the frontend model (--backend {{FRONTEND_PRIMARY}}) AND Claude (--backend claude) with reviewer role. Two models, not one.")
+        parts.append("⛔ Review phase: Codex performs the primary review and required quality gates. Gemini may provide bounded read-only second-pass evidence; Claude is disabled.")
 
     # High-risk files detected
     if progress["high_risk_files"] and phase not in ("review", "completed"):

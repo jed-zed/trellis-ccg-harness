@@ -8,8 +8,8 @@
   "plugins": [
     {
       "name": "ccg",
-      "description": "Codex-side CCG workflow with automatic Grok external intelligence, GPT Pro evidence, spec, team, and quality gates.",
-      "version": "3.3.0",
+      "description": "Codex-native CCG workflow with opt-in external intelligence, Gemini review, spec, team, and quality gates; Claude is disabled.",
+      "version": "3.3.1",
       "source": "./plugins/ccg",
       "author": {
         "name": "jed-zed",

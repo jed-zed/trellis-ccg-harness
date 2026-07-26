@@ -15,10 +15,10 @@ diffs, findings, and tests let it focus on missed risks instead of inventing imp
 ## Contract
 
 Run `/ccg:grok-verify` through the shared automatic route: write the bounded review subject to the active task directory, then run
-`node ~/.claude/.ccg/engine/tools/grok-intelligence/route.mjs --workflow gptpro-review --phase final-verify --task-file <request-file> --state-file <state-file> --trigger final_diff_verify --plan <plan> --diff <diff> --dependency <lockfile>`
+`ccg route --workflow gptpro-review --phase final-verify --task-file <request-file> --state-file <state-file> --trigger final_diff_verify --plan <plan> --diff <diff> --dependency <lockfile>`
 over the exact plan, applied diff, dependency locks, and relevant tests before
 ordinary `/ccg:review`. Required exit 2/3/4 stops GPT Pro bridge creation unless the user runs
-`node ~/.claude/.ccg/engine/tools/grok-intelligence/route.mjs waive --state-file <state-file> --reason "<user reason>"`; this records a route-state waiver without creating evidence or claiming verification passed. A waived route continues only through ordinary routing evidence and must omit the bridge's external-intelligence flags. Exit code `2`, `3`, or `4` stops before ordinary work. Add
+`ccg route waive --state-file <state-file> --reason "<user reason>"`; this records a route-state waiver without creating evidence or claiming verification passed. A waived route continues only through ordinary routing evidence and must omit the bridge's external-intelligence flags. Exit code `2`, `3`, or `4` stops before ordinary work. Add
 `--require-external-intelligence` together with `--expected-intelligence-mode <route investigation_mode>` and `--expected-intelligence-depth <route depth>` only when the inherited/re-evaluated route has `status=valid` and `requirement=required`.
 Then run ordinary `/ccg:review`. Preserve the current CCG orchestrator semantics and the normal
 cross-review/model routing for this installation, including Codex, Claude, Gemini, or any configured
