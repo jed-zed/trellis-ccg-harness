@@ -22,7 +22,8 @@ runtime model policy, and provider boundaries deterministic.
 - `harness-init.mjs`: performs read-only discovery, persists an explicitly
   approved user Skill-repository profile, applies only a credential-free
   project contract plus the ownership-recorded collaboration-policy block in
-  `AGENTS.md`, and installs only the exact approved project Skill copies.
+  `AGENTS.md`, installs only the exact approved project Skill copies, and
+  atomically promotes a verified approved contract to `ready`.
 - `harness-lifecycle.mjs`: performs exact-version Trellis or commit-pinned CCG
   updates, rollback, crash recovery, and ownership-safe uninstall transactions.
 - `lib/harness-gates.mjs`: runs the exact CCG, Go, and root test commands used
@@ -54,6 +55,7 @@ node .\scripts\harness-init.mjs inspect --repo-root .
 node .\scripts\harness-init.mjs configure-skills --repository <absolute-path> --global-essential "harness-init,grill-me" --approved
 node .\scripts\harness-init.mjs catalog-skills
 node .\scripts\harness-init.mjs install-skills --repo-root . --skills "<approved-names>" --approved
+node .\scripts\harness-init.mjs mark-ready --repo-root .
 pnpm harness:test
 pwsh -NoProfile -File .\scripts\doctor.ps1
 pnpm harness:update -- --trellis-version <exact-semantic-version>

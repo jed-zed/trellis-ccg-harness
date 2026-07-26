@@ -52,6 +52,12 @@ Adopt the recommended layered-adapter architecture without losing the complete p
   quality, security, provider, hook, provenance, CI, update, and rollback
   constraints in a secret-free project contract, then route code-backed
   guideline generation through `trellis-spec-bootstrap`.
+- Allow first-time initialization to add owned contract files inside an
+  existing safe `.harness/` directory without overwriting its user-owned
+  `adapter.json` or any other pre-existing entry.
+- Add an ownership-aware `mark-ready` transition that changes only an approved
+  contract's status after required gates pass, updates the recorded contract
+  digest atomically, and fails closed on ownership or concurrent-file drift.
 - Add one ordered collaboration policy for Trellis, CCG, Ponytail `full`,
   Caveman, `rg`, fast-context, and CodeGraph. System/user instructions,
   accepted Trellis artifacts, architecture, and required CCG gates remain
@@ -149,6 +155,12 @@ Adopt the recommended layered-adapter architecture without losing the complete p
   recovery state and is rejected before project files are replayed.
 - [x] Lock and transaction owners bind PID to a process-instance identity so a
   reused live PID does not block hard-interruption recovery.
+- [x] A repository with an existing `.harness/adapter.json` can complete
+  first-time contract apply while preserving the adapter byte-for-byte; any
+  pre-existing initializer-owned target still fails closed.
+- [x] `harness-init mark-ready` atomically promotes an intact approved contract
+  and its ownership digest, is idempotent after success, and refuses contract,
+  schema, policy, block, or ownership drift without mutation.
 - [ ] PR #2 description, review threads, verification evidence, and Ready state
   match the final post-fix Head.
 

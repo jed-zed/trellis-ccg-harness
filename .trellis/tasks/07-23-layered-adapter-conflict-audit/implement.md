@@ -184,6 +184,40 @@ security reference files.
   full Trellis/CCG gates plus CI, reply to and resolve the GitHub review
   threads, then return the PR to Ready.
 
+### Approved self-initialization repair
+
+- [x] RED→GREEN: cover first-time apply into an existing `.harness/` containing
+  `adapter.json`; preserve every existing byte and retain collision failures
+  for initializer-owned targets.
+- [x] RED→GREEN: expose `mark-ready --repo-root <path>`, promote only an intact
+  approved contract, update ownership atomically, and return unchanged for an
+  intact ready contract.
+- [x] Add drift and rollback coverage for contract and ownership changes.
+- [x] Canonicalize the installed project Schema so ownership digests are
+  independent of checkout line endings.
+- [x] Migrate intact legacy noncanonical Schema projections transactionally and
+  pin exact-byte-owned tracked projections to LF.
+- [x] Update the initializer Skill/CLI documentation.
+- [x] Apply the approved self-hosting contract, run offline Harness/CCG,
+  provenance, quality, and security gates, then invoke `mark-ready`.
+
+Verification on the clean `main` checkout:
+
+- `node --test tests/harness-init-cli.test.mjs`: 61 passed, 1 Windows-hosted
+  POSIX permission case skipped.
+- `pnpm harness:test`: 154 passed, the same POSIX permission case skipped.
+- `pnpm ccg:test`: 453/453 passed; CCG lint, typecheck, and build passed.
+- `go test -short ./...` and `go build ./...` passed.
+- Doctor, source verification, context, and conflict audit passed offline; the
+  audit reported 0 blocking, 0 warning, 3 informational findings, and 15
+  passed checks.
+- CCG change and structural quality scans passed with 0 errors; 44
+  non-blocking initializer complexity warnings remain. The security scan
+  reported zero Critical, High, Medium, or Low findings.
+- `mark-ready` produced contract SHA-256
+  `1eb835f84bc71b7e325f33ac00738cc75c2ecc83f249e948b9d7938eb87b9d10`;
+  ownership matches it exactly and a repeated command returned `unchanged`.
+
 - The ordered collaboration policy is canonical in
   `.agents/skills/harness-init/assets/collaboration-policy.md`; root and newly
   initialized `AGENTS.md` blocks are tested derived projections.

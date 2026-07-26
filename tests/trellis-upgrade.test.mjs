@@ -49,6 +49,27 @@ test("recorded Trellis version keeps the Harness-owned inline and hook boundarie
   assert.match(await text(".gitattributes"), /journal-\*\.md\s+merge=union/);
 });
 
+test("Harness exact-byte projections are pinned to LF", async () => {
+  const attributes = await text(".gitattributes");
+  for (const relativePath of [
+    "AGENTS.md",
+    ".agents/skills/harness-init/assets/collaboration-policy.md",
+    ".agents/skills/harness-init/assets/project-contract.schema.json",
+    ".harness/ownership.json",
+    ".harness/policies/collaboration-policy.md",
+    ".harness/project.json",
+    ".harness/project.schema.json",
+  ]) {
+    assert.match(
+      attributes,
+      new RegExp(
+        `^${relativePath.replaceAll(".", "\\.")} text eol=lf$`,
+        "m",
+      ),
+    );
+  }
+});
+
 test("Trellis conflict copies are resolved instead of committed", () => {
   for (const relativePath of [
     ".trellis/config.yaml.new",

@@ -240,6 +240,21 @@ project receives an owned pinned copy at
 references that guaranteed local path. This pinned copy is a managed
 projection, not a second independently edited policy source.
 
+## Self-initialization and readiness promotion
+
+First-time apply may reuse an existing safe `.harness/` directory only when
+all initializer-owned targets are absent. Existing entries such as
+`.harness/adapter.json` remain user-owned, are not added to the ownership
+manifest, and are preserved byte-for-byte. A collision at any owned target
+keeps the existing fail-closed behavior.
+
+After required gates pass, `harness-init mark-ready --repo-root <path>` reads
+the installed approved contract and schema-v2 ownership manifest, validates
+the complete owned policy projection, and changes only `status` to `ready`.
+The contract and ownership manifest are replaced in one authenticated
+project-policy transaction with digest and identity preconditions. Concurrent
+drift rolls back; an intact ready contract returns unchanged.
+
 ## CI boundary
 
 The root workflow owns all executable gates. Nested component workflows are

@@ -203,9 +203,16 @@ After approval:
    The apply command refuses draft contracts, credentials, unsafe authorities,
    non-inline dispatch, Claude enablement, collisions with user-owned
    `.harness/` state, and malformed or conflicting collaboration markers. It
+   may incrementally adopt an existing safe `.harness/` directory only when
+   every initializer-owned target is absent; unrelated entries remain
+   user-owned, while a pre-existing pinned policy or collaboration block must
+   exactly match the approved distribution bytes. It
    uses an owned project lock, a pending journal, verified backups, read-only
    contract/schema preconditions, and final digest/identity/mode
-   compare-and-swap checks. It creates
+   compare-and-swap checks. Schema JSON is canonicalized before installation
+   and hashing so ownership remains stable across line-ending policies. An
+   intact legacy Schema projection with matching ownership is transactionally
+   migrated when only its JSON formatting differs. It creates
    `.harness/project.json`, its JSON Schema, a pinned project policy at
    `.harness/policies/collaboration-policy.md`, and a schema-v2 ownership
    manifest, then projects the distribution
@@ -263,8 +270,16 @@ After approval:
    approved contract explicitly says otherwise.
 7. Run only the approved offline install, doctor, conflict, source, and quality
    checks. A failed required gate leaves the contract in `approved` status.
-8. Change the contract status to `ready` only after all required gates pass and
-   record the gate commands, not transient logs or secrets.
+8. Change the contract status to `ready` only after all required gates pass:
+
+   ```powershell
+   node scripts/harness-init.mjs mark-ready --repo-root "<repository>"
+   ```
+
+   `mark-ready` verifies the schema-v2 ownership, contract, schema, pinned
+   policy, and managed `AGENTS.md` block, then atomically updates only the
+   contract status and ownership digest. Record gate commands in the contract,
+   not transient logs or secrets.
 
 For this repository, prefer the supported root commands when present:
 

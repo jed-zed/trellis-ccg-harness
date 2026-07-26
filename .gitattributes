@@ -7,3 +7,13 @@
 # picking either side (task state lives in task.json, not index.md). See
 # .trellis/spec/cli/backend/directory-structure.md for details.
 .trellis/workspace/*/journal-*.md merge=union
+
+# Harness ownership binds exact bytes. Keep every hashed projection canonical
+# across Windows, macOS, and Linux checkouts.
+AGENTS.md text eol=lf
+.agents/skills/harness-init/assets/collaboration-policy.md text eol=lf
+.agents/skills/harness-init/assets/project-contract.schema.json text eol=lf
+.harness/ownership.json text eol=lf
+.harness/policies/collaboration-policy.md text eol=lf
+.harness/project.json text eol=lf
+.harness/project.schema.json text eol=lf

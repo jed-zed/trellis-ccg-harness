@@ -25,6 +25,8 @@ import {
   applyProjectContract,
   exportHarnessInitSkill,
   inspectProject,
+  markProjectReady,
+  runHarnessInitCli,
   validateProjectContract,
 } from "../.agents/skills/harness-init/scripts/harness-init-core.mjs";
 
@@ -381,6 +383,427 @@ test("approved contracts atomically create the owned Harness contract", async ()
       agents,
     );
     assert.equal(agents.split(POLICY_START).length - 1, 1);
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("approved contracts adopt an exact existing Harness projection", async () => {
+  const value = fixture();
+  try {
+    const harnessDir = path.join(value.repoRoot, ".harness");
+    const policyPath = path.join(value.repoRoot, PROJECT_POLICY_PATH);
+    const policy = readFileSync(POLICY_PATH, "utf8");
+    const agents = `user rules\n\n${POLICY_START}\n${policy.trim()}\n${POLICY_END}\n`;
+    mkdirSync(path.dirname(policyPath), { recursive: true });
+    writeFileSync(path.join(harnessDir, "adapter.json"), '{"keep":true}\n');
+    writeFileSync(policyPath, policy);
+    writeFileSync(path.join(value.repoRoot, "AGENTS.md"), agents);
+    const contractPath = writeContract(value.repoRoot, approvedContract());
+
+    const result = await applyProjectContract({
+      repoRoot: value.repoRoot,
+      contractPath,
+      skillRoot: SKILL_ROOT,
+    });
+
+    assert.equal(result.status, "applied");
+    assert.equal(
+      readFileSync(path.join(harnessDir, "adapter.json"), "utf8"),
+      '{"keep":true}\n',
+    );
+    assert.equal(readFileSync(policyPath, "utf8"), policy);
+    assert.equal(
+      readFileSync(path.join(value.repoRoot, "AGENTS.md"), "utf8"),
+      agents,
+    );
+    assert.equal(existsSync(path.join(harnessDir, "project.json")), true);
+    assert.equal(existsSync(path.join(harnessDir, "ownership.json")), true);
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("project schema installation canonicalizes source line endings", async () => {
+  const value = fixture();
+  const skill = skillFixture(readFileSync(POLICY_PATH, "utf8"));
+  try {
+    const sourceSchemaPath = path.join(
+      skill.skillRoot,
+      "assets",
+      "project-contract.schema.json",
+    );
+    const schema = JSON.parse(readFileSync(sourceSchemaPath, "utf8"));
+    writeFileSync(
+      sourceSchemaPath,
+      `${JSON.stringify(schema, null, 2).replaceAll("\n", "\r\n")}\r\n`,
+    );
+    const contractPath = writeContract(value.repoRoot, approvedContract());
+
+    await applyProjectContract({
+      repoRoot: value.repoRoot,
+      contractPath,
+      skillRoot: skill.skillRoot,
+    });
+
+    const installedSchema = readFileSync(
+      path.join(value.repoRoot, ".harness", "project.schema.json"),
+    );
+    const expectedSchema = Buffer.from(canonicalJson(schema));
+    const ownership = JSON.parse(
+      readFileSync(
+        path.join(value.repoRoot, ".harness", "ownership.json"),
+        "utf8",
+      ),
+    );
+    assert.deepEqual(installedSchema, expectedSchema);
+    assert.equal(ownership.schemaSha256, sha256(expectedSchema));
+    assert.equal(
+      (
+        await markProjectReady({
+          repoRoot: value.repoRoot,
+          skillRoot: skill.skillRoot,
+        })
+      ).status,
+      "ready",
+    );
+  } finally {
+    skill.cleanup();
+    value.cleanup();
+  }
+});
+
+test("legacy noncanonical schema bytes migrate when ownership is intact", async () => {
+  const value = fixture();
+  try {
+    const contractPath = writeContract(value.repoRoot, approvedContract());
+    await applyProjectContract({
+      repoRoot: value.repoRoot,
+      contractPath,
+      skillRoot: SKILL_ROOT,
+    });
+    const schemaPath = path.join(
+      value.repoRoot,
+      ".harness",
+      "project.schema.json",
+    );
+    const ownershipPath = path.join(
+      value.repoRoot,
+      ".harness",
+      "ownership.json",
+    );
+    const schema = JSON.parse(readFileSync(schemaPath, "utf8"));
+    const legacySchema = Buffer.from(
+      canonicalJson(schema).replaceAll("\n", "\r\n"),
+    );
+    writeFileSync(schemaPath, legacySchema);
+    const ownership = JSON.parse(readFileSync(ownershipPath, "utf8"));
+    ownership.schemaSha256 = sha256(legacySchema);
+    writeFileSync(ownershipPath, canonicalJson(ownership));
+
+    const result = await applyProjectContract({
+      repoRoot: value.repoRoot,
+      contractPath,
+      skillRoot: SKILL_ROOT,
+    });
+
+    const canonicalSchema = Buffer.from(canonicalJson(schema));
+    assert.equal(result.status, "upgraded");
+    assert.deepEqual(readFileSync(schemaPath), canonicalSchema);
+    assert.equal(
+      JSON.parse(readFileSync(ownershipPath, "utf8")).schemaSha256,
+      sha256(canonicalSchema),
+    );
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("approved contracts are atomically promoted to ready", async () => {
+  const value = fixture();
+  try {
+    const contractPath = writeContract(value.repoRoot, approvedContract());
+    await applyProjectContract({
+      repoRoot: value.repoRoot,
+      contractPath,
+      skillRoot: SKILL_ROOT,
+    });
+
+    const result = await markProjectReady({ repoRoot: value.repoRoot });
+    assert.equal(result.status, "ready");
+    const projectPath = path.join(value.repoRoot, ".harness", "project.json");
+    const ownershipPath = path.join(
+      value.repoRoot,
+      ".harness",
+      "ownership.json",
+    );
+    const projectBytes = readFileSync(projectPath);
+    const project = JSON.parse(projectBytes);
+    const ownership = JSON.parse(readFileSync(ownershipPath, "utf8"));
+    assert.equal(project.status, "ready");
+    assert.equal(ownership.contractSha256, sha256(projectBytes));
+
+    const repeated = await markProjectReady({ repoRoot: value.repoRoot });
+    assert.equal(repeated.status, "unchanged");
+    assert.equal(readFileSync(projectPath, "utf8"), projectBytes.toString());
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("mark-ready CLI promotes the installed contract", async () => {
+  const value = fixture();
+  try {
+    const contractPath = writeContract(value.repoRoot, approvedContract());
+    await applyProjectContract({
+      repoRoot: value.repoRoot,
+      contractPath,
+      skillRoot: SKILL_ROOT,
+    });
+    let output = "";
+
+    await runHarnessInitCli(
+      ["mark-ready", "--repo-root", value.repoRoot],
+      { stdout: { write: (chunk) => { output += chunk; } } },
+    );
+
+    assert.equal(JSON.parse(output).status, "ready");
+    assert.equal(
+      JSON.parse(
+        readFileSync(
+          path.join(value.repoRoot, ".harness", "project.json"),
+          "utf8",
+        ),
+      ).status,
+      "ready",
+    );
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("mark-ready preserves every owned file when readiness state drifted", async (t) => {
+  const scenarios = [
+    {
+      name: "contract",
+      mutate: (repoRoot) => {
+        const target = path.join(repoRoot, ".harness", "project.json");
+        const project = JSON.parse(readFileSync(target, "utf8"));
+        project.project.purpose = "concurrent edit";
+        writeFileSync(target, canonicalJson(project));
+      },
+    },
+    {
+      name: "contract formatting",
+      mutate: (repoRoot) => {
+        const target = path.join(repoRoot, ".harness", "project.json");
+        writeFileSync(target, `${readFileSync(target, "utf8")}\n`);
+      },
+    },
+    {
+      name: "schema",
+      mutate: (repoRoot) => {
+        const target = path.join(repoRoot, ".harness", "project.schema.json");
+        writeFileSync(target, `${readFileSync(target, "utf8")}\n`);
+      },
+    },
+    {
+      name: "policy",
+      mutate: (repoRoot) => {
+        const target = path.join(repoRoot, PROJECT_POLICY_PATH);
+        writeFileSync(target, `${readFileSync(target, "utf8")}\n`);
+      },
+    },
+    {
+      name: "AGENTS block",
+      mutate: (repoRoot) => {
+        const target = path.join(repoRoot, "AGENTS.md");
+        writeFileSync(
+          target,
+          readFileSync(target, "utf8").replace("Ponytail", "Modified"),
+        );
+      },
+    },
+    {
+      name: "ownership",
+      mutate: (repoRoot) => {
+        const target = path.join(repoRoot, ".harness", "ownership.json");
+        const ownership = JSON.parse(readFileSync(target, "utf8"));
+        ownership.owner = "untrusted-owner";
+        writeFileSync(target, canonicalJson(ownership));
+      },
+    },
+  ];
+
+  for (const scenario of scenarios) {
+    await t.test(scenario.name, async () => {
+      const value = fixture();
+      try {
+        const contractPath = writeContract(value.repoRoot, approvedContract());
+        await applyProjectContract({
+          repoRoot: value.repoRoot,
+          contractPath,
+          skillRoot: SKILL_ROOT,
+        });
+        scenario.mutate(value.repoRoot);
+        const tracked = [
+          "AGENTS.md",
+          ".harness/project.json",
+          ".harness/project.schema.json",
+          PROJECT_POLICY_PATH.replaceAll("\\", "/"),
+          ".harness/ownership.json",
+        ];
+        const before = new Map(
+          tracked.map((entry) => [
+            entry,
+            readFileSync(path.join(value.repoRoot, ...entry.split("/"))),
+          ]),
+        );
+
+        await assert.rejects(
+          markProjectReady({ repoRoot: value.repoRoot }),
+          /contract|schema|policy|AGENTS|ownership|modified|drift/i,
+        );
+        for (const [entry, bytes] of before) {
+          assert.deepEqual(
+            readFileSync(path.join(value.repoRoot, ...entry.split("/"))),
+            bytes,
+          );
+        }
+      } finally {
+        value.cleanup();
+      }
+    });
+  }
+});
+
+test("mark-ready rejects coordinated policy and ownership drift", async () => {
+  const value = fixture();
+  try {
+    const contractPath = writeContract(value.repoRoot, approvedContract());
+    await applyProjectContract({
+      repoRoot: value.repoRoot,
+      contractPath,
+      skillRoot: SKILL_ROOT,
+    });
+    const policyPath = path.join(value.repoRoot, PROJECT_POLICY_PATH);
+    const agentsPath = path.join(value.repoRoot, "AGENTS.md");
+    const ownershipPath = path.join(
+      value.repoRoot,
+      ".harness",
+      "ownership.json",
+    );
+    const originalPolicy = readFileSync(policyPath, "utf8");
+    const changedPolicy = `${originalPolicy.trimEnd()}\ncoordinated drift\n`;
+    const changedBlock =
+      `${POLICY_START}\n${changedPolicy.trim()}\n${POLICY_END}`;
+    writeFileSync(policyPath, changedPolicy);
+    writeFileSync(
+      agentsPath,
+      readFileSync(agentsPath, "utf8").replace(
+        `${POLICY_START}\n${originalPolicy.trim()}\n${POLICY_END}`,
+        changedBlock,
+      ),
+    );
+    const ownership = JSON.parse(readFileSync(ownershipPath, "utf8"));
+    ownership.policy.sourceSha256 = sha256(Buffer.from(changedPolicy));
+    ownership.policy.renderedBlockSha256 = sha256(changedBlock);
+    ownership.managedBlocks[0].renderedBlockSha256 = sha256(changedBlock);
+    writeFileSync(ownershipPath, canonicalJson(ownership));
+
+    await assert.rejects(
+      markProjectReady({ repoRoot: value.repoRoot }),
+      /policy|modified|drift/i,
+    );
+    assert.equal(
+      JSON.parse(
+        readFileSync(
+          path.join(value.repoRoot, ".harness", "project.json"),
+          "utf8",
+        ),
+      ).status,
+      "approved",
+    );
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("mark-ready rejects coordinated schema and ownership drift", async () => {
+  const value = fixture();
+  try {
+    const contractPath = writeContract(value.repoRoot, approvedContract());
+    await applyProjectContract({
+      repoRoot: value.repoRoot,
+      contractPath,
+      skillRoot: SKILL_ROOT,
+    });
+    const schemaPath = path.join(
+      value.repoRoot,
+      ".harness",
+      "project.schema.json",
+    );
+    const ownershipPath = path.join(
+      value.repoRoot,
+      ".harness",
+      "ownership.json",
+    );
+    const changedSchema = `${readFileSync(schemaPath, "utf8")}\n`;
+    writeFileSync(schemaPath, changedSchema);
+    const ownership = JSON.parse(readFileSync(ownershipPath, "utf8"));
+    ownership.schemaSha256 = sha256(Buffer.from(changedSchema));
+    writeFileSync(ownershipPath, canonicalJson(ownership));
+
+    await assert.rejects(
+      markProjectReady({ repoRoot: value.repoRoot }),
+      /schema|modified|drift/i,
+    );
+    assert.equal(
+      JSON.parse(
+        readFileSync(
+          path.join(value.repoRoot, ".harness", "project.json"),
+          "utf8",
+        ),
+      ).status,
+      "approved",
+    );
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("mark-ready rolls back contract and ownership after a partial failure", async () => {
+  const value = fixture();
+  try {
+    const contractPath = writeContract(value.repoRoot, approvedContract());
+    await applyProjectContract({
+      repoRoot: value.repoRoot,
+      contractPath,
+      skillRoot: SKILL_ROOT,
+    });
+    const projectPath = path.join(value.repoRoot, ".harness", "project.json");
+    const ownershipPath = path.join(
+      value.repoRoot,
+      ".harness",
+      "ownership.json",
+    );
+    const beforeProject = readFileSync(projectPath);
+    const beforeOwnership = readFileSync(ownershipPath);
+
+    await assert.rejects(
+      markProjectReady({
+        repoRoot: value.repoRoot,
+        faultInjector: async (phase) => {
+          if (phase === "after-target:.harness/project.json") {
+            throw new Error("simulated readiness failure");
+          }
+        },
+      }),
+      /simulated readiness failure/,
+    );
+    assert.deepEqual(readFileSync(projectPath), beforeProject);
+    assert.deepEqual(readFileSync(ownershipPath), beforeOwnership);
+    assert.deepEqual(transactionResidue(value.repoRoot), []);
   } finally {
     value.cleanup();
   }
@@ -1421,7 +1844,7 @@ test("existing user-owned Harness state is preserved on collision", async () => 
   try {
     const harnessDir = path.join(value.repoRoot, ".harness");
     mkdirSync(harnessDir);
-    writeFileSync(path.join(harnessDir, "user.txt"), "keep\n");
+    writeFileSync(path.join(harnessDir, "project.json"), '{"keep":true}\n');
     const contractPath = writeContract(value.repoRoot, approvedContract());
 
     await assert.rejects(
@@ -1433,8 +1856,8 @@ test("existing user-owned Harness state is preserved on collision", async () => 
       /user-owned|already exists|collision/i,
     );
     assert.equal(
-      readFileSync(path.join(harnessDir, "user.txt"), "utf8"),
-      "keep\n",
+      readFileSync(path.join(harnessDir, "project.json"), "utf8"),
+      '{"keep":true}\n',
     );
   } finally {
     value.cleanup();

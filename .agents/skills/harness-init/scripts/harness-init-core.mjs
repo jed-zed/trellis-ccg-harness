@@ -1423,6 +1423,12 @@ function canonicalJson(value) {
   return `${JSON.stringify(value, null, 2)}\n`;
 }
 
+function canonicalJsonBytes(bytes) {
+  return Buffer.from(
+    canonicalJson(JSON.parse(bytes.toString("utf8"))),
+  );
+}
+
 function sha256(value) {
   return createHash("sha256").update(value).digest("hex");
 }
@@ -2903,6 +2909,8 @@ export async function applyProjectContract({
   if (!schemaFingerprint.exists) {
     throw new Error("Harness project contract schema asset does not exist.");
   }
+  const schemaBytes = canonicalJsonBytes(schemaFingerprint.bytes);
+  const schemaSha256 = sha256(schemaBytes);
   const provenanceKey = await loadProjectProvenanceKey(
     root,
     provenanceKeyPath,
@@ -2944,7 +2952,7 @@ export async function applyProjectContract({
       : "";
     const ownership = buildProjectOwnership(
       contractSha256,
-      schemaFingerprint.sha256,
+      schemaSha256,
       policyBytes,
       collaborationBlock,
     );
@@ -2955,97 +2963,114 @@ export async function applyProjectContract({
     let legacyAgentsStage = null;
 
     const harnessExists = await pathEntryExists(harnessDir);
-    if (!harnessExists) {
-      const nextAgents = addCollaborationBlock(
-        currentAgents,
-        collaborationBlock,
+    const ownershipPath = path.join(harnessDir, "ownership.json");
+    const targetPolicyPath = path.join(
+      root,
+      ...PROJECT_POLICY_RELATIVE_PATH.split("/"),
+    );
+    const targetSchemaPath = path.join(harnessDir, "project.schema.json");
+    const projectFingerprint = await readFileFingerprint(
+      projectPath,
+      "Existing Harness project contract",
+    );
+    const ownershipFingerprint = await readFileFingerprint(
+      ownershipPath,
+      "Existing Harness ownership",
+    );
+    const targetSchemaFingerprint = await readFileFingerprint(
+      targetSchemaPath,
+      "Existing Harness project schema",
+    );
+    const installedTargetCount = [
+      projectFingerprint,
+      ownershipFingerprint,
+      targetSchemaFingerprint,
+    ].filter((entry) => entry.exists).length;
+    if (harnessExists) {
+      await assertSafeDirectory(harnessDir, "Existing .harness");
+    }
+    if (installedTargetCount !== 0 && installedTargetCount !== 3) {
+      throw new Error(
+        "The .harness path is incomplete and is treated as user-owned; refusing collision.",
       );
-      targets.push(
-        {
+    }
+
+    if (installedTargetCount === 0) {
+      const currentBlock = findCollaborationBlock(currentAgents);
+      if (
+        currentBlock !== null &&
+        sha256(currentBlock) !== collaborationSha256
+      ) {
+        throw new Error(
+          "The existing collaboration block differs from the approved policy; refusing collision.",
+        );
+      }
+      if (currentBlock === null) {
+        targets.push({
           path: "AGENTS.md",
-          bytes: Buffer.from(nextAgents),
+          bytes: Buffer.from(
+            addCollaborationBlock(currentAgents, collaborationBlock),
+          ),
           mode: agentsFingerprint.exists ? agentsFingerprint.mode : 0o644,
           expectedOriginal: agentsFingerprint,
-        },
-        {
+        });
+      } else {
+        preconditions.push({
+          path: "AGENTS.md",
+          expected: agentsFingerprint,
+        });
+      }
+
+      const targetPolicyFingerprint = await readFileFingerprint(
+        targetPolicyPath,
+        "Project collaboration policy",
+      );
+      if (
+        targetPolicyFingerprint.exists &&
+        targetPolicyFingerprint.sha256 !== sha256(policyBytes)
+      ) {
+        throw new Error(
+          "The existing project policy differs from the approved policy; refusing collision.",
+        );
+      }
+      if (targetPolicyFingerprint.exists) {
+        preconditions.push({
+          path: PROJECT_POLICY_RELATIVE_PATH,
+          expected: targetPolicyFingerprint,
+        });
+      } else {
+        targets.push({
           path: PROJECT_POLICY_RELATIVE_PATH,
           bytes: policyBytes,
           mode: 0o600,
-          expectedOriginal: await readFileFingerprint(
-            path.join(root, ...PROJECT_POLICY_RELATIVE_PATH.split("/")),
-            "Project collaboration policy",
-          ),
-        },
+          expectedOriginal: targetPolicyFingerprint,
+        });
+      }
+      targets.push(
         {
           path: ".harness/project.json",
           bytes: Buffer.from(contractBytes),
           mode: 0o600,
-          expectedOriginal: await readFileFingerprint(
-            projectPath,
-            "Harness project contract",
-          ),
+          expectedOriginal: projectFingerprint,
         },
         {
           path: ".harness/project.schema.json",
-          bytes: schemaFingerprint.bytes,
+          bytes: schemaBytes,
           mode: 0o600,
-          expectedOriginal: await readFileFingerprint(
-            path.join(harnessDir, "project.schema.json"),
-            "Harness project contract schema",
-          ),
+          expectedOriginal: targetSchemaFingerprint,
         },
         {
           path: ".harness/ownership.json",
           bytes: nextOwnershipBytes,
           mode: 0o600,
-          expectedOriginal: await readFileFingerprint(
-            path.join(harnessDir, "ownership.json"),
-            "Harness ownership manifest",
-          ),
+          expectedOriginal: ownershipFingerprint,
         },
       );
     } else {
-      await assertSafeDirectory(harnessDir, "Existing .harness");
-      const ownershipPath = path.join(harnessDir, "ownership.json");
-      const targetPolicyPath = path.join(
-        root,
-        ...PROJECT_POLICY_RELATIVE_PATH.split("/"),
-      );
-      const targetSchemaPath = path.join(
-        harnessDir,
-        "project.schema.json",
-      );
-      const projectFingerprint = await readFileFingerprint(
-        projectPath,
-        "Existing Harness project contract",
-      );
-      const ownershipFingerprint = await readFileFingerprint(
-        ownershipPath,
-        "Existing Harness ownership",
-      );
-      const targetSchemaFingerprint = await readFileFingerprint(
-        targetSchemaPath,
-        "Existing Harness project schema",
-      );
-      if (
-        !projectFingerprint.exists ||
-        !ownershipFingerprint.exists ||
-        !targetSchemaFingerprint.exists
-      ) {
-        throw new Error(
-          "The .harness path is incomplete and is treated as user-owned; refusing collision.",
-        );
-      }
-      preconditions.push(
-        {
-          path: ".harness/project.json",
-          expected: projectFingerprint,
-        },
-        {
-          path: ".harness/project.schema.json",
-          expected: targetSchemaFingerprint,
-        },
-      );
+      preconditions.push({
+        path: ".harness/project.json",
+        expected: projectFingerprint,
+      });
       const currentProjectBytes = canonicalJson(
         JSON.parse(projectFingerprint.bytes.toString("utf8")),
       );
@@ -3054,7 +3079,17 @@ export async function applyProjectContract({
           "The existing Harness project contract differs; refusing collision.",
         );
       }
-      if (targetSchemaFingerprint.sha256 !== schemaFingerprint.sha256) {
+      let currentSchemaBytes;
+      try {
+        currentSchemaBytes = canonicalJsonBytes(
+          targetSchemaFingerprint.bytes,
+        );
+      } catch {
+        throw new Error(
+          "The existing Harness project schema differs; refusing collision.",
+        );
+      }
+      if (sha256(currentSchemaBytes) !== schemaSha256) {
         throw new Error(
           "The existing Harness project schema differs; refusing collision.",
         );
@@ -3062,8 +3097,22 @@ export async function applyProjectContract({
       const currentOwnership = validateExistingProjectOwnership(
         JSON.parse(ownershipFingerprint.bytes.toString("utf8")),
         contractSha256,
-        schemaFingerprint.sha256,
+        targetSchemaFingerprint.sha256,
       );
+      if (targetSchemaFingerprint.sha256 === schemaSha256) {
+        preconditions.push({
+          path: ".harness/project.schema.json",
+          expected: targetSchemaFingerprint,
+        });
+      } else {
+        targets.push({
+          path: ".harness/project.schema.json",
+          bytes: schemaBytes,
+          mode: targetSchemaFingerprint.mode,
+          expectedOriginal: targetSchemaFingerprint,
+        });
+        status = "migrated";
+      }
       const managedBlock = currentOwnership.managedBlocks?.find(
         (entry) => entry?.path === "AGENTS.md",
       );
@@ -3233,6 +3282,205 @@ export async function applyProjectContract({
   }
 }
 
+export async function markProjectReady({
+  repoRoot,
+  skillRoot = DEFAULT_SKILL_ROOT,
+  faultInjector,
+  isProcessAlive,
+  readProcessIdentity,
+  provenanceKeyPath,
+}) {
+  const root = path.resolve(repoRoot);
+  const sourceSkill = path.resolve(skillRoot);
+  const harnessDir = path.join(root, ".harness");
+  const projectPath = path.join(harnessDir, "project.json");
+  const ownershipPath = path.join(harnessDir, "ownership.json");
+  const schemaPath = path.join(harnessDir, "project.schema.json");
+  const policyPath = path.join(
+    root,
+    ...PROJECT_POLICY_RELATIVE_PATH.split("/"),
+  );
+  const agentsPath = path.join(root, "AGENTS.md");
+  const sourcePolicyPath = path.join(
+    sourceSkill,
+    "assets",
+    "collaboration-policy.md",
+  );
+  const sourcePolicyFingerprint = await readFileFingerprint(
+    sourcePolicyPath,
+    "Harness collaboration policy asset",
+  );
+  if (!sourcePolicyFingerprint.exists) {
+    throw new Error("Harness collaboration policy asset does not exist.");
+  }
+  const sourceSchemaPath = path.join(
+    sourceSkill,
+    "assets",
+    "project-contract.schema.json",
+  );
+  const sourceSchemaFingerprint = await readFileFingerprint(
+    sourceSchemaPath,
+    "Harness project contract schema asset",
+  );
+  if (!sourceSchemaFingerprint.exists) {
+    throw new Error("Harness project contract schema asset does not exist.");
+  }
+  const sourceSchemaSha256 = sha256(
+    canonicalJsonBytes(sourceSchemaFingerprint.bytes),
+  );
+  const expectedRenderedBlockSha256 = sha256(
+    renderCollaborationBlock(
+      sourcePolicyFingerprint.bytes.toString("utf8"),
+    ),
+  );
+  const provenanceKey = await loadProjectProvenanceKey(
+    root,
+    provenanceKeyPath,
+  );
+  const lock = await acquireProjectLock(root, {
+    isProcessAlive,
+    readProcessIdentity,
+    provenanceKey,
+    faultInjector,
+  });
+  try {
+    await recoverProjectTransactions(root, {
+      isProcessAlive,
+      readProcessIdentity,
+      provenanceKey,
+    });
+    await assertFingerprintUnchanged(
+      sourcePolicyPath,
+      sourcePolicyFingerprint,
+      "Harness collaboration policy asset",
+    );
+    await assertFingerprintUnchanged(
+      sourceSchemaPath,
+      sourceSchemaFingerprint,
+      "Harness project contract schema asset",
+    );
+    const projectFingerprint = await readFileFingerprint(
+      projectPath,
+      "Harness project contract",
+    );
+    const ownershipFingerprint = await readFileFingerprint(
+      ownershipPath,
+      "Harness ownership manifest",
+    );
+    const schemaFingerprint = await readFileFingerprint(
+      schemaPath,
+      "Harness project schema",
+    );
+    const policyFingerprint = await readFileFingerprint(
+      policyPath,
+      "Harness project policy",
+    );
+    const agentsFingerprint = await readFileFingerprint(
+      agentsPath,
+      "AGENTS.md",
+    );
+    if (
+      !projectFingerprint.exists ||
+      !ownershipFingerprint.exists ||
+      !schemaFingerprint.exists ||
+      !policyFingerprint.exists ||
+      !agentsFingerprint.exists
+    ) {
+      throw new Error(
+        "Harness project ownership is incomplete; refusing readiness promotion.",
+      );
+    }
+    if (schemaFingerprint.sha256 !== sourceSchemaSha256) {
+      throw new Error(
+        "The managed Harness project schema is modified; refusing readiness promotion.",
+      );
+    }
+
+    const contract = JSON.parse(projectFingerprint.bytes.toString("utf8"));
+    if (contract.status === "approved") {
+      validateProjectContract(contract, { requireApproved: true });
+    } else if (contract.status === "ready") {
+      validateProjectContract(contract);
+    } else {
+      throw new Error(
+        "Harness project contract must be approved before readiness promotion.",
+      );
+    }
+    const ownership = validateExistingProjectOwnership(
+      JSON.parse(ownershipFingerprint.bytes.toString("utf8")),
+      projectFingerprint.sha256,
+      schemaFingerprint.sha256,
+    );
+    const managedBlock = ownership.managedBlocks?.find(
+      (entry) => entry?.path === "AGENTS.md",
+    );
+    const currentBlock = findCollaborationBlock(
+      agentsFingerprint.bytes.toString("utf8"),
+    );
+    if (
+      !managedBlock ||
+      currentBlock === null ||
+      sha256(currentBlock) !== managedBlock.renderedBlockSha256
+    ) {
+      throw new Error(
+        "The managed AGENTS.md collaboration block is missing or modified; refusing readiness promotion.",
+      );
+    }
+    validateOwnedPolicyProjection(
+      ownership,
+      managedBlock,
+      policyFingerprint,
+      sourcePolicyFingerprint.sha256,
+      expectedRenderedBlockSha256,
+    );
+    if (contract.status === "ready") {
+      return { status: "unchanged", projectPath };
+    }
+
+    const readyContractBytes = Buffer.from(
+      canonicalJson({ ...contract, status: "ready" }),
+    );
+    const readyOwnershipBytes = Buffer.from(
+      canonicalJson({
+        ...ownership,
+        contractSha256: sha256(readyContractBytes),
+      }),
+    );
+    await runProjectTransaction({
+      root,
+      lock,
+      provenanceKey,
+      faultInjector,
+      preconditions: [
+        { path: ".harness/project.schema.json", expected: schemaFingerprint },
+        { path: PROJECT_POLICY_RELATIVE_PATH, expected: policyFingerprint },
+        { path: "AGENTS.md", expected: agentsFingerprint },
+      ],
+      targets: [
+        {
+          path: ".harness/project.json",
+          bytes: readyContractBytes,
+          mode: projectFingerprint.mode,
+          expectedOriginal: projectFingerprint,
+        },
+        {
+          path: ".harness/ownership.json",
+          bytes: readyOwnershipBytes,
+          mode: ownershipFingerprint.mode,
+          expectedOriginal: ownershipFingerprint,
+        },
+      ],
+    });
+    return {
+      status: "ready",
+      projectPath,
+      contractSha256: sha256(readyContractBytes),
+    };
+  } finally {
+    await lock.release();
+  }
+}
+
 export async function inspectProject(
   repoRoot,
   { homeDir = homedir() } = {},
@@ -3357,6 +3605,7 @@ function parseCliArgs(argv) {
       "inspect",
       "validate",
       "apply",
+      "mark-ready",
       "export-skill",
       "configure-skills",
       "catalog-skills",
@@ -3493,6 +3742,11 @@ export async function runHarnessInitCli(
     result = await applyProjectContract({
       repoRoot: args.repoRoot,
       contractPath: args.contractPath,
+      skillRoot,
+    });
+  } else if (args.command === "mark-ready") {
+    result = await markProjectReady({
+      repoRoot: args.repoRoot,
       skillRoot,
     });
   } else if (args.command === "export-skill") {

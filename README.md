@@ -80,8 +80,10 @@ pwsh -NoProfile -File .\scripts\bootstrap.ps1 -LinkCcg
    已保存仓库中推荐一小组与本项目相关的 Skill；
 3. 对仓库无法回答的决定调用 `grill-me`，每轮只问一个问题，并给出推荐项与取舍；
 4. 汇总完整项目约束和逐项 Skill 选择理由，等待用户对最新版摘要明确批准；
-5. 批准后由可执行验证器拒绝草稿、凭据、越权 provider 和已有目录冲突，
-   以及畸形或冲突的规则标记；它用项目锁、含权限元数据的 CAS、pending
+5. 批准后由可执行验证器拒绝草稿、凭据、越权 provider 和托管目标冲突，
+   以及畸形或冲突的规则标记；已有安全 `.harness/` 目录只有在所有托管
+   目标均不存在时才可增量接入，已有策略/规则块还必须逐字节匹配。验证器用
+   项目锁、含权限元数据的 CAS、pending
    journal、只读合同/Schema 前置条件和已验证备份事务写入
    `.harness/project.json`、Schema、策略副本与所有权清单，
    并把统一协作策略投影到根 `AGENTS.md` 的独立托管块；
@@ -89,7 +91,8 @@ pwsh -NoProfile -File .\scripts\bootstrap.ps1 -LinkCcg
    `.harness/project-skills.json`，并校验仓库快照摘要、契约选择与目标所有权；
 7. 协调 Trellis/CCG，并通过
    `trellis-spec-bootstrap` 生成基于现有代码事实的规范；
-8. 运行离线 doctor、冲突、来源和质量门禁。
+8. 运行离线 doctor、冲突、来源和质量门禁；全部通过后用所有权感知
+   `mark-ready` 原子推进合同状态和摘要。
 
 初始化阶段默认不调用 Grok、Claude、GPT Pro、付费模型或联网服务，
 也不会读取密钥值。全局默认只保留 `harness-init` 与 `grill-me` 两个
@@ -130,6 +133,8 @@ node .\scripts\harness-init.mjs install-skills `
   --repo-root . `
   --skills "<approved-comma-separated-skill-names>" `
   --approved
+# 所有批准的离线门禁通过后
+node .\scripts\harness-init.mjs mark-ready --repo-root .
 
 # 把可独立运行的初始化 Skill 导出到另一个项目；遇到同名目录会拒绝覆盖
 node .\scripts\harness-init.mjs export-skill --target <repository>
