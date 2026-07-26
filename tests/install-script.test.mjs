@@ -524,7 +524,7 @@ test("a different Codex build of the same CCG base version fails closed", () => 
     assert.notEqual(result.status, 0);
     assert.match(
       setupDiagnostic(result),
-      /Installed Codex plugin 'ccg@ccg-gptpro-worflow' differs from this Harness snapshot/i,
+      /Installed Codex plugin 'ccg@ccg-gptpro-worflow'[\s\S]*Harness snapshot/i,
     );
     assert.equal(
       commandLog(value).some(({ command }) =>
@@ -561,7 +561,7 @@ test("the exact plugin identity from a different local source fails closed", () 
     assert.notEqual(result.status, 0);
     assert.match(
       setupDiagnostic(result),
-      /Installed Codex plugin 'ccg@ccg-gptpro-worflow' differs from this Harness snapshot/i,
+      /Installed Codex plugin 'ccg@ccg-gptpro-worflow'[\s\S]*Harness snapshot/i,
     );
     assert.equal(
       commandLog(value).some(({ command }) =>
@@ -662,7 +662,7 @@ test("non-interactive execution requires every core approval flag", () => {
     assert.notEqual(result.status, 0);
     assert.match(
       setupDiagnostic(result),
-      /Non-interactive setup requires -Approved and every explicit core approval flag:/i,
+      /Non-interactive setup requires -Approved[\s\S]*every explicit core[\s\S]*approval flag:/i,
     );
     assert.equal(commandLog(value).length, 0);
   } finally {

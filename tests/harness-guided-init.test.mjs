@@ -86,6 +86,17 @@ function addGitRemote(repository, url) {
   });
 }
 
+function windowsShortPath(target) {
+  if (/[\s&|<>()^!]/.test(target)) {
+    return null;
+  }
+  return execFileSync(
+    "cmd.exe",
+    ["/d", "/c", `for %I in (${target}) do @echo %~sI`],
+    { encoding: "utf8" },
+  ).trim();
+}
+
 function approvedContract(repoRoot, selectedSkills = []) {
   const contract = JSON.parse(readFileSync(TEMPLATE_PATH, "utf8"));
   contract.status = "approved";
@@ -576,6 +587,71 @@ test("catalog clone requires network approval, rejects credential URLs, and acce
     });
     assert.equal(repeated.status, "unchanged");
     assert.equal(repeated.catalog.status, "reused");
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("Global Init reuses a clone when a Windows retry uses its 8.3 catalog path", async (t) => {
+  if (process.platform !== "win32") {
+    t.skip("Windows 8.3 paths are required for this regression.");
+    return;
+  }
+  const value = fixture();
+  try {
+    const source = path.join(value.root, "catalog-source");
+    const bare = path.join(value.root, "catalog.git");
+    const destination = path.join(value.root, "catalog-clone");
+    mkdirSync(source);
+    writeCatalogSkill(source, "test-first", "Use when tests lead changes.");
+    initializeGitRepository(source);
+    execFileSync("git", ["clone", "--bare", source, bare], { stdio: "ignore" });
+
+    await runGlobalInit({
+      allowNetwork: true,
+      approved: true,
+      catalogMode: "clone",
+      catalogPath: destination,
+      catalogUrl: bare,
+      homeDir: value.homeDir,
+      providerActions: PROVIDER_LATER,
+      providerStatusOverrides: {
+        codex: "not-installed",
+        gemini: "not-installed",
+        grok: "not-installed",
+        claude: "not-installed",
+      },
+      skillRoot: SKILL_ROOT,
+    });
+    const shortDestination = windowsShortPath(destination);
+    if (
+      !shortDestination ||
+      path.resolve(shortDestination).toLowerCase() ===
+        path.resolve(destination).toLowerCase()
+    ) {
+      t.skip("The test volume does not expose a distinct Windows 8.3 path.");
+      return;
+    }
+
+    const repeated = await runGlobalInit({
+      allowNetwork: true,
+      approved: true,
+      catalogMode: "clone",
+      catalogPath: shortDestination,
+      catalogUrl: bare,
+      homeDir: value.homeDir,
+      providerActions: PROVIDER_LATER,
+      providerStatusOverrides: {
+        codex: "not-installed",
+        gemini: "not-installed",
+        grok: "not-installed",
+        claude: "not-installed",
+      },
+      skillRoot: SKILL_ROOT,
+    });
+    assert.equal(repeated.status, "unchanged");
+    assert.equal(repeated.catalog.status, "reused");
+    assert.equal(repeated.catalog.repositoryPath, await realpath(destination));
   } finally {
     value.cleanup();
   }

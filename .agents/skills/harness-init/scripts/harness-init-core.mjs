@@ -4236,6 +4236,7 @@ export async function runGlobalInit({
   }
   const existingProfile = await loadSkillRepositoryProfile({ homeDir });
   const existingGlobalState = await loadGlobalInitState({ homeDir });
+  let requestedCatalogPath = null;
   if (existingGlobalState) {
     if (existingGlobalState.catalog.mode !== catalogMode) {
       throw new Error(
@@ -4243,13 +4244,14 @@ export async function runGlobalInit({
       );
     }
     if (catalogMode !== "skip") {
-      const requestedCatalogPath = catalogPath
+      requestedCatalogPath = catalogPath
         ? await realpath(path.resolve(catalogPath))
         : null;
       if (
         requestedCatalogPath === null ||
-        path.resolve(existingGlobalState.catalog.repositoryPath) !==
-          path.resolve(requestedCatalogPath)
+        (await realpath(
+          path.resolve(existingGlobalState.catalog.repositoryPath),
+        )) !== requestedCatalogPath
       ) {
         throw new Error(
           "Existing Global Init catalog path is immutable.",
@@ -4261,10 +4263,12 @@ export async function runGlobalInit({
     catalogMode === "clone" &&
     existingProfile !== null &&
     existingGlobalState?.catalog?.mode === "clone" &&
-    path.resolve(existingProfile.repositoryPath) ===
-      path.resolve(catalogPath ?? "") &&
-    path.resolve(existingGlobalState.catalog.repositoryPath) ===
-      path.resolve(catalogPath ?? "");
+    requestedCatalogPath !== null &&
+    (await realpath(path.resolve(existingProfile.repositoryPath))) ===
+      requestedCatalogPath &&
+    (await realpath(
+      path.resolve(existingGlobalState.catalog.repositoryPath),
+    )) === requestedCatalogPath;
   const catalog = await preparePersonalSkillCatalog({
     allowExistingClone,
     allowNetwork,
@@ -4285,8 +4289,8 @@ export async function runGlobalInit({
     const canonicalRepository = await realpath(catalog.repositoryPath);
     if (existingProfile) {
       if (
-        path.resolve(existingProfile.repositoryPath) !==
-          path.resolve(canonicalRepository) ||
+        (await realpath(path.resolve(existingProfile.repositoryPath))) !==
+          canonicalRepository ||
         canonicalJson(existingProfile.globalEssentialSkills) !==
           canonicalJson(
             [...GLOBAL_PLATFORM_SKILLS].sort((left, right) =>
