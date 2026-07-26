@@ -626,8 +626,15 @@ export async function seedPersonalSkillRepository({
   if (!inventory || inventory.schemaVersion !== 2) {
     throw new Error("A validated Skill migration inventory is required.");
   }
-  const source = path.resolve(repositoryPath);
-  if (normalizePath(source) !== normalizePath(inventory.repositoryPath)) {
+  const source = await assertRealDirectory(
+    path.resolve(repositoryPath),
+    "Skill catalog repository",
+  );
+  const approvedSource = await assertRealDirectory(
+    path.resolve(inventory.repositoryPath),
+    "Approved Skill catalog repository",
+  );
+  if (normalizePath(source) !== normalizePath(approvedSource)) {
     throw new Error("Skill catalog repository differs from the approved inventory.");
   }
   const identity = await readSkillRepositoryIdentity(source, {

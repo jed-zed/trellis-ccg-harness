@@ -490,7 +490,7 @@ function Assert-PluginArtifacts([string]$AcceptanceCodexRoot) {
   $cacheRoot = Join-Path $AcceptanceCodexRoot "plugins/cache"
   Assert-DirectoryExists $cacheRoot "Codex plugin cache"
   $pluginFound = $false
-  foreach ($candidate in (Get-ChildItem -LiteralPath $cacheRoot -Recurse -File -Filter "plugin.json")) {
+  foreach ($candidate in (Get-ChildItem -LiteralPath $cacheRoot -Recurse -Force -File -Filter "plugin.json")) {
     try {
       $plugin = Get-Content -LiteralPath $candidate.FullName -Raw | ConvertFrom-Json
       if ([string]$plugin.name -eq "ccg") {

@@ -9,6 +9,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
+import { realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -256,7 +257,7 @@ test("Global Init records local catalog paths canonically and supports skip", as
         "utf8",
       ),
     );
-    assert.equal(profile.repositoryPath, path.resolve(repository));
+    assert.equal(profile.repositoryPath, await realpath(repository));
     assert.equal(JSON.stringify(profile).includes("remote"), false);
 
     const contractPath = approvedContract(value.repoRoot, ["test-first"]);
@@ -555,7 +556,7 @@ test("catalog clone requires network approval, rejects credential URLs, and acce
       skillRoot: SKILL_ROOT,
     });
     assert.equal(cloned.catalog.mode, "clone");
-    assert.equal(cloned.catalog.repositoryPath, path.resolve(destination));
+    assert.equal(cloned.catalog.repositoryPath, await realpath(destination));
     assert.equal(existsSync(path.join(destination, "test-first", "SKILL.md")), true);
     const repeated = await runGlobalInit({
       allowNetwork: true,

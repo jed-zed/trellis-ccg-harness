@@ -462,6 +462,15 @@ test("offline clean-install acceptance materializes an exact ref in isolated roo
   }
 });
 
+test("plugin acceptance scans hidden Codex plugin directories", () => {
+  const script = readFileSync(ACCEPTANCE_SCRIPT, "utf8");
+  const pluginAssertion = script.match(
+    /function Assert-PluginArtifacts\b[\s\S]*?\r?\n}\r?\n\r?\nfunction Assert-GlobalSkillArtifacts/,
+  );
+  assert.ok(pluginAssertion, "plugin artifact assertion must remain defined");
+  assert.match(pluginAssertion[0], /Get-ChildItem\b[^\r\n]*\s-Force\b/);
+});
+
 test("acceptance stops at the first phase that creates .claude", () => {
   const value = fixture({ plugin: "create-claude" });
   try {

@@ -13,6 +13,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { stripVTControlCharacters } from "node:util";
 
 const REPO_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -355,6 +356,12 @@ function runSetup(value, extra = []) {
   });
 }
 
+function setupDiagnostic(result) {
+  return stripVTControlCharacters(
+    [result.stdout, result.stderr].filter(Boolean).join("\n"),
+  ).replace(/\s+/g, " ").trim();
+}
+
 function commandLog(value) {
   return readFileSync(value.logPath, "utf8")
     .trim()
@@ -516,8 +523,8 @@ test("a different Codex build of the same CCG base version fails closed", () => 
     const result = runSetup(value, ["-PreviewOnly"]);
     assert.notEqual(result.status, 0);
     assert.match(
-      `${result.stdout}\n${result.stderr}`,
-      /differs from this Harness snapshot/i,
+      setupDiagnostic(result),
+      /Installed Codex plugin 'ccg@ccg-gptpro-worflow' differs from this Harness snapshot/i,
     );
     assert.equal(
       commandLog(value).some(({ command }) =>
@@ -553,8 +560,8 @@ test("the exact plugin identity from a different local source fails closed", () 
     const result = runSetup(value, ["-PreviewOnly"]);
     assert.notEqual(result.status, 0);
     assert.match(
-      `${result.stdout}\n${result.stderr}`,
-      /differs from this Harness snapshot/i,
+      setupDiagnostic(result),
+      /Installed Codex plugin 'ccg@ccg-gptpro-worflow' differs from this Harness snapshot/i,
     );
     assert.equal(
       commandLog(value).some(({ command }) =>
@@ -653,7 +660,10 @@ test("non-interactive execution requires every core approval flag", () => {
       },
     });
     assert.notEqual(result.status, 0);
-    assert.match(`${result.stdout}\n${result.stderr}`, /every explicit core approval/i);
+    assert.match(
+      setupDiagnostic(result),
+      /Non-interactive setup requires -Approved and every explicit core approval flag:/i,
+    );
     assert.equal(commandLog(value).length, 0);
   } finally {
     value.cleanup();
