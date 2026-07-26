@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [3.3.2] - 2026-07-26
+
+### ✨ Features
+
+- **Explicit Codex doctor** — Add `ccg doctor --platform codex` to validate the
+  Codex managed AGENTS block, version marker, ownership digests, managed files,
+  and pending transactions without requiring a Claude installation. Bare
+  `ccg doctor` keeps its legacy Claude installation contract.
+- **Shared Codex home** — Codex mode install, recover, uninstall, and doctor now
+  honor the same `CODEX_HOME` boundary, and Codex-native CLI requests do not
+  probe the legacy Claude configuration.
+
+### 🔄 Changes
+
+- **Distribution version** — Bump npm and both plugin marketplaces to `3.3.2`;
+  bump the Codex plugin manifest to `3.3.2+codex.1`.
+
+## [3.3.1] - 2026-07-26
+
+### ✨ Features
+
+- **Claude-clean Codex mode** — Release Codex-native commands, skills, routing,
+  configuration, and evidence gates without Claude runtime or Claude-evidence
+  dependencies. Codex remains the sole workspace writer and final verification
+  owner; Gemini review stays bounded and read-only.
+
+### 🔄 Changes
+
+- **Distribution version** — Align npm and both plugin marketplaces at `3.3.1`,
+  with the Codex plugin manifest at `3.3.1+codex.1`.
+
 ## [3.3.0] - 2026-07-22
 
 ### ✨ Features

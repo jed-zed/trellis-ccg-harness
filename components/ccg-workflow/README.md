@@ -236,6 +236,7 @@ Requires **Node.js 20+** and **Claude Code CLI**. Codex CLI, Gemini CLI, and Gro
 node bin/ccg.mjs                          # Interactive menu
 node bin/ccg.mjs init                     # 4-step install wizard
 node bin/ccg.mjs doctor                   # Environment health check
+node bin/ccg.mjs doctor --platform codex  # Explicit Codex ownership/version health check
 node bin/ccg.mjs status                   # Installation overview
 node bin/ccg.mjs codex-mode install       # Install Codex-Led mode
 node bin/ccg.mjs codex-mode uninstall     # Uninstall Codex-Led mode
@@ -350,4 +351,4 @@ MIT
 
 ---
 
-v3.3.1 | [Issues](https://github.com/jed-zed/ccg-gptpro-worflow/issues) | [Contributing](./CONTRIBUTING.md)
+v3.3.2 | [Issues](https://github.com/jed-zed/ccg-gptpro-worflow/issues) | [Contributing](./CONTRIBUTING.md)

@@ -1,16 +1,20 @@
 import ansis from 'ansis'
 import fs from 'fs-extra'
 import { execFileSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { homedir } from 'node:os'
 import { join } from 'pathe'
 import { readCcgConfig } from '../utils/config'
+import { resolveCodexHome, validateOwnershipManifest } from '../utils/codex-mode'
 import { EXPECTED_BINARY_VERSION, verifyBinaryVersion } from '../utils/installer'
+import { assertManagedPath } from '../utils/managed-path'
 import { PACKAGE_ROOT } from '../utils/installer-template'
 import { version as packageVersion } from '../../package.json'
 
 const OK = ansis.green('✓')
 const WARN = ansis.yellow('⚠')
 const FAIL = ansis.red('✗')
+const CODEX_AGENTS_END = '<!-- CCG:END -->'
 
 async function fileExists(p: string): Promise<boolean> {
   return fs.pathExists(p)
@@ -19,6 +23,18 @@ async function fileExists(p: string): Promise<boolean> {
 async function dirFiles(p: string): Promise<string[]> {
   if (!(await fs.pathExists(p))) return []
   return (await fs.readdir(p)).filter(f => !f.startsWith('.'))
+}
+
+function sha256(value: string | Buffer): string {
+  return createHash('sha256').update(value).digest('hex')
+}
+
+function codexManagedAgentsBlock(content: string): string | null {
+  const starts = [...content.matchAll(/<!-- CCG:START/g)]
+  const ends = [...content.matchAll(/<!-- CCG:END -->/g)]
+  if (starts.length !== 1 || ends.length !== 1 || ends[0].index! < starts[0].index!)
+    return null
+  return content.slice(starts[0].index!, ends[0].index! + CODEX_AGENTS_END.length)
 }
 
 export function execFileSafe(command: string, args: string[] = []): string | null {
@@ -36,6 +52,7 @@ export interface DoctorOptions {
   grok?: boolean
   grokLive?: boolean
   grokCleanup?: boolean
+  platform?: 'claude' | 'codex'
 }
 
 export interface DoctorCheck {
@@ -120,7 +137,223 @@ async function grokManagerPath(): Promise<string> {
   return join(PACKAGE_ROOT, 'templates', 'engine', 'tools', 'grok-intelligence', 'manage.mjs')
 }
 
+async function inspectCodexOwnership(
+  codexHome: string,
+  installedVersion: string | null,
+  agentsContent: string | null,
+): Promise<{ valid: boolean, detail: string }> {
+  const ownershipPath = join(codexHome, '.ccg', 'ownership.json')
+  if (!(await fileExists(ownershipPath)))
+    return { valid: false, detail: `Not found (${ownershipPath})` }
+
+  let ownership
+  try {
+    await assertManagedPath(codexHome, '.ccg/ownership.json', 'file')
+    ownership = validateOwnershipManifest(await fs.readJSON(ownershipPath))
+  }
+  catch (error) {
+    return { valid: false, detail: `Malformed (${String(error)})` }
+  }
+
+  const issues: string[] = []
+  const files = Array.isArray(ownership?.files) ? ownership.files : []
+  if (ownership?.schemaVersion !== 1)
+    issues.push('unsupported schema')
+  if (ownership?.version !== packageVersion || ownership?.version !== installedVersion)
+    issues.push('version does not match marker/package')
+  if (files.length === 0)
+    issues.push('managed file list is empty')
+
+  const agentsBlock = agentsContent ? codexManagedAgentsBlock(agentsContent) : null
+  if (!agentsBlock || typeof ownership?.agentsBlock?.sha256 !== 'string') {
+    issues.push('AGENTS ownership is incomplete')
+  }
+  else if (sha256(agentsBlock) !== ownership.agentsBlock.sha256) {
+    issues.push('AGENTS managed block digest mismatch')
+  }
+
+  const hookEvent = ownership?.hookGroup?.event
+  const hookValue = ownership?.hookGroup?.value
+  const hookDigest = ownership?.hookGroup?.sha256
+  if (typeof hookEvent !== 'string' || !hookValue || typeof hookValue !== 'object' || typeof hookDigest !== 'string') {
+    issues.push('hook ownership is incomplete')
+  }
+  else {
+    if (sha256(JSON.stringify(hookValue)) !== hookDigest)
+      issues.push('hook ownership digest mismatch')
+    try {
+      await assertManagedPath(codexHome, 'hooks.json', 'file')
+      const hooks = await fs.readJSON(join(codexHome, 'hooks.json'))
+      const groups = hooks?.hooks?.[hookEvent]
+      if (!Array.isArray(groups) || !groups.some((group: unknown) => JSON.stringify(group) === JSON.stringify(hookValue)))
+        issues.push('managed hook group is missing or modified')
+    }
+    catch {
+      issues.push('hooks.json is missing or malformed')
+    }
+  }
+
+  const managedPaths = new Set<string>()
+  for (const file of files) {
+    const relativePath = file?.relativePath
+    const installedSha256 = file?.installedSha256
+    if (typeof relativePath !== 'string' || typeof installedSha256 !== 'string') {
+      issues.push('managed file entry is malformed')
+      continue
+    }
+    if (managedPaths.has(relativePath)) {
+      issues.push(`duplicate managed path: ${relativePath}`)
+      continue
+    }
+    managedPaths.add(relativePath)
+    try {
+      const target = await assertManagedPath(codexHome, relativePath, 'file')
+      if (!(await fileExists(target))) {
+        issues.push(`managed file missing: ${relativePath}`)
+        continue
+      }
+      if (sha256(await fs.readFile(target)) !== installedSha256)
+        issues.push(`managed file digest mismatch: ${relativePath}`)
+    }
+    catch {
+      issues.push(`managed file unreadable: ${relativePath}`)
+    }
+  }
+
+  for (const requiredPath of ['.ccg-version', 'ccg/config.toml', 'hooks/ccg-workflow.py']) {
+    if (!managedPaths.has(requiredPath))
+      issues.push(`ownership missing required path: ${requiredPath}`)
+  }
+  if (![...managedPaths].some(path => /^agents\/[^/]+\.toml$/u.test(path.replace(/\\/g, '/'))))
+    issues.push('ownership missing agent definitions')
+
+  return {
+    valid: issues.length === 0,
+    detail: issues.length === 0
+      ? `v${String(ownership.version)}, ${files.length} managed files; ownership digests verified`
+      : issues.join('; '),
+  }
+}
+
+async function doctorCodex(): Promise<DoctorResult> {
+  const codexHome = resolveCodexHome()
+  const checks: DoctorCheck[] = []
+
+  const nodeVer = process.version
+  const major = Number.parseInt(nodeVer.slice(1))
+  checks.push({
+    label: 'Node.js',
+    status: major >= 20 ? OK : FAIL,
+    detail: `${nodeVer}${major < 20 ? ' (requires >=20)' : ''}`,
+  })
+
+  const agentsPath = join(codexHome, 'AGENTS.md')
+  let agentsDetail = `Not found (${agentsPath})`
+  let agentsContent: string | null = null
+  let hasManagedAgents = false
+  if (await fileExists(agentsPath)) {
+    try {
+      await assertManagedPath(codexHome, 'AGENTS.md', 'file')
+      agentsContent = await fs.readFile(agentsPath, 'utf8')
+      hasManagedAgents = codexManagedAgentsBlock(agentsContent) !== null
+      agentsDetail = hasManagedAgents ? 'Managed CCG block installed' : 'Missing or malformed managed CCG block'
+    }
+    catch (error) {
+      agentsDetail = `Unreadable (${String(error)})`
+    }
+  }
+  checks.push({
+    label: 'Codex AGENTS.md',
+    status: hasManagedAgents ? OK : FAIL,
+    detail: agentsDetail,
+  })
+
+  const versionPath = join(codexHome, '.ccg-version')
+  let installedVersion: string | null = null
+  if (await fileExists(versionPath)) {
+    try {
+      await assertManagedPath(codexHome, '.ccg-version', 'file')
+      installedVersion = (await fs.readFile(versionPath, 'utf8')).trim()
+    }
+    catch {}
+  }
+  const versionMatches = installedVersion === packageVersion
+  checks.push({
+    label: 'Codex version',
+    status: versionMatches ? OK : FAIL,
+    detail: installedVersion
+      ? `v${installedVersion}${versionMatches ? '' : ` (expected v${packageVersion})`}`
+      : `Not found (${versionPath})`,
+  })
+
+  const ownership = await inspectCodexOwnership(codexHome, installedVersion, agentsContent)
+  checks.push({
+    label: 'Codex ownership',
+    status: ownership.valid ? OK : FAIL,
+    detail: ownership.detail,
+  })
+
+  const transactionPath = join(codexHome, '.ccg', 'transaction.json')
+  const hasPendingTransaction = await fileExists(transactionPath)
+  checks.push({
+    label: 'Codex transaction',
+    status: hasPendingTransaction ? FAIL : OK,
+    detail: hasPendingTransaction
+      ? 'Interrupted operation found; run `ccg codex-mode recover`'
+      : 'No interrupted operation',
+  })
+
+  console.log()
+  console.log(ansis.cyan.bold(`  CCG Doctor (Codex) v${packageVersion}`))
+  console.log()
+  for (const { label, status, detail } of checks)
+    console.log(`  ${status} ${ansis.bold(label.padEnd(20))} ${ansis.gray(detail)}`)
+
+  const failures = checks.filter(check => check.status === FAIL)
+  console.log()
+  if (failures.length === 0) {
+    console.log(ansis.green('  All Codex checks passed.'))
+  }
+  else {
+    const repairCommand = hasPendingTransaction
+      ? 'ccg codex-mode recover'
+      : 'ccg codex-mode install'
+    console.log(ansis.red(`  ${failures.length} issue(s) found. Run ${ansis.cyan(repairCommand)}, then rerun this check.`))
+  }
+  console.log()
+  return {
+    ok: failures.length === 0,
+    failures,
+    checks,
+  }
+}
+
+function unsupportedDoctorPlatform(platform: string): DoctorResult {
+  const checks: DoctorCheck[] = [{
+    label: 'Platform',
+    status: FAIL,
+    detail: `Unsupported platform "${platform}". Expected "claude" or "codex".`,
+  }]
+  console.log()
+  console.log(ansis.cyan.bold(`  CCG Doctor v${packageVersion}`))
+  console.log()
+  console.log(`  ${FAIL} ${ansis.bold('Platform'.padEnd(20))} ${ansis.gray(checks[0].detail)}`)
+  console.log()
+  console.log(ansis.red(`  Use ${ansis.cyan('--platform claude')} or ${ansis.cyan('--platform codex')}.`))
+  console.log()
+  return {
+    ok: false,
+    failures: checks,
+    checks,
+  }
+}
+
 export async function doctor(options: DoctorOptions = {}): Promise<DoctorResult> {
+  if (options.platform === 'codex')
+    return doctorCodex()
+  if (options.platform && options.platform !== 'claude')
+    return unsupportedDoctorPlatform(String(options.platform))
+
   const installDir = join(homedir(), '.claude')
   const checks: DoctorCheck[] = []
 

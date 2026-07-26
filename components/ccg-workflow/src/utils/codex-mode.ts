@@ -31,7 +31,7 @@ interface ManagedFile {
   original?: OriginalFile
 }
 
-interface OwnershipManifest {
+export interface OwnershipManifest {
   schemaVersion: 1
   version: string
   installedAt: string
@@ -85,6 +85,13 @@ interface CodexModeTransactionJournal {
 }
 
 const TRANSACTION_JOURNAL_PATH = '.ccg/transaction.json'
+
+export function resolveCodexHome(
+  configuredHome = process.env.CODEX_HOME,
+  userHome = homedir(),
+): string {
+  return configuredHome?.trim() || join(userHome, '.codex')
+}
 
 function sha256(value: string | Buffer): string {
   return createHash('sha256').update(value).digest('hex')
@@ -379,7 +386,7 @@ function validateHookGroup(value: unknown): OwnershipManifest['hookGroup'] {
   }
 }
 
-function validateOwnershipManifest(value: unknown): OwnershipManifest {
+export function validateOwnershipManifest(value: unknown): OwnershipManifest {
   assertPlainObject(value, 'Codex mode ownership manifest')
   assertKeys(
     value,
@@ -606,7 +613,7 @@ function testCrashAfterMutation(mutationCount: number): void {
 export async function recoverCodexModeAt(
   options: UninstallCodexModeOptions = {},
 ): Promise<CodexModeRecoveryResult> {
-  const codexHome = options.codexHome ?? join(homedir(), '.codex')
+  const codexHome = options.codexHome ?? resolveCodexHome()
   try {
     await ensureManagedRoot(codexHome)
     const journal = await readTransactionJournal(codexHome)
@@ -736,7 +743,7 @@ async function verifiedBackup(codexHome: string, original: OriginalFile): Promis
 export async function installCodexModeAt(
   options: InstallCodexModeOptions = {},
 ): Promise<CodexModeResult> {
-  const codexHome = options.codexHome ?? join(homedir(), '.codex')
+  const codexHome = options.codexHome ?? resolveCodexHome()
   const templateDir = options.templateDir ?? join(PACKAGE_ROOT, 'templates', 'codex')
   const ownershipPath = join(codexHome, '.ccg', 'ownership.json')
   const hooksPath = join(codexHome, 'hooks.json')
@@ -989,7 +996,7 @@ async function restoreManagedFile(
 export async function uninstallCodexModeAt(
   options: UninstallCodexModeOptions = {},
 ): Promise<CodexModeUninstallResult> {
-  const codexHome = options.codexHome ?? join(homedir(), '.codex')
+  const codexHome = options.codexHome ?? resolveCodexHome()
   const ownershipPath = join(codexHome, '.ccg', 'ownership.json')
   const removed: string[] = []
   const skipped: string[] = []

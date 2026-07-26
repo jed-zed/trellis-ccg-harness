@@ -1,5 +1,6 @@
 import type { CAC } from 'cac'
 import type { CliOptions } from './types'
+import type { DoctorOptions } from './commands/doctor'
 import ansis from 'ansis'
 import { version } from '../package.json'
 import { homedir } from 'node:os'
@@ -107,9 +108,20 @@ export function printCodexModeHelp(): void {
   ].join('\n'))
 }
 
+export function isCodexNativeRequest(args: readonly string[]): boolean {
+  if (args[0] === 'route' || args[0] === 'codex-mode')
+    return true
+  if (args[0] !== 'doctor')
+    return false
+  const platformIndex = args.indexOf('--platform')
+  return (
+    (platformIndex >= 0 && args[platformIndex + 1] === 'codex')
+    || args.includes('--platform=codex')
+  )
+}
+
 export async function setupCommands(cli: CAC): Promise<void> {
-  const routeIndex = process.argv.indexOf('route')
-  if (routeIndex >= 0) {
+  if (isCodexNativeRequest(process.argv.slice(2))) {
     await initI18n('zh-CN')
   }
   else {
@@ -200,10 +212,11 @@ export async function setupCommands(cli: CAC): Promise<void> {
   // Doctor: environment health check
   cli
     .command('doctor', 'Check CCG installation health')
+    .option('--platform <platform>', 'Check one installation platform explicitly (claude or codex)')
     .option('--grok', 'Run local-only Grok intelligence diagnostics (no model prompt)')
     .option('--grok-live', 'Run explicit paid Grok Web/X smoke diagnostics')
     .option('--grok-cleanup', 'Remove expired Grok evidence and orphan private roots')
-    .action(async (options: { grok?: boolean, grokLive?: boolean, grokCleanup?: boolean }) => {
+    .action(async (options: DoctorOptions) => {
       const result = await doctor(options)
       if (!result.ok)
         process.exitCode = 1

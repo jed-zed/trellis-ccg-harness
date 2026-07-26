@@ -9,11 +9,13 @@ function readJson(path: string): any {
 }
 
 describe('Codex plugin release parity', () => {
-  it('keeps plugin marketplace versions aligned with the package release', () => {
+  it('keeps plugin marketplace and config template versions aligned with the package release', () => {
     const packageVersion = readJson(join(root, 'package.json')).version
     const pluginVersion = readJson(join(root, 'plugins', 'ccg', '.codex-plugin', 'plugin.json')).version
     const codexMarketplaceVersion = readJson(join(root, '.codex-plugin', 'marketplace.json')).plugins[0].version
     const claudeMarketplaceVersion = readJson(join(root, '.claude-plugin', 'marketplace.json')).plugins[0].version
+    const configTemplate = fs.readFileSync(join(root, 'templates', 'codex', 'ccg-config.toml'), 'utf8')
+    const configTemplateVersion = configTemplate.match(/^version = "([^"]+)"$/m)?.[1]
 
     expect(pluginVersion.split('+', 1)[0]).toBe(packageVersion)
     expect(pluginVersion).toMatch(
@@ -21,6 +23,7 @@ describe('Codex plugin release parity', () => {
     )
     expect(codexMarketplaceVersion).toBe(packageVersion)
     expect(claudeMarketplaceVersion).toBe(packageVersion)
+    expect(configTemplateVersion).toBe(packageVersion)
   })
 
   it('keeps the repository preview helper at feature parity with the installed live preview', () => {

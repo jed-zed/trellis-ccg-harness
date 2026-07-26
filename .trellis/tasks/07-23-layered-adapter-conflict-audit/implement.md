@@ -134,11 +134,11 @@ Trellis task. Codex owns the final plan, edits, tests, and review.
 The following release work extends the accepted Claude-clean migration; it does
 not create a second task or plan authority.
 
-- [ ] Finish and release the Codex-only CCG changes as `3.3.1`. Align
+- [x] Finish and release the Codex-only CCG changes as `3.3.2`. Align
   `package.json`, marketplace, plugin manifest, and Codex configuration
   metadata; run the CCG gates; push a reviewable branch; merge only after its
   CI is green; then tag the verified `main` commit.
-- [ ] Replace `components/ccg-workflow/` with the exact tracked tree from that
+- [x] Replace `components/ccg-workflow/` with the exact tracked tree from that
   merged CCG release and update `harness.sources.json` with its repository,
   commit, tree, version, and integrity evidence. Never snapshot generated or
   ignored runtime files.
@@ -185,8 +185,14 @@ not create a second task or plan authority.
 
 ### Release acceptance record (to be completed)
 
-- CCG release commit/tree/tag: pending.
-- Harness snapshot commit/tree and `harness.sources.json` verification: pending.
+- CCG release commit `fd8f6711ab57dcf9e64c24a88bfdbc2c42b84ae8`,
+  tree `d6af2528ebb1cc19be03a402d3042de3d7e32e15`, annotated tag
+  `v3.3.2`, and CI run `30222907974`: passed.
+- Harness snapshot binds the same CCG commit/tree at version `3.3.2`;
+  staged source verification remains a release-candidate gate.
+- Bundled Trellis MCP guidance is non-executing by default and uses fixed
+  GitNexus `1.6.9` and ABCoder `v0.3.1` identities with recorded package/module
+  digests; no mutable `latest` selector remains in that setup path.
 - Private catalog remote and provenance/licence scope: pending.
 - Fresh temporary-home clean-install command/result and `.claude/` proof: pending.
 - Harness CI run, pushed `main`, and release tag: pending.
@@ -399,11 +405,11 @@ Verification on the clean `main` checkout:
   `80a7ece`: Node 20/22 on Linux and Windows, Go on Linux/Windows/macOS, and
   bootstrap/doctor on Linux/Windows/macOS. The Linux jobs executed the POSIX
   permission-race regression; both Windows jobs passed the ACL-safe CCG suite.
-- PR #2 targets `main` and is Ready. The two review threads addressed by
-  `80a7ece` are resolved; a later review on `9a8e47f` added one P1 about
-  unauthenticated repository-authored recovery residue and one P2 about PID
-  reuse, so the PR remains non-mergeable until this follow-up is pushed and
-  reviewed.
+- PR #2 targeted `main`; the two review threads addressed by `80a7ece` were
+  resolved. A later review on `9a8e47f` added one P1 about unauthenticated
+  repository-authored recovery residue and one P2 about PID reuse, which the
+  subsequent follow-up fixed before the final Head `486d67e` merged as
+  `6633876` on 2026-07-25.
 - The follow-up local suite passes 139 Harness tests (138 passed, the
   Windows-hosted POSIX chmod case skipped), CCG lint/typecheck/build and
   453/453 tests, Go short tests/build, change analysis, and security scan with

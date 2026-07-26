@@ -346,7 +346,7 @@ the private personal environment.
 
 ### Release provenance
 
-CCG Codex-only changes are published as `3.3.1` only when package, plugin, and
+CCG Codex-only changes are published as `3.3.2` only when package, plugin, and
 Codex configuration version declarations agree. The Harness imports that exact
 committed tracked tree and records its commit/tree identity in
 `harness.sources.json`. Harness `main` and release tags are pushed only after

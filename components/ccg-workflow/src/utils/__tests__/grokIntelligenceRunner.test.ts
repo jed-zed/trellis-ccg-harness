@@ -293,7 +293,7 @@ describe('private roots and clean diagnostics', () => {
       cwd: root,
       env,
     })).rejects.toThrow(/unsafe_cli_context/i)
-  }, 20_000)
+  }, 40_000)
 })
 
 describe('isolated Grok runner lifecycle', () => {

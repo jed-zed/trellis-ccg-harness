@@ -210,7 +210,7 @@ Adopt the recommended layered-adapter architecture without losing the complete p
 - [x] Repeated global/project Skill apply is unchanged; edited projections,
   linked sources, invalid ready revisions, transaction interruption, and
   concurrent drift fail closed or recover deterministically.
-- [ ] The released Codex-only CCG is versioned `3.3.1`, all user-facing
+- [x] The released Codex-only CCG is versioned `3.3.2`, all user-facing
   package/plugin/config metadata agrees, and the Harness snapshot plus
   `harness.sources.json` bind its exact committed tree.
 - [ ] A fresh Harness installation projects all 14 bundled public platform
@@ -242,8 +242,9 @@ Adopt the recommended layered-adapter architecture without losing the complete p
 - [ ] Harness and CCG changes are pushed only after all required local and
   remote CI gates are green; release tags are created from the verified `main`
   commits.
-- [ ] PR #2 description, review threads, verification evidence, and Ready state
-  match the final post-fix Head.
+- [x] PR #2 description, review threads, and verification evidence matched its
+  final post-fix Head `486d67e`; the PR merged to `main` as `6633876` on
+  2026-07-25.
 
 ## Constraints
 

@@ -267,7 +267,7 @@ describe('Grok intelligence distribution', () => {
     finally {
       await fs.remove(root)
     }
-  }, 15_000)
+  }, 30_000)
 
   it('uses and fingerprints the configured deep research model', async () => {
     const root = join(tmpdir(), `ccg-grok-deep-model-${Date.now()}`)

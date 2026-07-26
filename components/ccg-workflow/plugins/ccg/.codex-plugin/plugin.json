@@ -1,6 +1,6 @@
 {
   "name": "ccg",
-  "version": "3.3.1+codex.1",
+  "version": "3.3.2+codex.1",
   "description": "Codex-native CCG workflow with opt-in external intelligence, bounded Gemini review, spec, team, and quality gates. Claude is disabled and Codex remains the final implementation and verification owner.",
   "author": {
     "name": "jed-zed",

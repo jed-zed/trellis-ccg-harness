@@ -236,6 +236,7 @@ node bin/ccg.mjs init
 node bin/ccg.mjs                          # 交互式菜单
 node bin/ccg.mjs init                     # 4 步安装向导
 node bin/ccg.mjs doctor                   # 环境健康检查
+node bin/ccg.mjs doctor --platform codex  # 显式检查 Codex 所有权与版本健康状态
 node bin/ccg.mjs status                   # 安装概况
 node bin/ccg.mjs codex-mode install       # 安装 Codex 主导模式
 node bin/ccg.mjs codex-mode uninstall     # 卸载 Codex 主导模式
@@ -331,4 +332,4 @@ MIT
 
 ---
 
-v3.3.1 | [Issues](https://github.com/jed-zed/ccg-gptpro-worflow/issues) | [Contributing](./CONTRIBUTING.md)
+v3.3.2 | [Issues](https://github.com/jed-zed/ccg-gptpro-worflow/issues) | [Contributing](./CONTRIBUTING.md)

@@ -662,9 +662,9 @@ $sourceManifest = Get-Content -LiteralPath $sourceManifestPath -Raw |
   ConvertFrom-Json
 $requiredTrellisVersion = [string]$sourceManifest.trellis.version
 $requiredCcgVersion = [string]$sourceManifest.ccg.version
-if ($requiredCcgVersion -ne "3.3.1") {
+if ($requiredCcgVersion -ne "3.3.2") {
   throw (
-    "Public setup requires the Harness-recorded CCG 3.3.1 snapshot; found " +
+    "Public setup requires the Harness-recorded CCG 3.3.2 snapshot; found " +
     "'$requiredCcgVersion'."
   )
 }

@@ -101,7 +101,7 @@ if (phase === "bootstrap") {
   }
   write(path.join(repository, ".acceptance", "bootstrap"), "ok\n");
 } else if (phase === "ccgCodexMode") {
-  write(path.join(codexHome, ".ccg-version"), "3.3.1\n");
+  write(path.join(codexHome, ".ccg-version"), "3.3.2\n");
 } else if (phase === "plugin") {
   write(
     path.join(
@@ -110,11 +110,11 @@ if (phase === "bootstrap") {
       "cache",
       "fixture-marketplace",
       "ccg",
-      "3.3.1",
+      "3.3.2",
       ".codex-plugin",
       "plugin.json",
     ),
-    JSON.stringify({ name: "ccg", version: "3.3.1" }),
+    JSON.stringify({ name: "ccg", version: "3.3.2" }),
   );
   if (behavior === "create-claude") {
     write(path.join(acceptanceHome, ".claude", "forbidden.txt"), "bad\n");
@@ -196,7 +196,7 @@ function initializeHarnessSource(sourceRoot) {
         trellis: { package: "@mindfoldhq/trellis", version: "0.6.9" },
         ccg: {
           package: "ccg-workflow",
-          version: "3.3.1",
+          version: "3.3.2",
           snapshotPath: "components/ccg-workflow",
         },
       },
@@ -276,7 +276,7 @@ Set-Content -LiteralPath (Join-Path $prefix "trellis.cmd") -Encoding ascii -Valu
 $ccgBin = Join-Path $prefix "node_modules/ccg-workflow/bin"
 New-Item -ItemType Directory -Path $ccgBin -Force | Out-Null
 Set-Content -LiteralPath (Join-Path $ccgBin "ccg.mjs") -Encoding utf8NoBOM -Value (
-  "console.log('3.3.1');"
+  "console.log('3.3.2');"
 )
 Set-Content -LiteralPath (Join-Path $prefix "ccg.cmd") -Encoding ascii -Value @(
   "@echo off",
@@ -766,6 +766,10 @@ test("command interface exposes guided setup as an explicit phase contract", () 
   assert.ok(
     description.liveCommands.gates[1].arguments.includes("conflicts"),
   );
-  assert.equal(description.liveCommands.gates[2].workingDirectory, "{project}");
+  assert.deepEqual(description.liveCommands.gates[2], {
+    executable: "ccg",
+    arguments: ["doctor", "--platform", "codex"],
+    workingDirectory: "{project}",
+  });
   assert.match(description.tokens["{project}"], /project/i);
 });

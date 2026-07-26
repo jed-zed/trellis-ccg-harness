@@ -78,7 +78,7 @@ function Get-CommandInterface {
     localLiveOrigin = $PublicHarnessOrigin
     liveRequirements = @(
       "-ProjectContract must name an approved public-baseline contract.",
-      "Manifest gates append to the built-in doctor/conflicts/ccg doctor list.",
+      "Manifest gates append to the built-in doctor/conflicts/ccg doctor --platform codex list.",
       "A contract with requiredLocalCommands requires structured manifest gates.",
       "A local -Live source is materialized locally at the exact ref, then its isolated checkout origin is assigned the fixed public Harness URL."
     )
@@ -195,7 +195,7 @@ function Get-LiveDefaultPhases {
         "{repo}/scripts/harness-adapter.mjs",
         "conflicts"
       )),
-      (New-PhaseCommand "ccg" @("doctor") "{project}")
+      (New-PhaseCommand "ccg" @("doctor", "--platform", "codex") "{project}")
     )
     markReady = @((New-PhaseCommand "node" @(
       "{repo}/scripts/harness-init.mjs",

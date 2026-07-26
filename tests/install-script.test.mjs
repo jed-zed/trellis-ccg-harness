@@ -20,8 +20,8 @@ const REPO_ROOT = path.resolve(
   "..",
 );
 const INSTALL_SCRIPT = path.join(REPO_ROOT, "scripts", "install.ps1");
-const CCG_VERSION = "3.3.1";
-const CCG_PLUGIN_VERSION = "3.3.1+codex.1";
+const CCG_VERSION = "3.3.2";
+const CCG_PLUGIN_VERSION = "3.3.2+codex.1";
 const PLATFORM_SKILLS = [
   "grill-me",
   "harness-init",
@@ -375,10 +375,10 @@ test("non-interactive Global Setup is explicit, exact, provider-safe, and idempo
   try {
     const first = runSetup(value);
     assert.equal(first.status, 0, `${first.stdout}\n${first.stderr}`);
-    assert.match(first.stdout, /CCG CLI: build\/link exact 3\.3\.1/);
+    assert.match(first.stdout, /CCG CLI: build\/link exact 3\.3\.2/);
     assert.match(
       first.stdout,
-      /Codex plugin: ccg@ccg-gptpro-worflow@3\.3\.1\+codex\.1/,
+      /Codex plugin: ccg@ccg-gptpro-worflow@3\.3\.2\+codex\.1/,
     );
     assert.match(first.stdout, /needs-provider-actions/);
     assert.match(first.stdout, /gemini: install/);
@@ -506,7 +506,7 @@ test("a different Codex build of the same CCG base version fails closed", () => 
         pluginId: "ccg@ccg-gptpro-worflow",
         name: "ccg",
         marketplaceName: "ccg-gptpro-worflow",
-        version: "3.3.1+codex.2",
+        version: "3.3.2+codex.2",
         source: {
           source: "local",
           path: path.join(
@@ -576,9 +576,9 @@ test("the exact plugin identity from a different local source fails closed", () 
 
 test("the Codex plugin manifest must be the matching +codex build", () => {
   for (const pluginManifestVersion of [
-    "3.3.1",
-    "3.3.1+other.1",
-    "3.3.2+codex.1",
+    "3.3.2",
+    "3.3.2+other.1",
+    "3.3.3+codex.1",
   ]) {
     const value = fixture({ pluginManifestVersion });
     try {

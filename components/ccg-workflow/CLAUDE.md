@@ -2,15 +2,23 @@
 
 > [根目录](../CLAUDE.md) > **skills-v2**
 
-**Last Updated**: 2026-07-22 (v3.3.0)
+**Last Updated**: 2026-07-26 (v3.3.2)
 
-> 本文档已同步 v3.3.0 的版本、分发计数和 Grok 外部情报边界；较早章节仍保留历史架构背景，完整历史见 [CHANGELOG.md](./CHANGELOG.md)。
+> 本文档已同步 v3.3.2 的版本、Codex 原生分发边界和显式 Codex doctor；较早章节仍保留历史架构背景，完整历史见 [CHANGELOG.md](./CHANGELOG.md)。
 
 ---
 
 ## 变更记录 (Changelog)
 
 > 完整变更历史请查看 [CHANGELOG.md](./CHANGELOG.md)
+
+### 2026-07-26 (v3.3.2)
+- ✨ **显式 Codex doctor**：新增 `ccg doctor --platform codex`，独立校验 Codex 托管 AGENTS 区块、版本标记、所有权摘要、托管文件和中断事务，不要求存在 Claude 安装。
+- 🔄 **兼容边界**：裸 `ccg doctor` 保持原有 Claude 安装检查语义；npm 与两个 marketplace 同步为 v3.3.2，Codex 插件 manifest 为 `3.3.2+codex.1`。
+
+### 2026-07-26 (v3.3.1)
+- ✨ **Claude-clean Codex 模式**：Codex 插件命令、skills、路由、配置与证据门禁不再依赖 Claude runtime 或 Claude evidence；Codex 继续作为唯一工作区写入者和最终验证者，Gemini 仅做有界只读辅助。
+- 🔄 **Codex 原生分发**：npm 与两个 marketplace 对齐 v3.3.1，Codex 插件 manifest 使用 `3.3.1+codex.1`。
 
 ### 2026-07-22 (v3.3.0)
 - ✨ **Grok 外部情报层**：新增显式同意、自动路由、官方 Grok CLI ACP 隔离执行、Web/X 证据验证、缓存/保留/导出和 canonical task evidence。
@@ -343,6 +351,7 @@ npx ccg-workflow menu
 | `npx ccg-workflow` | 一键安装/菜单 |
 | `npx ccg-workflow menu` | 交互式菜单 |
 | `npx ccg-workflow update` | 更新到最新版本 |
+| `npx ccg-workflow doctor --platform codex` | 显式检查 Codex 所有权、版本、托管文件和中断事务 |
 | `npx ccg-workflow diagnose-mcp` | 诊断 MCP 配置 |
 | `npx ccg-workflow doctor --grok` | 本地 Grok ACP/登录/证据诊断，不调用模型 |
 | `npx ccg-workflow doctor --grok-live` | 显式运行可能计费的 Web/X live smoke |
