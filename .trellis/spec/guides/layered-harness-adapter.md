@@ -62,6 +62,16 @@ state under `.ccg/` and `.codex/ccg/` is evidence only and must remain ignored.
   and its search router selects `rg`, CodeGraph, or fast-context by question
   type without creating a CodeGraph index.
 
+## Initialization State Transitions
+
+- Before changing apply or readiness behavior, identify every user-owned and
+  initializer-owned path and decide which bytes are transaction inputs versus
+  targets.
+- Keep a new installation at `approved` until all required gates pass; only
+  then promote it to `ready`.
+- Follow the executable command, validation, rollback, and test contract in
+  [Harness Initializer Contract](../tooling/harness-initializer.md).
+
 ## Runtime Rules
 
 - Codex is the sole workspace writer and uses `codex.dispatch_mode: inline`.
