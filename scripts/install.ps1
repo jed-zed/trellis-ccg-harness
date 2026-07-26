@@ -780,10 +780,13 @@ Write-Output (
   "  CCG CLI: build/link exact $requiredCcgVersion snapshot " +
   "(current: $($currentCcgVersion ?? 'missing'))"
 )
-Write-Output "  Codex mode: run 'ccg codex-mode install' (never legacy 'ccg init')"
 Write-Output (
   "  Codex plugin: $pluginId@$pluginVersion from local snapshot $ccgRoot " +
   "(installed: $($pluginState.pluginInstalled))"
+)
+Write-Output (
+  "  Codex mode: after plugin registration run 'ccg codex-mode install' " +
+  "(never legacy 'ccg init')"
 )
 Write-Output "  Platform Skills: Global Init will install/verify 14 bundled copies"
 Write-Output "  Personal Skill catalog: $catalogPreview"
@@ -804,9 +807,9 @@ if ($PreviewOnly) {
 if (-not $NonInteractive) {
   Confirm-SetupItem "Trellis $requiredTrellisVersion" $ApproveTrellis.IsPresent
   Confirm-SetupItem "CCG CLI $requiredCcgVersion" $ApproveCcgCli.IsPresent
-  Confirm-SetupItem "ccg codex-mode install" $ApproveCodexMode.IsPresent
   Confirm-SetupItem "Codex plugin $pluginId from the local snapshot" `
     $ApproveCcgPlugin.IsPresent
+  Confirm-SetupItem "ccg codex-mode install" $ApproveCodexMode.IsPresent
   Confirm-SetupItem "Global Init and 14 bundled platform Skills" `
     $ApproveGlobalInit.IsPresent
 }
@@ -834,12 +837,32 @@ if (-not $NonInteractive) {
     )
   }
 
-  Invoke-CheckedCommand "ccg" @("codex-mode", "install") `
-    "CCG Codex mode installation"
-  Assert-ClaudeUnchanged $claudeBaseline "ccg codex-mode install"
-
-  Install-CodexPlugin -Identity $pluginIdentity -InitialState $pluginState
+  $pluginFailure = $null
+  try {
+    Install-CodexPlugin -Identity $pluginIdentity -InitialState $pluginState
+  }
+  catch {
+    $pluginFailure = $_
+  }
   Assert-ClaudeUnchanged $claudeBaseline "Codex CCG plugin installation"
+  if ($null -ne $pluginFailure) {
+    throw $pluginFailure
+  }
+
+  # Codex plugin registration updates config.toml. Install Codex mode after the
+  # plugin so its ownership digest records the converged final configuration.
+  $codexModeFailure = $null
+  try {
+    Invoke-CheckedCommand "ccg" @("codex-mode", "install") `
+      "CCG Codex mode installation"
+  }
+  catch {
+    $codexModeFailure = $_
+  }
+  Assert-ClaudeUnchanged $claudeBaseline "ccg codex-mode install"
+  if ($null -ne $codexModeFailure) {
+    throw $codexModeFailure
+  }
 
   $globalArguments = @(
     (Join-Path $RepoRoot "scripts/harness-init.mjs"),

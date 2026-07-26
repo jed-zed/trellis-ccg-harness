@@ -193,6 +193,10 @@ not create a second task or plan authority.
 - Bundled Trellis MCP guidance is non-executing by default and uses fixed
   GitNexus `1.6.9` and ABCoder `v0.3.1` identities with recorded package/module
   digests; no mutable `latest` selector remains in that setup path.
+- The first live temporary-home run exposed Codex `config.toml` ownership drift
+  when plugin registration followed `ccg codex-mode install`. Global Setup and
+  clean-install now register the plugin first and let Codex mode seal the final
+  configuration; focused order and interface tests cover the regression.
 - Private catalog remote and provenance/licence scope: pending.
 - Fresh temporary-home clean-install command/result and `.claude/` proof: pending.
 - Harness CI run, pushed `main`, and release tag: pending.

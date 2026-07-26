@@ -229,8 +229,8 @@ function commandManifest(root, runner, behavior = {}) {
   const phases = {};
   for (const phase of [
     "bootstrap",
-    "ccgCodexMode",
     "plugin",
+    "ccgCodexMode",
     "globalSkills",
     "trellisProjectInit",
     "projectInit",
@@ -424,8 +424,8 @@ test("offline clean-install acceptance materializes an exact ref in isolated roo
       [
         ["source", "passed"],
         ["bootstrap", "passed"],
-        ["ccgCodexMode", "passed"],
         ["plugin", "passed"],
+        ["ccgCodexMode", "passed"],
         ["globalSkills", "passed"],
         ["trellisProjectInit", "passed"],
         ["projectInit", "passed"],
@@ -704,8 +704,8 @@ test("command interface exposes guided setup as an explicit phase contract", () 
   const description = JSON.parse(result.stdout);
   assert.deepEqual(description.requiredPhases, [
     "bootstrap",
-    "ccgCodexMode",
     "plugin",
+    "ccgCodexMode",
     "globalSkills",
     "trellisProjectInit",
     "projectInit",
@@ -713,6 +713,10 @@ test("command interface exposes guided setup as an explicit phase contract", () 
     "markReady",
   ]);
   assert.deepEqual(description.liveDefaultPhases, description.requiredPhases);
+  assert.deepEqual(
+    Object.keys(description.liveCommands),
+    description.requiredPhases,
+  );
   assert.equal(description.commandShape.workingDirectory, "{repo}");
   assert.match(description.liveRequirements.join("\n"), /ProjectContract/);
   assert.deepEqual(description.liveCommands.bootstrap[0], {

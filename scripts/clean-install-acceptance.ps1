@@ -21,8 +21,8 @@ $ErrorActionPreference = "Stop"
 
 $RequiredPhases = @(
   "bootstrap",
-  "ccgCodexMode",
   "plugin",
+  "ccgCodexMode",
   "globalSkills",
   "trellisProjectInit",
   "projectInit",
@@ -136,7 +136,6 @@ function Get-LiveDefaultPhases {
       "{repo}",
       "-LinkCcg"
     )))
-    ccgCodexMode = @((New-PhaseCommand "ccg" @("codex-mode", "install")))
     plugin = @(
       (New-PhaseCommand "codex" @(
         "plugin",
@@ -150,6 +149,7 @@ function Get-LiveDefaultPhases {
         "ccg@ccg-gptpro-worflow"
       ))
     )
+    ccgCodexMode = @((New-PhaseCommand "ccg" @("codex-mode", "install")))
     globalSkills = @((New-PhaseCommand "node" @(
       "{repo}/scripts/harness-init.mjs",
       "global-init",
@@ -907,11 +907,13 @@ try {
     Assert-IsolatedCommand "ccg" $NpmPrefixRoot
   }
 
-  Invoke-AcceptancePhase "ccgCodexMode" $Phases["ccgCodexMode"]
-  Assert-CcgArtifacts $CodexRoot
-
   Invoke-AcceptancePhase "plugin" $Phases["plugin"]
   Assert-PluginArtifacts $CodexRoot
+
+  # Plugin registration updates Codex config.toml. Codex mode must claim the
+  # converged file after that mutation so the final doctor digest stays valid.
+  Invoke-AcceptancePhase "ccgCodexMode" $Phases["ccgCodexMode"]
+  Assert-CcgArtifacts $CodexRoot
 
   Invoke-AcceptancePhase "globalSkills" $Phases["globalSkills"]
   Assert-GlobalSkillArtifacts @($HomeRoot, $UserProfileRoot)

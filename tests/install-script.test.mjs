@@ -61,7 +61,22 @@ if (command === "trellis" && args[0] === "--version") {
 } else if (command === "ccg" && args[0] === "--version") {
   console.log("${CCG_VERSION}");
 } else if (command === "ccg" && args.join(" ") === "codex-mode install") {
-  console.log("Codex mode installed");
+  const state = readState();
+  if (state.codexModeBehavior === "fail-create-claude") {
+    writeFileSync(
+      path.join(process.env.HOME, ".claude", "failed-codex-mode.txt"),
+      "forbidden\\n",
+    );
+    console.error("Codex mode failed after changing .claude");
+    process.exitCode = 92;
+  } else if (state.codexModeBehavior === "fail-once") {
+    state.codexModeBehavior = "normal";
+    writeState(state);
+    console.error("Codex mode failed once");
+    process.exitCode = 93;
+  } else {
+    console.log("Codex mode installed");
+  }
 } else if (command === "codex" && args[0] === "--version") {
   console.log("codex-cli 0.142.0");
 } else if (
@@ -103,21 +118,30 @@ if (command === "trellis" && args[0] === "--version") {
   args.slice(0, 2).join(" ") === "plugin add"
 ) {
   const state = readState();
-  const marketplace = state.marketplaces.find((entry) => entry.name === "ccg-gptpro-worflow");
-  state.installed.push({
-    pluginId: "ccg@ccg-gptpro-worflow",
-    name: "ccg",
-    marketplaceName: "ccg-gptpro-worflow",
-    version: state.reportedPluginVersion,
-    installed: true,
-    enabled: true,
-    source: {
-      source: "local",
-      path: path.join(marketplace.root, "plugins", "ccg"),
-    },
-  });
-  writeState(state);
-  console.log(JSON.stringify({ pluginId: args[2], installed: true }));
+  if (state.pluginBehavior === "fail-create-claude") {
+    writeFileSync(
+      path.join(process.env.HOME, ".claude", "failed-plugin-add.txt"),
+      "forbidden\\n",
+    );
+    console.error("Codex plugin add failed after changing .claude");
+    process.exitCode = 94;
+  } else {
+    const marketplace = state.marketplaces.find((entry) => entry.name === "ccg-gptpro-worflow");
+    state.installed.push({
+      pluginId: "ccg@ccg-gptpro-worflow",
+      name: "ccg",
+      marketplaceName: "ccg-gptpro-worflow",
+      version: state.reportedPluginVersion,
+      installed: true,
+      enabled: true,
+      source: {
+        source: "local",
+        path: path.join(marketplace.root, "plugins", "ccg"),
+      },
+    });
+    writeState(state);
+    console.log(JSON.stringify({ pluginId: args[2], installed: true }));
+  }
 } else if (
   command === "codex" &&
   args.slice(0, 2).join(" ") === "plugin remove"
@@ -220,6 +244,8 @@ console.log(JSON.stringify({
 function fixture({
   createClaudeTrees = true,
   mutateClaudeDuringBootstrap = false,
+  codexModeBehavior = "normal",
+  pluginBehavior = "normal",
   pluginManifestVersion = CCG_PLUGIN_VERSION,
   reportedPluginVersion = CCG_PLUGIN_VERSION,
 } = {}) {
@@ -247,6 +273,8 @@ function fixture({
   writeJson(statePath, {
     marketplaces: [],
     installed: [],
+    codexModeBehavior,
+    pluginBehavior,
     reportedPluginVersion,
   });
   writeJson(path.join(repoRoot, "harness.sources.json"), {
@@ -404,6 +432,18 @@ test("non-interactive Global Setup is explicit, exact, provider-safe, and idempo
       ),
     );
     assert.equal(pluginOwnership.plugin.version, CCG_PLUGIN_VERSION);
+    const firstCalls = commandLog(value);
+    const pluginInstallIndex = firstCalls.findIndex(
+      ({ command, args }) =>
+        command === "codex" &&
+        args.slice(0, 2).join(" ") === "plugin add",
+    );
+    const codexModeIndex = firstCalls.findIndex(
+      ({ command, args }) =>
+        command === "ccg" && args.join(" ") === "codex-mode install",
+    );
+    assert.ok(pluginInstallIndex >= 0);
+    assert.ok(codexModeIndex > pluginInstallIndex);
     const globalSkills = JSON.parse(
       readFileSync(
         path.join(value.homeDir, ".agents", "harness", "global-skills.json"),
@@ -638,6 +678,94 @@ test("the .claude guard stops after the first offending Harness-owned step", () 
           command === "ccg" && args.join(" ") === "codex-mode install",
       ),
       false,
+    );
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("a failed Codex mode install is audited after plugin registration", () => {
+  const value = fixture({ codexModeBehavior: "fail-create-claude" });
+  try {
+    const result = runSetup(value);
+    assert.notEqual(result.status, 0);
+    assert.match(`${result.stdout}\n${result.stderr}`, /changed.*\.claude/is);
+    const calls = commandLog(value);
+    const pluginInstallIndex = calls.findIndex(
+      ({ command, args }) =>
+        command === "codex" &&
+        args.slice(0, 2).join(" ") === "plugin add",
+    );
+    const codexModeIndex = calls.findIndex(
+      ({ command, args }) =>
+        command === "ccg" && args.join(" ") === "codex-mode install",
+    );
+    assert.ok(pluginInstallIndex >= 0);
+    assert.ok(codexModeIndex > pluginInstallIndex);
+    assert.equal(calls.some(({ command }) => command === "global-init"), false);
+    assert.equal(
+      existsSync(
+        path.join(value.homeDir, ".agents", "harness", "codex-plugin.json"),
+      ),
+      true,
+    );
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("a failed plugin add is audited before Codex mode", () => {
+  const value = fixture({ pluginBehavior: "fail-create-claude" });
+  try {
+    const result = runSetup(value);
+    assert.notEqual(result.status, 0);
+    assert.match(`${result.stdout}\n${result.stderr}`, /changed.*\.claude/is);
+    const calls = commandLog(value);
+    assert.equal(
+      calls.some(
+        ({ command, args }) =>
+          command === "codex" &&
+          args.slice(0, 2).join(" ") === "plugin add",
+      ),
+      true,
+    );
+    assert.equal(
+      calls.some(
+        ({ command, args }) =>
+          command === "ccg" && args.join(" ") === "codex-mode install",
+      ),
+      false,
+    );
+    assert.equal(calls.some(({ command }) => command === "global-init"), false);
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("a plain Codex mode failure can resume without reinstalling the plugin", () => {
+  const value = fixture({ codexModeBehavior: "fail-once" });
+  try {
+    const first = runSetup(value);
+    assert.notEqual(first.status, 0);
+    assert.match(`${first.stdout}\n${first.stderr}`, /failed once/i);
+
+    const second = runSetup(value);
+    assert.equal(second.status, 0, `${second.stdout}\n${second.stderr}`);
+    const calls = commandLog(value);
+    assert.equal(
+      calls.filter(
+        ({ command, args }) =>
+          command === "codex" &&
+          args.slice(0, 2).join(" ") === "plugin add",
+      ).length,
+      1,
+    );
+    assert.equal(
+      calls.filter(
+        ({ command, args }) =>
+          command === "ccg" && args.join(" ") === "codex-mode install",
+      ).length,
+      2,
     );
   } finally {
     value.cleanup();
