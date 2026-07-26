@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   cpSync,
   existsSync,
@@ -33,6 +34,20 @@ const TEMPLATE_PATH = path.join(
   "assets",
   "project-contract.template.json",
 );
+const THIRD_PARTY_SOURCE_PATH = path.join(
+  SKILL_ROOT,
+  "assets",
+  "third-party-sources.json",
+);
+const THIRD_PARTY_SOURCE_SHA256 = createHash("sha256")
+  .update(
+    `${JSON.stringify(
+      JSON.parse(readFileSync(THIRD_PARTY_SOURCE_PATH, "utf8")),
+      null,
+      2,
+    )}\n`,
+  )
+  .digest("hex");
 
 function fixture() {
   const root = mkdtempSync(path.join(tmpdir(), "harness-guided-init-"));
@@ -109,15 +124,17 @@ function approvedContract(repoRoot, selectedSkills = []) {
   contract.workflow.taskLifecycle = ["planned", "implementing", "verified"];
   contract.workflow.managedProjectPaths = selectedSkills.length
     ? [
+        ".harness/third-party-sources.json",
         ".harness/project-skills.json",
         ...selectedSkills.map((name) => `.agents/skills/${name}`),
       ]
-    : [];
+    : [".harness/third-party-sources.json"];
   contract.qualityGates.requiredLocalCommands = ["node --test"];
   contract.qualityGates.requiredCiChecks = ["test"];
   contract.qualityGates.definitionOfDone = ["Required gates pass"];
   contract.security.dataClassification = "internal";
   contract.security.networkPolicy = "offline-by-default";
+  contract.security.strictDataBoundary = false;
   contract.source.dependencyPolicy = "locked";
   contract.source.updatePolicy = "explicit-version";
   contract.source.rollbackPolicy = "transactional";
@@ -127,6 +144,7 @@ function approvedContract(repoRoot, selectedSkills = []) {
     name,
     reason: `Approved for the ${name} fixture.`,
   }));
+  contract.thirdParty.sourceManifestSha256 = THIRD_PARTY_SOURCE_SHA256;
   contract.approval = {
     approvedAt: "2026-07-26T00:00:00.000Z",
     approvedBy: "repository-owner",
@@ -160,7 +178,19 @@ test("Global Init installs all bundled platform Skills into an isolated home and
       skillRoot: SKILL_ROOT,
     });
     assert.equal(first.status, "initialized");
-    assert.equal(first.platform.installedSkills.length, 14);
+    assert.equal(first.platform.installedSkills.length, 13);
+    assert.equal(first.thirdParty.globalActions.status, "skipped");
+    assert.equal(
+      existsSync(
+        path.join(
+          value.homeDir,
+          ".agents",
+          "harness",
+          "third-party-global-actions.json",
+        ),
+      ),
+      false,
+    );
     for (const name of GLOBAL_PLATFORM_SKILLS) {
       const target = path.join(
         value.homeDir,
@@ -199,6 +229,215 @@ test("Global Init installs all bundled platform Skills into an isolated home and
   }
 });
 
+test("Global Init exposes approved Ponytail hook trust as a pending manual action", async () => {
+  const value = fixture();
+  try {
+    const sourceRoot = path.join(value.root, "ponytail-pinned");
+    mkdirSync(sourceRoot);
+    const commands = [];
+    let ponytailInstalledInHost = false;
+    const result = await runGlobalInit({
+      allowNetwork: true,
+      approved: true,
+      catalogMode: "skip",
+      homeDir: value.homeDir,
+      providerActions: PROVIDER_LATER,
+      providerStatusOverrides: {
+        codex: "not-installed",
+        gemini: "not-installed",
+        grok: "not-installed",
+        claude: "not-installed",
+      },
+      skillRoot: SKILL_ROOT,
+      thirdPartyGlobalPlugins: ["ponytail.install", "ponytail.hooks"],
+      thirdPartyMcpCli: [],
+      thirdPartyGlobalSkills: [],
+      thirdPartySourceSha256: THIRD_PARTY_SOURCE_SHA256,
+      thirdPartySourceResolver: async () => sourceRoot,
+      thirdPartyRunCommand: async (command, args) => {
+        commands.push({ command, args });
+        if (command === "git") {
+          return {
+            stdout: "89427504ba9f7ff3f11b2db65282163464705fa9\n",
+            exitCode: 0,
+          };
+        }
+        if (command === "codex" && args.slice(0, 3).join(" ") === "plugin list --json") {
+          return {
+            stdout: JSON.stringify({ plugins: ponytailInstalledInHost ? [{ name: "ponytail" }] : [] }),
+            exitCode: 0,
+          };
+        }
+        if (command === "codex" && args.slice(0, 2).join(" ") === "plugin add") ponytailInstalledInHost = true;
+        return { stdout: "", exitCode: 0 };
+      },
+    });
+    assert.equal(result.status, "needs-third-party-actions");
+    assert.deepEqual(result.pendingThirdPartyActions.map((entry) => entry.id), [
+      "ponytail.hooks",
+    ]);
+    assert.deepEqual(result.failedThirdPartyActions, []);
+    // The installer now verifies the Codex plugin inventory before it adds the
+    // exact pinned plugin and before it records ownership.
+    assert.equal(commands.filter((entry) => entry.command === "codex").length, 3);
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("Global Init never reports a failed approved third-party action as initialized", async () => {
+  const value = fixture();
+  try {
+    const result = await runGlobalInit({
+      allowNetwork: true,
+      approved: true,
+      catalogMode: "skip",
+      homeDir: value.homeDir,
+      providerActions: PROVIDER_LATER,
+      providerStatusOverrides: {
+        codex: "not-installed",
+        gemini: "not-installed",
+        grok: "not-installed",
+        claude: "not-installed",
+      },
+      skillRoot: SKILL_ROOT,
+      thirdPartyGlobalPlugins: [],
+      thirdPartyMcpCli: ["codegraph"],
+      thirdPartyGlobalSkills: [],
+      thirdPartySourceSha256: THIRD_PARTY_SOURCE_SHA256,
+      thirdPartyRunCommand: async () => {
+        throw new Error("simulated exact package acquisition failure");
+      },
+    });
+    assert.equal(result.status, "third-party-actions-failed");
+    assert.deepEqual(result.failedThirdPartyActions.map((entry) => entry.id), [
+      "codegraph",
+    ]);
+    assert.equal(result.pendingThirdPartyActions.length, 0);
+    assert.match(result.failedThirdPartyActions[0].error, /simulated/i);
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("Global Init never reports an approved third-party Skill source failure as initialized", async () => {
+  const value = fixture();
+  try {
+    const result = await runGlobalInit({
+      approved: true,
+      catalogMode: "skip",
+      homeDir: value.homeDir,
+      providerActions: PROVIDER_LATER,
+      providerStatusOverrides: {
+        codex: "not-installed", gemini: "not-installed", grok: "not-installed", claude: "not-installed",
+      },
+      skillRoot: SKILL_ROOT,
+      thirdPartyGlobalPlugins: [],
+      thirdPartyMcpCli: [],
+      thirdPartyGlobalSkills: ["matt-grilling"],
+      thirdPartySourceSha256: THIRD_PARTY_SOURCE_SHA256,
+      thirdPartySourceResolver: async () => {
+        throw new Error("simulated pinned Skill source outage");
+      },
+    });
+    assert.equal(result.status, "third-party-skills-failed");
+    assert.equal(result.failedThirdPartyGlobalSkills[0].id, "matt-grilling");
+    assert.match(result.failedThirdPartyGlobalSkills[0].error, /outage/i);
+    assert.equal(existsSync(path.join(value.homeDir, ".agents", "skills", "grill-me")), false);
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("Global Init reports the actual approved Caveman Skill when its source is unavailable", async () => {
+  const value = fixture();
+  try {
+    const result = await runGlobalInit({
+      approved: true,
+      catalogMode: "skip",
+      homeDir: value.homeDir,
+      providerActions: PROVIDER_LATER,
+      providerStatusOverrides: {
+        codex: "not-installed", gemini: "not-installed", grok: "not-installed", claude: "not-installed",
+      },
+      skillRoot: SKILL_ROOT,
+      thirdPartyGlobalPlugins: [],
+      thirdPartyMcpCli: [],
+      thirdPartyGlobalSkills: ["caveman"],
+      thirdPartySourceSha256: THIRD_PARTY_SOURCE_SHA256,
+      thirdPartySourceResolver: async () => {
+        throw new Error("simulated pinned Caveman source outage");
+      },
+    });
+    assert.equal(result.status, "third-party-skills-failed");
+    assert.deepEqual(result.failedThirdPartyGlobalSkills.map((entry) => entry.id), ["caveman"]);
+    assert.match(result.failedThirdPartyGlobalSkills[0].error, /Caveman source outage/i);
+    assert.equal(existsSync(path.join(value.homeDir, ".agents", "skills", "caveman")), false);
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("Project Init never reports an approved third-party Skill source failure as awaiting gates", async () => {
+  const value = fixture();
+  try {
+    const contractPath = approvedContract(value.repoRoot);
+    const contract = JSON.parse(readFileSync(contractPath, "utf8"));
+    contract.thirdParty.projectSkills = ["diagnosing-bugs"];
+    contract.workflow.managedProjectPaths = [
+      ".agents/skills/diagnosing-bugs",
+      ".harness/third-party-installations.json",
+      ".harness/third-party-sources.json",
+    ];
+    writeFileSync(contractPath, `${JSON.stringify(contract, null, 2)}\n`);
+    const result = await runProjectInit({
+      approved: true,
+      contractPath,
+      homeDir: value.homeDir,
+      repoRoot: value.repoRoot,
+      selectedSkills: [],
+      skillRoot: SKILL_ROOT,
+      thirdPartyProjectSkills: ["diagnosing-bugs"],
+      thirdPartySourceSha256: THIRD_PARTY_SOURCE_SHA256,
+      thirdPartySourceResolver: async () => {
+        throw new Error("simulated pinned project Skill source outage");
+      },
+    });
+    assert.equal(result.status, "third-party-project-skills-failed");
+    assert.match(result.failedThirdPartyProjectSkills[0].error, /outage/i);
+    assert.equal(result.next.action, "resolve-third-party-project-skill-failure");
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("direct Project Init still rejects a draft contract without mutating the project", async () => {
+  const value = fixture();
+  try {
+    const contractPath = approvedContract(value.repoRoot);
+    const contract = JSON.parse(readFileSync(contractPath, "utf8"));
+    contract.status = "draft";
+    contract.approval = { approvedAt: null, approvedBy: null };
+    writeFileSync(contractPath, `${JSON.stringify(contract, null, 2)}\n`);
+    await assert.rejects(
+      runProjectInit({
+        approved: true,
+        contractPath,
+        homeDir: value.homeDir,
+        repoRoot: value.repoRoot,
+        selectedSkills: [],
+        skillRoot: SKILL_ROOT,
+        thirdPartyProjectSkills: [],
+        thirdPartySourceSha256: THIRD_PARTY_SOURCE_SHA256,
+      }),
+      /status approved/i,
+    );
+    assert.equal(existsSync(path.join(value.repoRoot, ".harness")), false);
+  } finally {
+    value.cleanup();
+  }
+});
+
 test("Global Init fails closed on a fresh platform Skill collision", async () => {
   const value = fixture();
   try {
@@ -206,7 +445,7 @@ test("Global Init fails closed on a fresh platform Skill collision", async () =>
       value.homeDir,
       ".agents",
       "skills",
-      "grill-me",
+      "harness-init",
     );
     mkdirSync(collision, { recursive: true });
     writeFileSync(path.join(collision, "SKILL.md"), "user-owned\n");
@@ -230,6 +469,67 @@ test("Global Init fails closed on a fresh platform Skill collision", async () =>
       readFileSync(path.join(collision, "SKILL.md"), "utf8"),
       "user-owned\n",
     );
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("Global Init accepts the legacy 14-Skill ownership manifest without replacing grill-me", async () => {
+  const value = fixture();
+  try {
+    await runGlobalInit({
+      approved: true,
+      catalogMode: "skip",
+      homeDir: value.homeDir,
+      providerActions: PROVIDER_LATER,
+      providerStatusOverrides: {
+        codex: "not-installed",
+        gemini: "not-installed",
+        grok: "not-installed",
+        claude: "not-installed",
+      },
+      skillRoot: SKILL_ROOT,
+    });
+    const legacySkill = path.join(
+      value.homeDir,
+      ".agents",
+      "skills",
+      "grill-me",
+    );
+    mkdirSync(legacySkill, { recursive: true });
+    const legacyDefinition = "---\nname: grill-me\ndescription: \"Legacy user-owned workflow.\"\n---\n";
+    writeFileSync(path.join(legacySkill, "SKILL.md"), legacyDefinition);
+    const manifestPath = path.join(
+      value.homeDir,
+      ".agents",
+      "harness",
+      "global-skills.json",
+    );
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    manifest.managedPlatformSkills.push({
+      name: "grill-me",
+      targetPath: legacySkill,
+      treeSha256: "legacy-user-owned",
+      fileCount: 1,
+      totalBytes: Buffer.byteLength(legacyDefinition),
+    });
+    writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+
+    const repeated = await runGlobalInit({
+      approved: true,
+      catalogMode: "skip",
+      homeDir: value.homeDir,
+      providerActions: PROVIDER_LATER,
+      providerStatusOverrides: {
+        codex: "not-installed",
+        gemini: "not-installed",
+        grok: "not-installed",
+        claude: "not-installed",
+      },
+      skillRoot: SKILL_ROOT,
+    });
+    assert.equal(repeated.status, "unchanged");
+    assert.equal(readFileSync(path.join(legacySkill, "SKILL.md"), "utf8"), legacyDefinition);
   } finally {
     value.cleanup();
   }
@@ -941,6 +1241,14 @@ test("explicit global-init CLI succeeds without stdin and exported instructions 
         "skip",
         "--provider-actions",
         "codex=later,gemini=later,grok=later,claude=skip",
+        "--third-party-global-skills",
+        "none",
+        "--third-party-global-plugins",
+        "none",
+        "--third-party-mcp-cli",
+        "none",
+        "--third-party-source-sha256",
+        THIRD_PARTY_SOURCE_SHA256,
         "--approved",
       ],
       {

@@ -42,6 +42,11 @@ const POLICY_PATH = path.join(
   "assets",
   "collaboration-policy.md",
 );
+const THIRD_PARTY_SOURCE_PATH = path.join(
+  SKILL_ROOT,
+  "assets",
+  "third-party-sources.json",
+);
 const POLICY_START = "<!-- HARNESS-COLLABORATION:START -->";
 const POLICY_END = "<!-- HARNESS-COLLABORATION:END -->";
 const CORE_MODULE = pathToFileURL(
@@ -72,11 +77,15 @@ function approvedContract() {
     adoptionMode: "existing-codebase",
   };
   contract.workflow.taskLifecycle = ["planned", "implementing", "verified"];
+  contract.workflow.managedProjectPaths = [
+    ".harness/third-party-sources.json",
+  ];
   contract.qualityGates.requiredLocalCommands = ["node --test"];
   contract.qualityGates.requiredCiChecks = ["test"];
   contract.qualityGates.definitionOfDone = ["Required gates pass"];
   contract.security.dataClassification = "internal";
   contract.security.networkPolicy = "offline-by-default";
+  contract.security.strictDataBoundary = false;
   contract.source.dependencyPolicy = "locked";
   contract.source.updatePolicy = "explicit-version";
   contract.source.rollbackPolicy = "transactional";
@@ -85,6 +94,9 @@ function approvedContract() {
     approvedAt: "2026-07-25T00:00:00.000Z",
     approvedBy: "repository-owner",
   };
+  contract.thirdParty.sourceManifestSha256 = sha256(
+    canonicalJson(JSON.parse(readFileSync(THIRD_PARTY_SOURCE_PATH, "utf8"))),
+  );
   return contract;
 }
 
@@ -259,7 +271,7 @@ test("project Skill contracts enforce minimal globals and owned targets", () => 
   missingGlobal.skills.globalEssential = ["harness-init"];
   assert.throws(
     () => validateProjectContract(missingGlobal),
-    /globalEssential.*grill-me/i,
+    /globalEssential.*trellis-before-dev/i,
   );
 
   const duplicateGlobal = approvedContract();
@@ -323,6 +335,7 @@ test("approved contracts atomically create the owned Harness contract", async ()
       ".harness/policies/collaboration-policy.md",
       ".harness/project.json",
       ".harness/project.schema.json",
+      ".harness/third-party-sources.json",
     ]);
     assert.deepEqual(ownership.managedBlocks, [
       {

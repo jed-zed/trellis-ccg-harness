@@ -12,15 +12,15 @@
   "assignee": "jed-zed",
   "createdAt": "2026-07-23",
   "completedAt": null,
-  "branch": "codex/integrate-harness-collaboration",
+  "branch": "codex/init-third-party-approval",
   "base_branch": "main",
   "worktree_path": null,
   "commit": "7de8498340a051d159a7637446d0427fc36a83cc",
-  "pr_url": "https://github.com/jed-zed/trellis-ccg-harness/pull/2",
+  "pr_url": null,
   "subtasks": [],
   "children": [],
   "parent": null,
   "relatedFiles": [],
-  "notes": "",
+  "notes": "Extended in place for the approved third-party initialization consent mechanism. Ponytail, Caveman, fast-context, and CodeGraph are recommended but remain unselected until explicit approval. Interactive Project Init now compiles a complete non-Skill draft contract into an approved exact selection only after final confirmation; approved contracts permit no extra candidate choices. Delivery is a Draft PR and must not be merged by the implementation agent.",
   "meta": {}
 }

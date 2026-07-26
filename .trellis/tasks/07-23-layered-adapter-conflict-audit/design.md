@@ -277,11 +277,9 @@ drift rolls back; an intact ready contract returns unchanged.
 
 ## Global Skill platform
 
-The Harness repository is canonical for all 14 public platform Skills:
-the 13 Trellis/Harness Skills plus `grill-me`. The initializer projects those
-owned copies globally through an ownership manifest and recoverable
-transaction. A clean machine must never depend on a pre-existing external
-`grill-me` installation.
+The Harness repository is canonical for exactly 13 public core platform
+Skills: `harness-init` plus the Trellis Skills. `grill-me` is no longer a
+Harness-owned source and is never installed by the core projection.
 
 All other reusable personal Skills reside in the separate
 `I:\ai\codex-skill-repository` catalog. Until every Skill's provenance and
@@ -295,8 +293,80 @@ Project selection is an explicit revision of the ready project contract.
 Selected Skills are copied as ordinary files into `.agents/skills/`, with
 source and installed digests in `.harness/project-skills.json`. Links,
 junctions, collisions, user-modified owned files, stale contract identity, and
-concurrent drift fail closed. The current project selects `ponytail` and
-`caveman`.
+concurrent drift fail closed. Third-party project candidates begin unselected.
+Caveman is a recommended global Skill candidate, while Ponytail is a global
+plugin candidate and CodeGraph/fast-context are MCP/CLI candidates. All remain
+unselected until the user explicitly approves each action.
+
+### Immutable third-party source catalog
+
+`.agents/skills/harness-init/assets/third-party-sources.json` is the only
+distribution source for third-party candidate metadata. Its schema requires a
+full Git commit or exact release plus integrity digest; mutable branch, dist
+tag, or version selectors are rejected. The catalog pins:
+
+| Source | Immutable identity | Licence |
+|---|---|---|
+| Matt Pocock Skills | `ed37663cc5fbef691ddfecd080dff42f7e7e350d`, tree `04b0fcb78e3de7c58744fcba2528354cc64ab988` | MIT |
+| Caveman | `v1.9.1`, commit `0d95a81d35a9f2d123a5e9430d1cfc43d55f1bb0`, tree `867418a8efea2c92b3885b8efd99d73d7c58af11` | MIT |
+| Ponytail | `4.8.4`, commit `bc9ee949d5f439e8b9f3bb92c6d6d3d1e6ebd324`, tree `2b3486c779084a0442ac530affd85fb864499827` | MIT |
+| CodeGraph | `1.5.0`, commit `ea72e1b190921232aa7bd02e96bef5bbe4fe0ab6`, npm integrity recorded in the catalog | MIT |
+| fast-context | `1.5.2`, commit `3595cfcb2cf1c50660351165cdb71101d0996747`, npm integrity recorded in the catalog | MIT |
+| ripgrep | `15.2.0`, commit `e89fff89ac9af12e8d4ce9d5fd07beb408ca730f`, per-platform release SHA-256 recorded in the catalog | Unlicense |
+
+The catalog records source paths and full-tree SHA-256 values for every Skill
+copy. Install-time acquisition verifies the resolved commit before reading a
+candidate and verifies staged and installed tree digests before ownership is
+committed.
+
+### Approval model and state
+
+The host first requests a read-only approval plan. A native host renders
+structured multi-select controls; the portable TTY renders numbered choices
+with “none” selected by default. Non-interactive use supplies an explicit
+empty or populated selection for every applicable group and the source
+manifest SHA-256. Omission is not consent.
+
+The four groups have different executors and cannot share an approval:
+
+1. **Global Skills:** the `grill-me + grilling` dependency unit and Caveman
+   are separate recommendations and approvals, but all approved global Skills
+   stage, backup, activate, and roll back in one transaction. An intact legacy
+   self-contained `grill-me` may upgrade only when its observed digest is the
+   one approved; unknown or user-modified trees are preserved and rejected.
+2. **Global plugins:** Ponytail plugin installation, lifecycle hook trust, and
+   global default `full` mode are separate actions. Declining hooks or the
+   global default does not undo an otherwise approved plugin installation.
+   Harness never writes `~/.codex/plugins/cache/` directly.
+3. **Project Skills:** selected candidates and all approved dependencies use
+   the existing project transaction and `.harness/project-skills.json`.
+   `improve-codebase-architecture` discloses `codebase-design`, `grilling`, and
+   `domain-modeling`; rejecting any required dependency skips the parent.
+4. **MCP/CLI:** CodeGraph, fast-context, and ripgrep use a separate approval
+   page and ownership records. CodeGraph index creation is always out of scope.
+   fast-context is unavailable for automatic recommendation when the project
+   contract declares `security.strictDataBoundary: true`. This is a
+   machine-readable approved-contract boolean, not an inferred network-policy
+   string; `--strict-data-boundary` is ORed with it and can only tighten the
+   effective boundary.
+
+The approved project contract contains the source-manifest digest and
+secret-free approved action IDs. User-level `global-skills.json` and
+`global-init.json`, plus project `ownership.json` and
+`project-skills.json`, bind installed targets to the same immutable source
+facts. No credential value is serialized.
+
+### Transaction and recovery boundary
+
+Third-party writes reuse the user-level authenticated lock/journal/backup and
+the project authenticated transaction. Discovery snapshots installed version,
+source, scope, hash, and user drift before prompting. The journal records the
+approved source digest and target fingerprints before any mutation.
+Ownership is written last. A normal error rolls back immediately; a terminated
+process leaves authenticated state that the next run deterministically rolls
+back or finalizes. Repository-authored or unauthenticated residue is rejected.
+An unavailable external source leaves the optional action skipped and does not
+block core initialization.
 
 ### Interactive selection contract
 
@@ -310,19 +380,31 @@ catalog.
 Guided setup is split into two independently resumable phases:
 
 1. **Global Init:** inventory first, then install and verify the global Harness
-   platform. It covers Trellis, the CCG Codex-only CLI/plugin, all 14 bundled
-   platform Skills, and the personal Skill catalog decision. It also probes the
+   platform. It covers Trellis, the CCG Codex-only CLI/plugin, all 13 bundled
+   core Skills, the personal Skill catalog decision, and separate
+   default-unselected global Skill, plugin, and MCP/CLI approval groups. It also probes the
    installed/authenticated state of the Codex, Gemini, Grok, and Claude Code
    CLIs. A missing tool receives an install/skip choice; an installed but
    unauthenticated tool receives a login-now/later choice and safe assistance.
    Each network request, installation, and authentication launch is its own
    previewed approval boundary. One approval never authorizes later actions.
 2. **Project Init:** inspect repository facts and technology selections, propose
-   only relevant project Skills, resolve remaining decisions one at a time,
-   display the complete secret-free constraint summary, and require approval
-   before contract or project mutation. Apply then runs the owned transaction,
-   project Skill snapshots, code-backed spec handoff, doctor/conflict checks,
-   applicable quality/security gates, and readiness promotion.
+  only relevant project Skills, resolve remaining decisions one at a time,
+  display the complete secret-free constraint summary, and require approval
+  before contract or project mutation. Apply then runs the owned transaction,
+  project Skill snapshots, code-backed spec handoff, doctor/conflict checks,
+  applicable quality/security gates, and readiness promotion.
+
+   A complete non-Skill `draft` contract is the interactive input boundary. The
+   initializer fingerprints it before discovery, presents every available
+   catalog and project-third-party candidate as an unselected `no`/`yes` choice,
+   validates dependencies and strict-boundary exclusions before the final
+   confirmation, then atomically replaces that unchanged draft with an
+   `approved` candidate. The candidate binds the source manifest digest,
+   catalog selection reasons, third-party project IDs, and exact managed Skill
+   plus manifest paths. An already approved contract exposes no new candidate
+   choices: it can only be confirmed and executed as recorded. Non-interactive
+   Project Init continues to require that exact approved contract.
 
 Status probing is read-only and must distinguish `not installed`, `installed
 but authentication unknown`, `installed unauthenticated`, `authenticated`, and

@@ -17,6 +17,22 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const VERIFY_SCRIPT = path.join(ROOT, "scripts", "verify-sources.ps1");
 const PERSONAL_REPO =
   "https://github.com/jed-zed/ccg-gptpro-worflow";
+const THIRD_PARTY_MANIFEST = path.join(
+  ROOT,
+  ".agents",
+  "skills",
+  "harness-init",
+  "assets",
+  "third-party-sources.json",
+);
+const THIRD_PARTY_VALIDATOR = path.join(
+  ROOT,
+  ".agents",
+  "skills",
+  "harness-init",
+  "scripts",
+  "third-party-approval.mjs",
+);
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
@@ -107,6 +123,25 @@ function copySourceSnapshot(sourceRoot, harnessRoot) {
   });
 }
 
+function copyThirdPartySourceAssets(harnessRoot) {
+  const harnessInit = path.join(
+    harnessRoot,
+    ".agents",
+    "skills",
+    "harness-init",
+  );
+  mkdirSync(path.join(harnessInit, "assets"), { recursive: true });
+  mkdirSync(path.join(harnessInit, "scripts"), { recursive: true });
+  cpSync(
+    THIRD_PARTY_MANIFEST,
+    path.join(harnessInit, "assets", "third-party-sources.json"),
+  );
+  cpSync(
+    THIRD_PARTY_VALIDATOR,
+    path.join(harnessInit, "scripts", "third-party-approval.mjs"),
+  );
+}
+
 function fixture() {
   const fixtureRoot = mkdtempSync(
     path.join(tmpdir(), "harness-source-verification-"),
@@ -123,6 +158,7 @@ function fixture() {
   initializeRepo(harnessRoot);
   write(path.join(harnessRoot, ".trellis", ".version"), "0.6.8\n");
   copySourceSnapshot(sourceRoot, harnessRoot);
+  copyThirdPartySourceAssets(harnessRoot);
   writeHarnessManifest(harnessRoot, source);
   commitAll(harnessRoot, "initial harness");
 
@@ -358,6 +394,158 @@ test("index verification reads the staged tree and rejects untracked residue", (
     assert.match(
       `${residue.stdout}\n${residue.stderr}`,
       /untracked/i,
+    );
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("third-party source manifest is validated, canonically pinned, and required in both trees", () => {
+  const value = fixture();
+  const manifestPath = path.join(
+    value.harnessRoot,
+    ".agents",
+    "skills",
+    "harness-init",
+    "assets",
+    "third-party-sources.json",
+  );
+  try {
+    const clean = verify(value);
+    assert.equal(clean.status, 0, `${clean.stdout}\n${clean.stderr}`);
+    assert.match(clean.stdout, /Third-party manifest SHA-256/i);
+
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    manifest.generatedAt = "2026-07-26T20:30:01.000Z";
+    writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+    const canonicalDrift = verify(value);
+    assert.notEqual(canonicalDrift.status, 0);
+    assert.match(
+      `${canonicalDrift.stdout}\n${canonicalDrift.stderr}`,
+      /canonical SHA-256 mismatch/i,
+    );
+
+    const stagedStillCanonical = verify(value, ["-Index"]);
+    assert.equal(
+      stagedStillCanonical.status,
+      0,
+      `${stagedStillCanonical.stdout}\n${stagedStillCanonical.stderr}`,
+    );
+
+    git(value.harnessRoot, "add", manifestPath);
+    const stagedDrift = verify(value, ["-Index"]);
+    assert.notEqual(stagedDrift.status, 0);
+    assert.match(
+      `${stagedDrift.stdout}\n${stagedDrift.stderr}`,
+      /canonical SHA-256 mismatch/i,
+    );
+
+    git(
+      value.harnessRoot,
+      "rm",
+      "--cached",
+      "--",
+      ".agents/skills/harness-init/assets/third-party-sources.json",
+    );
+    const missingStaged = verify(value, ["-Index"]);
+    assert.notEqual(missingStaged.status, 0);
+    assert.match(
+      `${missingStaged.stdout}\n${missingStaged.stderr}`,
+      /missing from the staged Git tree/i,
+    );
+
+    rmSync(manifestPath);
+    const missingWorktree = verify(value);
+    assert.notEqual(missingWorktree.status, 0);
+    assert.match(
+      `${missingWorktree.stdout}\n${missingWorktree.stderr}`,
+      /Third-party source manifest not found/i,
+    );
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("third-party source manifest rejects mutable selectors through the shared validator", () => {
+  const value = fixture();
+  try {
+    const manifestPath = path.join(
+      value.harnessRoot,
+      ".agents",
+      "skills",
+      "harness-init",
+      "assets",
+      "third-party-sources.json",
+    );
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    manifest.sources[0].commit = "main";
+    writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+    const result = verify(value);
+    assert.notEqual(result.status, 0);
+    assert.match(
+      `${result.stdout}\n${result.stderr}`,
+      /full immutable 40-character commit|mutable selector/i,
+    );
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("index verification executes the staged validator and binds both validator trees", () => {
+  const value = fixture();
+  const validatorPath = path.join(
+    value.harnessRoot,
+    ".agents",
+    "skills",
+    "harness-init",
+    "scripts",
+    "third-party-approval.mjs",
+  );
+  try {
+    writeFileSync(validatorPath, "export const malformed = ;\n");
+
+    const worktreeDrift = verify(value);
+    assert.notEqual(worktreeDrift.status, 0);
+    assert.match(
+      `${worktreeDrift.stdout}\n${worktreeDrift.stderr}`,
+      /validator SHA-256 mismatch/i,
+    );
+
+    const stagedStillTrusted = verify(value, ["-Index"]);
+    assert.equal(
+      stagedStillTrusted.status,
+      0,
+      `${stagedStillTrusted.stdout}\n${stagedStillTrusted.stderr}`,
+    );
+
+    git(value.harnessRoot, "add", validatorPath);
+    const stagedDrift = verify(value, ["-Index"]);
+    assert.notEqual(stagedDrift.status, 0);
+    assert.match(
+      `${stagedDrift.stdout}\n${stagedDrift.stderr}`,
+      /Staged third-party source manifest validator SHA-256 mismatch/i,
+    );
+
+    git(
+      value.harnessRoot,
+      "rm",
+      "--cached",
+      "--",
+      ".agents/skills/harness-init/scripts/third-party-approval.mjs",
+    );
+    const missingStaged = verify(value, ["-Index"]);
+    assert.notEqual(missingStaged.status, 0);
+    assert.match(
+      `${missingStaged.stdout}\n${missingStaged.stderr}`,
+      /validator is missing from the staged Git tree/i,
+    );
+
+    rmSync(validatorPath);
+    const missingWorktree = verify(value);
+    assert.notEqual(missingWorktree.status, 0);
+    assert.match(
+      `${missingWorktree.stdout}\n${missingWorktree.stderr}`,
+      /validator not found/i,
     );
   } finally {
     value.cleanup();

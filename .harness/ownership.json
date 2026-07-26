@@ -1,8 +1,9 @@
 {
   "schemaVersion": 2,
   "owner": "trellis-ccg-harness",
-  "contractSha256": "61c2c02407ad1ac0a636498a9a9f1daf194493f79c0891463dc40e735392936c",
-  "schemaSha256": "ff9d94206d52f1d6f5b2a2556d801ee14c096a5ca4ec3c550b36bfdce5f2d3f6",
+  "contractSha256": "29b8908f2f938471e018b525413e77c6195d7815bd94ff52a799619565ffb625",
+  "schemaSha256": "7617895acca6881f73075dd993a31646cdc5f4f1acd891a6edff49d33b7f92b1",
+  "thirdPartySourceManifestSha256": "f91e89fd61f492b4ea49ca650099f811e2acc15c065dcfe822d5380f4ba3e75f",
   "policy": {
     "policyVersion": 2,
     "markerFormatVersion": 1,
@@ -14,7 +15,8 @@
     ".harness/ownership.json",
     ".harness/policies/collaboration-policy.md",
     ".harness/project.json",
-    ".harness/project.schema.json"
+    ".harness/project.schema.json",
+    ".harness/third-party-sources.json"
   ],
   "managedBlocks": [
     {

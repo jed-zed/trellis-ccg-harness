@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
@@ -36,6 +37,18 @@ import {
 const ALL_GLOBAL_PLATFORM_SKILLS = [...GLOBAL_PLATFORM_SKILLS].sort((left, right) =>
   left.localeCompare(right),
 );
+const THIRD_PARTY_SOURCE = JSON.parse(
+  readFileSync(
+    new URL(
+      "../.agents/skills/harness-init/assets/third-party-sources.json",
+      import.meta.url,
+    ),
+    "utf8",
+  ),
+);
+const THIRD_PARTY_SOURCE_SHA256 = createHash("sha256")
+  .update(`${JSON.stringify(THIRD_PARTY_SOURCE, null, 2)}\n`)
+  .digest("hex");
 
 function fixture() {
   const root = mkdtempSync(path.join(tmpdir(), "harness-skill-profile-"));
@@ -96,14 +109,16 @@ function initializeProjectContract(
     adoptionMode: "existing-codebase",
   };
   contract.workflow.taskLifecycle = ["planned", "verified"];
-  contract.workflow.managedProjectPaths = selectedSkills.map(
-    (name) => `.agents/skills/${name}`,
-  );
+  contract.workflow.managedProjectPaths = [
+    ".harness/third-party-sources.json",
+    ...selectedSkills.map((name) => `.agents/skills/${name}`),
+  ];
   contract.qualityGates.requiredLocalCommands = ["node --test"];
   contract.qualityGates.requiredCiChecks = ["test"];
   contract.qualityGates.definitionOfDone = ["Required gates pass"];
   contract.security.dataClassification = "internal";
   contract.security.networkPolicy = "offline-by-default";
+  contract.security.strictDataBoundary = false;
   contract.source.dependencyPolicy = "locked";
   contract.source.updatePolicy = "explicit-version";
   contract.source.rollbackPolicy = "transactional";
@@ -113,6 +128,7 @@ function initializeProjectContract(
     name,
     reason: `Selected for ${name} project work.`,
   }));
+  contract.thirdParty.sourceManifestSha256 = THIRD_PARTY_SOURCE_SHA256;
   contract.approval = {
     approvedAt: "2026-07-25T00:00:00.000Z",
     approvedBy: "repository-owner",
@@ -177,7 +193,7 @@ test("approved first-run Skill refinement persists and is reused by inspection",
     await assert.rejects(
       saveSkillRepositoryProfile({
         approved: true,
-        excludedSkills: ["grill-me"],
+        excludedSkills: ["harness-init"],
         globalEssentialSkills: ALL_GLOBAL_PLATFORM_SKILLS,
         homeDir: value.homeDir,
         repositoryPath: value.skillRepository,
@@ -772,15 +788,15 @@ test("platform migration uses an explicit arbitrary catalog and approved project
       projectSkills: selected,
       preservedPaths: [roots.preserved],
     });
-    assert.equal(inventory.platform.length, 14);
+    assert.equal(inventory.platform.length, 13);
     assert.equal(inventory.catalog.length, 3);
     assert.deepEqual(
       inventory.catalogSkills.map((entry) => entry.name),
       ["review-notes", "test-first"],
     );
-    assert.equal(inventory.platform.filter((entry) => entry.action === "replace").length, 9);
-    assert.equal(inventory.platform.filter((entry) => entry.action === "add").length, 4);
-    assert.equal(inventory.platform.filter((entry) => entry.action === "preserve").length, 1);
+    assert.equal(inventory.platform.filter((entry) => entry.action === "replace").length, 10);
+    assert.equal(inventory.platform.filter((entry) => entry.action === "add").length, 3);
+    assert.equal(inventory.platform.filter((entry) => entry.action === "preserve").length, 0);
 
     const emptySelection = await planSkillPlatformMigration({
       repoRoot: value.repoRoot,
@@ -830,7 +846,7 @@ test("platform migration uses an explicit arbitrary catalog and approved project
       readFileSync(path.join(value.homeDir, ".agents", "harness", "global-skills.json"), "utf8"),
     );
     assert.equal(globalOwnership.schemaVersion, 2);
-    assert.equal(globalOwnership.managedPlatformSkills.length, 14);
+    assert.equal(globalOwnership.managedPlatformSkills.length, 13);
     assert.deepEqual(
       globalOwnership.catalogSkills.map((entry) => entry.name),
       ["review-notes", "test-first"],
@@ -891,7 +907,7 @@ test("platform migration uses an explicit arbitrary catalog and approved project
   }
 });
 
-test("platform migration refuses a user-edited legacy grill-me projection", async () => {
+test("platform migration preserves a user-owned legacy grill-me projection", async () => {
   const value = fixture();
   const gitEnv = {
     ...process.env,
@@ -902,15 +918,16 @@ test("platform migration refuses a user-edited legacy grill-me projection", asyn
   };
   try {
     const roots = populateSkillPlatformFixture(value, gitEnv);
+    const target = path.join(roots.agentsRoot, "grill-me", "SKILL.md");
     writeSkill(roots.agentsRoot, "grill-me", "grill-me", "User-customized clarification workflow.");
-    await assert.rejects(
-      planSkillPlatformMigration({
-        repoRoot: value.repoRoot,
-        homeDir: value.homeDir,
-        repositoryPath: value.skillRepository,
-      }),
-      /grill-me.*user-owned/i,
-    );
+    const original = readFileSync(target, "utf8");
+    const inventory = await planSkillPlatformMigration({
+      repoRoot: value.repoRoot,
+      homeDir: value.homeDir,
+      repositoryPath: value.skillRepository,
+    });
+    assert.equal(inventory.platform.some((entry) => entry.name === "grill-me"), false);
+    assert.equal(readFileSync(target, "utf8"), original);
   } finally {
     value.cleanup();
   }

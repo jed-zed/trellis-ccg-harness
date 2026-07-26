@@ -29,7 +29,8 @@
       ".harness/project.json",
       ".harness/project.schema.json",
       ".harness/ownership.json",
-      ".harness/policies/collaboration-policy.md"
+      ".harness/policies/collaboration-policy.md",
+      ".harness/third-party-sources.json"
     ],
     "ignoredRuntimePaths": [
       ".ccg",
@@ -127,7 +128,6 @@
   "skills": {
     "globalPolicy": "minimal-essential-only",
     "globalEssential": [
-      "grill-me",
       "harness-init",
       "trellis-before-dev",
       "trellis-brainstorm",
@@ -147,10 +147,19 @@
     "installMode": "copy",
     "projectSelection": []
   },
+  "thirdParty": {
+    "sourceManifestSha256": "f91e89fd61f492b4ea49ca650099f811e2acc15c065dcfe822d5380f4ba3e75f",
+    "globalSkills": [],
+    "globalPlugins": [],
+    "projectSkills": [],
+    "mcpCli": [],
+    "excluded": []
+  },
   "security": {
     "dataClassification": "public-source-code-no-credentials",
     "secretPolicy": "environment-or-owned-secret-store",
     "networkPolicy": "offline-by-default-explicit-manual-providers-only",
+    "strictDataBoundary": false,
     "credentialFieldsForbidden": true,
     "forbiddenTrackedPaths": [
       ".env",

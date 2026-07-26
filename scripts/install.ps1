@@ -119,6 +119,27 @@ function Invoke-CheckedCommand {
   }
 }
 
+function Get-ThirdPartySourceSha256 {
+  param(
+    [Parameter(Mandatory)][string]$HarnessInitPath,
+    [Parameter(Mandatory)][string]$ApprovedHomeDir
+  )
+
+  $plan = Invoke-JsonCommand "node" @(
+    $HarnessInitPath,
+    "third-party-plan",
+    "--home-dir",
+    $ApprovedHomeDir,
+    "--repo-root",
+    $RepoRoot
+  ) "Third-party source plan"
+  $digest = [string]$plan.sourceManifestSha256
+  if ($digest -notmatch '^[a-f0-9]{64}$') {
+    throw "Third-party source plan did not return a SHA-256 source manifest digest."
+  }
+  return $digest
+}
+
 function Get-CommandVersion {
   param([Parameter(Mandatory)][string]$Command)
 
@@ -553,9 +574,9 @@ function Assert-GlobalSkillProjection {
   if (
     $manifest.owner -ne "trellis-ccg-harness" -or
     $manifest.installMode -ne "copy" -or
-    $skills.Count -ne 14
+    $skills.Count -ne 13
   ) {
-    throw "Global Init did not verify exactly 14 owned platform Skills."
+    throw "Global Init did not verify exactly 13 owned platform Skills."
   }
   foreach ($skill in $skills) {
     if (-not (Test-Path -LiteralPath $skill.targetPath -PathType Container)) {
@@ -788,7 +809,7 @@ Write-Output (
   "  Codex mode: after plugin registration run 'ccg codex-mode install' " +
   "(never legacy 'ccg init')"
 )
-Write-Output "  Platform Skills: Global Init will install/verify 14 bundled copies"
+Write-Output "  Platform Skills: Global Init will install/verify 13 bundled copies"
 Write-Output "  Personal Skill catalog: $catalogPreview"
 Write-Output "  Provider status/actions: $providerPreview"
 Write-Output (
@@ -810,7 +831,7 @@ if (-not $NonInteractive) {
   Confirm-SetupItem "Codex plugin $pluginId from the local snapshot" `
     $ApproveCcgPlugin.IsPresent
   Confirm-SetupItem "ccg codex-mode install" $ApproveCodexMode.IsPresent
-  Confirm-SetupItem "Global Init and 14 bundled platform Skills" `
+  Confirm-SetupItem "Global Init and 13 bundled platform Skills" `
     $ApproveGlobalInit.IsPresent
 }
 
@@ -886,6 +907,22 @@ if (-not $NonInteractive) {
     $globalArguments += @("--provider-actions", $ProviderActions)
   }
   if ($NonInteractive) {
+    # The approval receipt is explicit even when every optional candidate is
+    # declined.  Resolve the digest through the pinned Harness plan instead of
+    # duplicating a mutable value in this installer.
+    $thirdPartySourceSha256 = Get-ThirdPartySourceSha256 `
+      -HarnessInitPath (Join-Path $RepoRoot "scripts/harness-init.mjs") `
+      -ApprovedHomeDir $HomeDir
+    $globalArguments += @(
+      "--third-party-global-skills",
+      "none",
+      "--third-party-global-plugins",
+      "none",
+      "--third-party-mcp-cli",
+      "none",
+      "--third-party-source-sha256",
+      $thirdPartySourceSha256
+    )
     $globalArguments += @("--non-interactive", "--approved")
     $globalOutput = @(& node @globalArguments 2>&1)
     if ($LASTEXITCODE -ne 0) {

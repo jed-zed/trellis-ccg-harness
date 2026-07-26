@@ -6,7 +6,7 @@ description: "Use when starting a new project, adopting an existing repository i
 # Harness Init
 
 Establish the project's Harness contract before development begins. Discover
-repository facts first, use `grill-me` for the decisions only the user can make,
+repository facts first, use an available approved interview Skill for the decisions only the user can make,
 then initialize Trellis and CCG after the user explicitly approves the complete
 constraint summary. On the first trigger, also refine and persist the user's
 Skill profile; later projects reuse that saved path and policy.
@@ -17,8 +17,9 @@ Skill profile; later projects reuse that saved path and policy.
    manifests, specs, hooks, CI, and Git state before asking anything. If a fact
    is answerable from the repository, answer it through inspection instead of
    asking the user.
-2. **One question at a time.** Load and use the `grill-me` Skill when it is
-   available. Ask exactly one unresolved decision per turn. Each question must
+2. **One question at a time.** Load and use the approved `grill-me` third-party
+Skill only when the user has explicitly installed it. Otherwise ask exactly one
+unresolved decision per turn. Each question must
    state why it matters, give a recommended answer, and explain the trade-off
    of choosing differently.
 3. **Approval before mutation.** Do not write, generate, install, copy, delete,
@@ -35,28 +36,42 @@ Skill profile; later projects reuse that saved path and policy.
 6. **Preserve existing ownership.** Treat every existing project or global file
    as user-owned until an ownership manifest or managed block proves otherwise.
    Merge or back up approved changes; never silently replace valid content.
-7. **Keep the Harness platform global.** The global baseline is `grill-me`
-   plus all 13 Harness/Trellis platform Skills: `harness-init`,
+7. **Keep the Harness platform global.** The global baseline is all 13
+   built-in Harness/Trellis platform Skills: `harness-init`,
    `trellis-before-dev`, `trellis-brainstorm`, `trellis-break-loop`,
    `trellis-channel`, `trellis-check`, `trellis-continue`,
    `trellis-finish-work`, `trellis-meta`, `trellis-session-insight`,
    `trellis-spec-bootstrap`, `trellis-start`, and `trellis-update-spec`.
    Optional task/domain Skills live in an explicitly approved Git catalog and only the
    approved relevant subset is copied into project-level `.agents/skills/`.
+8. **Keep third parties opt-in.** Skills, plugins, and MCP/CLI candidates from
+   `third-party-sources.json` are shown in four groups and default to no.
+   Install only individually approved candidates from their recorded immutable
+   source; never use `main`, `latest`, or `@latest`. Recommended candidates
+   include Ponytail, Caveman, fast-context, and CodeGraph, but a recommendation
+   never changes the default or replaces an explicit yes from the user.
 
 ## Guided Entry Points
 
 Initialization has two explicit, independently resumable commands:
 
-- `global-init` installs the 14 bundled platform Skills as link-free owned
+- `global-init` installs the 13 bundled platform Skills as link-free owned
   copies under an explicit or current user home, records the `skip`/`local`/
   `clone` catalog decision, and performs read-only Codex, Gemini, Grok, and
   Claude Code CLI/authentication status checks.
-- `project-init` inspects one repository, derives its technology stack and
-  catalog recommendations, verifies that the approved contract, selected
-  Skills, and managed paths agree, then calls only the existing owned
-  apply/install path. It must leave the contract `approved` until the separately
-  reported quality, security, doctor, and conflict gates pass.
+- `project-init` inspects one repository and derives its technology stack and
+  catalog recommendations. Interactively it accepts a complete non-Skill
+  `draft` contract, asks each catalog and third-party project candidate as an
+  explicit `no`/`yes` choice, then after final approval atomically compiles the
+  fixed source digest, selections, reasons, and exact managed paths into the
+  same `approved` contract before calling the existing owned apply/install path.
+  `security.strictDataBoundary` is an explicit contract boolean at that point;
+  a CLI `--strict-data-boundary` may only add the restriction, never weaken a
+  contract that already requires it.
+  An already `approved` contract only permits confirmation and execution of its
+  recorded set. Non-interactive Project Init accepts only an exact approved
+  contract. It must leave that contract `approved` until the separately reported
+  quality, security, doctor, and conflict gates pass.
 
 When the host provides a native structured-choice control, the agent **must**
 use that host tool for every unresolved choice, mark the recommendation, and
@@ -84,6 +99,10 @@ node scripts/harness-init.mjs global-init `
   --home-dir "<explicit-user-home>" `
   --catalog-mode skip `
   --provider-actions "codex=later,gemini=later,grok=later,claude=skip" `
+  --third-party-global-skills none `
+  --third-party-global-plugins none `
+  --third-party-mcp-cli none `
+  --third-party-source-sha256 "<sha256-from-third-party-plan>" `
   --approved
 ```
 
@@ -93,7 +112,8 @@ For an existing local Git catalog, add `--catalog-mode local --repository
 "<credential-free-url>" --allow-network`; the saved profile contains only the
 canonical local working-tree path.
 
-After the complete project contract and exact Skill set are approved:
+For non-interactive execution, the complete project contract and exact Skill
+set must already be approved:
 
 ```powershell
 node scripts/harness-init.mjs project-init `
@@ -102,6 +122,8 @@ node scripts/harness-init.mjs project-init `
   --repo-root "<repository>" `
   --contract "<approved-contract.json>" `
   --skills "<approved-comma-separated-names>" `
+  --third-party-project-skills none `
+  --third-party-source-sha256 "<sha256-from-third-party-plan>" `
   --approved
 ```
 
@@ -116,11 +138,12 @@ passes; do not treat Project Init itself as readiness evidence.
 Start every trigger with read-only `inspect`. Its `skillRepository` result
 decides the branch:
 
-- **First trigger (`configured: false`)** — after repository discovery, use
-  `grill-me` one question at a time to refine the initialization Skill:
+- **First trigger (`configured: false`)** — after repository discovery, use an
+  approved `grill-me` installation when present, otherwise ask one question at
+  a time directly to refine the initialization Skill:
 1. the absolute, explicitly approved Skill catalog path (not an active global
      `.agents/skills` or `.codex/skills` tree);
-  2. the fixed 14-Skill global Harness platform baseline listed above;
+  2. the fixed 13-Skill global Harness platform baseline listed above;
   3. reusable selection guidance and explicit exclusions;
   4. confirmation that project Skills use approved copy snapshots rather than
      links.
@@ -135,7 +158,7 @@ approval may the profile be saved:
 ```powershell
 node scripts/harness-init.mjs configure-skills `
   --repository "<absolute-skill-repository>" `
-  --global-essential "grill-me,harness-init,trellis-before-dev,trellis-brainstorm,trellis-break-loop,trellis-channel,trellis-check,trellis-continue,trellis-finish-work,trellis-meta,trellis-session-insight,trellis-spec-bootstrap,trellis-start,trellis-update-spec" `
+  --global-essential "harness-init,trellis-before-dev,trellis-brainstorm,trellis-break-loop,trellis-channel,trellis-check,trellis-continue,trellis-finish-work,trellis-meta,trellis-session-insight,trellis-spec-bootstrap,trellis-start,trellis-update-spec" `
   --guidance "<approved-selection-guidance>" `
   --exclude "<approved-exclusions>" `
   --approved
@@ -225,7 +248,7 @@ until the approval gate is satisfied.
 
 ## Phase 3: Grill the Unresolved Decisions
 
-Use `grill-me` and walk the decision inventory in dependency order. Ask one
+Use an approved `grill-me` installation when available and walk the decision inventory in dependency order. Otherwise ask one
 question at a time, beginning with the decision that would invalidate the most
 downstream choices.
 
@@ -250,7 +273,7 @@ After each answer, recompute the remaining inventory. Do not ask about a later
 choice if the latest answer made it irrelevant. Do not batch questions into a
 form, checklist, or numbered questionnaire.
 
-If `grill-me` is unavailable, follow the same protocol directly: one
+If `grill-me` is not explicitly installed, follow the same protocol directly: one
 high-leverage question, recommendation, rationale, and alternative trade-off
 per turn.
 
@@ -266,6 +289,8 @@ contract:
 - files and global locations that would change;
 - fixed global platform baseline, saved Skill repository profile, and exact
   project-level Skill selection with reasons;
+- third-party candidate effects, fixed source digest, explicit approvals, and
+  any rejected candidates;
 - exact initialization and offline validation commands;
 - update, rollback, and uninstall expectations;
 - residual risks and deliberately deferred items.
@@ -281,12 +306,18 @@ After approval:
 1. Recheck Git state and repository instructions. Stop on unexpected drift.
 2. Initialize or reconcile Trellis using the installed CLI's current help and
    supported commands. Do not guess CLI flags.
-3. Create an approved contract candidate from
+3. Create a `draft` contract candidate from
    [assets/project-contract.template.json](assets/project-contract.template.json).
-   Replace draft values with approved facts, set `status` to `approved`, fill
-   `approval.approvedAt` and `approval.approvedBy`, keep
-   `unresolvedDecisions` empty, and do not include credentials. Validate it,
-   then use the executable to apply it atomically:
+   Fill the confirmed non-Skill facts, keep `unresolvedDecisions` empty, and do
+   not include credentials. For interactive initialization, pass this draft to
+   `project-init`: it shows technology discovery and recommendations, keeps every
+   candidate unselected until an explicit yes, then atomically promotes the
+   final candidate to `approved` with source digest, selection reasons, and
+   exact managed paths. `security.strictDataBoundary` may be `null` in the
+   draft template but must be a boolean before approval; strict contracts keep
+   incompatible data-egress candidates unavailable. For non-interactive execution, set `status` to
+   `approved`, fill `approval.approvedAt` and `approval.approvedBy`, validate
+   it, then use the executable to apply it atomically:
 
    ```powershell
    node scripts/harness-init.mjs validate --contract "<approved-contract.json>"

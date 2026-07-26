@@ -146,6 +146,10 @@ not create a second task or plan authority.
   change ownership/migration code so fresh projection does not require an
   external global Skill. Preserve the previous external-dependency statement
   above solely as historical verification for the earlier migration.
+- [x] Superseded by the approved consent extension: keep the public projection
+  at 13 Harness/Trellis core Skills and offer the pinned `grill-me + grilling`
+  dependency unit only after explicit third-party approval. Preserve the
+  previous 14-Skill evidence above solely as historical verification.
 - [x] Publish the existing 45-Skill repository as an authenticated private
   personal catalog pending provenance/licence review. Repair catalog hygiene
   before publishing (including tracked package manifests and exclusion of
@@ -158,8 +162,8 @@ not create a second task or plan authority.
   ambiguity.
 - [x] Implement a resumable Global Init command that inventories installed and
   authenticated state, installs/verifies Trellis, CCG Codex-only CLI/plugin,
-  and the 14 public platform Skills, and then handles the private/local/skip
-  personal-catalog choice.
+  and the 13 public core Skills, then handles the private/local/skip
+  personal-catalog choice and separate default-unselected third-party groups.
 - [x] Add read-only status adapters for Codex, Gemini, Grok, and Claude Code
   CLIs with normalized installed/auth states. For missing tools offer install
   or skip; for installed unauthenticated tools offer supported assisted login
@@ -230,6 +234,86 @@ pnpm --dir .\components\ccg-workflow typecheck
 pnpm --dir .\components\ccg-workflow test
 pnpm --dir .\components\ccg-workflow build
 ```
+
+## Approved third-party initialization consent implementation
+
+This checklist supersedes the historical fixed `14/45/2` migration plan for
+future initialization. Do not create another Trellis task or CCG plan.
+
+- [x] Replace the bundled platform baseline with the 13 Harness/Trellis core
+  Skills and remove `grill-me` from Harness-owned projection.
+- [x] Add and validate one immutable third-party source manifest with the
+  pinned Matt Skills, Ponytail, Caveman `v1.9.1`
+  (`0d95a81d35a9f2d123a5e9430d1cfc43d55f1bb0`), CodeGraph, fast-context,
+  and ripgrep identities,
+  path/tree or package integrities, licences, side effects, data-egress risks,
+  update, rollback, and uninstall metadata.
+- [x] RED: add reject-all, partial approval, dependency rejection, repeat,
+  legacy `grill-me`, drift, interruption, unavailable-source, Ponytail-hook,
+  missing-CodeGraph-index, and strict-boundary fast-context tests.
+- [x] Add a read-only approval plan grouped into global Skills, global plugins,
+  project Skills, and MCP/CLI. Every selection is empty by default; automation
+  must bind explicit selections to the source-manifest SHA-256.
+- [x] Implement atomic `grill-me + grilling` acquisition/upgrade through the
+  existing authenticated user transaction. Preserve and reject unknown
+  user-modified legacy `grill-me`.
+- [x] Implement Ponytail as an exact Codex plugin source. Keep plugin install,
+  hook trust, and global `full` default as independent approvals; never mutate
+  plugin source or plugin cache directly.
+- [x] Route approved project candidates and disclosed dependencies through the
+  existing project contract/snapshot transaction. Preserve the diagnostic,
+  test-seam, architecture-authority, and merge/rebase authorization bounds.
+- [x] Keep MCP/CLI approvals separate. Install only exact CodeGraph and
+  fast-context npm versions/integrities, verify ripgrep release digests, never
+  run `codegraph init`, and block fast-context recommendation for strict data
+  boundaries.
+- [x] Record secret-free approvals and immutable source identities in the
+  approved project contract and ownership/source manifests. Make status,
+  update, rollback, uninstall, and recovery idempotent and drift-safe.
+- [x] Repair the Project Init interactive contract boundary: compile explicit
+  catalog/project-third-party choices from a fingerprinted draft only after the
+  final confirmation, validate dependency and strict-boundary failures before
+  mutation, and then run the existing approved-contract path. Add coverage for
+  draft yes/install, approved-contract no-extra-choice, cancellation,
+  dependency/boundary rejection, and zero `.claude` output.
+- [x] Bind strict data boundaries to `security.strictDataBoundary` in the
+  contract: drafts may defer it, approved contracts require a boolean, and the
+  effective boundary is contract OR CLI. Contract-driven strict mode blocks
+  fast-context without relying on a repeated CLI flag.
+- [x] Offer Caveman as a pinned, recommended global Skill candidate without
+  preselecting it. Install it only after explicit approval, in the same
+  ownership-last transaction as any other approved global Skill.
+- [x] Update initializer Skill/docs/examples and the clean-install baseline.
+  Run focused RED→GREEN tests, full Harness/CCG/Go gates, source verification,
+  doctor, context/conflicts, change/quality/security verification, and
+  `git diff --check`.
+- [ ] Commit on `codex/init-third-party-approval`, push, and create a Draft PR.
+  Do not merge.
+
+Verification for the approved consent implementation on 2026-07-26:
+
+- Third-party approval, CLI, global-action, and guided-init suites passed
+  96/96. The complete Harness suite passed 285/286 with only the
+  Windows-hosted POSIX permission case skipped.
+- CCG lint, typecheck, and build passed. The complete single-worker CCG suite
+  passed 458/458; the default parallel run's two Windows temporary-directory
+  timeouts were reproduced as resource contention and passed in isolation.
+- Native Go short tests and build passed. The local Go 1.23.6 result does not
+  replace the repository CI matrix pinned to Go 1.26.5.
+- Source verification pinned the third-party manifest digest
+  `f91e89fd61f492b4ea49ca650099f811e2acc15c065dcfe822d5380f4ba3e75f`
+  and validator digest
+  `ee1996a444ca1f1a63bbc831243519c1fcd4af2eaa5a4989ced48b8bc39d144c`.
+  Doctor, context, conflict audit, JSON parsing, and `git diff --check` passed;
+  the conflict audit reported 0 blocking and 0 warnings.
+- CCG change/quality/security routes completed without blocking exit codes.
+  Structural quality reported no errors and 104 non-blocking complexity
+  warnings; security reported zero Critical, High, Medium, or Low findings.
+- Final review closed the target-path traversal, activation/ownership TOCTOU,
+  lock ownership, strict-data-boundary contract, and authenticated global
+  action hard-kill recovery findings. File effects recover only after exact
+  hash verification; uncertain Ponytail host effects remain `manual-pending`
+  and are never replayed or claimed.
 
 ## Rollback point
 

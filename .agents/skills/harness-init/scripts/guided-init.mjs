@@ -226,7 +226,13 @@ function validateGlobalManifest(manifest) {
   const expected = [...GLOBAL_PLATFORM_SKILLS].sort((left, right) =>
     left.localeCompare(right),
   );
-  if (canonicalJson(names) !== canonicalJson(expected)) {
+  const legacyExpected = [...expected, "grill-me"].sort((left, right) =>
+    left.localeCompare(right),
+  );
+  if (
+    canonicalJson(names) !== canonicalJson(expected) &&
+    canonicalJson(names) !== canonicalJson(legacyExpected)
+  ) {
     throw new Error("Global Skill ownership manifest has an invalid Skill set.");
   }
   return manifest;

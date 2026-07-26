@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import test from 'node:test'
@@ -9,6 +10,14 @@ const SKILL_ROOT = path.join(ROOT, '.agents', 'skills', 'harness-init')
 
 async function readSkillFile(...parts) {
   return readFile(path.join(SKILL_ROOT, ...parts), 'utf8')
+}
+
+function canonicalJson(value) {
+  return `${JSON.stringify(value, null, 2)}\n`
+}
+
+function sha256(value) {
+  return createHash('sha256').update(value).digest('hex')
 }
 
 test('harness-init is a discoverable project-start skill', async () => {
@@ -73,6 +82,14 @@ test('harness-init covers the complete constraint contract and safe handoff', as
   assert.ok(template.security)
   assert.ok(template.providers)
   assert.ok(template.source)
+  assert.deepEqual(template.thirdParty, {
+    sourceManifestSha256: null,
+    globalSkills: [],
+    globalPlugins: [],
+    projectSkills: [],
+    mcpCli: [],
+    excluded: [],
+  })
 })
 
 test('harness-init delegates contract mutation to the executable validator', async () => {
@@ -90,9 +107,10 @@ test('harness-init delegates contract mutation to the executable validator', asy
   assert.match(core, /Credential or secret/)
   assert.equal(schema.properties.authorities.properties.lifecycle.const, 'trellis')
   assert.equal(schema.properties.workflow.properties.dispatchMode.const, 'inline')
+  assert.ok(schema.required.includes('thirdParty'))
 })
 
-test('harness-init refines and reuses the 14-Skill global platform profile', async () => {
+test('harness-init refines and reuses the 13-Skill global platform profile', async () => {
   const skill = await readSkillFile('SKILL.md')
   const template = JSON.parse(
     await readSkillFile('assets', 'project-contract.template.json'),
@@ -113,7 +131,6 @@ test('harness-init refines and reuses the 14-Skill global platform profile', asy
   assert.deepEqual(template.skills, {
     globalPolicy: 'minimal-essential-only',
     globalEssential: [
-      'grill-me',
       'harness-init',
       'trellis-before-dev',
       'trellis-brainstorm',
@@ -165,4 +182,51 @@ test('root AGENTS projects the canonical collaboration policy', async () => {
     policy.trim(),
   )
   assert.equal(pinnedPolicy, policy)
+})
+
+test('root Harness contract pins the 13-core and reject-all third-party baseline', async () => {
+  const contractText = await readFile(
+    path.join(ROOT, '.harness', 'project.json'),
+    'utf8',
+  )
+  const schemaText = await readFile(
+    path.join(ROOT, '.harness', 'project.schema.json'),
+    'utf8',
+  )
+  const sourceText = await readFile(
+    path.join(ROOT, '.harness', 'third-party-sources.json'),
+    'utf8',
+  )
+  const ownership = JSON.parse(
+    await readFile(path.join(ROOT, '.harness', 'ownership.json'), 'utf8'),
+  )
+  const distributionSchema = await readSkillFile(
+    'assets',
+    'project-contract.schema.json',
+  )
+  const distributionSource = await readSkillFile(
+    'assets',
+    'third-party-sources.json',
+  )
+  const contract = JSON.parse(contractText)
+  const sourceSha256 = sha256(canonicalJson(JSON.parse(sourceText)))
+
+  assert.equal(contract.skills.globalEssential.length, 13)
+  assert.equal(contract.skills.globalEssential.includes('grill-me'), false)
+  assert.deepEqual(contract.thirdParty, {
+    sourceManifestSha256: sourceSha256,
+    globalSkills: [],
+    globalPlugins: [],
+    projectSkills: [],
+    mcpCli: [],
+    excluded: [],
+  })
+  assert.equal(schemaText, canonicalJson(JSON.parse(distributionSchema)))
+  assert.equal(sourceText, canonicalJson(JSON.parse(distributionSource)))
+  assert.equal(ownership.contractSha256, sha256(contractText))
+  assert.equal(ownership.schemaSha256, sha256(schemaText))
+  assert.equal(ownership.thirdPartySourceManifestSha256, sourceSha256)
+  assert.ok(
+    ownership.managedPaths.includes('.harness/third-party-sources.json'),
+  )
 })

@@ -8,6 +8,17 @@ param(
 $ErrorActionPreference = "Stop"
 $RepoRoot = [System.IO.Path]::GetFullPath($RepoRoot)
 $manifestPath = Join-Path $RepoRoot "harness.sources.json"
+$thirdPartyManifestRelativePath = ".agents/skills/harness-init/assets/third-party-sources.json"
+$thirdPartyManifestPath = Join-Path $RepoRoot $thirdPartyManifestRelativePath
+$thirdPartyValidatorRelativePath = ".agents/skills/harness-init/scripts/third-party-approval.mjs"
+$thirdPartyValidatorPath = Join-Path $RepoRoot $thirdPartyValidatorRelativePath
+# This is the SHA-256 of the validated manifest serialized as canonical two-space
+# JSON with one trailing LF. It is deliberately independent from the CCG source
+# provenance so a candidate/source edit cannot silently alter the public baseline.
+$expectedThirdPartyManifestSha256 = "f91e89fd61f492b4ea49ca650099f811e2acc15c065dcfe822d5380f4ba3e75f"
+# Canonical UTF-8 SHA-256 (CRLF normalized to LF) of the shared validator.
+# `-Index` must execute this exact staged source, never a mutable worktree copy.
+$expectedThirdPartyValidatorSha256 = "ee1996a444ca1f1a63bbc831243519c1fcd4af2eaa5a4989ced48b8bc39d144c"
 
 function Assert-Equal {
   param(
@@ -58,6 +69,177 @@ function Test-GitTreePath {
   $gitPath = $RelativePath.Replace('\', '/')
   & git -C $RepoRoot cat-file -e "${Treeish}:$gitPath" 2>$null
   return $LASTEXITCODE -eq 0
+}
+
+function Get-GitTreeBytes {
+  param(
+    [Parameter(Mandatory = $true)][string]$Treeish,
+    [Parameter(Mandatory = $true)][string]$RelativePath
+  )
+
+  $gitPath = $RelativePath.Replace('\', '/')
+  $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+  $startInfo.FileName = "git"
+  $null = $startInfo.ArgumentList.Add("-C")
+  $null = $startInfo.ArgumentList.Add($RepoRoot)
+  $null = $startInfo.ArgumentList.Add("cat-file")
+  $null = $startInfo.ArgumentList.Add("blob")
+  $null = $startInfo.ArgumentList.Add("${Treeish}:$gitPath")
+  $startInfo.UseShellExecute = $false
+  $startInfo.CreateNoWindow = $true
+  $startInfo.RedirectStandardOutput = $true
+  $startInfo.RedirectStandardError = $true
+  $process = [System.Diagnostics.Process]::new()
+  $process.StartInfo = $startInfo
+  if (-not $process.Start()) { throw "Unable to read staged Git blob: $RelativePath" }
+  $stream = [System.IO.MemoryStream]::new()
+  try {
+    $process.StandardOutput.BaseStream.CopyTo($stream)
+    $stderr = $process.StandardError.ReadToEnd()
+    $process.WaitForExit()
+    if ($process.ExitCode -ne 0) {
+      throw "git cat-file blob failed for ${Treeish}:${gitPath}: $stderr"
+    }
+    return ,$stream.ToArray()
+  }
+  finally {
+    $stream.Dispose()
+    $process.Dispose()
+  }
+}
+
+function Get-CanonicalTextSha256 {
+  param([Parameter(Mandatory = $true)][byte[]]$Bytes)
+
+  $utf8 = [System.Text.UTF8Encoding]::new($false, $true)
+  try { $text = $utf8.GetString($Bytes) }
+  catch { throw "Third-party validator must be valid UTF-8 source text." }
+  if ($text.Contains("`r") -and -not $text.Contains("`r`n")) {
+    throw "Third-party validator has unsupported bare CR line endings."
+  }
+  $canonical = $text.Replace("`r`n", "`n")
+  $hash = [System.Security.Cryptography.SHA256]::Create()
+  try {
+    return ([System.Convert]::ToHexString($hash.ComputeHash($utf8.GetBytes($canonical)))).ToLowerInvariant()
+  }
+  finally { $hash.Dispose() }
+}
+
+function New-StagedValidatorFile {
+  param([Parameter(Mandatory = $true)][byte[]]$Bytes)
+
+  $tempRoot = [System.IO.Path]::GetFullPath([System.IO.Path]::GetTempPath())
+  $directory = [System.IO.Path]::GetFullPath((Join-Path $tempRoot "trellis-ccg-staged-validator-$([Guid]::NewGuid().ToString('N'))"))
+  if (-not $directory.StartsWith($tempRoot, [StringComparison]::OrdinalIgnoreCase)) {
+    throw "Refusing to create staged validator outside the system temp root: $directory"
+  }
+  [System.IO.Directory]::CreateDirectory($directory) | Out-Null
+  $file = Join-Path $directory "third-party-approval.mjs"
+  [System.IO.File]::WriteAllBytes($file, $Bytes)
+  return [pscustomobject]@{ Directory = $directory; File = $file; TempRoot = $tempRoot }
+}
+
+function Remove-StagedValidatorFile {
+  param([Parameter(Mandatory = $true)]$TemporaryValidator)
+
+  $directory = [System.IO.Path]::GetFullPath([string]$TemporaryValidator.Directory)
+  $tempRoot = [System.IO.Path]::GetFullPath([string]$TemporaryValidator.TempRoot)
+  if (-not $directory.StartsWith($tempRoot, [StringComparison]::OrdinalIgnoreCase)) {
+    throw "Refusing to remove staged validator outside the system temp root: $directory"
+  }
+  if (Test-Path -LiteralPath $directory) {
+    Remove-Item -LiteralPath $directory -Recurse -Force
+  }
+}
+
+function Get-ThirdPartyManifestSha256 {
+  param(
+    [Parameter(Mandatory = $true)][string]$Mode,
+    [Parameter(Mandatory = $true)][string]$ValidatorPath,
+    [string]$ManifestPath,
+    [string]$ManifestText
+  )
+
+  if (-not (Test-Path -LiteralPath $ValidatorPath -PathType Leaf)) {
+    throw "Third-party source manifest validator is missing: $ValidatorPath"
+  }
+  $validator = [System.IO.Path]::GetFullPath($ValidatorPath)
+  $nodeProgram = @'
+import { createHash } from "node:crypto";
+import { pathToFileURL } from "node:url";
+
+const [validatorPath, mode, manifestPath] = process.argv.slice(1);
+const approval = await import(pathToFileURL(validatorPath).href);
+if (mode === "file") {
+  const loaded = await approval.loadThirdPartySourceManifest({ manifestPath });
+  process.stdout.write(loaded.manifestSha256);
+} else if (mode === "text") {
+  let input = "";
+  for await (const chunk of process.stdin) input += chunk;
+  const manifest = approval.validateThirdPartySourceManifest(JSON.parse(input));
+  process.stdout.write(createHash("sha256").update(`${JSON.stringify(manifest, null, 2)}\n`).digest("hex"));
+} else {
+  throw new Error(`Unsupported third-party source manifest mode: ${mode}`);
+}
+'@
+
+  if ($Mode -eq "file") {
+    $output = & node --input-type=module -e $nodeProgram $validator "file" $ManifestPath 2>&1
+  }
+  elseif ($Mode -eq "text") {
+    $output = $ManifestText | & node --input-type=module -e $nodeProgram $validator "text" 2>&1
+  }
+  else {
+    throw "Unsupported third-party source manifest mode: $Mode"
+  }
+  if ($LASTEXITCODE -ne 0) {
+    throw "Third-party source manifest validation failed: $($output -join [Environment]::NewLine)"
+  }
+  $digest = ($output -join "").Trim().ToLowerInvariant()
+  if ($digest -notmatch '^[0-9a-f]{64}$') {
+    throw "Third-party source manifest validator returned an invalid SHA-256 digest."
+  }
+  return $digest
+}
+
+function Assert-ThirdPartySourceManifest {
+  param(
+    [Parameter(Mandatory = $true)][string]$Treeish,
+    [Parameter(Mandatory = $true)][bool]$UseIndex
+  )
+
+  if ($UseIndex) {
+    if (-not (Test-GitTreePath -Treeish $Treeish -RelativePath $thirdPartyManifestRelativePath)) {
+      throw "Third-party source manifest is missing from the staged Git tree."
+    }
+    if (-not (Test-GitTreePath -Treeish $Treeish -RelativePath $thirdPartyValidatorRelativePath)) {
+      throw "Third-party source manifest validator is missing from the staged Git tree."
+    }
+    $validatorBytes = Get-GitTreeBytes -Treeish $Treeish -RelativePath $thirdPartyValidatorRelativePath
+    $validatorSha256 = Get-CanonicalTextSha256 -Bytes $validatorBytes
+    Assert-Equal "Staged third-party source manifest validator SHA-256" $expectedThirdPartyValidatorSha256 $validatorSha256
+    $temporaryValidator = New-StagedValidatorFile -Bytes $validatorBytes
+    try {
+      $manifestText = Get-GitTreeText -Treeish $Treeish -RelativePath $thirdPartyManifestRelativePath
+      $actual = Get-ThirdPartyManifestSha256 -Mode "text" -ValidatorPath $temporaryValidator.File -ManifestText $manifestText
+    }
+    finally {
+      Remove-StagedValidatorFile -TemporaryValidator $temporaryValidator
+    }
+  }
+  else {
+    if (-not (Test-Path -LiteralPath $thirdPartyManifestPath -PathType Leaf)) {
+      throw "Third-party source manifest not found: $thirdPartyManifestPath"
+    }
+    if (-not (Test-Path -LiteralPath $thirdPartyValidatorPath -PathType Leaf)) {
+      throw "Third-party source manifest validator not found: $thirdPartyValidatorPath"
+    }
+    $validatorSha256 = Get-CanonicalTextSha256 -Bytes ([System.IO.File]::ReadAllBytes($thirdPartyValidatorPath))
+    Assert-Equal "Third-party source manifest validator SHA-256" $expectedThirdPartyValidatorSha256 $validatorSha256
+    $actual = Get-ThirdPartyManifestSha256 -Mode "file" -ValidatorPath $thirdPartyValidatorPath -ManifestPath $thirdPartyManifestPath
+  }
+  Assert-Equal "Third-party source manifest canonical SHA-256" $expectedThirdPartyManifestSha256 $actual
+  return $actual
 }
 
 function Normalize-RepositoryUrl([string]$Url) {
@@ -155,6 +337,8 @@ else {
   $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
 }
 
+$thirdPartyManifestSha256 = Assert-ThirdPartySourceManifest -Treeish $treeish -UseIndex ([bool]$Index)
+
 $componentRoot = Join-Path $RepoRoot ([string]$manifest.ccg.snapshotPath)
 $trellisVersionPath = Join-Path $RepoRoot ".trellis/.version"
 $ccgPackagePath = Join-Path $componentRoot "package.json"
@@ -246,6 +430,7 @@ Write-Output "  CCG:      $($ccgPackage.version)"
 Write-Output "  Commit:   $($manifest.ccg.commit)"
 Write-Output "  Git tree: $actualTree"
 Write-Output "  Source:   $($manifest.ccg.authoritativeRepository)"
+Write-Output "  Third-party manifest SHA-256: $thirdPartyManifestSha256"
 
 # PowerShell can propagate the last native command's non-zero status when the
 # script exits on Linux. The cat-file probes above intentionally expect

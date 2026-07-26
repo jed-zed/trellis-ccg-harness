@@ -87,9 +87,12 @@ Adopt the recommended layered-adapter architecture without losing the complete p
 - Initialize Trellis project integrations for this distribution through
   `.agents/` and `.codex/` only. The absence of generated project `.claude/`
   assets is the expected healthy state.
-- Bundle all 14 public Harness platform Skills, including `grill-me`, in the
-  Harness distribution and project them globally as owned copies. `grill-me`
-  is no longer an external runtime prerequisite.
+- Bundle only the 13 Harness/Trellis core Skills in the public distribution.
+  `grill-me` is third-party software and must never be projected by default.
+- Offer the pinned `grill-me` plus `grilling` pair as one optional global
+  dependency unit. A declined dependency skips the pair without blocking core
+  initialization. An approved upgrade from the legacy self-contained
+  `grill-me` is atomic and refuses user-modified content.
 - Publish the 45 personal Skills as a separate private catalog until each
   Skill's provenance and licence permit public redistribution. The public
   Harness baseline must work without that catalog; authenticated users may opt
@@ -112,6 +115,65 @@ Adopt the recommended layered-adapter architecture without losing the complete p
 - Make global Skill projection, project selection revision, backup, rollback,
   and global `AGENTS.md` repository discovery ownership-aware, transactional,
   idempotent, and fail-closed on user edits or concurrent drift.
+
+## Approved third-party initialization consent extension
+
+This section supersedes the earlier fixed `14 global / 45 catalog / 2 project`
+release assumptions. Their completed migration evidence remains historical;
+future initialization follows this contract.
+
+- Core initialization remains `harness-init + Trellis + CCG` and is fully
+  usable when every third-party candidate is declined.
+- The initializer presents four separate groups: global Skills, global
+  plugins, project Skills, and MCP/CLI. Every third-party item is unselected by
+  default and requires a candidate-specific approval bound to the exact source
+  manifest digest.
+- Global Skill candidates are one atomic `grill-me + grilling` unit from
+  `mattpocock/skills` commit
+  `ed37663cc5fbef691ddfecd080dff42f7e7e350d`, plus Caveman `v1.9.1`
+  from `JuliusBrussee/caveman` commit
+  `0d95a81d35a9f2d123a5e9430d1cfc43d55f1bb0`. They are recommended
+  separately and remain unselected until the user explicitly approves them.
+- Global plugin candidate: Ponytail `4.8.4` from commit
+  `bc9ee949d5f439e8b9f3bb92c6d6d3d1e6ebd324`. Plugin installation, lifecycle
+  hook trust, and global `full` default are three independent approvals.
+- Project candidates from the same pinned Matt Skills commit are
+  `diagnosing-bugs`, `tdd`, `codebase-design`,
+  `resolving-merge-conflicts`, `writing-great-skills`, `prototype`,
+  `improve-codebase-architecture`, and `domain-modeling`.
+  `writing-great-skills` is recommended only for Harness/Skill maintenance.
+  `improve-codebase-architecture` must disclose and obtain approval for
+  `codebase-design`, `grilling`, and `domain-modeling` as dependencies.
+- MCP/CLI candidates are separate from Skills:
+  `@colbymchenry/codegraph@1.5.0` at commit
+  `ea72e1b190921232aa7bd02e96bef5bbe4fe0ab6`,
+  `fast-context-mcp@1.5.2` at commit
+  `3595cfcb2cf1c50660351165cdb71101d0996747`, and ripgrep `15.2.0` at
+  commit `e89fff89ac9af12e8d4ce9d5fd07beb408ca730f`.
+  CodeGraph installation never authorizes `codegraph init`. fast-context
+  warns that query text, repository trees, and local search results are sent
+  to Windsurf; strict-data-boundary projects leave it unselected.
+- Matt Pocock candidates outside the approved subset — `ask-matt`,
+  `setup-matt-pocock-skills`, `grill-with-docs`, `triage`, `to-spec`,
+  `to-tickets`, `implement`, `wayfinder`, `code-review`, `research`,
+  `handoff`, and `teach` are excluded from the install catalog.
+- Each preview includes purpose, repository, exact source path and immutable
+  revision, licence, scope, dependencies, write paths, scripts/hooks/
+  executables/network behavior, data-egress risk, and update/rollback/
+  uninstall behavior.
+- Source acquisition and installation use immutable commit/version/integrity
+  facts only. `main`, `latest`, and `@latest` are forbidden as execution
+  selectors.
+- Approval records are secret-free and are written to the approved project
+  contract and ownership/source manifests. Third-party source, plugin cache,
+  MCP source, and Skill contents are never edited by Harness.
+- Installation reuses the authenticated transaction, CAS drift checks,
+  journal, backup, ownership-last commit, recovery, and rollback mechanisms.
+  Existing exact installations are unchanged; source, target, or user-edit
+  drift fails closed.
+- Ponytail, Caveman, fast-context, and CodeGraph are visibly recommended in
+  their correct groups. Recommendations never preselect a candidate or count
+  as approval; an explicit yes is required before installation.
 
 ## Acceptance Criteria
 
@@ -213,16 +275,17 @@ Adopt the recommended layered-adapter architecture without losing the complete p
 - [x] The released Codex-only CCG is versioned `3.3.2`, all user-facing
   package/plugin/config metadata agrees, and the Harness snapshot plus
   `harness.sources.json` bind its exact committed tree.
-- [ ] A fresh Harness installation projects all 14 bundled public platform
-  Skills, including `grill-me`, without relying on an existing global Skill
-  checkout or a personal catalog.
+- [ ] A fresh Harness installation projects exactly the 13 bundled
+  Harness/Trellis core Skills. Declining all third-party candidates installs no
+  `grill-me`, `grilling`, Caveman, Ponytail, project Skill, MCP, CLI, hook, or global
+  Ponytail default and still completes ordinary initialization.
 - [ ] Initial setup offers host-native structured choices where the host
   supports them; the TTY fallback presents numbered one-at-a-time choices, and
   automation has explicit non-interactive flags with no implicit selection.
 - [ ] Global Init reports installation and authentication status for Codex,
   Gemini, Grok, and Claude Code; installs/verifies Trellis, the CCG Codex-only
-  CLI/plugin, and all 14 platform Skills; then records the user's private/local/
-  skipped personal-catalog decision.
+  CLI/plugin, and all 13 core platform Skills; then presents separate,
+  default-unselected global Skill, global plugin, and MCP/CLI approval groups.
 - [ ] Every network access, tool installation, and authentication action has a
   distinct preview and approval. Declining one optional action leaves a clear
   skipped/residual status instead of blocking unrelated offline setup.
@@ -231,8 +294,20 @@ Adopt the recommended layered-adapter architecture without losing the complete p
   acceptance profile while the Harness/CCG no-`.claude` invariant remains.
 - [ ] Project Init derives recommended project Skills from repository evidence
   and confirmed technology choices, obtains approval for the complete project
-  constraint summary, writes the owned contract, and runs the required doctor,
-  conflict, quality, security, and readiness gates.
+  constraint summary plus every disclosed dependency, writes the approved
+  third-party selections into the owned contract, and runs the required
+  doctor, conflict, quality, security, and readiness gates.
+- [x] Interactive Project Init accepts a complete non-Skill draft contract,
+  presents default-unselected catalog and project-third-party choices, and only
+  after final approval atomically compiles the source digest, exact selections,
+  reasons, and managed paths into the approved contract before installation.
+  An approved contract only permits confirmation of its recorded selection;
+  non-interactive mode continues to consume an exact approved contract.
+- [ ] Focused tests cover reject-all, partial approval, dependency approval and
+  rejection, repeat execution, legacy `grill-me` atomic migration, user-edit
+  drift, hard interruption recovery, unavailable external sources, Ponytail
+  hook rejection independent of plugin installation, missing CodeGraph index,
+  and fast-context rejection for strict data boundaries.
 - [ ] Setup offers three personal-catalog choices: the authenticated private
   catalog, an existing local Git catalog, or skip. Its default/public baseline
   does not require the private catalog.
@@ -251,6 +326,8 @@ Adopt the recommended layered-adapter architecture without losing the complete p
 - Do not call Claude during planning, implementation, review, or verification.
 - Do not restore or create `C:\Users\29933\.claude` or project `.claude/`.
 - Do not call Grok during this implementation; retain only the optional provider contract and offline tests.
+- Do not use Caveman conversational compression for this task.
+- Do not merge the implementation branch. Push it and create a Draft PR.
 - Do not modify or restage the two Windows endpoint-protection false-positive files.
 - Do not write the supplied API key to Git, task artifacts, shell history, logs, or test fixtures.
 - Ordinary CI remains offline and does not call paid models.

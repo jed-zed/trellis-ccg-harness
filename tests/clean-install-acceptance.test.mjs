@@ -29,7 +29,6 @@ const PUBLIC_BASELINE_CONTRACT = path.join(
   "public-baseline-approved-contract.json",
 );
 const GLOBAL_PLATFORM_SKILLS = [
-  "grill-me",
   "harness-init",
   "trellis-before-dev",
   "trellis-brainstorm",
@@ -207,6 +206,17 @@ function initializeHarnessSource(sourceRoot) {
   write(
     path.join(sourceRoot, "scripts", "bootstrap.ps1"),
     'throw "fixture bootstrap must be replaced by the phase mock"\n',
+  );
+  write(
+    path.join(sourceRoot, "scripts", "harness-init.mjs"),
+    [
+      "#!/usr/bin/env node",
+      'if (process.argv[2] !== "third-party-plan") {',
+      '  throw new Error("fixture only supports third-party-plan");',
+      "}",
+      'console.log(JSON.stringify({ sourceManifestSha256: "a".repeat(64) }));',
+      "",
+    ].join("\n"),
   );
   write(path.join(sourceRoot, "release-marker.txt"), "selected-ref\n");
   git(sourceRoot, "add", "--all");
@@ -450,6 +460,35 @@ test("offline clean-install acceptance materializes an exact ref in isolated roo
       "ready",
     );
     assert.deepEqual(findClaudeDirectories(value.workingRoot), []);
+    for (const thirdPartySkill of [
+      "grill-me",
+      "grilling",
+      "diagnosing-bugs",
+      "caveman",
+    ]) {
+      assert.equal(
+        existsSync(
+          path.join(value.isolation.home, ".agents", "skills", thirdPartySkill),
+        ),
+        false,
+      );
+      assert.equal(
+        existsSync(
+          path.join(value.isolation.project, ".agents", "skills", thirdPartySkill),
+        ),
+        false,
+      );
+    }
+    for (const thirdPartyRuntime of [
+      ".agents/harness/sources/ponytail",
+      ".agents/harness/tools/codegraph",
+      ".agents/harness/tools/fast-context",
+    ]) {
+      assert.equal(
+        existsSync(path.join(value.isolation.home, thirdPartyRuntime)),
+        false,
+      );
+    }
     assert.equal(
       readFileSync(path.join(value.outsideHome, "sentinel.txt"), "utf8"),
       "untouched\n",
@@ -755,10 +794,70 @@ test("command interface exposes guided setup as an explicit phase contract", () 
       "--catalog-mode",
     ),
   );
+  for (const flag of [
+    "--third-party-global-skills",
+    "--third-party-global-plugins",
+    "--third-party-mcp-cli",
+    "--third-party-source-sha256",
+  ]) {
+    assert.ok(description.liveCommands.globalSkills[0].arguments.includes(flag));
+  }
+  assert.equal(
+    description.liveCommands.globalSkills[0].arguments[
+      description.liveCommands.globalSkills[0].arguments.indexOf(
+        "--third-party-global-skills",
+      ) + 1
+    ],
+    "none",
+  );
+  assert.equal(
+    description.liveCommands.globalSkills[0].arguments[
+      description.liveCommands.globalSkills[0].arguments.indexOf(
+        "--third-party-global-plugins",
+      ) + 1
+    ],
+    "none",
+  );
+  assert.equal(
+    description.liveCommands.globalSkills[0].arguments[
+      description.liveCommands.globalSkills[0].arguments.indexOf(
+        "--third-party-mcp-cli",
+      ) + 1
+    ],
+    "none",
+  );
+  assert.equal(
+    description.liveCommands.globalSkills[0].arguments[
+      description.liveCommands.globalSkills[0].arguments.indexOf(
+        "--third-party-source-sha256",
+      ) + 1
+    ],
+    "{thirdPartySourceSha256}",
+  );
   assert.ok(
     description.liveCommands.projectInit[0].arguments.includes(
       "--no-project-skills",
     ),
+  );
+  assert.equal(
+    description.liveCommands.projectInit[0].arguments[
+      description.liveCommands.projectInit[0].arguments.indexOf(
+        "--third-party-project-skills",
+      ) + 1
+    ],
+    "none",
+  );
+  assert.equal(
+    description.liveCommands.projectInit[0].arguments[
+      description.liveCommands.projectInit[0].arguments.indexOf(
+        "--third-party-source-sha256",
+      ) + 1
+    ],
+    "{thirdPartySourceSha256}",
+  );
+  assert.match(
+    description.tokens["{thirdPartySourceSha256}"],
+    /canonical.*SHA-256/i,
   );
   assert.ok(
     description.liveCommands.markReady[0].arguments.includes("mark-ready"),
