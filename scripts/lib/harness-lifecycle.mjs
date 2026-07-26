@@ -394,6 +394,18 @@ function packageEntryPath(globalRoot, packageName) {
   return path.join(path.resolve(globalRoot), ...packageName.split("/"));
 }
 
+export function globalPackageRootFromNpmPrefix(prefix, options = {}) {
+  const configuredPrefix = String(prefix ?? "").trim();
+  if (!configuredPrefix) return null;
+  if (configuredPrefix.includes("\0")) {
+    throw new Error("NPM global prefix must not contain a NUL character.");
+  }
+  const canonicalPrefix = path.resolve(configuredPrefix);
+  return options.platform === "win32"
+    ? path.join(canonicalPrefix, "node_modules")
+    : path.join(canonicalPrefix, "lib", "node_modules");
+}
+
 function filesystemIdentity(details) {
   return {
     dev: String(details.dev),

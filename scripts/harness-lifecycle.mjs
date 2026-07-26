@@ -20,6 +20,7 @@ import {
   assertNoIgnoredComponentState,
   assertSparseExclusionsUnchanged,
   compareSemanticVersions,
+  globalPackageRootFromNpmPrefix,
   globalPackageSnapshotsEqual,
   inspectGlobalPackage,
   parseSparseArchiveExclusions,
@@ -125,7 +126,12 @@ function samePath(left, right) {
 }
 
 async function observeGlobalPackages() {
-  const globalRoot = run("npm", ["root", "-g"], { capture: true });
+  // npm 11 redacts UUID path segments in `npm root -g` output. An explicit
+  // prefix is already the authoritative install location, so derive it here.
+  const globalRoot = globalPackageRootFromNpmPrefix(
+    process.env.NPM_CONFIG_PREFIX,
+    { platform: process.platform },
+  ) ?? run("npm", ["root", "-g"], { capture: true });
   const [trellis, ccg] = await Promise.all([
     inspectGlobalPackage(globalRoot, "@mindfoldhq/trellis"),
     inspectGlobalPackage(globalRoot, "ccg-workflow"),

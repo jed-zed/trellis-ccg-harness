@@ -20,6 +20,7 @@ import {
   buildRestoreAction,
   assertSparseExclusionsUnchanged,
   compareSemanticVersions,
+  globalPackageRootFromNpmPrefix,
   globalPackageSnapshotsEqual,
   inspectGlobalPackage,
   parseSparseArchiveExclusions,
@@ -433,6 +434,27 @@ test("global package identity resolves the real npm entry target with spaces", a
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("explicit npm prefixes resolve global package roots without querying npm", () => {
+  const prefix = path.join(ROOT, "isolated npm prefix with spaces");
+  assert.equal(
+    globalPackageRootFromNpmPrefix(prefix, { platform: "win32" }),
+    path.join(path.resolve(prefix), "node_modules"),
+  );
+  assert.equal(
+    globalPackageRootFromNpmPrefix(prefix, { platform: "linux" }),
+    path.join(path.resolve(prefix), "lib", "node_modules"),
+  );
+  assert.equal(globalPackageRootFromNpmPrefix("   "), null);
+  assert.equal(
+    globalPackageRootFromNpmPrefix("relative npm prefix", { platform: "win32" }),
+    path.join(path.resolve("relative npm prefix"), "node_modules"),
+  );
+  assert.throws(
+    () => globalPackageRootFromNpmPrefix("invalid\0prefix"),
+    /NUL/i,
+  );
 });
 
 test("ordinary global package identity detects non-manifest file changes", async () => {
