@@ -67,9 +67,14 @@ This gate does not apply to empty-input usage/help responses.
    - If high-impact ambiguity remains, ask the user before writing any plan.
 
 3. **Search project context**
-   - Prefer `mcp__ace-tool__search_context` when available.
-   - Fall back to `mcp__fast-context__fast_context_search` if available, then `rg`, PowerShell-native search, `Glob`, `Grep`, and targeted file reads.
-   - If ace-tool, fast-context, or `rg` fail because credentials are missing or access is denied, continue with targeted reads and exact search instead of aborting.
+   - Read the current project's `AGENTS.md` and follow its search policy.
+   - For known identifiers, filenames, literals, or error messages, use `rg`.
+   - Use an approved semantic search tool only when the project policy calls
+     for it and the user has explicitly approved its installation. Do not
+     install, configure, or enable an MCP server from this workflow.
+   - Do not invoke ace-tool or create a CodeGraph index automatically. If an
+     optional search tool is absent or unavailable, continue with targeted
+     reads and exact search instead of aborting.
    - Gather enough evidence to name key files, symbols, existing patterns, and verification commands. Do not invent paths.
 
 4. **Run Gemini read-only analysis**

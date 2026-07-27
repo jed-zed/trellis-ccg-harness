@@ -307,6 +307,14 @@ $pluginJson = Join-PathMany $PluginRoot ".codex-plugin" "plugin.json"
 $mcpJson = Join-Path $PluginRoot ".mcp.json"
 $pluginManifest = Test-JsonFile "plugin manifest" $pluginJson
 $mcpManifest = Test-JsonFile "plugin MCP manifest" $mcpJson
+if ($null -ne $mcpManifest) {
+  $bundledMcpNames = @($mcpManifest.mcpServers.PSObject.Properties | ForEach-Object { $_.Name })
+  if ($bundledMcpNames.Count -eq 0) {
+    Add-Check "bundled third-party MCP default" "PASS" "No third-party MCP is bundled or started by default."
+  } else {
+    Add-Check "bundled third-party MCP default" "FAIL" "Unexpected bundled MCP: $($bundledMcpNames -join ', ')" "Remove it from the plugin manifest; install third-party MCPs only after explicit user approval."
+  }
+}
 
 $commandsDir = Join-Path $PluginRoot "commands"
 $skillsDir = Join-Path $PluginRoot "skills"
@@ -657,8 +665,8 @@ if ($codexCommand) {
   Add-Check "codex mcp list" "SKIP" "codex CLI is unavailable."
 }
 
-Test-McpName "context7" $mcpOutput
-Test-McpName "fast-context" $mcpOutput
+Test-McpName "context7" $mcpOutput -Optional
+Test-McpName "fast-context" $mcpOutput -Optional
 Test-McpName "ace-tool" $mcpOutput -Optional
 Test-McpName "grok-search" $mcpOutput -Optional
 

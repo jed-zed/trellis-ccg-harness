@@ -333,6 +333,10 @@ Verification for the approved consent implementation on 2026-07-27:
 - The single final Harness run passed 361/364 with zero failures and three
   Windows symlink/permission cases skipped. Source verification, doctor,
   adapter context, and conflicts also passed; conflicts reported no blockers.
+- The official Harness updater replaced `components/ccg-workflow/` from exact
+  CCG `3.3.3` commit `8bdad64e4e5ccad75e1086ae31ad757e6bbdbef8`
+  (tree `847efc20ca938a9c4ded003122f96dbb6ebfb086`) after its mandatory
+  lint/typecheck/test/build/Go/Harness gates completed successfully.
 - Native Go short tests and build passed. The local Go 1.23.6 result does not
   replace the repository CI matrix pinned to Go 1.26.5.
 - Source verification pinned the third-party manifest digest

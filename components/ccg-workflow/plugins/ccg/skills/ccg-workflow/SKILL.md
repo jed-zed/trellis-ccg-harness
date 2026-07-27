@@ -18,7 +18,9 @@ Load `skills/ccg-executor/SKILL.md` for the full rule.
 Explain in Chinese:
 
 - Original CCG: Claude Code orchestrates Codex + Gemini.
-- Codex CCG: Codex creates plans, orchestrates execution, and applies final code; Gemini and Claude assist as bounded read-only evidence helpers. M+ complexity and risky review paths use Gemini + Claude, matching the Codex-native parity rules from `fengshao1227/ccg-workflow`.
+- Codex CCG: Codex creates plans, orchestrates execution, and applies final
+  code; Gemini may assist as a bounded read-only helper when active project
+  policy requires it. Claude is disabled and is neither invoked nor required.
 - Gemini browser preview is automatic whenever the workflow calls Gemini. `/ccg:gemini-preview` is only a manual smoke-test/debug entry for that same helper. Claude is disabled in Codex-only mode.
 
 If the user supplies a plan path or task, route it to `/ccg:execute`.

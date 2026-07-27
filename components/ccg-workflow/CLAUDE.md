@@ -2,15 +2,19 @@
 
 > [根目录](../CLAUDE.md) > **skills-v2**
 
-**Last Updated**: 2026-07-26 (v3.3.2)
+**Last Updated**: 2026-07-26 (v3.3.3)
 
-> 本文档已同步 v3.3.2 的版本、Codex 原生分发边界和显式 Codex doctor；较早章节仍保留历史架构背景，完整历史见 [CHANGELOG.md](./CHANGELOG.md)。
+> 本文档已同步 v3.3.3 的版本、Codex 原生分发边界和显式 Codex doctor；较早章节仍保留历史架构背景，完整历史见 [CHANGELOG.md](./CHANGELOG.md)。
 
 ---
 
 ## 变更记录 (Changelog)
 
 > 完整变更历史请查看 [CHANGELOG.md](./CHANGELOG.md)
+
+### 2026-07-26 (v3.3.3)
+- 🔒 **批准边界**：Codex 插件默认不注册第三方 MCP；任何第三方 Skill、插件或 MCP 必须由 Harness 或项目所有者取得用户明确批准后再安装。
+- 🔍 **检索路由**：Codex 侧 rules/skills 遵循项目 `AGENTS.md`，不调用 ace-tool，也不自动运行 `codegraph init`。
 
 ### 2026-07-26 (v3.3.2)
 - ✨ **显式 Codex doctor**：新增 `ccg doctor --platform codex`，独立校验 Codex 托管 AGENTS 区块、版本标记、所有权摘要、托管文件和中断事务，不要求存在 Claude 安装。

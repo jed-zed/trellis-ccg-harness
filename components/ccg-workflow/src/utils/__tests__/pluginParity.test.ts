@@ -59,6 +59,7 @@ describe('Codex plugin release parity', () => {
     const offenders: Array<{ path: string, pattern: string }> = []
     const forbidden = [
       '~/.claude',
+      '.claude/',
       '.claude/plan',
       '--backend claude',
       '--require-claude-evidence',
@@ -86,6 +87,26 @@ describe('Codex plugin release parity', () => {
       }
     }
     expect(offenders).toEqual([])
+  })
+
+  it('ships no pre-approved executable MCP or automatic semantic-search route', () => {
+    const pluginRoot = join(root, 'plugins', 'ccg')
+    const mcpManifest = readJson(join(pluginRoot, '.mcp.json'))
+    expect(mcpManifest).toEqual({ mcpServers: {} })
+    expect(JSON.stringify(mcpManifest)).not.toMatch(/\bnpx\b/i)
+
+    const routingSurfaces = [
+      'rules/ccg-fast-context.md',
+      'skills/ccg-plan/SKILL.md',
+      'skills/ccg-executor/SKILL.md',
+      'skills/ccg-feat/SKILL.md',
+    ]
+    for (const relativePath of routingSurfaces) {
+      const content = fs.readFileSync(join(pluginRoot, relativePath), 'utf8')
+      expect(content, relativePath).toContain('explicit')
+      expect(content, relativePath).not.toMatch(/mcp__(?:ace-tool|fast-context)/i)
+      expect(content, relativePath).toMatch(/(?:Do not run\s+`codegraph init`\s+automatically|create\s+a\s+CodeGraph index automatically)/i)
+    }
   })
 
   it('runs offline CI on Linux and Windows while keeping paid Grok smoke manual', () => {

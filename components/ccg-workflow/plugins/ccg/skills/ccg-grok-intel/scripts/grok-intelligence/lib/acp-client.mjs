@@ -374,7 +374,16 @@ async function acquireCredentialHomeLease(grokHome, {
     }
     catch (error) {
       if (error?.code !== 'EEXIST') throw error
-      const metadata = await lstat(leasePath)
+      let metadata
+      try {
+        metadata = await lstat(leasePath)
+      }
+      catch (metadataError) {
+        // Another holder can release the directory after mkdir reports EEXIST.
+        // Its absence is therefore a normal acquisition race, not a lease fault.
+        if (metadataError?.code === 'ENOENT') continue
+        throw metadataError
+      }
       if (!metadata.isDirectory() || metadata.isSymbolicLink())
         throw new Error('Credential lease path is not a regular directory')
       if (await reclaimAbandonedCredentialLease(leasePath, ownerPath, isAlive))

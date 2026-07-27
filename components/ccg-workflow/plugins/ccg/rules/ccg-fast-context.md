@@ -1,12 +1,18 @@
 # CCG Fast Context Rule
 
-Use `ace-tool` as the primary semantic code search tool when it is configured in Codex.
+Follow the current project's `AGENTS.md` and its code-search policy before
+choosing a search tool. CCG does not install, register, or enable MCP servers.
+Third-party search tools may be used only after the user has explicitly
+approved their installation and the current project policy permits them.
 
-Use `fast-context` as a supplement when:
+Use this default routing when no stronger project rule applies:
 
-- the query is naturally expressed as behavior or intent rather than exact symbols;
-- the task needs cross-module or cross-layer flow discovery;
-- Chinese semantic search is useful;
-- ace-tool is unavailable or returns insufficient context.
+- For known filenames, symbols, literals, or error messages, use `rg`.
+- For known symbols, callers, callees, or impact paths, use CodeGraph only
+  when a current `.codegraph` index already exists.
+- For behavior-oriented discovery, use an explicitly approved semantic search
+  tool when it is available; otherwise use targeted reads and exact search.
 
-For exact filenames, symbols, literals, or error messages, prefer `rg` or the repository's native search tools.
+Do not invoke ace-tool. Do not run `codegraph init` automatically. If no
+approved semantic search tool is available, continue with local search rather
+than installing or configuring one.
