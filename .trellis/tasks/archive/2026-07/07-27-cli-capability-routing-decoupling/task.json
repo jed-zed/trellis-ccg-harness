@@ -12,20 +12,24 @@
   "assignee": "jed-zed",
   "createdAt": "2026-07-27",
   "completedAt": "2026-07-27",
-  "branch": null,
+  "branch": "codex/role-routing-harness-sync",
   "base_branch": "main",
-  "worktree_path": null,
-  "commit": null,
-  "pr_url": null,
+  "worktree_path": "I:\\ai\\trellis-ccg-harness-role-routing-v2",
+  "commit": "bf60f343f22812a84c1c628f4d4d669ea9cf6996",
+  "pr_url": "https://github.com/jed-zed/trellis-ccg-harness/pull/12",
   "subtasks": [],
   "children": [],
   "parent": null,
   "relatedFiles": [],
-  "notes": "Implemented in CCG source commit ee7ad36b0964f3c884974fed99299c4e3a542628 and Harness projection commit b236c28fe7c49354108d2d67a11be6b904acd958. No push performed.",
+  "notes": "Implemented in CCG source commit 19d094b77fa61b9d4408522053294e111aad90bb and Harness projection commit bf60f343f22812a84c1c628f4d4d669ea9cf6996. Draft PRs #9 and #12 are mergeable with green CI; merge source before Harness.",
   "meta": {
-    "sourceCommit": "ee7ad36b0964f3c884974fed99299c4e3a542628",
-    "sourceTree": "145030d5721d13a0ff7332a178f3cd5176123478",
-    "harnessCommit": "b236c28fe7c49354108d2d67a11be6b904acd958",
-    "transactionId": "2026-07-27T21-37-31-545Z-b9d734c6-a871-40be-b367-da254ad7899a"
+    "sourceCommit": "19d094b77fa61b9d4408522053294e111aad90bb",
+    "sourceTree": "42dda092fb187344af69c9af340eb7b4af3cec67",
+    "harnessCommit": "bf60f343f22812a84c1c628f4d4d669ea9cf6996",
+    "transactionId": "2026-07-27T22-43-07-673Z-8d3b730e-8c19-40b2-b00f-eb20c54ff9b0",
+    "sourcePr": "https://github.com/jed-zed/ccg-gptpro-worflow/pull/9",
+    "harnessPr": "https://github.com/jed-zed/trellis-ccg-harness/pull/12",
+    "sourceCiRun": "30310513642",
+    "harnessCiRun": "30312480801"
   }
 }

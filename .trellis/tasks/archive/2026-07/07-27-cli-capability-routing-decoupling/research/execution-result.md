@@ -68,12 +68,12 @@ routing.
   permanent Claude-disabled, or Codex-primary-backend rule remains outside
   explicit provider commands and negative tests.
 - Final Harness conflict gate: 14 checks passed, 0 warnings, 0 blockers.
-- `pwsh -NoProfile -File scripts/verify-sources.ps1
-  -AuthoritativeCheckout I:\ai\ccg-workflow-role-routing-v2` and
-  `pnpm doctor`: passed.
-- Plain `pnpm verify:sources` intentionally cannot fetch the unpushed source
-  commit from the public remote; this is the expected consequence of the
-  no-push boundary, not a local tree or transaction mismatch.
+- Plain `pnpm verify:sources` fetched the pushed source commit and passed.
+- `pnpm doctor` and archived Trellis context validation passed.
+- CCG PR #9 GitHub Actions run `30310513642` passed all Linux Node 20/22,
+  Windows Node 20/22, and Go Ubuntu/Windows jobs.
+- Harness PR #12 GitHub Actions run `30312480801` passed all 10 Node,
+  Bootstrap/doctor, and Go jobs across Ubuntu, Windows, and macOS.
 - Installed routing smoke test:
   `frontend=gemini`, `backend=codex`, `search=grok`.
 
@@ -84,25 +84,25 @@ routing.
 - Base: `8bdad64e4e5ccad75e1086ae31ad757e6bbdbef8`
 - Version: `3.4.0`
 - Source commit:
-  `ee7ad36b0964f3c884974fed99299c4e3a542628`
+  `19d094b77fa61b9d4408522053294e111aad90bb`
 - Source Git tree:
-  `145030d5721d13a0ff7332a178f3cd5176123478`
-- Commit subject: `feat(codex): decouple workflow role routing`
+  `42dda092fb187344af69c9af340eb7b4af3cec67`
+- Source commits:
+  `feat(codex): decouple workflow role routing` and
+  `test(codex): support Windows config line endings`.
+- Draft PR: `https://github.com/jed-zed/ccg-gptpro-worflow/pull/9`
 
 ## Harness projection and installation
 
 - Harness worktree: `I:\ai\trellis-ccg-harness-role-routing-v2`
 - Branch: `codex/role-routing-harness-sync`
-- After fetching, the true `origin/main` base was
-  `dd3d9a583ada23b92a4a6fe1b74c4b7b9af9449e`; the earlier local
-  `origin/main` value `6633876bb141c3bc589b2da11585455f4baeb037`
-  was stale.
-- Harness commit:
-  `b236c28fe7c49354108d2d67a11be6b904acd958`
+- Rebased base: `8eb050df4e1f3c9c4bbc39c377ca22d9b16407db`.
+- Final Harness projection commit:
+  `bf60f343f22812a84c1c628f4d4d669ea9cf6996`
 - Transaction:
-  `2026-07-27T21-37-31-545Z-b9d734c6-a871-40be-b367-da254ad7899a`
+  `2026-07-27T22-43-07-673Z-8d3b730e-8c19-40b2-b00f-eb20c54ff9b0`
 - The committed Harness component tree exactly matches source Git tree
-  `145030d5721d13a0ff7332a178f3cd5176123478`.
+  `42dda092fb187344af69c9af340eb7b4af3cec67`.
 - Global runtime: `ccg/3.4.0 win32-x64 node-v24.13.0`.
 - Global runtime link is owned by the Harness transaction and retains its
   recorded rollback target.
@@ -110,6 +110,8 @@ routing.
   `C:\Users\29933\.codex\plugins\cache\ccg-gptpro-worflow\ccg\3.4.0+codex.1`.
 - The current Codex process cannot hot-reload the new cached Skills; a new
   Codex session is required.
-- No branch was pushed.
+- Draft PR: `https://github.com/jed-zed/trellis-ccg-harness/pull/12`
+- Both PR branches were pushed; both PRs are mergeable and have green CI.
+- Merge order remains source PR #9 first, then Harness PR #12.
 - Existing dirty Harness and prototype worktrees were preserved without
   reset, clean, or unrelated staging.

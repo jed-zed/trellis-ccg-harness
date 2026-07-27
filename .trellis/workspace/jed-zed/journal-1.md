@@ -102,13 +102,14 @@ Implemented independent frontend/backend/search provider routing in CCG 3.4.0, c
 | Hash | Message |
 |------|---------|
 | `19d094b77fa61b9d4408522053294e111aad90bb` | (see git log) |
-| `b236c28fe7c49354108d2d67a11be6b904acd958` | (original pre-rebase Harness snapshot commit) |
+| `bf60f343f22812a84c1c628f4d4d669ea9cf6996` | Final Harness projection commit |
 
 ### Testing
 
 - [OK] CCG local gates passed: 32 files, 488 tests passed, 1 skipped.
 - [OK] CCG PR #9 CI passed Linux, Windows, and Go jobs.
-- [OK] Remote source verification, Harness tests, doctor, conflicts, and Trellis archive validation passed before the final provenance refresh.
+- [OK] Remote source verification, Harness tests, doctor, conflicts, and Trellis archive validation passed after the final provenance refresh.
+- [OK] Harness PR #12 CI passed all 10 Node, Bootstrap/doctor, and Go jobs across Ubuntu, Windows, and macOS.
 
 ### Status
 
