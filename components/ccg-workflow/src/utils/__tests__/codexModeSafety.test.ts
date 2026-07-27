@@ -170,10 +170,12 @@ describe('Codex mode ownership and reversibility', () => {
     expect((await codexMode.installCodexModeAt({ codexHome, pythonCommand: 'python' })).success).toBe(true)
 
     const configPath = join(codexHome, 'ccg', 'config.toml')
-    const configured = (await readFile(configPath, 'utf8')).replace(
-      '[routing.search]\nmodels = ["grok"]\nprimary = "grok"',
-      '[routing.search]\nmodels = ["claude"]\nprimary = "claude"',
+    const installed = await readFile(configPath, 'utf8')
+    const configured = installed.replace(
+      /(\[routing\.search\]\r?\n)models = \["grok"\](\r?\n)primary = "grok"/,
+      '$1models = ["claude"]$2primary = "claude"',
     )
+    expect(configured).not.toBe(installed)
     await writeFile(configPath, configured)
 
     const updated = await codexMode.installCodexModeAt({ codexHome, pythonCommand: 'python' })
