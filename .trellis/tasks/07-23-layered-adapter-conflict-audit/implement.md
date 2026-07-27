@@ -580,7 +580,8 @@ Verification on the clean `main` checkout:
   platform separators, and PowerShell can wrap expected error text. The repair
   canonicalizes only outer system-managed links, keeps owned roots and
   descendants link-checked, executes the resolved native command identity,
-  normalizes `.bin` separators, and pins generated CCG inputs to LF.
+  normalizes `.bin` separators, and pins all text in the CCG snapshot to LF
+  while retaining automatic binary detection.
 - Post-repair sequential focused verification passed: global actions 41/41
   with one Windows symlink-capability skip, MCP launcher 6/6 with one matching
   skip, and source verification 13/13. The single final full Harness run passed

@@ -71,6 +71,10 @@ test("Harness exact-byte projections are pinned to LF", async () => {
       ),
     );
   }
+  assert.match(
+    attributes,
+    /^components\/ccg-workflow\/\*\* text=auto eol=lf$/m,
+  );
 });
 
 test("Trellis conflict copies are resolved instead of committed", () => {
