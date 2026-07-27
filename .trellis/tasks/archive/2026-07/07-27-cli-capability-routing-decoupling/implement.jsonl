@@ -1,4 +1,4 @@
 {"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
 {"file": ".trellis/spec/guides/layered-harness-adapter.md", "reason": "Harness projection boundary"}
 {"file": ".trellis/spec/guides/personal-source-provenance.md", "reason": "Personal CCG source update boundary"}
-{"file": ".trellis/tasks/07-27-cli-capability-routing-decoupling/research/execution-boundary.md", "reason": "Latest user-approved minimal scope"}
+{"file": ".trellis/tasks/archive/2026-07/07-27-cli-capability-routing-decoupling/research/execution-boundary.md", "reason": "Latest user-approved minimal scope"}
