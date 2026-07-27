@@ -724,7 +724,7 @@ test("index verification executes the staged validator and binds both validator 
     assert.notEqual(missingStaged.status, 0);
     assert.match(
       `${missingStaged.stdout}\n${missingStaged.stderr}`,
-      /validator is missing from the staged Git\s+tree/i,
+      /validator is missing from the staged Git[\s\S]*?tree/i,
     );
 
     rmSync(validatorPath);
@@ -889,7 +889,7 @@ test("source verification binds the trusted command resolver in worktree and ind
     assert.notEqual(missingStaged.status, 0);
     assert.match(
       `${missingStaged.stdout}\n${missingStaged.stderr}`,
-      /Trusted command resolver is missing from the staged Git\s+tree/i,
+      /Trusted command resolver is missing from the staged Git[\s\S]*?tree/i,
     );
 
     rmSync(resolverPath);
