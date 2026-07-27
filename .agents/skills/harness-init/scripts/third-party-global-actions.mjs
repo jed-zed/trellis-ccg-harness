@@ -746,7 +746,7 @@ async function loadPinnedPackageLock({ candidate, source }) {
 async function assertSafeNpmTree(root) {
   const canonicalRoot = await realDirectory(root, "Pinned npm tool target");
   const validateBinShim = async (target, relative) => {
-    const normalized = relative.split(path.sep);
+    const normalized = relative.replaceAll("\\", "/").split("/");
     if (
       normalized.length !== 3 ||
       normalized[0] !== "node_modules" ||

@@ -309,7 +309,7 @@ future initialization follows this contract.
 - [x] Repeated global/project Skill apply is unchanged; edited projections,
   linked sources, invalid ready revisions, transaction interruption, and
   concurrent drift fail closed or recover deterministically.
-- [x] The released Codex-only CCG is versioned `3.3.2`, all user-facing
+- [x] The released Codex-only CCG is versioned `3.3.3`, all user-facing
   package/plugin/config metadata agrees, and the Harness snapshot plus
   `harness.sources.json` bind its exact committed tree.
 - [x] A fresh Harness installation projects exactly the 13 bundled

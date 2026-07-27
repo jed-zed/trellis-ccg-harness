@@ -53,17 +53,15 @@ async function lstatRequired(target, label) {
 }
 
 async function realNonLinkedDirectory(target, label) {
-  const absolute = path.resolve(target);
   const details = await lstatRequired(target, label);
   if (!details.isDirectory() || details.isSymbolicLink()) {
     throw new Error(`${label} must be a real non-linked directory.`);
   }
-  const real = path.resolve(await realpath(target));
-  const same = process.platform === "win32"
-    ? absolute.toLowerCase() === real.toLowerCase()
-    : absolute === real;
-  if (!same) throw new Error(`${label} must not be reached through a linked parent.`);
-  return real;
+  // Canonicalizing an OS-managed linked ancestor is safe because every
+  // subsequent ownership and containment check uses this physical root.
+  // The Harness home itself and all managed descendants are still checked for
+  // links before they are read or executed.
+  return path.resolve(await realpath(target));
 }
 
 async function assertRealPathBelow(root, target, label) {

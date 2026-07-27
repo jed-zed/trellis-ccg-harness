@@ -22,7 +22,7 @@ $expectedThirdPartyManifestSha256 = "7d4bbe9812e2400f86fed2fcdcf28f47a0cae476e1e
 # `-Index` must execute this exact staged source, never a mutable worktree copy.
 $expectedThirdPartyValidatorSha256 = "743394b1ea261b95c336726bb747331d5196c4c3a47016c8f2ea3e60aba27be0"
 # Canonical UTF-8 SHA-256 of the validator's trusted command dependency.
-$expectedTrustedCommandResolverSha256 = "d195077e2bb4f8a781a88edd39e774e2a219cf8e6774fc9271ae4ff1ccd1f05a"
+$expectedTrustedCommandResolverSha256 = "70981d2163e0714d1095e7def5ed54dda88888ccc16c375bb0f197460cdb4329"
 
 function Assert-Equal {
   param(
@@ -62,6 +62,28 @@ function Assert-UnlinkedPath {
     }
     $parent = $parent.Parent
   }
+}
+
+function Resolve-TrustedCommandFile {
+  param(
+    [Parameter(Mandatory = $true)][System.IO.FileInfo]$Item,
+    [Parameter(Mandatory = $true)][string]$Name
+  )
+
+  if (Test-ReparsePoint -Item $Item) {
+    try {
+      $resolved = $Item.ResolveLinkTarget($true)
+    }
+    catch {
+      throw "$Name command link target could not be resolved safely: $($Item.FullName)"
+    }
+    if ($null -eq $resolved -or $resolved -isnot [System.IO.FileInfo]) {
+      throw "$Name command link target is not a regular executable file: $($Item.FullName)"
+    }
+    $Item = $resolved
+  }
+  Assert-UnlinkedPath -Item $Item -Name $Name
+  return $Item
 }
 
 function Get-NativeExecutableFormat {
@@ -174,7 +196,8 @@ function Get-TrustedCommandFileIdentity {
   if ($item -isnot [System.IO.FileInfo]) {
     throw "$Name command is not a regular executable file: $absolute"
   }
-  Assert-UnlinkedPath -Item $item -Name $Name
+  $item = Resolve-TrustedCommandFile -Item $item -Name $Name
+  $absolute = [System.IO.Path]::GetFullPath($item.FullName)
 
   $stream = [System.IO.File]::Open(
     $absolute,
@@ -767,7 +790,9 @@ else {
   $unstaged = Invoke-Git diff --name-only -- $manifest.ccg.snapshotPath
   $untracked = Invoke-Git ls-files --others --exclude-standard -- $manifest.ccg.snapshotPath
   if ($staged -or $unstaged -or $untracked) {
-    throw "CCG component is dirty (staged, unstaged, or untracked); source verification requires an exact committed snapshot."
+    $dirtyPaths = @($staged, $unstaged, $untracked) |
+      Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+    throw "CCG component is dirty (staged, unstaged, or untracked): $($dirtyPaths -join ', '). Source verification requires an exact committed snapshot."
   }
 }
 

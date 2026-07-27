@@ -459,7 +459,7 @@ test("environment-derived user and system roots never become trust anchors", asy
   }
 });
 
-test("approved package roots reject linked parents and package dependency drift", async (t) => {
+test("approved package roots canonicalize linked ancestors and detect package dependency drift", async (t) => {
   const root = mkdtempSync(path.join(os.tmpdir(), "harness-command-tree-"));
   try {
     const realParent = path.join(root, "real");
@@ -499,13 +499,15 @@ test("approved package roots reject linked parents and package dependency drift"
       t.diagnostic(`linked-parent assertion skipped on this host: ${error.message}`);
       return;
     }
-    await assert.rejects(
-      resolveTrustedCommand("gemini", {
-        env: {},
-        approvedPackageRoots: [path.join(linkedParent, "node_modules")],
-      }),
-      /linked parent|non-linked/i,
+    const linkedBinding = await resolveTrustedCommand("gemini", {
+      env: {},
+      approvedPackageRoots: [path.join(linkedParent, "node_modules")],
+    });
+    assert.equal(
+      linkedBinding.identity.packageTree.realRoot,
+      path.resolve(realParent, "node_modules"),
     );
+    await assertTrustedCommandUnchanged(linkedBinding);
   } finally {
     removeFixtureRoot(root);
   }

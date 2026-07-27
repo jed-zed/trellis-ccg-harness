@@ -88,11 +88,12 @@ async function realNonLinkedDirectory(target, label) {
   if (!details.isDirectory() || details.isSymbolicLink()) {
     throw new Error(`${label} must be a real non-linked directory.`);
   }
-  const real = path.resolve(await realpath(absolute));
-  if (!samePath(absolute, real)) {
-    throw new Error(`${label} must not be reached through a linked parent.`);
-  }
-  return real;
+  // Hosted runners and standard package managers may place otherwise real
+  // directories below an OS-managed junction or symlink. Canonicalize that
+  // outer path once, then keep all containment and identity checks anchored to
+  // the physical directory. The approved directory itself must still not be a
+  // link, and links inside an owned package tree remain constrained below it.
+  return path.resolve(await realpath(absolute));
 }
 
 async function fileIdentity(target, label, options) {

@@ -571,3 +571,17 @@ Verification on the clean `main` checkout:
   query fell back. The fix compares the complete fallback process-instance
   identity for the current PID; ten repeated focused runs and the full local
   Harness suite pass before resubmission.
+- Draft PR #10 delivery is frozen at the usable-initializer boundary:
+  third-party choices remain recommended but default-unselected, and host
+  operations without a reliable create-only API remain `manual-pending`.
+- The first PR CI run exposed hosted-runner compatibility issues rather than an
+  approval bypass: Windows temporary roots can sit below an OS-managed junction,
+  macOS Homebrew exposes Git through a file symlink, npm `.bin` paths use
+  platform separators, and PowerShell can wrap expected error text. The repair
+  canonicalizes only outer system-managed links, keeps owned roots and
+  descendants link-checked, executes the resolved native command identity,
+  normalizes `.bin` separators, and pins generated CCG inputs to LF.
+- Post-repair sequential focused verification passed: global actions 41/41
+  with one Windows symlink-capability skip, MCP launcher 6/6 with one matching
+  skip, and source verification 13/13. The single final full Harness run passed
+  361 tests with 0 failures and 3 platform-capability skips.
