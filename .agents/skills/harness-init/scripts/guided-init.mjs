@@ -16,6 +16,11 @@ import process from "node:process";
 import { promisify } from "node:util";
 
 import { GLOBAL_PLATFORM_SKILLS } from "./skill-platform-migration.mjs";
+import {
+  assertTrustedCommandUnchanged,
+  minimalCommandEnvironment,
+  resolveTrustedCommand,
+} from "./trusted-command-resolver.mjs";
 
 const execFile = promisify(execFileCallback);
 const OWNER = "trellis-ccg-harness";
@@ -27,6 +32,7 @@ const PROVIDER_STATUSES = new Set([
   "authentication-unknown",
   "installed-unauthenticated",
   "authenticated",
+  "manual-only",
   "skipped",
 ]);
 const PROVIDER_COMMANDS = Object.freeze({
@@ -44,11 +50,6 @@ const PROVIDER_COMMANDS = Object.freeze({
     command: "grok",
     versionArgs: ["--version"],
     authProbeArgs: null,
-  },
-  claude: {
-    command: "claude",
-    versionArgs: ["--version"],
-    authProbeArgs: ["auth", "status"],
   },
 });
 
@@ -440,7 +441,7 @@ export async function preparePersonalSkillCatalog({
   }
   if (allowNetwork !== true) {
     throw new Error(
-      "Catalog clone requires a separate --allow-network approval.",
+      "Catalog clone requires a separate --allow-catalog-network approval.",
     );
   }
   const source = assertCloneSourceHasNoCredentials(catalogUrl);
@@ -485,13 +486,30 @@ export async function preparePersonalSkillCatalog({
   }
 }
 
-async function defaultRunCommand(command, args) {
+export async function runProviderStatusCommand(
+  command,
+  args,
+  {
+    environment = process.env,
+    execFileImpl = execFile,
+    resolveCommand = resolveTrustedCommand,
+    verifyCommand = assertTrustedCommandUnchanged,
+  } = {},
+) {
   try {
-    const result = await execFile(command, args, {
-      encoding: "utf8",
-      timeout: 5_000,
-      windowsHide: true,
-    });
+    const binding = await resolveCommand(command);
+    await verifyCommand(binding);
+    const result = await execFileImpl(
+      binding.command,
+      [...binding.argsPrefix, ...args],
+      {
+        encoding: "utf8",
+        env: minimalCommandEnvironment(environment),
+        timeout: 5_000,
+        windowsHide: true,
+        shell: false,
+      },
+    );
     return {
       exitCode: 0,
       stdout: String(result?.stdout ?? ""),
@@ -508,6 +526,12 @@ async function defaultRunCommand(command, args) {
 
 function providerChoices(name, status) {
   if (name === "claude") {
+    if (status === "manual-only") {
+      return {
+        choices: ["skip", "install", "login", "later"],
+        recommendedAction: "skip",
+      };
+    }
     if (status === "skipped") {
       return { choices: ["skip"], recommendedAction: "skip" };
     }
@@ -562,7 +586,10 @@ function normalizeOverrideStatuses(overrides) {
     }
     result[name] = {
       status,
-      installed: !["not-installed", "skipped"].includes(status),
+      installed:
+        status === "manual-only"
+          ? null
+          : !["not-installed", "skipped"].includes(status),
       authenticated:
         status === "authenticated"
           ? true
@@ -576,13 +603,23 @@ function normalizeOverrideStatuses(overrides) {
 }
 
 export async function inspectProviderCliStatuses({
-  runCommand = defaultRunCommand,
+  runCommand = runProviderStatusCommand,
   statusOverrides = null,
 } = {}) {
   const overridden = normalizeOverrideStatuses(statusOverrides);
   if (overridden) return overridden;
   const statuses = {};
   for (const name of PROVIDER_NAMES) {
+    if (name === "claude") {
+      const status = "manual-only";
+      statuses[name] = {
+        status,
+        installed: null,
+        authenticated: null,
+        ...providerChoices(name, status),
+      };
+      continue;
+    }
     const definition = PROVIDER_COMMANDS[name];
     const version = await runCommand(
       definition.command,
@@ -720,8 +757,8 @@ const PROVIDER_GUIDANCE = Object.freeze({
       reference: "Anthropic Claude Code authentication documentation",
     },
     check: {
-      kind: "command",
-      command: ["claude", "auth", "status"],
+      kind: "official-documentation",
+      reference: "Anthropic Claude Code authentication documentation",
     },
   },
 });
@@ -754,6 +791,9 @@ function validateProviderActionTransition(existingActions, nextActions) {
       ["install", "login"].includes(previous) &&
       ["keep", "later"].includes(next)
     ) {
+      continue;
+    }
+    if (previous === "install" && next === "login") {
       continue;
     }
     throw new Error(

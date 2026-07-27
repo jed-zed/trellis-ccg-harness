@@ -48,8 +48,20 @@ unresolved decision per turn. Each question must
    `third-party-sources.json` are shown in four groups and default to no.
    Install only individually approved candidates from their recorded immutable
    source; never use `main`, `latest`, or `@latest`. Recommended candidates
-   include Ponytail, Caveman, fast-context, and CodeGraph, but a recommendation
-   never changes the default or replaces an explicit yes from the user.
+   include Ponytail, Caveman, Context7, fast-context, and CodeGraph, but a
+   recommendation never changes the default or replaces an explicit yes from
+   the user.
+   Before the final interactive approval, display the canonical third-party
+   `planSha256`, approved package and command roots, subprocess configuration
+   roots, and every bound command identity. Approval applies to those exact
+   values. Non-interactive initialization that selects any third-party
+   candidate must supply the displayed digest through
+   `--third-party-plan-sha256`; the source-manifest digest alone is
+   insufficient.
+   Approved MCP packages are registered through the Harness-owned runtime
+   launcher. On every start it rechecks the exact manifest digest, ownership,
+   package lock/integrity, installed-tree fingerprint, and entrypoint before
+   spawning without a shell.
 
 ## Guided Entry Points
 
@@ -57,8 +69,9 @@ Initialization has two explicit, independently resumable commands:
 
 - `global-init` installs the 13 bundled platform Skills as link-free owned
   copies under an explicit or current user home, records the `skip`/`local`/
-  `clone` catalog decision, and performs read-only Codex, Gemini, Grok, and
-  Claude Code CLI/authentication status checks.
+  `clone` catalog decision, and performs read-only Codex, Gemini, and Grok
+  CLI/authentication status checks. Claude Code is documentation-only:
+  Harness never probes or starts `claude`.
 - `project-init` inspects one repository and derives its technology stack and
   catalog recommendations. Interactively it accepts a complete non-Skill
   `draft` contract, asks each catalog and third-party project candidate as an
@@ -78,18 +91,44 @@ use that host tool for every unresolved choice, mark the recommendation, and
 ask only one question per tool call. Do not emulate a native control in prose.
 The executable itself is the terminal fallback: it presents one numbered TTY
 choice at a time. In non-interactive mode it never reads stdin and requires
-complete flags plus `--approved`.
+complete flags plus `--approved`. Every third-party choice remains explicit;
+when any candidate is selected, non-interactive Global or Project Init also
+requires the exact `--third-party-plan-sha256` from the reviewed plan.
 
 Global Init never installs a provider CLI or starts a login implicitly.
 `install` and `login` remain selectable preview choices: Global Init records
 them as unexecuted pending actions with safe command or official-documentation
 guidance, `requiresSeparateApproval: true`, and returns
-`needs-provider-actions`. A later approved Global Init may resolve only those
-pending actions to `keep` or `later`; platform and catalog identity must remain
-unchanged. Claude Code defaults to `skip`; selecting its external install/login
-path records `zeroClaudeProfile: false` immediately and that exit is sticky
-when the pending action is later resolved. Harness code remains forbidden from
-reading or writing any `.claude/` path.
+`needs-provider-actions`. `provider-action-plan` then creates a read-only plan
+bound to the exact pending state. `provider-action-run` requires that digest,
+`--approved`, and a second TTY `cancel`/`show-guide` choice that defaults to cancel.
+The plan also binds the canonical absolute executable/Node entrypoint,
+package/version identity, and file hashes for review, but it never starts a
+Provider CLI. Codex/Grok receive fixed auth-only guidance; Gemini has no
+approved auth-only subcommand, so starting its full interactive agent is
+forbidden. Every Provider installation and login is manual-only. Provider
+output, URLs, device codes, accounts, and tokens are never recorded.
+A later approved Global Init may advance `install` to `login` after a manual
+installation, or resolve pending actions to `keep`/`later`, while platform and
+catalog identity remain unchanged. Claude Code defaults to `skip`; selecting
+its external install/login path records `zeroClaudeProfile: false` immediately
+and never authorizes Harness to invoke Claude.
+
+Example after Global Init reports a pending Codex login:
+
+```powershell
+node scripts/harness-init.mjs provider-action-plan `
+  --home-dir "<explicit-user-home>" --repo-root "<project>" `
+  --provider codex --action login
+node scripts/harness-init.mjs provider-action-run `
+  --home-dir "<explicit-user-home>" --repo-root "<project>" `
+  --provider codex --action login `
+  --plan-sha256 "<reviewed-plan-sha256>" --approved
+```
+
+`provider-action-plan` and `provider-action-run` require an explicit project
+root so the reviewed guidance is bound to the intended project context.
+`provider-action-run` refuses non-interactive execution.
 
 Safe non-interactive public-baseline example:
 
@@ -109,8 +148,12 @@ node scripts/harness-init.mjs global-init `
 For an existing local Git catalog, add `--catalog-mode local --repository
 "<catalog-working-tree>"`. For a separately approved clone, use
 `--catalog-mode clone --repository "<new-local-working-tree>" --catalog-url
-"<credential-free-url>" --allow-network`; the saved profile contains only the
-canonical local working-tree path.
+"<credential-free-url>" --allow-catalog-network`; the saved profile contains
+only the canonical local working-tree path. Third-party acquisition uses the
+separate `--allow-third-party-network` approval. In interactive mode it is
+asked only after exact candidates are selected, lists their pinned sources and
+manifest digest, defaults to `no`, and a refusal drops only those network
+candidates while core initialization continues.
 
 For non-interactive execution, the complete project contract and exact Skill
 set must already be approved:
@@ -291,6 +334,8 @@ contract:
   project-level Skill selection with reasons;
 - third-party candidate effects, fixed source digest, explicit approvals, and
   any rejected candidates;
+- the canonical third-party plan SHA-256, approved package/command roots,
+  subprocess configuration roots, and exact bound command identities;
 - exact initialization and offline validation commands;
 - update, rollback, and uninstall expectations;
 - residual risks and deliberately deferred items.
@@ -344,6 +389,15 @@ After approval:
    ownership-recorded `HARNESS-COLLABORATION` block in root `AGENTS.md`.
    Ownership is committed last. Existing Trellis, Harness, and user content
    outside that block is preserved.
+
+   Treat every replacement or removal as a fail-closed transaction. Publish
+   new state with create-only operations. For an existing owned target,
+   atomically claim the exact object into the transaction area before
+   validating or removing it; never validate one path and later delete or
+   replace whatever happens to occupy that path. If a claim, publish, restore,
+   or ownership write collides with concurrent or user-created state, preserve
+   both the claimed object and the collision evidence for manual review, stop,
+   and do not overwrite or recursively delete either side.
 
 	   A later apply recovers a dead initializer deterministically: active
 	   transaction or lock directories are atomically renamed to dedicated

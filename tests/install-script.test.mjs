@@ -417,6 +417,12 @@ test("non-interactive Global Setup is explicit, exact, provider-safe, and idempo
     );
     assert.match(first.stdout, /needs-provider-actions/);
     assert.match(first.stdout, /gemini: install/);
+    assert.match(
+      first.stdout,
+      /Catalog network: False; third-party network: False/i,
+    );
+    assert.match(first.stdout, /provider-action-plan/);
+    assert.match(first.stdout, /manual-only/);
     assert.match(first.stdout, /\.claude state: unchanged/);
     assert.equal(
       readFileSync(path.join(value.homeDir, ".claude", "user.txt"), "utf8"),

@@ -21,14 +21,33 @@ runtime model policy, and provider boundaries deterministic.
   explicit approval for exact Trellis/CCG installation, Codex mode, the
   snapshot-local Codex plugin, all 13 bundled platform Skills, catalog choice,
   and Global Init. Provider CLI install/login selections remain unexecuted
-  guidance that needs a separate approval.
+  guidance that needs a separate approval. Installation is always manual from
+  official documentation. A later `provider-action-plan` plus interactive,
+  default-cancel `provider-action-run` displays fixed Codex or Grok auth-only
+  guidance but never starts a Provider CLI. Gemini is manual-only; Claude is
+  never probed or executed.
 
 Third-party Skills, plugins, and MCP/CLI candidates are not part of those 13
 bundled copies. `harness-init.mjs third-party-plan` presents four groups with
 no candidate selected by default; a fixed source digest and an explicit
 per-candidate approval are required before installation. It recommends
-Ponytail, Caveman, fast-context, and CodeGraph where applicable without
-preselecting or installing them.
+Ponytail, Caveman, Context7, fast-context, and CodeGraph where applicable
+without preselecting or installing them.
+The final interactive confirmation prints the canonical `planSha256`, approved
+package/command roots, subprocess configuration roots, and exact command
+identities. Non-interactive Global or Project Init that selects any
+third-party candidate must additionally pass
+`--third-party-plan-sha256 <reviewed-planSha256>`.
+Approved MCPs use a Harness-owned runtime launcher rather than a direct package
+entrypoint. Every start revalidates the pinned manifest, ownership, package
+lock, tree fingerprint, and executable entrypoint. Host registration stays
+manual-pending because Codex has no atomic create-only MCP registration API.
+Network approval is split by purpose. `--allow-catalog-network` authorizes only
+the selected personal-catalog clone. `--allow-third-party-network` authorizes
+only acquisition of already selected, pinned third-party candidates.
+Interactive initialization asks the latter after candidate selection, displays
+the candidate sources and manifest digest, defaults to `no`, and drops only
+the declined network candidates while core initialization continues.
 - `bootstrap.ps1`: internal toolchain bootstrap. It installs dependencies and
   optionally links the personal CCG CLI inside a rollback-capable ownership
   transaction; users normally enter through `pnpm setup`.
@@ -67,6 +86,8 @@ node .\scripts\harness-adapter.mjs context
 node .\scripts\harness-adapter.mjs conflicts
 node .\scripts\harness-init.mjs third-party-plan --home-dir <absolute-user-home>
 node .\scripts\harness-init.mjs global-init --non-interactive --home-dir <absolute-user-home> --catalog-mode skip --provider-actions "codex=later,gemini=later,grok=later,claude=skip" --third-party-global-skills none --third-party-global-plugins none --third-party-mcp-cli none --third-party-source-sha256 <sha256-from-third-party-plan> --approved
+node .\scripts\harness-init.mjs provider-action-plan --home-dir <absolute-user-home> --repo-root <absolute-project> --provider codex --action login
+node .\scripts\harness-init.mjs provider-action-run --home-dir <absolute-user-home> --repo-root <absolute-project> --provider codex --action login --plan-sha256 <reviewed-planSha256> --approved
 node .\scripts\harness-init.mjs inspect --repo-root .
 node .\scripts\harness-init.mjs project-init --repo-root . --home-dir <absolute-user-home> --contract <approved-contract.json> --no-project-skills --third-party-project-skills none --third-party-source-sha256 <sha256-from-third-party-plan> --non-interactive --approved
 node .\scripts\harness-init.mjs configure-skills --repository <absolute-path> --global-essential "harness-init,trellis-before-dev,trellis-brainstorm,trellis-break-loop,trellis-channel,trellis-check,trellis-continue,trellis-finish-work,trellis-meta,trellis-session-insight,trellis-spec-bootstrap,trellis-start,trellis-update-spec" --approved
@@ -106,6 +127,17 @@ catalog/provider flags plus `-Approved`, `-ApproveTrellis`, `-ApproveCcgCli`,
 `-ApproveCodexMode`, `-ApproveCcgPlugin`, and `-ApproveGlobalInit`.
 `bootstrap.ps1` remains available to lifecycle tooling and maintainers, but is
 not the public installation flow.
+
+`provider-action-run` refuses non-interactive execution and asks a second
+`cancel`/`show-guide` question whose recommended answer is `cancel`. The plan
+binds a fixed auth-only command identity for review, but Harness never starts
+the Provider CLI. It stores no provider output or authentication material.
+All Provider installs and logins are manual-only. Provider status and approved
+third-party command helpers use verified absolute bindings with an explicit
+minimal environment rooted in the plan's home/config paths; they strip
+`NODE_OPTIONS`, `NODE_PATH`, `LD_PRELOAD`, `DYLD_*`, ambient `GIT_*`, and
+unrelated variables. Harness never probes or invokes Claude and never creates
+or mutates `.claude`.
 
 CCG package and marketplace identity use the release base version, while the
 plugin manifest and Harness ownership record use the exact `+codex.<build>`
@@ -161,3 +193,11 @@ Project-contract reapplication validates strict ownership, contract, and schema
 digests. Standalone Skill export validates every target directory component and
 copies a bounded, link-free tree, so `.agents/skills` links or junctions cannot
 redirect writes outside the selected repository.
+
+Third-party transactions publish new targets create-only. When an owned target
+must be replaced or removed, the implementation must atomically claim that
+exact object into the transaction area before validation or cleanup. Any claim,
+publish, restore, or ownership collision fails closed and preserves both sides
+plus diagnostics for manual recovery; it must not recursively delete an
+unclaimed path based on an earlier observation. CodeGraph installation never
+runs `codegraph init`.

@@ -295,7 +295,7 @@ source and installed digests in `.harness/project-skills.json`. Links,
 junctions, collisions, user-modified owned files, stale contract identity, and
 concurrent drift fail closed. Third-party project candidates begin unselected.
 Caveman is a recommended global Skill candidate, while Ponytail is a global
-plugin candidate and CodeGraph/fast-context are MCP/CLI candidates. All remain
+plugin candidate and CodeGraph/fast-context/Context7 are MCP/CLI candidates. All remain
 unselected until the user explicitly approves each action.
 
 ### Immutable third-party source catalog
@@ -312,6 +312,7 @@ tag, or version selectors are rejected. The catalog pins:
 | Ponytail | `4.8.4`, commit `bc9ee949d5f439e8b9f3bb92c6d6d3d1e6ebd324`, tree `2b3486c779084a0442ac530affd85fb864499827` | MIT |
 | CodeGraph | `1.5.0`, commit `ea72e1b190921232aa7bd02e96bef5bbe4fe0ab6`, npm integrity recorded in the catalog | MIT |
 | fast-context | `1.5.2`, commit `3595cfcb2cf1c50660351165cdb71101d0996747`, npm integrity recorded in the catalog | MIT |
+| Context7 | `3.2.4`, commit `4124503867b802a16e7697a838a2bfce0820328d`, tree `ecbe6f3fd03a1253c1f083b334d3f1234c1c2806`, npm integrity recorded in the catalog | MIT |
 | ripgrep | `15.2.0`, commit `e89fff89ac9af12e8d4ce9d5fd07beb408ca730f`, per-platform release SHA-256 recorded in the catalog | Unlicense |
 
 The catalog records source paths and full-tree SHA-256 values for every Skill
@@ -342,13 +343,17 @@ The four groups have different executors and cannot share an approval:
    the existing project transaction and `.harness/project-skills.json`.
    `improve-codebase-architecture` discloses `codebase-design`, `grilling`, and
    `domain-modeling`; rejecting any required dependency skips the parent.
-4. **MCP/CLI:** CodeGraph, fast-context, and ripgrep use a separate approval
+4. **MCP/CLI:** CodeGraph, fast-context, Context7, and ripgrep use a separate approval
    page and ownership records. CodeGraph index creation is always out of scope.
    fast-context is unavailable for automatic recommendation when the project
    contract declares `security.strictDataBoundary: true`. This is a
    machine-readable approved-contract boolean, not an inferred network-policy
    string; `--strict-data-boundary` is ORed with it and can only tighten the
-   effective boundary.
+   effective boundary. Context7 is subject to the same strict-boundary block.
+   Each approved MCP host entry points at the Harness-owned runtime launcher,
+   not the package entrypoint. The launcher revalidates manifest/ownership,
+   lock integrity, the complete installed-tree fingerprint, and the exact
+   entrypoint on every start before spawning locally without a shell.
 
 The approved project contract contains the source-manifest digest and
 secret-free approved action IDs. User-level `global-skills.json` and
@@ -377,17 +382,41 @@ TTY prompt. Non-interactive invocations must pass explicit source and Skill
 selection flags; they never infer consent or silently choose a personal
 catalog.
 
+The approval plan is also the execution authority. Its canonical
+`planSha256` covers the approved package roots, command roots, subprocess
+configuration roots, and exact executable/Node package-tree identities. Global
+and Project Init render those values in the final interactive confirmation.
+Any non-interactive run with selected third parties must provide that exact
+digest using `--third-party-plan-sha256`; the source-manifest SHA-256 by itself
+does not authorize command execution.
+
+Third-party helpers construct an explicit minimal child environment from the
+plan-bound home/config roots. They do not inherit `NODE_OPTIONS`, `NODE_PATH`,
+`LD_PRELOAD`, `DYLD_*`, ambient `GIT_*`, or unrelated process variables.
+Commands run by verified absolute binding with `shell:false`; Git additionally
+disables terminal prompts and ambient global/system configuration.
+
 Guided setup is split into two independently resumable phases:
 
 1. **Global Init:** inventory first, then install and verify the global Harness
    platform. It covers Trellis, the CCG Codex-only CLI/plugin, all 13 bundled
    core Skills, the personal Skill catalog decision, and separate
-   default-unselected global Skill, plugin, and MCP/CLI approval groups. It also probes the
-   installed/authenticated state of the Codex, Gemini, Grok, and Claude Code
-   CLIs. A missing tool receives an install/skip choice; an installed but
-   unauthenticated tool receives a login-now/later choice and safe assistance.
-   Each network request, installation, and authentication launch is its own
-   previewed approval boundary. One approval never authorizes later actions.
+   default-unselected global Skill, plugin, and MCP/CLI approval groups. It
+   probes the installed/authenticated state of Codex, Gemini, and Grok only.
+   Claude is presented as unprobed manual-only with `skip` recommended.
+   Installation and login are always official-documentation/manual-only. A
+   pending Codex/Grok auth-only login may receive guidance only from a second
+   command whose read-only plan binds provider, action, Global Init state,
+   home/project context, fixed command, and digest. Showing guidance requires
+   `--approved` plus a numbered TTY `cancel`/`show-guide` choice with cancel
+   recommended; non-interactive execution is forbidden. Harness never starts a
+   Provider CLI. Gemini has no approved auth-only subcommand, so Harness never
+   starts its full agent.
+   Catalog clone network permission and third-party acquisition permission are
+   independent. After candidate selection, any network-backed candidates get
+   one additional default-no prompt that names their pinned repositories,
+   commits, and manifest digest. Declining removes only those candidates and
+   preserves the core path; non-interactive callers use distinct flags.
 2. **Project Init:** inspect repository facts and technology selections, propose
   only relevant project Skills, resolve remaining decisions one at a time,
   display the complete secret-free constraint summary, and require approval
@@ -407,17 +436,35 @@ Guided setup is split into two independently resumable phases:
    Project Init continues to require that exact approved contract.
 
 Status probing is read-only and must distinguish `not installed`, `installed
-but authentication unknown`, `installed unauthenticated`, `authenticated`, and
-`skipped`. Login helpers may open the vendor's supported interactive flow but
-must not request, persist, or print tokens. Offline/non-interactive operation
-can supply explicit desired states and receives a deterministic residual-action
-report rather than an implicit login attempt.
+but authentication unknown`, `installed unauthenticated`, `authenticated`,
+`manual only`, and `skipped`. Status helpers use verified command bindings and
+the same minimal process environment. Provider action plans may show a fixed
+command identity as review evidence, but every install and login remains
+manual-only: Harness never starts the command and never writes a Provider
+action receipt, output, URL, device code, account identifier, or token.
+Offline/non-interactive operation can create a deterministic plan/residual-
+action report but cannot launch a login.
 
-Claude Code is a special optional branch and is skipped by default because its
-own installer or login flow may create `~/.claude/`. Explicitly choosing that
-branch leaves the zero-`.claude` acceptance profile. This exception authorizes
-only the external Claude tool's own behavior: Harness and CCG remain forbidden
-from reading, creating, restoring, or writing `.claude/` paths in all profiles.
+Claude Code is a special documentation/manual-only branch and is skipped by
+default because its own installer or login flow may create `~/.claude/`.
+Explicitly choosing that external branch leaves the zero-`.claude` acceptance
+profile, but Harness never probes or launches `claude` and never creates,
+restores, writes, or deletes `.claude` content.
+
+### Third-party transaction CAS
+
+Third-party activation uses create-only publication for absent targets. If an
+existing Harness-owned target must be replaced, restored, or removed, the
+transaction first atomically claims that exact filesystem object into its
+private transaction area and validates the claimed object there. It never
+rechecks one pathname and later removes whatever currently occupies it.
+
+A failed claim, concurrent destination creation, restore collision, or
+ownership-record collision is not auto-resolved. The transaction fails closed,
+preserves the claimed object and the colliding state with authenticated
+diagnostics for manual review, and skips recursive cleanup of any unclaimed
+path. This is the required design; acceptance remains open until dedicated race
+and recovery tests prove it.
 
 The personal catalog decision has exactly three branches: use the configured
 authenticated private catalog, select an existing local Git catalog, or skip

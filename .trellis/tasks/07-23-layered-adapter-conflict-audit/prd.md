@@ -104,14 +104,23 @@ Adopt the recommended layered-adapter architecture without losing the complete p
   recommends project Skills from its technology choices, captures its complete
   constraints, obtains approval, and applies the contract plus required gates.
 - During Global Init, inspect installed and authenticated state for the Codex,
-  Gemini, Grok, and Claude Code CLIs without mutating them. Offer installation
-  for missing optional/required tools and assisted login for installed but
-  unauthenticated tools, with separate explicit approval before every network,
-  installation, or login action.
+  Gemini, and Grok CLIs without mutating them. Treat Claude Code as
+  documentation/manual-only: recommend `skip`, offer official install/login
+  guidance, and never probe or launch `claude`.
+- Provider installation and login remain official-documentation/manual-only.
+  A fixed Codex or Grok auth-only command may be shown only after Global Init
+  records the pending action, a read-only plan binds it to an exact digest, the
+  user supplies that digest with `--approved`, and a second interactive choice
+  confirms `show-guide` with cancel as the default. Harness never starts any
+  Provider CLI. Gemini has no approved auth-only subcommand, so Harness never
+  launches its full interactive agent. Automation may generate plans but may
+  not launch provider actions.
 - Skip Claude Code by default because installing or authenticating it may create
-  `~/.claude/`. Opting into Claude authentication exits the zero-`.claude`
-  acceptance profile, but Harness and CCG still may not read or write any
-  `.claude/` path.
+  `~/.claude/`. Opting into an external manual Claude path exits the
+  zero-`.claude` acceptance profile, but never authorizes Harness or CCG to
+  invoke Claude. Provider login assistance records no provider output or
+  authentication material, compares protected `.claude` boundaries, fails on
+  change, and never restores or deletes user content.
 - Make global Skill projection, project selection revision, backup, rollback,
   and global `AGENTS.md` repository discovery ownership-aware, transactional,
   idempotent, and fail-closed on user edits or concurrent drift.
@@ -128,6 +137,16 @@ future initialization follows this contract.
   plugins, project Skills, and MCP/CLI. Every third-party item is unselected by
   default and requires a candidate-specific approval bound to the exact source
   manifest digest.
+- The final interactive confirmation displays and binds the canonical
+  third-party plan SHA-256, approved package/command roots, subprocess
+  configuration roots, and exact command identities. Non-interactive Global or
+  Project Init selecting any third party must provide the reviewed
+  `--third-party-plan-sha256`; the source-manifest digest alone is not approval.
+- Catalog-clone network consent and third-party acquisition consent are
+  separate. Interactive third-party consent is asked only after candidate
+  selection, lists exact sources plus the manifest digest, defaults to no, and
+  a refusal removes only those network candidates without blocking core
+  initialization. Automation uses distinct explicit flags.
 - Global Skill candidates are one atomic `grill-me + grilling` unit from
   `mattpocock/skills` commit
   `ed37663cc5fbef691ddfecd080dff42f7e7e350d`, plus Caveman `v1.9.1`
@@ -148,11 +167,20 @@ future initialization follows this contract.
   `@colbymchenry/codegraph@1.5.0` at commit
   `ea72e1b190921232aa7bd02e96bef5bbe4fe0ab6`,
   `fast-context-mcp@1.5.2` at commit
-  `3595cfcb2cf1c50660351165cdb71101d0996747`, and ripgrep `15.2.0` at
+  `3595cfcb2cf1c50660351165cdb71101d0996747`,
+  `@upstash/context7-mcp@3.2.4` at commit
+  `4124503867b802a16e7697a838a2bfce0820328d`, and ripgrep `15.2.0` at
   commit `e89fff89ac9af12e8d4ce9d5fd07beb408ca730f`.
   CodeGraph installation never authorizes `codegraph init`. fast-context
   warns that query text, repository trees, and local search results are sent
-  to Windsurf; strict-data-boundary projects leave it unselected.
+  to Windsurf; Context7 warns that documentation queries and library
+  identifiers are sent to its service. Strict-data-boundary projects leave
+  both network-backed MCPs unselected.
+- Approved MCP packages are registered only through a Harness-owned runtime
+  launcher. Before every start it revalidates the exact source-manifest
+  digest, ownership, package version/integrity, lockfile, complete installed
+  tree, and entrypoint; any drift fails closed before the third-party process
+  starts.
 - Matt Pocock candidates outside the approved subset — `ask-matt`,
   `setup-matt-pocock-skills`, `grill-with-docs`, `triage`, `to-spec`,
   `to-tickets`, `implement`, `wayfinder`, `code-review`, `research`,
@@ -171,7 +199,16 @@ future initialization follows this contract.
   journal, backup, ownership-last commit, recovery, and rollback mechanisms.
   Existing exact installations are unchanged; source, target, or user-edit
   drift fails closed.
-- Ponytail, Caveman, fast-context, and CodeGraph are visibly recommended in
+- Third-party command execution uses verified absolute bindings and an explicit
+  minimal environment rooted in the approved configuration roots. It strips
+  process-injection variables including `NODE_OPTIONS`, `NODE_PATH`,
+  `LD_PRELOAD`, `DYLD_*`, ambient `GIT_*`, and unrelated variables.
+- New targets publish create-only. Replacement/removal must atomically claim
+  the exact owned object before validation or cleanup. Any claim, publish,
+  restore, or ownership collision fails closed and preserves both sides plus
+  diagnostics for manual review instead of overwriting or recursively deleting
+  an unclaimed path.
+- Ponytail, Caveman, Context7, fast-context, and CodeGraph are visibly recommended in
   their correct groups. Recommendations never preselect a candidate or count
   as approval; an explicit yes is required before installation.
 
@@ -275,24 +312,33 @@ future initialization follows this contract.
 - [x] The released Codex-only CCG is versioned `3.3.2`, all user-facing
   package/plugin/config metadata agrees, and the Harness snapshot plus
   `harness.sources.json` bind its exact committed tree.
-- [ ] A fresh Harness installation projects exactly the 13 bundled
+- [x] A fresh Harness installation projects exactly the 13 bundled
   Harness/Trellis core Skills. Declining all third-party candidates installs no
   `grill-me`, `grilling`, Caveman, Ponytail, project Skill, MCP, CLI, hook, or global
   Ponytail default and still completes ordinary initialization.
-- [ ] Initial setup offers host-native structured choices where the host
+- [x] Initial setup offers host-native structured choices where the host
   supports them; the TTY fallback presents numbered one-at-a-time choices, and
   automation has explicit non-interactive flags with no implicit selection.
-- [ ] Global Init reports installation and authentication status for Codex,
-  Gemini, Grok, and Claude Code; installs/verifies Trellis, the CCG Codex-only
+- [x] Final interactive approval renders the third-party plan SHA-256,
+  approved package/command roots, subprocess configuration roots, and command
+  identities; selected non-interactive runs require that exact plan digest.
+- [x] Global Init reports installation and authentication status for Codex,
+  Gemini, and Grok, while presenting Claude as unprobed manual-only; installs/verifies Trellis, the CCG Codex-only
   CLI/plugin, and all 13 core platform Skills; then presents separate,
   default-unselected global Skill, global plugin, and MCP/CLI approval groups.
-- [ ] Every network access, tool installation, and authentication action has a
+- [x] Every network access, tool installation, and authentication action has a
   distinct preview and approval. Declining one optional action leaves a clear
   skipped/residual status instead of blocking unrelated offline setup.
-- [ ] Claude Code is skipped by default. If the user explicitly selects its
-  installation or login, the result is marked outside the zero-`.claude`
-  acceptance profile while the Harness/CCG no-`.claude` invariant remains.
-- [ ] Project Init derives recommended project Skills from repository evidence
+- [x] Provider install/login intent is recorded without execution. Every
+  Provider install/login remains manual-only; Harness never probes or launches
+  Claude and never starts Gemini's full agent. Codex/Grok guidance needs an
+  exact plan digest, `--approved`, and a second default-cancel TTY confirmation;
+  non-interactive execution is rejected and no Provider action receipt or
+  output is written.
+- [x] Claude Code is skipped by default. If the user explicitly selects its
+  manual installation or login path, the result is marked outside the
+  zero-`.claude` acceptance profile while Harness/CCG remain Claude-free.
+- [x] Project Init derives recommended project Skills from repository evidence
   and confirmed technology choices, obtains approval for the complete project
   constraint summary plus every disclosed dependency, writes the approved
   third-party selections into the owned contract, and runs the required
@@ -303,12 +349,15 @@ future initialization follows this contract.
   reasons, and managed paths into the approved contract before installation.
   An approved contract only permits confirmation of its recorded selection;
   non-interactive mode continues to consume an exact approved contract.
-- [ ] Focused tests cover reject-all, partial approval, dependency approval and
+- [x] Focused tests cover reject-all, partial approval, dependency approval and
   rejection, repeat execution, legacy `grill-me` atomic migration, user-edit
   drift, hard interruption recovery, unavailable external sources, Ponytail
   hook rejection independent of plugin installation, missing CodeGraph index,
   and fast-context rejection for strict data boundaries.
-- [ ] Setup offers three personal-catalog choices: the authenticated private
+- [x] Focused transaction tests prove create-only publication, exact-object
+  atomic claim, and preservation of both sides on claim/publish/restore/
+  ownership collisions. This criterion remains open until those tests pass.
+- [x] Setup offers three personal-catalog choices: the authenticated private
   catalog, an existing local Git catalog, or skip. Its default/public baseline
   does not require the private catalog.
 - [ ] A clean-install acceptance run under a new temporary user home completes

@@ -1,10 +1,14 @@
 import assert from "node:assert/strict";
 import {
+  chmodSync,
+  copyFileSync,
   cpSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -32,6 +36,14 @@ const THIRD_PARTY_VALIDATOR = path.join(
   "harness-init",
   "scripts",
   "third-party-approval.mjs",
+);
+const TRUSTED_COMMAND_RESOLVER = path.join(
+  ROOT,
+  ".agents",
+  "skills",
+  "harness-init",
+  "scripts",
+  "trusted-command-resolver.mjs",
 );
 
 function run(command, args, options = {}) {
@@ -140,6 +152,10 @@ function copyThirdPartySourceAssets(harnessRoot) {
     THIRD_PARTY_VALIDATOR,
     path.join(harnessInit, "scripts", "third-party-approval.mjs"),
   );
+  cpSync(
+    TRUSTED_COMMAND_RESOLVER,
+    path.join(harnessInit, "scripts", "trusted-command-resolver.mjs"),
+  );
 }
 
 function fixture() {
@@ -176,7 +192,7 @@ function verify(value, extra = []) {
   return verifyCheckout(value, value.sourceRoot, extra);
 }
 
-function verifyCheckout(value, checkout, extra = []) {
+function verifyCheckout(value, checkout, extra = [], options = {}) {
   return run(
     "pwsh",
     [
@@ -189,7 +205,73 @@ function verifyCheckout(value, checkout, extra = []) {
       checkout,
       ...extra,
     ],
-    { allowFailure: true },
+    { allowFailure: true, env: options.env },
+  );
+}
+
+function environmentWithPathPrefix(prefix, base = process.env) {
+  const env = { ...base };
+  let currentPath = "";
+  for (const key of Object.keys(env)) {
+    if (key.toLowerCase() !== "path") continue;
+    currentPath ||= env[key];
+    delete env[key];
+  }
+  env.PATH = `${prefix}${path.delimiter}${currentPath}`;
+  return env;
+}
+
+function writeCommandShim(directory, name) {
+  mkdirSync(directory, { recursive: true });
+  const file = path.join(
+    directory,
+    process.platform === "win32" ? `${name}.cmd` : name,
+  );
+  writeFileSync(
+    file,
+    process.platform === "win32"
+      ? "@echo off\r\necho unsafe shim\r\n"
+      : "#!/bin/sh\necho unsafe shim\n",
+  );
+  if (process.platform !== "win32") chmodSync(file, 0o755);
+  return file;
+}
+
+function runIdentityDriftProbe(targetPath) {
+  const powershell = `
+$errors = $null
+$tokens = $null
+$ast = [System.Management.Automation.Language.Parser]::ParseFile(
+  $env:HARNESS_TEST_VERIFY_SCRIPT,
+  [ref]$tokens,
+  [ref]$errors
+)
+if ($errors.Count -ne 0) { throw "Unable to parse verifier functions." }
+$functions = $ast.FindAll({
+  param($node)
+  $node -is [System.Management.Automation.Language.FunctionDefinitionAst]
+}, $true)
+foreach ($function in $functions) {
+  Invoke-Expression $function.Extent.Text
+}
+$identity = Get-TrustedCommandFileIdentity -Name "node" -Path $env:HARNESS_TEST_COMMAND_PATH
+$bytes = [System.IO.File]::ReadAllBytes($env:HARNESS_TEST_COMMAND_PATH)
+$bytes[$bytes.Length - 1] = $bytes[$bytes.Length - 1] -bxor 1
+[System.IO.File]::WriteAllBytes($env:HARNESS_TEST_COMMAND_PATH, $bytes)
+$lease = Open-TrustedCommandLease -Identity $identity
+$lease.Dispose()
+`;
+  return run(
+    "pwsh",
+    ["-NoProfile", "-Command", powershell],
+    {
+      allowFailure: true,
+      env: {
+        ...process.env,
+        HARNESS_TEST_VERIFY_SCRIPT: VERIFY_SCRIPT,
+        HARNESS_TEST_COMMAND_PATH: targetPath,
+      },
+    },
   );
 }
 
@@ -223,12 +305,95 @@ function verifyFetched(value, extra = []) {
   );
 }
 
+function runEnvironmentSanitizationProbe() {
+  const powershell = `
+$errors = $null
+$tokens = $null
+$ast = [System.Management.Automation.Language.Parser]::ParseFile(
+  $env:HARNESS_TEST_VERIFY_SCRIPT,
+  [ref]$tokens,
+  [ref]$errors
+)
+if ($errors.Count -ne 0) { throw "Unable to parse verifier functions." }
+$functions = $ast.FindAll({
+  param($node)
+  $node -is [System.Management.Automation.Language.FunctionDefinitionAst]
+}, $true)
+foreach ($function in $functions) {
+  Invoke-Expression $function.Extent.Text
+}
+$git = Resolve-TrustedNativeCommand -Name "git"
+$node = Resolve-TrustedNativeCommand -Name "node"
+$hostile = @{
+  PATH = "attacker-path"
+  NODE_OPTIONS = "--definitely-invalid-harness-option"
+  NODE_PATH = "attacker-node-path"
+  LD_PRELOAD = "attacker-loader"
+  DYLD_INSERT_LIBRARIES = "attacker-loader"
+  GIT_CONFIG_KEY_0 = "alias.status"
+  GIT_CONFIG_VALUE_0 = "!attacker"
+  GIT_CONFIG_PARAMETERS = "attacker"
+  GIT_EXEC_PATH = "attacker-git-exec"
+  GIT_SSH = "attacker-git-ssh"
+  GIT_SSH_COMMAND = "attacker-git-ssh-command"
+}
+foreach ($entry in $hostile.GetEnumerator()) {
+  [System.Environment]::SetEnvironmentVariable($entry.Key, $entry.Value)
+}
+$forbidden = @(
+  "PATH",
+  "NODE_OPTIONS",
+  "NODE_PATH",
+  "LD_PRELOAD",
+  "DYLD_INSERT_LIBRARIES",
+  "GIT_CONFIG_KEY_0",
+  "GIT_CONFIG_VALUE_0",
+  "GIT_CONFIG_PARAMETERS",
+  "GIT_EXEC_PATH",
+  "GIT_SSH",
+  "GIT_SSH_COMMAND"
+)
+foreach ($identity in @($git, $node)) {
+  $startInfo = New-TrustedProcessStartInfo -Identity $identity -Arguments @("--version")
+  foreach ($name in $forbidden) {
+    if ($startInfo.Environment.ContainsKey($name)) {
+      throw "$($identity.Name) child inherited forbidden environment variable: $name"
+    }
+  }
+}
+$gitResult = Invoke-TrustedTextCommand -Identity $git -Arguments @("--version")
+$nodeResult = Invoke-TrustedTextCommand -Identity $node -Arguments @("--version")
+if ($gitResult.ExitCode -ne 0 -or $nodeResult.ExitCode -ne 0) {
+  throw "Trusted commands failed under hostile parent environment."
+}
+`;
+  return run(
+    "pwsh",
+    ["-NoProfile", "-Command", powershell],
+    {
+      allowFailure: true,
+      env: {
+        ...process.env,
+        HARNESS_TEST_VERIFY_SCRIPT: VERIFY_SCRIPT,
+      },
+    },
+  );
+}
+
 test("source verifier binds clean authoritative commit, tree, and committed snapshot", () => {
   const value = fixture();
   try {
     const result = verify(value);
     assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
     assert.match(result.stdout, /Source verification passed/);
+    assert.match(
+      result.stdout,
+      /Git command:.*bytes, SHA-256 [0-9a-f]{64}/i,
+    );
+    assert.match(
+      result.stdout,
+      /Node command:.*bytes, SHA-256 [0-9a-f]{64}/i,
+    );
 
     const manifestPath = path.join(value.harnessRoot, "harness.sources.json");
     const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
@@ -272,7 +437,7 @@ test("source verifier rejects authoritative and component dirty state", () => {
   }
 });
 
-test("omitted checkout ignores a drifting sibling while explicit checkout remains strict", () => {
+test("omitted checkout rejects Git environment URL rewrites while explicit checkout remains strict", () => {
   const value = fixture();
   try {
     const siblingRoot = path.join(value.fixtureRoot, "ccg-workflow");
@@ -283,7 +448,11 @@ test("omitted checkout ignores a drifting sibling while explicit checkout remain
     git(siblingRoot, "remote", "add", "gptpro", PERSONAL_REPO);
 
     const fetched = verifyFetched(value);
-    assert.equal(fetched.status, 0, `${fetched.stdout}\n${fetched.stderr}`);
+    assert.notEqual(fetched.status, 0);
+    assert.match(
+      `${fetched.stdout}\n${fetched.stderr}`,
+      /git fetch .* failed/i,
+    );
 
     const explicitSibling = verifyCheckout(value, siblingRoot);
     assert.notEqual(explicitSibling.status, 0);
@@ -296,9 +465,20 @@ test("omitted checkout ignores a drifting sibling while explicit checkout remain
   }
 });
 
-test("fetched verification binds the recorded commit tree and current component", () => {
+test("explicit pinned checkout binds the recorded tree after fetch environment injection is rejected", () => {
   const value = fixture();
   try {
+    const pinnedCheckout = path.join(value.fixtureRoot, "pinned-source");
+    git(
+      value.fixtureRoot,
+      "-c",
+      "core.autocrlf=false",
+      "clone",
+      value.sourceRoot,
+      pinnedCheckout,
+    );
+    git(pinnedCheckout, "remote", "add", "gptpro", PERSONAL_REPO);
+
     writeSourceFiles(value.sourceRoot, "newer checkout");
     commitAll(value.sourceRoot, "newer personal source");
     write(path.join(value.sourceRoot, "untracked.txt"), "unrelated worktree state\n");
@@ -311,7 +491,14 @@ test("fetched verification binds the recorded commit tree and current component"
     );
 
     const fetched = verifyFetched(value);
-    assert.equal(fetched.status, 0, `${fetched.stdout}\n${fetched.stderr}`);
+    assert.notEqual(fetched.status, 0);
+    assert.match(
+      `${fetched.stdout}\n${fetched.stderr}`,
+      /git fetch .* failed/i,
+    );
+
+    const pinned = verifyCheckout(value, pinnedCheckout);
+    assert.equal(pinned.status, 0, `${pinned.stdout}\n${pinned.stderr}`);
 
     const componentResidue = path.join(
       value.harnessRoot,
@@ -320,7 +507,7 @@ test("fetched verification binds the recorded commit tree and current component"
       "residue.txt",
     );
     write(componentResidue, "untracked component drift\n");
-    const dirtyComponent = verifyFetched(value);
+    const dirtyComponent = verifyCheckout(value, pinnedCheckout);
     assert.notEqual(dirtyComponent.status, 0);
     assert.match(
       `${dirtyComponent.stdout}\n${dirtyComponent.stderr}`,
@@ -332,7 +519,7 @@ test("fetched verification binds the recorded commit tree and current component"
     const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
     manifest.ccg.gitTree = "f".repeat(40);
     writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
-    const forgedTree = verifyFetched(value);
+    const forgedTree = verifyCheckout(value, pinnedCheckout);
     assert.notEqual(forgedTree.status, 0);
     assert.match(
       `${forgedTree.stdout}\n${forgedTree.stderr}`,
@@ -546,6 +733,171 @@ test("index verification executes the staged validator and binds both validator 
     assert.match(
       `${missingWorktree.stdout}\n${missingWorktree.stderr}`,
       /validator not found/i,
+    );
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("source verifier rejects PATH-prepended git and node scripts or shims", () => {
+  const value = fixture();
+  try {
+    for (const command of ["git", "node"]) {
+      const fakeBin = path.join(value.fixtureRoot, `fake-${command}`);
+      writeCommandShim(fakeBin, command);
+      const result = verifyCheckout(value, value.sourceRoot, [], {
+        env: environmentWithPathPrefix(fakeBin),
+      });
+      assert.notEqual(result.status, 0);
+      assert.match(
+        `${result.stdout}\n${result.stderr}`,
+        new RegExp(`${command} command must be a native executable, not a script or shim`, "i"),
+      );
+    }
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("source verifier clears Node and Git environment injection before execution", () => {
+  const value = fixture();
+  try {
+    const marker = path.join(value.fixtureRoot, "node-options-injection.txt");
+    const preload = path.join(value.fixtureRoot, "node-options-preload.cjs");
+    writeFileSync(
+      preload,
+      `require("node:fs").writeFileSync(${JSON.stringify(marker)}, "injected");\n`,
+    );
+    const result = verifyCheckout(value, value.sourceRoot, [], {
+      env: {
+        ...process.env,
+        NODE_OPTIONS: `--require=${preload}`,
+        NODE_PATH: path.join(value.fixtureRoot, "attacker-node-path"),
+        GIT_CONFIG_COUNT: "not-a-number",
+        GIT_EXEC_PATH: path.join(value.fixtureRoot, "attacker-git-exec"),
+        GIT_SSH: path.join(value.fixtureRoot, "attacker-git-ssh"),
+      },
+    });
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+    assert.equal(
+      existsSync(marker),
+      false,
+      "NODE_OPTIONS preload must not execute inside the verifier's Node child",
+    );
+    const probe = runEnvironmentSanitizationProbe();
+    assert.equal(probe.status, 0, `${probe.stdout}\n${probe.stderr}`);
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("source verifier rejects a command reached through a linked PATH directory", (t) => {
+  const value = fixture();
+  try {
+    const linkedBin = path.join(value.fixtureRoot, "linked-node-bin");
+    try {
+      symlinkSync(
+        path.dirname(process.execPath),
+        linkedBin,
+        process.platform === "win32" ? "junction" : "dir",
+      );
+    } catch (error) {
+      if (error?.code === "EPERM" || error?.code === "EACCES") {
+        t.skip(`linked-directory creation is unavailable: ${error.code}`);
+        return;
+      }
+      throw error;
+    }
+    const result = verifyCheckout(value, value.sourceRoot, [], {
+      env: environmentWithPathPrefix(linkedBin),
+    });
+    assert.notEqual(result.status, 0);
+    assert.match(
+      `${result.stdout}\n${result.stderr}`,
+      /node command must not be reached through a linked parent directory/i,
+    );
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("source verifier detects an executable identity drift before reuse", () => {
+  const directory = mkdtempSync(
+    path.join(tmpdir(), "harness-command-identity-drift-"),
+  );
+  try {
+    const executable = path.join(
+      directory,
+      process.platform === "win32" ? "node.exe" : "node",
+    );
+    copyFileSync(process.execPath, executable);
+    if (process.platform !== "win32") chmodSync(executable, 0o755);
+    const result = runIdentityDriftProbe(executable);
+    assert.notEqual(result.status, 0);
+    assert.match(
+      `${result.stdout}\n${result.stderr}`,
+      /node command identity changed after verifier startup/i,
+    );
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("source verification binds the trusted command resolver in worktree and index", () => {
+  const value = fixture();
+  const resolverPath = path.join(
+    value.harnessRoot,
+    ".agents",
+    "skills",
+    "harness-init",
+    "scripts",
+    "trusted-command-resolver.mjs",
+  );
+  try {
+    writeFileSync(resolverPath, "export const tampered = true;\n");
+
+    const worktreeDrift = verify(value);
+    assert.notEqual(worktreeDrift.status, 0);
+    assert.match(
+      `${worktreeDrift.stdout}\n${worktreeDrift.stderr}`,
+      /Trusted command resolver SHA-256 mismatch/i,
+    );
+
+    const stagedStillTrusted = verify(value, ["-Index"]);
+    assert.equal(
+      stagedStillTrusted.status,
+      0,
+      `${stagedStillTrusted.stdout}\n${stagedStillTrusted.stderr}`,
+    );
+
+    git(value.harnessRoot, "add", resolverPath);
+    const stagedDrift = verify(value, ["-Index"]);
+    assert.notEqual(stagedDrift.status, 0);
+    assert.match(
+      `${stagedDrift.stdout}\n${stagedDrift.stderr}`,
+      /Staged trusted command resolver SHA-256 mismatch/i,
+    );
+
+    git(
+      value.harnessRoot,
+      "rm",
+      "--cached",
+      "--",
+      ".agents/skills/harness-init/scripts/trusted-command-resolver.mjs",
+    );
+    const missingStaged = verify(value, ["-Index"]);
+    assert.notEqual(missingStaged.status, 0);
+    assert.match(
+      `${missingStaged.stdout}\n${missingStaged.stderr}`,
+      /Trusted command resolver is missing from the staged Git tree/i,
+    );
+
+    rmSync(resolverPath);
+    const missingWorktree = verify(value);
+    assert.notEqual(missingWorktree.status, 0);
+    assert.match(
+      `${missingWorktree.stdout}\n${missingWorktree.stderr}`,
+      /Trusted command resolver not found/i,
     );
   } finally {
     value.cleanup();

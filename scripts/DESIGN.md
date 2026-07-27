@@ -80,9 +80,28 @@ initialization and requires a separate ownership-aware migration.
 
 Third-party Skills, plugins, and MCP/CLI actions are outside this baseline.
 Their fixed source identity, effects, and user-approved selections are tracked
-separately. Ponytail, Caveman, fast-context, and CodeGraph are recommended
-candidates, but no third-party candidate is selected by default and no
-recommendation is installation approval.
+separately. Ponytail, Caveman, Context7, fast-context, and CodeGraph are
+recommended candidates, but no third-party candidate is selected by default
+and no recommendation is installation approval.
+The canonical approval evidence also binds the complete execution plan:
+`planSha256`, approved package and command roots, subprocess configuration
+roots, and every resolved command identity. The final interactive confirmation
+renders those values. Non-interactive Global or Project Init with any selected
+third-party candidate must provide the exact reviewed
+`--third-party-plan-sha256`; a source-manifest digest alone cannot authorize
+execution.
+Approved MCP packages are never registered as direct third-party entrypoints.
+Codex invokes the Harness-owned launcher, which revalidates the approval
+manifest, ownership, package lock, full installed-tree fingerprint, and exact
+entrypoint before every local process start.
+
+Third-party filesystem mutation follows an additional fail-closed CAS rule.
+New destinations are published create-only. Existing owned objects are first
+atomically claimed into the transaction area, then the claimed object itself is
+validated and used for rollback/removal. A claim, publish, restore, or
+ownership collision preserves both the claimed state and the conflicting state
+with diagnostics for manual review; cleanup must not recursively delete an
+unclaimed path merely because an earlier observation matched.
 
 ## Alternatives Considered
 
@@ -106,9 +125,22 @@ recommendation is installation approval.
   forwarding.
 - Authorization values are never emitted; response errors are bounded and
   redacted with both structural and exact-secret rules.
-- Child processes receive an environment with credential-like and Claude
-  variables removed.
+- Child processes receive an explicit minimal environment derived from the
+  approval plan's home/configuration roots. Injection surfaces such as
+  `NODE_OPTIONS`, `NODE_PATH`, `LD_PRELOAD`, `DYLD_*`, ambient `GIT_*`, and
+  unrelated variables are removed; Git receives additional no-prompt and
+  no-global/system-config controls.
+- Executable helpers use canonical absolute command bindings whose file and,
+  for Node launchers, package-tree identities are revalidated before use.
 - Commands are executed with argument arrays and `shell: false`.
+- Global Init records provider install/login intent but never executes it.
+  Every Provider installation and login is documentation/manual-only; Harness
+  never probes or starts `claude`. A later provider guidance request needs an
+  exact state-bound plan digest, `--approved`, and a second default-cancel TTY
+  confirmation. The plan may bind a canonical absolute executable/Node
+  entrypoint, package/version identity, and file hashes for review, but Harness
+  never starts the Provider CLI or writes an action receipt. This avoids the
+  unattested dependency-tree and verify-to-spawn interval.
 - User-profile parent directories and catalog/project Skill trees reject
   symbolic links and reparse points; project copies are bounded by depth, file
   count, individual file size, and total size.
@@ -118,6 +150,9 @@ recommendation is installation approval.
   counts and status only.
 - Bootstrap and lifecycle operations record exactly which global npm state they
   own, restore it on failure, and refuse to overwrite later user changes.
+- Installing CodeGraph never creates or refreshes a `.codegraph` index.
+- Harness and CCG never invoke Claude and never create, restore, mutate, or
+  delete user-level or project `.claude` content.
 
 Accepted limitation: an operator can intentionally point the manual probe at an
 internal HTTPS service. This is equivalent to running a local HTTP client and

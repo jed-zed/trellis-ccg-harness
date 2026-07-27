@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import {
+  copyFileSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  renameSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -15,15 +17,15 @@ import { fileURLToPath } from "node:url";
 
 import {
   acquirePinnedGitSource,
-  applyThirdPartyGlobalSkills,
-  applyThirdPartyProjectSkills,
+  applyThirdPartyGlobalSkills as applyThirdPartyGlobalSkillsRaw,
+  applyThirdPartyProjectSkills as applyThirdPartyProjectSkillsRaw,
   buildThirdPartyApprovalPlan,
   loadThirdPartySourceManifest,
-  preflightThirdPartyGlobalApproval,
-  recordThirdPartyGlobalApproval,
+  preflightThirdPartyGlobalApproval as preflightThirdPartyGlobalApprovalRaw,
+  recordThirdPartyGlobalApproval as recordThirdPartyGlobalApprovalRaw,
   recoverThirdPartyProjectTransactions,
   recoverThirdPartyTransactions,
-  resolveThirdPartyApprovals,
+  resolveThirdPartyApprovals as resolveThirdPartyApprovalsRaw,
   snapshotThirdPartyTree,
   validateThirdPartySourceManifest,
 } from "../.agents/skills/harness-init/scripts/third-party-approval.mjs";
@@ -58,6 +60,63 @@ function canonicalJson(value) {
 
 function sha256(value) {
   return createHash("sha256").update(value).digest("hex");
+}
+
+function materializeTrustedGitRoot(root) {
+  const commandRoot = path.join(root, "trusted-git");
+  mkdirSync(commandRoot, { recursive: true });
+  const executable = path.join(
+    commandRoot,
+    process.platform === "win32" ? "git.exe" : "git",
+  );
+  copyFileSync(process.execPath, executable);
+  return { commandRoot, executable };
+}
+
+const approvalPlans = new WeakMap();
+
+function resolveThirdPartyApprovals(input) {
+  const approvals = resolveThirdPartyApprovalsRaw(input);
+  approvalPlans.set(approvals, input.plan);
+  return approvals;
+}
+
+function withApprovalContract(input) {
+  const approvalPlan = input.approvalPlan ?? approvalPlans.get(input.approvals);
+  if (!approvalPlan) {
+    throw new Error("Test setup requires the authoritative approval plan.");
+  }
+  return {
+    ...input,
+    approvalPlan,
+    repoRoot: input.repoRoot ?? approvalPlan.targetRoots.projectSkills,
+    strictDataBoundary:
+      input.strictDataBoundary ?? approvalPlan.strictDataBoundary,
+  };
+}
+
+function preflightThirdPartyGlobalApproval(input) {
+  return preflightThirdPartyGlobalApprovalRaw(withApprovalContract(input));
+}
+
+function recordThirdPartyGlobalApproval(input) {
+  return recordThirdPartyGlobalApprovalRaw(withApprovalContract(input));
+}
+
+function applyThirdPartyGlobalSkills(input) {
+  return applyThirdPartyGlobalSkillsRaw(withApprovalContract(input));
+}
+
+function applyThirdPartyProjectSkills(input) {
+  return applyThirdPartyProjectSkillsRaw(withApprovalContract(input));
+}
+
+function deferred() {
+  let resolve;
+  const promise = new Promise((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
 }
 
 function writeSkill(root, relativePath, name, body = "") {
@@ -274,6 +333,44 @@ test("manifest validation rejects mutable selectors", () => {
   );
 });
 
+test("manifest validation rejects credential-bearing and non-HTTPS repositories", () => {
+  for (const repository of [
+    "https://user:password@example.invalid/repo.git",
+    "http://example.invalid/repo.git",
+  ]) {
+    const manifest = JSON.parse(readFileSync(MANIFEST_PATH, "utf8"));
+    manifest.sources[0].repository = repository;
+    assert.throws(
+      () => validateThirdPartySourceManifest(manifest),
+      /credential-free HTTPS/i,
+    );
+  }
+});
+
+test("manifest validation rejects incomplete or traversing release assets", () => {
+  const traversal = JSON.parse(readFileSync(MANIFEST_PATH, "utf8"));
+  traversal.sources.find((entry) => entry.id === "ripgrep").assets[0].name =
+    "../../ripgrep.exe";
+  assert.throws(
+    () => validateThirdPartySourceManifest(traversal),
+    /safe basename/i,
+  );
+
+  const incomplete = JSON.parse(readFileSync(MANIFEST_PATH, "utf8"));
+  delete incomplete.sources.find((entry) => entry.id === "ripgrep").assets[0].sha256;
+  assert.throws(
+    () => validateThirdPartySourceManifest(incomplete),
+    /invalid or duplicate asset/i,
+  );
+
+  const noRelease = JSON.parse(readFileSync(MANIFEST_PATH, "utf8"));
+  delete noRelease.sources.find((entry) => entry.id === "ripgrep").release;
+  assert.throws(
+    () => validateThirdPartySourceManifest(noRelease),
+    /fixed release/i,
+  );
+});
+
 test("manifest validation rejects a mutable top-level approval default", () => {
   const manifest = JSON.parse(readFileSync(MANIFEST_PATH, "utf8"));
   manifest.approvalDefaults.selected = true;
@@ -345,6 +442,32 @@ test("approval planning has four groups and selects no third party by default", 
       .flatMap((entry) => entry.candidates)
       .find((entry) => entry.id === "fast-context");
     assert.match(fastContext.dataEgress, /Windsurf/i);
+    const byId = new Map(
+      plan.groups
+        .flatMap((entry) => entry.candidates)
+        .map((entry) => [entry.id, entry]),
+    );
+    for (const id of ["codegraph", "fast-context", "context7"]) {
+      const candidate = byId.get(id);
+      const source = JSON.parse(readFileSync(MANIFEST_PATH, "utf8"))
+        .sources.find((entry) => entry.id === id);
+      assert.equal(candidate.source.gitTree, source.gitTree);
+      assert.equal(candidate.source.packageIntegrity, source.packageIntegrity);
+      assert.deepEqual(candidate.source.packageLock, source.packageLock);
+      assert.deepEqual(candidate.source.assets, []);
+    }
+    const ripgrep = byId.get("ripgrep");
+    assert.equal(ripgrep.source.gitTree, "c743701524f65f036cf174d6551918be7dfc0d40");
+    assert.deepEqual(
+      ripgrep.source.assets.map(({ platform, name, sha256: digest }) => ({
+        platform,
+        name,
+        sha256: digest,
+      })),
+      JSON.parse(readFileSync(MANIFEST_PATH, "utf8"))
+        .sources.find((entry) => entry.id === "ripgrep").assets,
+    );
+    assert.equal(JSON.stringify(plan).includes("packageIntegrity"), true);
     const caveman = plan.groups
       .find((group) => group.id === "global-skills")
       .candidates.find((entry) => entry.id === "caveman");
@@ -355,6 +478,219 @@ test("approval planning has four groups and selects no third party by default", 
       existsSync(path.join(value.repoRoot, ".codegraph")),
       false,
     );
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("approval planning rejects unapproved secret-like manifest fields", async () => {
+  const value = fixture();
+  try {
+    const sourceManifest = JSON.parse(readFileSync(MANIFEST_PATH, "utf8"));
+    sourceManifest.sources.find((entry) => entry.id === "context7").apiKey =
+      "must-not-appear";
+    sourceManifest.candidates.find((entry) => entry.id === "context7").credentials = {
+      bearer: "must-not-appear",
+    };
+    await assert.rejects(
+      buildThirdPartyApprovalPlan({
+        homeDir: value.homeDir,
+        repoRoot: value.repoRoot,
+        manifest: sourceManifest,
+      }),
+      /unsupported fields/i,
+    );
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("approval plan digest binds displayed installation observations", async () => {
+  const value = fixture();
+  const otherRepo = path.join(value.root, "other-project");
+  mkdirSync(otherRepo);
+  try {
+    const plan = await buildThirdPartyApprovalPlan({
+      homeDir: value.homeDir,
+      repoRoot: value.repoRoot,
+      manifestPath: MANIFEST_PATH,
+    });
+    assert.match(plan.planSha256, /^[a-f0-9]{64}$/);
+    const originalSha256 = plan.planSha256;
+    plan.groups[0].candidates[0].installed = {
+      status: "drifted",
+      treeSha256: "f".repeat(64),
+    };
+    assert.throws(
+      () => resolveThirdPartyApprovals({
+        plan,
+        selections: {
+          globalSkills: [],
+          globalPlugins: [],
+          projectSkills: [],
+          mcpCli: [],
+        },
+      }),
+      /drifted after presentation/i,
+    );
+    assert.equal(plan.planSha256, originalSha256);
+
+    const other = await buildThirdPartyApprovalPlan({
+      homeDir: value.homeDir,
+      repoRoot: otherRepo,
+      manifestPath: MANIFEST_PATH,
+    });
+    assert.notEqual(other.planSha256, originalSha256);
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("approval plan digest binds canonical command roots, identities, and subprocess config roots", async () => {
+  const value = fixture();
+  try {
+    const source = await fixtureManifest(value);
+    const { commandRoot, executable } = materializeTrustedGitRoot(value.root);
+    const plan = await buildThirdPartyApprovalPlan({
+      homeDir: value.homeDir,
+      repoRoot: value.repoRoot,
+      manifest: source.manifest,
+      approvedCommandRoots: [commandRoot],
+      env: { PATH: commandRoot },
+    });
+    assert.deepEqual(plan.execution.commandPlan.approvedCommandRoots, [
+      path.resolve(commandRoot),
+    ]);
+    assert.equal(
+      plan.execution.commandPlan.commands.git.binding.command,
+      path.resolve(executable),
+    );
+    assert.match(
+      plan.execution.commandPlan.commands.git.binding.identity.binary.sha256,
+      /^[a-f0-9]{64}$/,
+    );
+    assert.deepEqual(plan.execution.subprocessConfigRoots, {
+      home: path.resolve(value.homeDir),
+      userProfile: path.resolve(value.homeDir),
+      xdgConfigHome: path.join(path.resolve(value.homeDir), ".config"),
+      codexHome: path.join(path.resolve(value.homeDir), ".codex"),
+      sourceCache: path.join(
+        path.resolve(value.homeDir),
+        ".agents",
+        "harness",
+        "sources",
+      ),
+      toolCache: path.join(
+        path.resolve(value.homeDir),
+        ".agents",
+        "harness",
+        "tools",
+      ),
+    });
+    const originalSha256 = plan.planSha256;
+    plan.execution.commandPlan.approvedCommandRoots.push(
+      path.join(value.root, "late-root"),
+    );
+    assert.throws(
+      () => resolveThirdPartyApprovals({
+        plan,
+        selections: {
+          globalSkills: [],
+          globalPlugins: [],
+          projectSkills: [],
+          mcpCli: [],
+        },
+      }),
+      /drifted after presentation/i,
+    );
+    assert.equal(plan.planSha256, originalSha256);
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("approval resolution rejects a displayed plan changed after its digest", async () => {
+  const value = fixture();
+  try {
+    const plan = await buildThirdPartyApprovalPlan({
+      homeDir: value.homeDir,
+      repoRoot: value.repoRoot,
+      manifestPath: MANIFEST_PATH,
+      strictDataBoundary: true,
+    });
+    const fastContext = plan.groups
+      .flatMap((group) => group.candidates)
+      .find((candidate) => candidate.id === "fast-context");
+    fastContext.blocked = false;
+    fastContext.unavailableReason = null;
+    await assert.rejects(
+      async () => resolveThirdPartyApprovals({
+        plan,
+        selections: {
+          globalSkills: [],
+          globalPlugins: [],
+          projectSkills: [],
+          mcpCli: ["fast-context"],
+        },
+      }),
+      /plan drifted after presentation/i,
+    );
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("authoritative strict plan rejects approvals forged from a non-strict plan", async () => {
+  const value = fixture();
+  try {
+    const nonStrictPlan = await buildThirdPartyApprovalPlan({
+      homeDir: value.homeDir,
+      repoRoot: value.repoRoot,
+      manifestPath: MANIFEST_PATH,
+      strictDataBoundary: false,
+    });
+    const forgedApprovals = resolveThirdPartyApprovals({
+      plan: nonStrictPlan,
+      selections: {
+        globalSkills: [],
+        globalPlugins: [],
+        projectSkills: [],
+        mcpCli: ["fast-context"],
+      },
+    });
+    const strictPlan = await buildThirdPartyApprovalPlan({
+      homeDir: value.homeDir,
+      repoRoot: value.repoRoot,
+      manifestPath: MANIFEST_PATH,
+      strictDataBoundary: true,
+    });
+    await assert.rejects(
+      preflightThirdPartyGlobalApproval({
+        homeDir: value.homeDir,
+        repoRoot: value.repoRoot,
+        strictDataBoundary: true,
+        manifestPath: MANIFEST_PATH,
+        approvals: forgedApprovals,
+        approvalPlan: strictPlan,
+      }),
+      /authoritative displayed plan/i,
+    );
+    await assert.rejects(
+      applyThirdPartyGlobalSkills({
+        approved: true,
+        homeDir: value.homeDir,
+        repoRoot: value.repoRoot,
+        strictDataBoundary: true,
+        manifestPath: MANIFEST_PATH,
+        approvals: forgedApprovals,
+        approvalPlan: strictPlan,
+        sourceResolver: async () => {
+          throw new Error("must not resolve a source");
+        },
+      }),
+      /authoritative displayed plan/i,
+    );
+    assert.equal(existsSync(path.join(value.homeDir, ".agents")), false);
   } finally {
     value.cleanup();
   }
@@ -479,7 +815,7 @@ test("Skill installers reject forged approvedActionIds that lack explicit select
     const forgedGlobal = { ...globalApprovals, selections: { globalSkills: [], globalPlugins: [], projectSkills: [], mcpCli: [] } };
     await assert.rejects(
       applyThirdPartyGlobalSkills({
-        approved: true, approvals: forgedGlobal, homeDir: value.homeDir, manifest: source.manifest, sourceResolver: async () => source.sourceRoot,
+        approved: true, approvals: forgedGlobal, approvalPlan: globalPlan, homeDir: value.homeDir, manifest: source.manifest, sourceResolver: async () => source.sourceRoot,
       }),
       /not explicitly selected/i,
     );
@@ -492,7 +828,7 @@ test("Skill installers reject forged approvedActionIds that lack explicit select
     const forgedProject = { ...projectApprovals, selections: { globalSkills: [], globalPlugins: [], projectSkills: [], mcpCli: [] } };
     await assert.rejects(
       applyThirdPartyProjectSkills({
-        approved: true, approvals: forgedProject, homeDir: value.homeDir, repoRoot: value.repoRoot, manifest: source.manifest, sourceResolver: async () => source.sourceRoot,
+        approved: true, approvals: forgedProject, approvalPlan: projectPlan, homeDir: value.homeDir, repoRoot: value.repoRoot, manifest: source.manifest, sourceResolver: async () => source.sourceRoot,
       }),
       /not explicitly selected/i,
     );
@@ -524,6 +860,9 @@ test("the global interview bundle installs atomically and repeats unchanged", as
       approvals,
       homeDir: value.homeDir,
       manifest: source.manifest,
+      approvalPlan: plan,
+      repoRoot: value.repoRoot,
+      strictDataBoundary: false,
       sourceResolver: async () => source.sourceRoot,
     });
     assert.equal(first.status, "installed");
@@ -544,6 +883,9 @@ test("the global interview bundle installs atomically and repeats unchanged", as
       approvals,
       homeDir: value.homeDir,
       manifest: source.manifest,
+      approvalPlan: plan,
+      repoRoot: value.repoRoot,
+      strictDataBoundary: false,
       sourceResolver: async () => source.sourceRoot,
     });
     assert.equal(second.status, "unchanged");
@@ -625,6 +967,64 @@ test("approved global bundles share one ownership-last transaction", async () =>
     assert.equal(existsSync(path.join(value.homeDir, ".agents", "skills", "grilling", "SKILL.md")), true);
     assert.equal(existsSync(path.join(value.homeDir, ".agents", "skills", "caveman", "SKILL.md")), true);
   } finally {
+    value.cleanup();
+  }
+});
+
+test("a same-process global Skill transaction cannot reenter recovery or mutate", async () => {
+  const value = fixture();
+  const entered = deferred();
+  const resume = deferred();
+  try {
+    const source = await fixtureCavemanManifest(value);
+    const plan = await buildThirdPartyApprovalPlan({
+      homeDir: value.homeDir,
+      manifest: source.manifest,
+      repoRoot: value.repoRoot,
+    });
+    const approvals = resolveThirdPartyApprovals({
+      plan,
+      selections: {
+        globalSkills: ["caveman"],
+        globalPlugins: [],
+        projectSkills: [],
+        mcpCli: [],
+      },
+    });
+    const install = () => applyThirdPartyGlobalSkills({
+      approved: true,
+      approvals,
+      homeDir: value.homeDir,
+      manifest: source.manifest,
+      sourceResolver: async () => source.cavemanRoot,
+    });
+    const first = applyThirdPartyGlobalSkills({
+      approved: true,
+      approvals,
+      homeDir: value.homeDir,
+      manifest: source.manifest,
+      sourceResolver: async () => source.cavemanRoot,
+      faultInjector: async (phase) => {
+        if (phase === "before-activate:caveman:caveman") {
+          entered.resolve();
+          await resume.promise;
+        }
+      },
+    });
+    await entered.promise;
+    await assert.rejects(install(), /live process|concurrent recovery/i);
+    assert.equal(
+      existsSync(path.join(value.homeDir, ".agents", "skills", "caveman")),
+      false,
+    );
+    assert.equal(
+      existsSync(path.join(value.homeDir, ".agents", "harness", "third-party-installations.json")),
+      false,
+    );
+    resume.resolve();
+    assert.equal((await first).status, "installed");
+  } finally {
+    resume.resolve();
     value.cleanup();
   }
 });
@@ -831,6 +1231,7 @@ test("interrupted bundle state recovers both targets together", async () => {
     );
     const recovery = await recoverThirdPartyTransactions({
       homeDir: value.homeDir,
+      processAlive: async () => false,
     });
     assert.equal(recovery.status, "rolled-back");
     assert.equal(
@@ -849,13 +1250,16 @@ test("interrupted bundle state recovers both targets together", async () => {
 test("pinned Git acquisition fetches only the approved full commit and validates the cache", async () => {
   const value = fixture();
   try {
-    const source = {
-      id: "fixture-source",
-      repository: "https://example.invalid/fixture.git",
-      commit: "1111111111111111111111111111111111111111",
-      gitTree: "2222222222222222222222222222222222222222",
-      license: "MIT",
-    };
+    const sourceFixture = await fixtureManifest(value);
+    const source = sourceFixture.manifest.sources[0];
+    const { commandRoot } = materializeTrustedGitRoot(value.root);
+    const approvalPlan = await buildThirdPartyApprovalPlan({
+      homeDir: value.homeDir,
+      repoRoot: value.repoRoot,
+      manifest: sourceFixture.manifest,
+      approvedCommandRoots: [commandRoot],
+      env: { PATH: commandRoot },
+    });
     const calls = [];
     const fakeGit = async (_command, args) => {
       calls.push(args);
@@ -864,16 +1268,89 @@ test("pinned Git acquisition fetches only the approved full commit and validates
       }
       return { stdout: "" };
     };
-    const cache = await acquirePinnedGitSource({ homeDir: value.homeDir, source, execFileImpl: fakeGit });
+    const cache = await acquirePinnedGitSource({
+      approvalPlan,
+      homeDir: value.homeDir,
+      source,
+      execFileImpl: fakeGit,
+    });
     assert.equal(
       calls.some((args) => args[0] === "fetch" && args.at(-1) === source.commit),
       true,
     );
     assert.equal(calls.some((args) => args.join(" ").match(/main|latest/i)), false);
     const before = calls.length;
-    const repeated = await acquirePinnedGitSource({ homeDir: value.homeDir, source, execFileImpl: fakeGit });
+    const repeated = await acquirePinnedGitSource({
+      approvalPlan,
+      homeDir: value.homeDir,
+      source,
+      execFileImpl: fakeGit,
+    });
     assert.equal(repeated, cache);
     assert.equal(calls.slice(before).some((args) => args[0] === "fetch"), false);
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("pinned Git acquisition requires the displayed Git identity and strips caller GIT injection", async () => {
+  const value = fixture();
+  try {
+    const sourceFixture = await fixtureManifest(value);
+    const source = sourceFixture.manifest.sources[0];
+    const { commandRoot, executable } = materializeTrustedGitRoot(value.root);
+    const approvalPlan = await buildThirdPartyApprovalPlan({
+      homeDir: value.homeDir,
+      repoRoot: value.repoRoot,
+      manifest: sourceFixture.manifest,
+      approvedCommandRoots: [commandRoot],
+      env: { PATH: commandRoot },
+    });
+    const calls = [];
+    const cache = await acquirePinnedGitSource({
+      homeDir: value.homeDir,
+      source,
+      approvalPlan,
+      env: {
+        HOME: path.join(value.root, "attacker-home"),
+        GIT_DIR: path.join(value.root, "attacker-git-dir"),
+        GIT_CONFIG_COUNT: "1",
+        GIT_CONFIG_KEY_0: "core.hooksPath",
+        GIT_CONFIG_VALUE_0: path.join(value.root, "attacker-hooks"),
+        GIT_SSH_COMMAND: "attacker-command",
+        LD_PRELOAD: "attacker.so",
+      },
+      execFileImpl: async (command, args, options) => {
+        calls.push({ command, args, options });
+        if (args[0] === "rev-parse") {
+          return {
+            stdout: args[1] === "HEAD"
+              ? `${source.commit}\n`
+              : `${source.gitTree}\n`,
+          };
+        }
+        return { stdout: "" };
+      },
+    });
+    assert.equal(existsSync(cache), true);
+    assert.ok(calls.length >= 7);
+    for (const call of calls) {
+      assert.equal(call.command, path.resolve(executable));
+      assert.equal(call.options.shell, false);
+      assert.equal(call.options.env.HOME, path.resolve(value.homeDir));
+      assert.equal(call.options.env.GIT_CONFIG_NOSYSTEM, "1");
+      assert.equal(call.options.env.GIT_TERMINAL_PROMPT, "0");
+      for (const forbidden of [
+        "GIT_DIR",
+        "GIT_CONFIG_COUNT",
+        "GIT_CONFIG_KEY_0",
+        "GIT_CONFIG_VALUE_0",
+        "GIT_SSH_COMMAND",
+        "LD_PRELOAD",
+      ]) {
+        assert.equal(call.options.env[forbidden], undefined);
+      }
+    }
   } finally {
     value.cleanup();
   }
@@ -899,11 +1376,21 @@ test("project Skills install transactionally with ownership-last, idempotence, a
       homeDir: value.homeDir,
       repoRoot: value.repoRoot,
       manifest: source.manifest,
+      approvalPlan: plan,
+      strictDataBoundary: false,
       sourceResolver: async () => source.sourceRoot,
     });
     assert.equal(first.status, "installed");
     assert.equal(existsSync(path.join(value.repoRoot, ".agents", "skills", "grill-me", "SKILL.md")), true);
     assert.equal(existsSync(path.join(value.repoRoot, ".harness", "third-party-installations.json")), true);
+    assert.equal(
+      existsSync(path.join(value.repoRoot, ".harness", "third-party-transaction.key")),
+      false,
+    );
+    assert.equal(
+      existsSync(path.join(value.homeDir, ".agents", "harness", "third-party-transaction.key")),
+      true,
+    );
     assert.equal(existsSync(path.join(value.repoRoot, ".claude")), false);
     const second = await applyThirdPartyProjectSkills({
       approved: true,
@@ -911,10 +1398,74 @@ test("project Skills install transactionally with ownership-last, idempotence, a
       homeDir: value.homeDir,
       repoRoot: value.repoRoot,
       manifest: source.manifest,
+      approvalPlan: plan,
+      strictDataBoundary: false,
       sourceResolver: async () => source.sourceRoot,
     });
     assert.equal(second.status, "unchanged");
   } finally {
+    value.cleanup();
+  }
+});
+
+test("a same-process project Skill transaction cannot reenter recovery or mutate", async () => {
+  const value = fixture();
+  const entered = deferred();
+  const resume = deferred();
+  try {
+    const source = await fixtureProjectManifest(value);
+    const plan = await buildThirdPartyApprovalPlan({
+      homeDir: value.homeDir,
+      manifest: source.manifest,
+      repoRoot: value.repoRoot,
+    });
+    const approvals = resolveThirdPartyApprovals({
+      plan,
+      selections: {
+        globalSkills: [],
+        globalPlugins: [],
+        projectSkills: ["fixture-project-grill-me"],
+        mcpCli: [],
+      },
+    });
+    const install = () => applyThirdPartyProjectSkills({
+      approved: true,
+      approvals,
+      homeDir: value.homeDir,
+      repoRoot: value.repoRoot,
+      manifest: source.manifest,
+      approvalPlan: plan,
+      strictDataBoundary: false,
+      sourceResolver: async () => source.sourceRoot,
+    });
+    const first = applyThirdPartyProjectSkills({
+      approved: true,
+      approvals,
+      homeDir: value.homeDir,
+      repoRoot: value.repoRoot,
+      manifest: source.manifest,
+      sourceResolver: async () => source.sourceRoot,
+      faultInjector: async (phase) => {
+        if (phase === "before-activate:fixture-project-grill-me:grill-me") {
+          entered.resolve();
+          await resume.promise;
+        }
+      },
+    });
+    await entered.promise;
+    await assert.rejects(install(), /live process|concurrent recovery/i);
+    assert.equal(
+      existsSync(path.join(value.repoRoot, ".agents", "skills", "grill-me")),
+      false,
+    );
+    assert.equal(
+      existsSync(path.join(value.repoRoot, ".harness", "third-party-installations.json")),
+      false,
+    );
+    resume.resolve();
+    assert.equal((await first).status, "installed");
+  } finally {
+    resume.resolve();
     value.cleanup();
   }
 });
@@ -1053,7 +1604,11 @@ test("project interruption restores its whole approved batch without overwriting
       }),
       /interruption/i,
     );
-    const recovery = await recoverThirdPartyProjectTransactions({ repoRoot: value.repoRoot });
+    const recovery = await recoverThirdPartyProjectTransactions({
+      repoRoot: value.repoRoot,
+      homeDir: value.homeDir,
+      processAlive: async () => false,
+    });
     assert.equal(recovery.status, "rolled-back");
     assert.equal(existsSync(path.join(value.repoRoot, ".agents", "skills", "grill-me")), false);
     assert.equal(existsSync(path.join(value.repoRoot, ".agents", "skills", "grilling")), false);
@@ -1070,7 +1625,14 @@ test("explicit reject-all approval records a canonical source snapshot without s
       plan,
       selections: { globalSkills: [], globalPlugins: [], projectSkills: [], mcpCli: [] },
     });
-    const first = await recordThirdPartyGlobalApproval({ homeDir: value.homeDir, manifestPath: MANIFEST_PATH, approvals });
+    const first = await recordThirdPartyGlobalApproval({
+      homeDir: value.homeDir,
+      repoRoot: value.repoRoot,
+      strictDataBoundary: false,
+      manifestPath: MANIFEST_PATH,
+      approvals,
+      approvalPlan: plan,
+    });
     assert.equal(first.status, "recorded");
     const sourcePath = path.join(value.homeDir, ".agents", "harness", "third-party-sources.json");
     const approvalPath = first.approvalPath;
@@ -1078,9 +1640,19 @@ test("explicit reject-all approval records a canonical source snapshot without s
     const recorded = JSON.parse(readFileSync(approvalPath, "utf8"));
     assert.deepEqual(recorded.approvedActionIds, []);
     assert.deepEqual(recorded.selections, { globalSkills: [], globalPlugins: [], projectSkills: [], mcpCli: [] });
+    assert.equal(recorded.planSha256, plan.planSha256);
+    assert.equal(recorded.planEvidence.strictDataBoundary, false);
+    assert.equal(recorded.planEvidence.targetRoots.projectSkills, value.repoRoot);
     assert.equal(readFileSync(sourcePath, "utf8").includes("@latest"), false);
     assert.match(readFileSync(approvalPath, "utf8"), /sourceManifestSha256/);
-    assert.equal((await recordThirdPartyGlobalApproval({ homeDir: value.homeDir, manifestPath: MANIFEST_PATH, approvals })).status, "unchanged");
+    assert.equal((await recordThirdPartyGlobalApproval({
+      homeDir: value.homeDir,
+      repoRoot: value.repoRoot,
+      strictDataBoundary: false,
+      manifestPath: MANIFEST_PATH,
+      approvals,
+      approvalPlan: plan,
+    })).status, "unchanged");
     writeFileSync(approvalPath, `${readFileSync(approvalPath, "utf8").trim()}\nuser-drift\n`);
     await assert.rejects(
       recordThirdPartyGlobalApproval({ homeDir: value.homeDir, manifestPath: MANIFEST_PATH, approvals }),
@@ -1130,7 +1702,7 @@ test("approval receipts preserve reject-all and permit a later explicit Caveman 
   }
 });
 
-test("a rewritten historical approval receipt blocks every later decision", async () => {
+test("a rewritten, rehashed, and renamed historical approval receipt still fails authentication", async () => {
   const value = fixture();
   try {
     const source = await fixtureCavemanManifest(value);
@@ -1144,14 +1716,20 @@ test("a rewritten historical approval receipt blocks every later decision", asyn
       selections: { globalSkills: ["caveman"], globalPlugins: [], projectSkills: [], mcpCli: [] },
     });
     const receipt = await recordThirdPartyGlobalApproval({ homeDir: value.homeDir, manifest: source.manifest, approvals: rejected });
-    writeFileSync(receipt.approvalPath, canonicalJson({
+    const tamperedBytes = canonicalJson({
       ...selected,
       approvedActionIds: [...selected.approvedActionIds],
       selections: { ...selected.selections },
-    }));
+    });
+    writeFileSync(receipt.approvalPath, tamperedBytes);
+    const renamedReceipt = path.join(
+      path.dirname(receipt.approvalPath),
+      `${sha256(tamperedBytes)}.json`,
+    );
+    renameSync(receipt.approvalPath, renamedReceipt);
     await assert.rejects(
       preflightThirdPartyGlobalApproval({ homeDir: value.homeDir, manifest: source.manifest, approvals: selected }),
-      /filename.*digest|unsafe audit/i,
+      /unauthenticated|tampered|manual review/i,
     );
   } finally {
     value.cleanup();
@@ -1174,6 +1752,918 @@ test("approval receipt recording fails closed while another receipt writer holds
       /being recorded/i,
     );
     assert.equal(existsSync(path.join(value.homeDir, ".agents", "harness", "third-party-sources.json")), false);
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("approval receipt recording recovers a dead authenticated lock left before writes", async () => {
+  const value = fixture();
+  try {
+    const plan = await buildThirdPartyApprovalPlan({
+      homeDir: value.homeDir,
+      manifestPath: MANIFEST_PATH,
+      repoRoot: value.repoRoot,
+    });
+    const approvals = resolveThirdPartyApprovals({
+      plan,
+      selections: {
+        globalSkills: [],
+        globalPlugins: [],
+        projectSkills: [],
+        mcpCli: [],
+      },
+    });
+    await assert.rejects(
+      recordThirdPartyGlobalApproval({
+        homeDir: value.homeDir,
+        manifestPath: MANIFEST_PATH,
+        approvals,
+        faultInjector: async (phase) => {
+          if (phase === "after-approval-lock") {
+            const error = new Error("simulated crash after approval lock");
+            error.leaveApprovalLockForRecovery = true;
+            throw error;
+          }
+        },
+      }),
+      /crash after approval lock/i,
+    );
+    const lock = path.join(
+      value.homeDir,
+      ".agents",
+      "harness",
+      "third-party-approvals.lock",
+    );
+    assert.equal(existsSync(lock), true);
+    assert.equal(
+      existsSync(path.join(value.homeDir, ".agents", "harness", "third-party-sources.json")),
+      false,
+    );
+    const recovered = await recordThirdPartyGlobalApproval({
+      homeDir: value.homeDir,
+      manifestPath: MANIFEST_PATH,
+      approvals,
+      processAlive: async () => false,
+    });
+    assert.equal(recovered.status, "recorded");
+    assert.equal(existsSync(lock), false);
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("approval receipt recording recovers canonical receipt state from a dead writer", async () => {
+  const value = fixture();
+  try {
+    const plan = await buildThirdPartyApprovalPlan({
+      homeDir: value.homeDir,
+      manifestPath: MANIFEST_PATH,
+      repoRoot: value.repoRoot,
+    });
+    const approvals = resolveThirdPartyApprovals({
+      plan,
+      selections: {
+        globalSkills: [],
+        globalPlugins: [],
+        projectSkills: [],
+        mcpCli: [],
+      },
+    });
+    await assert.rejects(
+      recordThirdPartyGlobalApproval({
+        homeDir: value.homeDir,
+        manifestPath: MANIFEST_PATH,
+        approvals,
+        faultInjector: async (phase) => {
+          if (phase === "after-approval-receipt") {
+            const error = new Error("simulated crash after approval receipt");
+            error.leaveApprovalLockForRecovery = true;
+            throw error;
+          }
+        },
+      }),
+      /crash after approval receipt/i,
+    );
+    const recovered = await recordThirdPartyGlobalApproval({
+      homeDir: value.homeDir,
+      manifestPath: MANIFEST_PATH,
+      approvals,
+      processAlive: async () => false,
+    });
+    assert.equal(recovered.status, "unchanged");
+    assert.equal(
+      existsSync(path.join(value.homeDir, ".agents", "harness", "third-party-approvals.lock")),
+      false,
+    );
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("approval receipt stale-lock recovery preserves drift for manual review", async () => {
+  const value = fixture();
+  try {
+    const plan = await buildThirdPartyApprovalPlan({
+      homeDir: value.homeDir,
+      manifestPath: MANIFEST_PATH,
+      repoRoot: value.repoRoot,
+    });
+    const approvals = resolveThirdPartyApprovals({
+      plan,
+      selections: {
+        globalSkills: [],
+        globalPlugins: [],
+        projectSkills: [],
+        mcpCli: [],
+      },
+    });
+    let receiptPath;
+    await assert.rejects(
+      recordThirdPartyGlobalApproval({
+        homeDir: value.homeDir,
+        manifestPath: MANIFEST_PATH,
+        approvals,
+        faultInjector: async (phase, context) => {
+          if (phase === "after-approval-receipt") {
+            receiptPath = context.approvalTarget;
+            const error = new Error("simulated crash before cleanup");
+            error.leaveApprovalLockForRecovery = true;
+            throw error;
+          }
+        },
+      }),
+      /crash before cleanup/i,
+    );
+    writeFileSync(receiptPath, `${readFileSync(receiptPath, "utf8")}drift\n`);
+    await assert.rejects(
+      recordThirdPartyGlobalApproval({
+        homeDir: value.homeDir,
+        manifestPath: MANIFEST_PATH,
+        approvals,
+        processAlive: async () => false,
+      }),
+      /manual review|user-modified|canonical/i,
+    );
+    assert.equal(
+      existsSync(path.join(value.homeDir, ".agents", "harness", "third-party-approvals.lock")),
+      true,
+    );
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("npm-backed candidates require an exact package selector and complete pinned lock metadata", () => {
+  const missingIntegrity = JSON.parse(readFileSync(MANIFEST_PATH, "utf8"));
+  delete missingIntegrity.sources.find((entry) => entry.id === "context7")
+    .packageIntegrity;
+  assert.throws(
+    () => validateThirdPartySourceManifest(missingIntegrity),
+    /package.*packageIntegrity.*packageLock together/i,
+  );
+
+  const mutableSelector = JSON.parse(readFileSync(MANIFEST_PATH, "utf8"));
+  mutableSelector.candidates.find((entry) => entry.id === "context7")
+    .packageSelector = "@upstash/context7-mcp@latest";
+  assert.throws(
+    () => validateThirdPartySourceManifest(mutableSelector),
+    /packageSelector must exactly match/i,
+  );
+
+  const traversingLock = JSON.parse(readFileSync(MANIFEST_PATH, "utf8"));
+  traversingLock.sources.find((entry) => entry.id === "context7")
+    .packageLock.path = "../context7.package-lock.json";
+  assert.throws(
+    () => validateThirdPartySourceManifest(traversingLock),
+    /invalid Harness-owned packageLock/i,
+  );
+});
+
+test("every approval candidate reports bounded installation evidence and an allowed observed status", async () => {
+  const value = fixture();
+  try {
+    const plan = await buildThirdPartyApprovalPlan({
+      homeDir: value.homeDir,
+      repoRoot: value.repoRoot,
+      manifestPath: MANIFEST_PATH,
+    });
+    const candidates = plan.groups.flatMap((group) => group.candidates);
+    const allowedStatuses = new Set([
+      "absent",
+      "exact",
+      "drifted",
+      "unowned",
+      "manual-pending",
+    ]);
+    assert.equal(candidates.length > 0, true);
+    for (const candidate of candidates) {
+      assert.equal(candidate.installed.scope, candidate.scope);
+      assert.equal(candidate.installed.expected.sourceId, candidate.sourceId);
+      assert.equal(candidate.installed.expected.repository, candidate.repository);
+      assert.equal(candidate.installed.expected.commit, candidate.commit);
+      assert.equal(candidate.installed.expected.gitTree, candidate.gitTree);
+      assert.equal(
+        allowedStatuses.has(candidate.installed.observed.status),
+        true,
+        `${candidate.id} has an unsupported observed status`,
+      );
+      assert.equal(
+        candidate.installed.status,
+        candidate.installed.observed.status,
+      );
+    }
+    const ponytailHook = candidates.find(
+      (candidate) => candidate.id === "ponytail.hooks",
+    );
+    assert.equal(ponytailHook.installed.status, "manual-pending");
+    const context7 = candidates.find((candidate) => candidate.id === "context7");
+    assert.equal(context7.installed.status, "absent");
+    assert.match(context7.installed.expected.packageIntegrity, /^sha512-/);
+    assert.match(
+      context7.installed.expected.packageLockSha256,
+      /^[a-f0-9]{64}$/,
+    );
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("operations reject forged approval evidence when no authoritative plan is supplied", async () => {
+  const value = fixture();
+  try {
+    const source = await fixtureManifest(value);
+    const plan = await buildThirdPartyApprovalPlan({
+      homeDir: value.homeDir,
+      repoRoot: value.repoRoot,
+      manifest: source.manifest,
+    });
+    const approvals = resolveThirdPartyApprovals({
+      plan,
+      selections: {
+        globalSkills: ["matt-grilling"],
+        globalPlugins: [],
+        projectSkills: [],
+        mcpCli: [],
+      },
+    });
+    const forged = structuredClone(approvals);
+    forged.planEvidence.strictDataBoundary = true;
+    forged.planSha256 = sha256(canonicalJson(forged.planEvidence));
+    let sourceResolved = false;
+    await assert.rejects(
+      applyThirdPartyGlobalSkillsRaw({
+        approved: true,
+        approvals: forged,
+        homeDir: value.homeDir,
+        repoRoot: value.repoRoot,
+        strictDataBoundary: true,
+        manifest: source.manifest,
+        sourceResolver: async () => {
+          sourceResolved = true;
+          return source.sourceRoot;
+        },
+      }),
+      /authoritative plan/i,
+    );
+    assert.equal(sourceResolved, false);
+    await assert.rejects(
+      preflightThirdPartyGlobalApprovalRaw({
+        homeDir: value.homeDir,
+        repoRoot: value.repoRoot,
+        strictDataBoundary: true,
+        manifest: source.manifest,
+        approvals: forged,
+      }),
+      /authoritative plan/i,
+    );
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("global recovery after an ownership write restores both targets and prior ownership", async () => {
+  const value = fixture();
+  try {
+    const source = await fixtureManifest(value);
+    const plan = await buildThirdPartyApprovalPlan({
+      homeDir: value.homeDir,
+      repoRoot: value.repoRoot,
+      manifest: source.manifest,
+    });
+    const approvals = resolveThirdPartyApprovals({
+      plan,
+      selections: {
+        globalSkills: ["matt-grilling"],
+        globalPlugins: [],
+        projectSkills: [],
+        mcpCli: [],
+      },
+    });
+    await assert.rejects(
+      applyThirdPartyGlobalSkills({
+        approved: true,
+        approvals,
+        homeDir: value.homeDir,
+        manifest: source.manifest,
+        sourceResolver: async () => source.sourceRoot,
+        faultInjector: async (phase) => {
+          if (phase === "after-ownership-write") {
+            const error = new Error("simulated crash after global ownership write");
+            error.leaveTransactionForRecovery = true;
+            throw error;
+          }
+        },
+      }),
+      /global ownership write/i,
+    );
+    const ownership = path.join(
+      value.homeDir,
+      ".agents",
+      "harness",
+      "third-party-installations.json",
+    );
+    assert.equal(existsSync(ownership), true);
+    assert.equal(
+      existsSync(path.join(value.homeDir, ".agents", "skills", "grill-me")),
+      true,
+    );
+    const recovered = await recoverThirdPartyTransactions({
+      homeDir: value.homeDir,
+      processAlive: async () => false,
+    });
+    assert.equal(recovered.status, "rolled-back");
+    assert.equal(existsSync(ownership), false);
+    assert.equal(
+      existsSync(path.join(value.homeDir, ".agents", "skills", "grill-me")),
+      false,
+    );
+    assert.equal(
+      existsSync(path.join(value.homeDir, ".agents", "skills", "grilling")),
+      false,
+    );
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("project recovery after an ownership write restores both targets and prior ownership", async () => {
+  const value = fixture();
+  try {
+    const source = await fixtureProjectManifest(value);
+    const plan = await buildThirdPartyApprovalPlan({
+      homeDir: value.homeDir,
+      repoRoot: value.repoRoot,
+      manifest: source.manifest,
+    });
+    const approvals = resolveThirdPartyApprovals({
+      plan,
+      selections: {
+        globalSkills: [],
+        globalPlugins: [],
+        projectSkills: [
+          "fixture-project-grill-me",
+          "fixture-project-grilling",
+        ],
+        mcpCli: [],
+      },
+    });
+    await assert.rejects(
+      applyThirdPartyProjectSkills({
+        approved: true,
+        approvals,
+        homeDir: value.homeDir,
+        repoRoot: value.repoRoot,
+        manifest: source.manifest,
+        sourceResolver: async () => source.sourceRoot,
+        faultInjector: async (phase) => {
+          if (phase === "after-ownership-write") {
+            const error = new Error("simulated crash after project ownership write");
+            error.leaveTransactionForRecovery = true;
+            throw error;
+          }
+        },
+      }),
+      /project ownership write/i,
+    );
+    const ownership = path.join(
+      value.repoRoot,
+      ".harness",
+      "third-party-installations.json",
+    );
+    assert.equal(existsSync(ownership), true);
+    const recovered = await recoverThirdPartyProjectTransactions({
+      repoRoot: value.repoRoot,
+      homeDir: value.homeDir,
+      processAlive: async () => false,
+    });
+    assert.equal(recovered.status, "rolled-back");
+    assert.equal(existsSync(ownership), false);
+    assert.equal(
+      existsSync(path.join(value.repoRoot, ".agents", "skills", "grill-me")),
+      false,
+    );
+    assert.equal(
+      existsSync(path.join(value.repoRoot, ".agents", "skills", "grilling")),
+      false,
+    );
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("approval atomic creation never replaces a post-preflight source collision", async () => {
+  const value = fixture();
+  try {
+    const source = await fixtureManifest(value);
+    const plan = await buildThirdPartyApprovalPlan({
+      homeDir: value.homeDir,
+      repoRoot: value.repoRoot,
+      manifest: source.manifest,
+    });
+    const approvals = resolveThirdPartyApprovals({
+      plan,
+      selections: {
+        globalSkills: [],
+        globalPlugins: [],
+        projectSkills: [],
+        mcpCli: [],
+      },
+    });
+    const collisionBytes = "{\"attacker\":true}\n";
+    let collisionPath;
+    await assert.rejects(
+      recordThirdPartyGlobalApproval({
+        homeDir: value.homeDir,
+        manifest: source.manifest,
+        approvals,
+        faultInjector: async (phase, context) => {
+          if (phase === "before-source-manifest-write") {
+            collisionPath = context.sourceTarget;
+            writeFileSync(collisionPath, collisionBytes, { flag: "wx" });
+          }
+        },
+      }),
+      /EEXIST|exist/i,
+    );
+    assert.equal(readFileSync(collisionPath, "utf8"), collisionBytes);
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("approval atomic creation never replaces a post-preflight receipt collision", async () => {
+  const value = fixture();
+  try {
+    const source = await fixtureManifest(value);
+    const plan = await buildThirdPartyApprovalPlan({
+      homeDir: value.homeDir,
+      repoRoot: value.repoRoot,
+      manifest: source.manifest,
+    });
+    const approvals = resolveThirdPartyApprovals({
+      plan,
+      selections: {
+        globalSkills: [],
+        globalPlugins: [],
+        projectSkills: [],
+        mcpCli: [],
+      },
+    });
+    const collisionBytes = "{\"attacker\":true}\n";
+    let collisionPath;
+    await assert.rejects(
+      recordThirdPartyGlobalApproval({
+        homeDir: value.homeDir,
+        manifest: source.manifest,
+        approvals,
+        faultInjector: async (phase, context) => {
+          if (phase === "before-approval-receipt-write") {
+            collisionPath = context.approvalTarget;
+            writeFileSync(collisionPath, collisionBytes, { flag: "wx" });
+          }
+        },
+      }),
+      /EEXIST|exist/i,
+    );
+    assert.equal(readFileSync(collisionPath, "utf8"), collisionBytes);
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("global Skill create-only publish preserves a target raced into its reservation slot", async () => {
+  const value = fixture();
+  try {
+    const source = await fixtureCavemanManifest(value);
+    const plan = await buildThirdPartyApprovalPlan({
+      homeDir: value.homeDir,
+      repoRoot: value.repoRoot,
+      manifest: source.manifest,
+    });
+    const approvals = resolveThirdPartyApprovals({
+      plan,
+      selections: {
+        globalSkills: ["caveman"],
+        globalPlugins: [],
+        projectSkills: [],
+        mcpCli: [],
+      },
+    });
+    const target = path.join(value.homeDir, ".agents", "skills", "caveman");
+    const collision = "user-owned reservation collision\n";
+    await assert.rejects(
+      applyThirdPartyGlobalSkills({
+        approved: true,
+        approvals,
+        homeDir: value.homeDir,
+        manifest: source.manifest,
+        sourceResolver: async () => source.cavemanRoot,
+        faultInjector: async (phase) => {
+          if (phase === "before-target-reserve:caveman:caveman") {
+            mkdirSync(target, { recursive: true });
+            writeFileSync(path.join(target, "USER.txt"), collision);
+          }
+        },
+      }),
+      /collision|not transaction-owned|refusing overwrite/i,
+    );
+    assert.equal(readFileSync(path.join(target, "USER.txt"), "utf8"), collision);
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("project Skill create-only publish preserves a target raced into its reservation slot", async () => {
+  const value = fixture();
+  try {
+    const source = await fixtureProjectManifest(value);
+    const plan = await buildThirdPartyApprovalPlan({
+      homeDir: value.homeDir,
+      repoRoot: value.repoRoot,
+      manifest: source.manifest,
+    });
+    const approvals = resolveThirdPartyApprovals({
+      plan,
+      selections: {
+        globalSkills: [],
+        globalPlugins: [],
+        projectSkills: ["fixture-project-grill-me"],
+        mcpCli: [],
+      },
+    });
+    const target = path.join(value.repoRoot, ".agents", "skills", "grill-me");
+    const collision = "project user-owned reservation collision\n";
+    await assert.rejects(
+      applyThirdPartyProjectSkills({
+        approved: true,
+        approvals,
+        homeDir: value.homeDir,
+        repoRoot: value.repoRoot,
+        manifest: source.manifest,
+        sourceResolver: async () => source.sourceRoot,
+        faultInjector: async (phase) => {
+          if (
+            phase ===
+            "before-target-reserve:fixture-project-grill-me:grill-me"
+          ) {
+            mkdirSync(target, { recursive: true });
+            writeFileSync(path.join(target, "USER.txt"), collision);
+          }
+        },
+      }),
+      /collision|not transaction-owned|refusing overwrite/i,
+    );
+    assert.equal(readFileSync(path.join(target, "USER.txt"), "utf8"), collision);
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("a hard kill after global target reservation recovers the partial publish", async () => {
+  const value = fixture();
+  try {
+    const source = await fixtureCavemanManifest(value);
+    const plan = await buildThirdPartyApprovalPlan({
+      homeDir: value.homeDir,
+      repoRoot: value.repoRoot,
+      manifest: source.manifest,
+    });
+    const approvals = resolveThirdPartyApprovals({
+      plan,
+      selections: {
+        globalSkills: ["caveman"],
+        globalPlugins: [],
+        projectSkills: [],
+        mcpCli: [],
+      },
+    });
+    await assert.rejects(
+      applyThirdPartyGlobalSkills({
+        approved: true,
+        approvals,
+        homeDir: value.homeDir,
+        manifest: source.manifest,
+        sourceResolver: async () => source.cavemanRoot,
+        faultInjector: async (phase) => {
+          if (phase === "mid-publish:caveman:caveman") {
+            const error = new Error("simulated mid-publish hard kill");
+            error.leaveTransactionForRecovery = true;
+            throw error;
+          }
+        },
+      }),
+      /mid-publish hard kill/i,
+    );
+    const target = path.join(value.homeDir, ".agents", "skills", "caveman");
+    assert.equal(existsSync(target), true);
+    const recovered = await recoverThirdPartyTransactions({
+      homeDir: value.homeDir,
+      processAlive: async () => false,
+    });
+    assert.equal(recovered.status, "rolled-back");
+    assert.equal(existsSync(target), false);
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("ownership create-only publish preserves a post-claim collision", async () => {
+  const value = fixture();
+  try {
+    const source = await fixtureCavemanManifest(value);
+    const resolver = async ({ source: entry }) =>
+      entry.id === "caveman" ? source.cavemanRoot : source.sourceRoot;
+    const initialPlan = await buildThirdPartyApprovalPlan({
+      homeDir: value.homeDir,
+      repoRoot: value.repoRoot,
+      manifest: source.manifest,
+    });
+    const initialApprovals = resolveThirdPartyApprovals({
+      plan: initialPlan,
+      selections: {
+        globalSkills: ["caveman"],
+        globalPlugins: [],
+        projectSkills: [],
+        mcpCli: [],
+      },
+    });
+    assert.equal((await applyThirdPartyGlobalSkills({
+      approved: true,
+      approvals: initialApprovals,
+      homeDir: value.homeDir,
+      manifest: source.manifest,
+      sourceResolver: resolver,
+    })).status, "installed");
+    const updatePlan = await buildThirdPartyApprovalPlan({
+      homeDir: value.homeDir,
+      repoRoot: value.repoRoot,
+      manifest: source.manifest,
+    });
+    const updateApprovals = resolveThirdPartyApprovals({
+      plan: updatePlan,
+      selections: {
+        globalSkills: ["matt-grilling"],
+        globalPlugins: [],
+        projectSkills: [],
+        mcpCli: [],
+      },
+    });
+    const collision = "user-owned ownership collision\n";
+    let ownershipPath;
+    await assert.rejects(
+      applyThirdPartyGlobalSkills({
+        approved: true,
+        approvals: updateApprovals,
+        homeDir: value.homeDir,
+        manifest: source.manifest,
+        sourceResolver: resolver,
+        faultInjector: async (phase, context) => {
+          if (phase === "after-ownership-claim") {
+            ownershipPath = context.target;
+            writeFileSync(ownershipPath, collision, { flag: "wx" });
+          }
+        },
+      }),
+      /ownership.*drifted|recovery also failed|refusing overwrite/i,
+    );
+    assert.equal(readFileSync(ownershipPath, "utf8"), collision);
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("a hard kill after ownership claim restores the prior ownership record", async () => {
+  const value = fixture();
+  try {
+    const source = await fixtureCavemanManifest(value);
+    const resolver = async ({ source: entry }) =>
+      entry.id === "caveman" ? source.cavemanRoot : source.sourceRoot;
+    const initialPlan = await buildThirdPartyApprovalPlan({
+      homeDir: value.homeDir,
+      repoRoot: value.repoRoot,
+      manifest: source.manifest,
+    });
+    const initialApprovals = resolveThirdPartyApprovals({
+      plan: initialPlan,
+      selections: {
+        globalSkills: ["caveman"],
+        globalPlugins: [],
+        projectSkills: [],
+        mcpCli: [],
+      },
+    });
+    assert.equal((await applyThirdPartyGlobalSkills({
+      approved: true,
+      approvals: initialApprovals,
+      homeDir: value.homeDir,
+      manifest: source.manifest,
+      sourceResolver: resolver,
+    })).status, "installed");
+    const ownershipPath = path.join(
+      value.homeDir,
+      ".agents",
+      "harness",
+      "third-party-installations.json",
+    );
+    const before = readFileSync(ownershipPath);
+    const updatePlan = await buildThirdPartyApprovalPlan({
+      homeDir: value.homeDir,
+      repoRoot: value.repoRoot,
+      manifest: source.manifest,
+    });
+    const updateApprovals = resolveThirdPartyApprovals({
+      plan: updatePlan,
+      selections: {
+        globalSkills: ["matt-grilling"],
+        globalPlugins: [],
+        projectSkills: [],
+        mcpCli: [],
+      },
+    });
+    await assert.rejects(
+      applyThirdPartyGlobalSkills({
+        approved: true,
+        approvals: updateApprovals,
+        homeDir: value.homeDir,
+        manifest: source.manifest,
+        sourceResolver: resolver,
+        faultInjector: async (phase) => {
+          if (phase === "after-ownership-claim") {
+            const error = new Error("simulated ownership-claim hard kill");
+            error.leaveTransactionForRecovery = true;
+            throw error;
+          }
+        },
+      }),
+      /ownership-claim hard kill/i,
+    );
+    assert.equal(existsSync(ownershipPath), false);
+    const recovered = await recoverThirdPartyTransactions({
+      homeDir: value.homeDir,
+      processAlive: async () => false,
+    });
+    assert.equal(recovered.status, "rolled-back");
+    assert.deepEqual(readFileSync(ownershipPath), before);
+    assert.equal(
+      existsSync(path.join(value.homeDir, ".agents", "skills", "grill-me")),
+      false,
+    );
+    assert.equal(
+      existsSync(path.join(value.homeDir, ".agents", "skills", "caveman")),
+      true,
+    );
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("atomic lock release never removes a replacement created after claim", async () => {
+  const value = fixture();
+  try {
+    const plan = await buildThirdPartyApprovalPlan({
+      homeDir: value.homeDir,
+      manifestPath: MANIFEST_PATH,
+      repoRoot: value.repoRoot,
+    });
+    const approvals = resolveThirdPartyApprovals({
+      plan,
+      selections: {
+        globalSkills: [],
+        globalPlugins: [],
+        projectSkills: [],
+        mcpCli: [],
+      },
+    });
+    const replacement = "replacement lock owned by another writer\n";
+    let lockPath;
+    const result = await recordThirdPartyGlobalApproval({
+      homeDir: value.homeDir,
+      manifestPath: MANIFEST_PATH,
+      approvals,
+      faultInjector: async (phase, context) => {
+        if (phase === "after-approval-lock-claim") {
+          lockPath = context.lockPath;
+          writeFileSync(lockPath, replacement, { flag: "wx" });
+        }
+      },
+    });
+    assert.equal(result.status, "recorded");
+    assert.equal(readFileSync(lockPath, "utf8"), replacement);
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("a hard kill after lock claim is recovered before the next writer", async () => {
+  const value = fixture();
+  try {
+    const plan = await buildThirdPartyApprovalPlan({
+      homeDir: value.homeDir,
+      manifestPath: MANIFEST_PATH,
+      repoRoot: value.repoRoot,
+    });
+    const approvals = resolveThirdPartyApprovals({
+      plan,
+      selections: {
+        globalSkills: [],
+        globalPlugins: [],
+        projectSkills: [],
+        mcpCli: [],
+      },
+    });
+    let claimPath;
+    await assert.rejects(
+      recordThirdPartyGlobalApproval({
+        homeDir: value.homeDir,
+        manifestPath: MANIFEST_PATH,
+        approvals,
+        faultInjector: async (phase, context) => {
+          if (phase === "after-approval-lock-claim") {
+            claimPath = context.claimPath;
+            const error = new Error("simulated lock-release hard kill");
+            error.leaveLockClaimForRecovery = true;
+            throw error;
+          }
+        },
+      }),
+      /lock-release hard kill/i,
+    );
+    assert.equal(existsSync(claimPath), true);
+    const recovered = await recordThirdPartyGlobalApproval({
+      homeDir: value.homeDir,
+      manifestPath: MANIFEST_PATH,
+      approvals,
+    });
+    assert.equal(recovered.status, "unchanged");
+    assert.equal(existsSync(claimPath), false);
+    assert.equal(existsSync(path.dirname(claimPath)), false);
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("pinned Git acquisition rejects a PATH-prepended untrusted fake Git", async () => {
+  const value = fixture();
+  try {
+    const sourceFixture = await fixtureManifest(value);
+    const source = sourceFixture.manifest.sources[0];
+    const fakeDirectory = path.join(value.root, "fake-bin");
+    mkdirSync(fakeDirectory);
+    const fakeGit = path.join(
+      fakeDirectory,
+      process.platform === "win32" ? "git.exe" : "git",
+    );
+    writeFileSync(fakeGit, "not a trusted native executable\n");
+    const approvalPlan = await buildThirdPartyApprovalPlan({
+      manifest: sourceFixture.manifest,
+      homeDir: value.homeDir,
+      repoRoot: value.repoRoot,
+      discoverCommandRoots: true,
+      env: {
+        PATH: fakeDirectory,
+        Path: fakeDirectory,
+      },
+    });
+    let invoked = false;
+    await assert.rejects(
+      acquirePinnedGitSource({
+        approvalPlan,
+        homeDir: value.homeDir,
+        source,
+        env: {
+          ...process.env,
+          PATH: fakeDirectory,
+          Path: fakeDirectory,
+        },
+        execFileImpl: async () => {
+          invoked = true;
+          return { stdout: "" };
+        },
+      }),
+      /trusted absolute Git command binding|explicitly approved native installation root/i,
+    );
+    assert.equal(invoked, false);
   } finally {
     value.cleanup();
   }

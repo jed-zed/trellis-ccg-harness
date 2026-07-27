@@ -17,6 +17,7 @@ param(
   [string]$CatalogUrl,
   [string]$ProviderActions,
   [switch]$AllowCatalogNetwork,
+  [switch]$AllowThirdPartyNetwork,
   [switch]$PreviewOnly
 )
 
@@ -587,7 +588,11 @@ function Assert-GlobalSkillProjection {
 }
 
 function Show-PendingProviderActions {
-  param([object]$Result)
+  param(
+    [object]$Result,
+    [string]$HomeDir,
+    [string]$RepoRoot
+  )
 
   $pending = @($Result.pendingProviderActions)
   if ($pending.Count -eq 0) {
@@ -607,6 +612,26 @@ function Show-PendingProviderActions {
       "  - $($action.provider): $($action.action); status=$($action.status); " +
       "not executed; guidance=$guidance"
     )
+    Write-Output (
+      "    Review plan: node `"$RepoRoot/scripts/harness-init.mjs`" " +
+      "provider-action-plan --home-dir `"$HomeDir`" --repo-root `"$RepoRoot`" " +
+      "--provider $($action.provider) --action $($action.action)"
+    )
+    if (
+      $action.action -eq "login" -and
+      $action.provider -in @("codex", "grok")
+    ) {
+      Write-Output (
+        "    After reviewing planSha256, show manual guidance with a second explicit approval: " +
+        "node `"$RepoRoot/scripts/harness-init.mjs`" provider-action-run " +
+        "--home-dir `"$HomeDir`" --repo-root `"$RepoRoot`" " +
+        "--provider $($action.provider) --action login " +
+        "--plan-sha256 <planSha256> --approved"
+      )
+    }
+    else {
+      Write-Output "    Harness execution: manual-only; follow the official guidance above."
+    }
   }
   if (@($pending | Where-Object { $_.provider -eq "claude" }).Count -gt 0) {
     Write-Output (
@@ -811,6 +836,11 @@ Write-Output (
 )
 Write-Output "  Platform Skills: Global Init will install/verify 13 bundled copies"
 Write-Output "  Personal Skill catalog: $catalogPreview"
+Write-Output (
+  "  Catalog network: $($AllowCatalogNetwork.IsPresent); " +
+  "third-party network: $($AllowThirdPartyNetwork.IsPresent) " +
+  "(otherwise separately prompted, default no, only after candidate selection)"
+)
 Write-Output "  Provider status/actions: $providerPreview"
 Write-Output (
   "  Provider install/login selections are guidance only and require a " +
@@ -901,7 +931,10 @@ if (-not $NonInteractive) {
     $globalArguments += @("--catalog-url", $CatalogUrl)
   }
   if ($AllowCatalogNetwork) {
-    $globalArguments += "--allow-network"
+    $globalArguments += "--allow-catalog-network"
+  }
+  if ($AllowThirdPartyNetwork) {
+    $globalArguments += "--allow-third-party-network"
   }
   if ($ProviderActions) {
     $globalArguments += @("--provider-actions", $ProviderActions)
@@ -951,7 +984,7 @@ if (-not $NonInteractive) {
   }
   Assert-ClaudeUnchanged $claudeBaseline "Global Init"
   $platformManifestPath = Assert-GlobalSkillProjection
-  Show-PendingProviderActions $globalResult
+  Show-PendingProviderActions $globalResult $HomeDir $RepoRoot
 
   Write-Output ""
   Write-Output "Global Setup complete."

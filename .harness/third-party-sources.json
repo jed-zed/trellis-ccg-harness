@@ -37,6 +37,12 @@
       "release": "1.5.0",
       "package": "@colbymchenry/codegraph",
       "packageIntegrity": "sha512-/l1JMVOQ9WGQLrc/IIuAg7Igr944t79/oNCJTcnGkYtIeQx2XFIqI0ho+9Les/Yu4zKfmPU17hIUshD6yP1fKw==",
+      "packageLock": {
+        "path": "npm-locks/codegraph.package-lock.json",
+        "sha256": "12ef016f442cf837e433e9a61488b1ec87d7df85490455df384b26a549d27847",
+        "lockfileVersion": 3,
+        "packageCount": 7
+      },
       "license": "MIT"
     },
     {
@@ -47,6 +53,28 @@
       "release": "1.5.2",
       "package": "fast-context-mcp",
       "packageIntegrity": "sha512-xgq94v7XAD7HLljtUXPjPvZAc599pExrLZLhnn2CoTxVK4PR8dNy4gjE5kGqgc0O8PRIw54WcE9h6zBcaoJiWA==",
+      "packageLock": {
+        "path": "npm-locks/fast-context.package-lock.json",
+        "sha256": "8cb0cd05af316666ec4057d41c665222bc72ced3e107e382a20c3f4227c29c43",
+        "lockfileVersion": 3,
+        "packageCount": 109
+      },
+      "license": "MIT"
+    },
+    {
+      "id": "context7",
+      "repository": "https://github.com/upstash/context7.git",
+      "commit": "4124503867b802a16e7697a838a2bfce0820328d",
+      "gitTree": "ecbe6f3fd03a1253c1f083b334d3f1234c1c2806",
+      "release": "3.2.4",
+      "package": "@upstash/context7-mcp",
+      "packageIntegrity": "sha512-w2Vg6MkF4Qojp8X1fdmJ6NrjZ8Ip/9lflybtqfDKaqOsUV9iVaXeRbyGTqARdn1O8teIPm7Bt+nfVqFiUcZvjQ==",
+      "packageLock": {
+        "path": "npm-locks/context7.package-lock.json",
+        "sha256": "177549944f63b0186c070cf875c52737ab2842a8c943907e9e988186d8fea328",
+        "lockfileVersion": 3,
+        "packageCount": 109
+      },
       "license": "MIT"
     },
     {
@@ -644,6 +672,39 @@
         "executables": true,
         "network": true,
         "dataEgress": "Sends query text, repository directory trees, and local search results to Windsurf for each search round. The pinned npm package runs a postinstall script and includes a Windsurf API-key extraction helper."
+      },
+      "lifecycle": {
+        "update": "new-explicit-version-and-data-egress-approval",
+        "rollback": "restore-owned-tool-and-mcp-config",
+        "uninstall": "remove-only-owned-tool-and-mcp-config"
+      },
+      "strictDataBoundaryAllowed": false
+    },
+    {
+      "id": "context7",
+      "name": "Context7 documentation MCP",
+      "kind": "mcp-cli",
+      "group": "mcp-cli",
+      "purpose": "Retrieve current library, framework, SDK, CLI, and cloud-service documentation.",
+      "sourceId": "context7",
+      "packageSelector": "@upstash/context7-mcp@3.2.4",
+      "entrypoint": "context7-mcp",
+      "scope": "global",
+      "approvalDefaults": {
+        "selected": false
+      },
+      "recommended": true,
+      "writePaths": [
+        ".agents/harness/tools/context7/3.2.4",
+        ".codex MCP configuration"
+      ],
+      "dependencies": [],
+      "effects": {
+        "scripts": false,
+        "hooks": false,
+        "executables": true,
+        "network": true,
+        "dataEgress": "Sends documentation lookup queries and library identifiers to the Context7 service when invoked."
       },
       "lifecycle": {
         "update": "new-explicit-version-and-data-egress-approval",

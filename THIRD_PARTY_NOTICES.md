@@ -32,6 +32,21 @@ approves that candidate and its exact source digest. The manifest records
 commits, Git trees, release assets, and npm integrity values; it must not be
 replaced with `main`, `latest`, or `@latest`.
 
+The three optional npm MCPs also ship complete npm lockfile-v3 artifacts under
+`.agents/skills/harness-init/assets/npm-locks/`. Harness verifies the manifest
+digest for each lock and every transitive `resolved` URL plus `integrity`
+record before running `npm ci --ignore-scripts`; it never generates a dependency
+lock during initialization.
+
+All candidates below are presented with recommendation metadata but remain
+unselected by default. Interactive approval binds the exact plan SHA-256,
+trusted command/package roots, subprocess configuration roots, and command
+identities. Non-interactive selection requires that reviewed plan SHA-256.
+Third-party subprocesses receive an explicit minimal environment rather than
+ambient injection variables. Provider installation/login is manual-only,
+Harness never invokes Claude or creates `.claude`, and installing CodeGraph
+never authorizes automatic `codegraph init`.
+
 - Matt Pocock Skills — repository
   `https://github.com/mattpocock/skills.git`, commit
   `ed37663cc5fbef691ddfecd080dff42f7e7e350d`, Git tree
@@ -55,6 +70,8 @@ replaced with `main`, `latest`, or `@latest`.
   `ea72e1b190921232aa7bd02e96bef5bbe4fe0ab6`, Git tree
   `7e7eab5e11e3db1a1dfc9f6a7aa846244c1ddfdf` (Git integrity), npm integrity
   `sha512-/l1JMVOQ9WGQLrc/IIuAg7Igr944t79/oNCJTcnGkYtIeQx2XFIqI0ho+9Les/Yu4zKfmPU17hIUshD6yP1fKw==`;
+  lock SHA-256
+  `12ef016f442cf837e433e9a61488b1ec87d7df85490455df384b26a549d27847`;
   MIT.
 - fast-context — repository
   `https://github.com/awei84/fast-context-mcp.git`, package
@@ -62,8 +79,19 @@ replaced with `main`, `latest`, or `@latest`.
   `3595cfcb2cf1c50660351165cdb71101d0996747`, Git tree
   `1d5c5b31afbeb3b69b9baf562fbee9e52bc42830` (Git integrity), npm integrity
   `sha512-xgq94v7XAD7HLljtUXPjPvZAc599pExrLZLhnn2CoTxVK4PR8dNy4gjE5kGqgc0O8PRIw54WcE9h6zBcaoJiWA==`;
+  lock SHA-256
+  `8cb0cd05af316666ec4057d41c665222bc72ced3e107e382a20c3f4227c29c43`;
   MIT. Its manifest entry discloses its remote data egress and postinstall
   behavior before approval.
+- Context7 — repository `https://github.com/upstash/context7.git`, package
+  `@upstash/context7-mcp@3.2.4`, commit
+  `4124503867b802a16e7697a838a2bfce0820328d`, Git tree
+  `ecbe6f3fd03a1253c1f083b334d3f1234c1c2806`, npm integrity
+  `sha512-w2Vg6MkF4Qojp8X1fdmJ6NrjZ8Ip/9lflybtqfDKaqOsUV9iVaXeRbyGTqARdn1O8teIPm7Bt+nfVqFiUcZvjQ==`;
+  lock SHA-256
+  `177549944f63b0186c070cf875c52737ab2842a8c943907e9e988186d8fea328`;
+  MIT. Documentation queries and library identifiers may leave the machine only
+  after the user explicitly approves the MCP and invokes it.
 - ripgrep — repository `https://github.com/BurntSushi/ripgrep.git`, release
   `15.2.0`, commit `e89fff89ac9af12e8d4ce9d5fd07beb408ca730f`, Git tree
   `c743701524f65f036cf174d6551918be7dfc0d40` (Git integrity); Unlicense. Each supported

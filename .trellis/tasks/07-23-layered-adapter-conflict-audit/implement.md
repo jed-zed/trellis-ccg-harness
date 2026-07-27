@@ -164,13 +164,22 @@ not create a second task or plan authority.
   authenticated state, installs/verifies Trellis, CCG Codex-only CLI/plugin,
   and the 13 public core Skills, then handles the private/local/skip
   personal-catalog choice and separate default-unselected third-party groups.
-- [x] Add read-only status adapters for Codex, Gemini, Grok, and Claude Code
-  CLIs with normalized installed/auth states. For missing tools offer install
-  or skip; for installed unauthenticated tools offer supported assisted login
-  or later. Do not accept credentials as command arguments or persist them.
-- [x] Put every network, install, and login operation behind its own native-UI
-  or numbered-TTY preview and approval. Add explicit non-interactive flags for
-  automation and tests; never reuse a prior approval for a different action.
+- [x] Add read-only status adapters for Codex, Gemini, and Grok with normalized
+  installed/auth states. Present Claude as unprobed manual-only with skip
+  recommended; never invoke `claude`.
+- [x] Keep every Provider installation and login
+  official-documentation/manual-only. Add state-bound `provider-action-plan`
+  and a separately approved `provider-action-run` that only displays fixed
+  Codex/Grok auth-only guidance; never launch a Provider CLI or Gemini's full
+  interactive agent. Require the exact plan digest, `--approved`, and a second
+  default-cancel TTY confirmation; reject non-interactive execution.
+- [x] Write no Provider action receipt or stdout/stderr/URL/device
+  code/account/token data. Bind guidance to the pending Global Init state and
+  prevent stale-plan reuse through exact state and plan-digest revalidation.
+- [x] Separate catalog-clone network consent from third-party acquisition.
+  Prompt only after exact third-party selection, list pinned sources and the
+  manifest digest, default to no, and on refusal drop only those network
+  candidates while core Global Init continues. Keep distinct automation flags.
 - [x] Default Claude Code to skipped and label its install/login choice as
   leaving the zero-`.claude` acceptance profile. Test that Harness and CCG
   still perform zero `.claude/` reads/writes when this external branch is
@@ -254,19 +263,45 @@ future initialization. Do not create another Trellis task or CCG plan.
 - [x] Add a read-only approval plan grouped into global Skills, global plugins,
   project Skills, and MCP/CLI. Every selection is empty by default; automation
   must bind explicit selections to the source-manifest SHA-256.
+- [x] Bind the approval plan to its canonical `planSha256`, approved
+  package/command roots, subprocess configuration roots, and exact command
+  identities. Render them in final interactive confirmation and require
+  `--third-party-plan-sha256` for selected non-interactive runs.
+- [x] Run Provider status and third-party command helpers only through verified
+  absolute bindings with a minimal approved-root environment that strips
+  `NODE_OPTIONS`, `NODE_PATH`, `LD_PRELOAD`, `DYLD_*`, ambient `GIT_*`, and
+  unrelated variables.
 - [x] Implement atomic `grill-me + grilling` acquisition/upgrade through the
   existing authenticated user transaction. Preserve and reject unknown
   user-modified legacy `grill-me`.
 - [x] Implement Ponytail as an exact Codex plugin source. Keep plugin install,
   hook trust, and global `full` default as independent approvals; never mutate
-  plugin source or plugin cache directly.
+  plugin source or plugin cache directly. New host/config mutation remains
+  `manual-pending` because Codex exposes no proven create-only API.
 - [x] Route approved project candidates and disclosed dependencies through the
   existing project contract/snapshot transaction. Preserve the diagnostic,
   test-seam, architecture-authority, and merge/rebase authorization bounds.
 - [x] Keep MCP/CLI approvals separate. Install only exact CodeGraph and
-  fast-context npm versions/integrities, verify ripgrep release digests, never
-  run `codegraph init`, and block fast-context recommendation for strict data
-  boundaries.
+  fast-context/Context7 npm versions and integrities, verify ripgrep release
+  digests, never run `codegraph init`, and block network-backed MCP
+  recommendations for strict data boundaries. New tool-directory publication
+  remains `manual-pending` when no cross-platform no-replace API is available.
+- [ ] Convert every remaining third-party replace/remove edge to create-only
+  publication or exact-object atomic claim. On claim/publish/restore/ownership
+  collision, fail closed and preserve both sides plus diagnostics. Add
+  dedicated race and recovery regressions before marking this item complete.
+  Scope frozen on 2026-07-27: do not expand this adversarial transaction work;
+  operations without a reliable atomic API stay `manual-pending`.
+- [x] Prepare approved MCPs through a Harness-owned runtime launcher that
+  revalidates manifest, ownership, lock/SRI, complete installed-tree
+  fingerprint, and entrypoint before every start. Because the Codex host lacks
+  atomic create-only registration, leave host registration manual-pending and
+  never overwrite an existing same-name server.
+- [x] Add Provider plan/run commands after Global Init. Installation and all
+  login actions remain manual-only; Codex/Grok guidance requires a separately
+  approved exact digest plus a second default-cancel interactive choice. Allow
+  the monotonic `install -> login` transition after manual installation, never
+  invoke Claude, and test stale-plan rejection and zero command execution.
 - [x] Record secret-free approvals and immutable source identities in the
   approved project contract and ownership/source manifests. Make status,
   update, rollback, uninstall, and recovery idempotent and drift-safe.
@@ -290,14 +325,14 @@ future initialization. Do not create another Trellis task or CCG plan.
 - [ ] Commit on `codex/init-third-party-approval`, push, and create a Draft PR.
   Do not merge.
 
-Verification for the approved consent implementation on 2026-07-26:
+Verification for the approved consent implementation on 2026-07-27:
 
-- Third-party approval, CLI, global-action, and guided-init suites passed
-  96/96. The complete Harness suite passed 285/286 with only the
-  Windows-hosted POSIX permission case skipped.
-- CCG lint, typecheck, and build passed. The complete single-worker CCG suite
-  passed 458/458; the default parallel run's two Windows temporary-directory
-  timeouts were reproduced as resource contention and passed in isolation.
+- Sequential focused suites passed: approval 62/62, third-party CLI 14/14,
+  guided init 22/22, provider actions 13/13, source verifier 13/13, and global
+  actions 41/41 with one Windows symlink case skipped for `EPERM`.
+- The single final Harness run passed 361/364 with zero failures and three
+  Windows symlink/permission cases skipped. Source verification, doctor,
+  adapter context, and conflicts also passed; conflicts reported no blockers.
 - Native Go short tests and build passed. The local Go 1.23.6 result does not
   replace the repository CI matrix pinned to Go 1.26.5.
 - Source verification pinned the third-party manifest digest

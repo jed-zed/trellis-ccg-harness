@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
+  copyFileSync,
   cpSync,
   existsSync,
   mkdirSync,
@@ -22,10 +23,16 @@ import {
   inspectProviderCliStatuses,
   markProjectReady,
   reviseReadyProjectSkills,
-  runGlobalInit,
-  runHarnessInitCli,
-  runProjectInit,
+  runGlobalInit as runGlobalInitRaw,
+  runHarnessInitCli as runHarnessInitCliRaw,
+  runProjectInit as runProjectInitRaw,
 } from "../.agents/skills/harness-init/scripts/harness-init-core.mjs";
+import {
+  buildThirdPartyApprovalPlan,
+} from "../.agents/skills/harness-init/scripts/third-party-approval.mjs";
+import {
+  runProviderStatusCommand,
+} from "../.agents/skills/harness-init/scripts/guided-init.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const SKILL_ROOT = path.join(ROOT, ".agents", "skills", "harness-init");
@@ -39,15 +46,123 @@ const THIRD_PARTY_SOURCE_PATH = path.join(
   "assets",
   "third-party-sources.json",
 );
+const THIRD_PARTY_MANIFEST = JSON.parse(
+  readFileSync(THIRD_PARTY_SOURCE_PATH, "utf8"),
+);
 const THIRD_PARTY_SOURCE_SHA256 = createHash("sha256")
   .update(
     `${JSON.stringify(
-      JSON.parse(readFileSync(THIRD_PARTY_SOURCE_PATH, "utf8")),
+      THIRD_PARTY_MANIFEST,
       null,
       2,
     )}\n`,
   )
   .digest("hex");
+
+function testCommandRoots(homeDir) {
+  const root = path.join(path.dirname(homeDir), "trusted-test-commands");
+  const packageRoot = path.join(root, "node_modules");
+  const nativeRoot = path.join(root, "bin");
+  for (const [packageName, binName] of [
+    ["npm", "npm"],
+    ["@openai/codex", "codex"],
+  ]) {
+    const target = path.join(packageRoot, ...packageName.split("/"));
+    mkdirSync(target, { recursive: true });
+    writeFileSync(path.join(target, `${binName}.js`), "#!/usr/bin/env node\n");
+    writeFileSync(
+      path.join(target, "package.json"),
+      JSON.stringify({
+        name: packageName,
+        version: "1.0.0-test",
+        bin: { [binName]: `${binName}.js` },
+      }),
+    );
+  }
+  mkdirSync(nativeRoot, { recursive: true });
+  for (const name of ["git", "powershell", "tar"]) {
+    const target = path.join(
+      nativeRoot,
+      process.platform === "win32" ? `${name}.exe` : name,
+    );
+    if (!existsSync(target)) copyFileSync(process.execPath, target);
+  }
+  return { packageRoot, nativeRoot };
+}
+
+async function testThirdPartyPlanBuilder({
+  homeDir,
+  repoRoot,
+  skillRoot,
+  strictDataBoundary,
+}) {
+  const roots = testCommandRoots(homeDir);
+  return buildThirdPartyApprovalPlan({
+    approvedCommandRoots: [roots.nativeRoot],
+    approvedPackageRoots: [roots.packageRoot],
+    discoverCommandRoots: false,
+    env: { PATH: roots.nativeRoot },
+    homeDir,
+    manifestPath: path.join(skillRoot, "assets", "third-party-sources.json"),
+    repoRoot,
+    strictDataBoundary,
+  });
+}
+
+async function runGlobalInit(options) {
+  const thirdPartyApprovalPlan =
+    options.thirdPartyApprovalPlan ??
+    (await testThirdPartyPlanBuilder({
+      homeDir: options.homeDir,
+      repoRoot: process.cwd(),
+      skillRoot: options.skillRoot ?? SKILL_ROOT,
+      strictDataBoundary: options.strictDataBoundary ?? false,
+    }));
+  return runGlobalInitRaw({
+    thirdPartyPlanBuilder: testThirdPartyPlanBuilder,
+    ...options,
+    thirdPartyApprovalPlan,
+    thirdPartyPlanSha256:
+      options.thirdPartyPlanSha256 ?? thirdPartyApprovalPlan.planSha256,
+  });
+}
+
+async function runProjectInit(options) {
+  const contract = JSON.parse(readFileSync(options.contractPath, "utf8"));
+  const thirdPartyApprovalPlan =
+    options.thirdPartyApprovalPlan ??
+    (await testThirdPartyPlanBuilder({
+      homeDir: options.homeDir,
+      repoRoot: options.repoRoot,
+      skillRoot: options.skillRoot ?? SKILL_ROOT,
+      strictDataBoundary:
+        options.strictDataBoundary === true ||
+        contract.security.strictDataBoundary === true,
+    }));
+  return runProjectInitRaw({
+    thirdPartyPlanBuilder: testThirdPartyPlanBuilder,
+    ...options,
+    thirdPartyApprovalPlan,
+    thirdPartyPlanSha256:
+      options.thirdPartyPlanSha256 ?? thirdPartyApprovalPlan.planSha256,
+  });
+}
+
+function runHarnessInitCli(argv, options = {}) {
+  return runHarnessInitCliRaw(argv, {
+    thirdPartyPlanBuilder: testThirdPartyPlanBuilder,
+    ...options,
+  });
+}
+
+async function resolveTestProviderActionCommand(logicalName) {
+  return {
+    logicalName,
+    command: process.execPath,
+    argsPrefix: [`fixture-${logicalName}.mjs`],
+    identity: { kind: "test-command", logicalName },
+  };
+}
 
 function fixture() {
   const root = mkdtempSync(path.join(tmpdir(), "harness-guided-init-"));
@@ -229,12 +344,38 @@ test("Global Init installs all bundled platform Skills into an isolated home and
   }
 });
 
-test("Global Init exposes approved Ponytail hook trust as a pending manual action", async () => {
+test("Global Init keeps Ponytail installation manual when host mutation is not create-only", async () => {
   const value = fixture();
   try {
     const sourceRoot = path.join(value.root, "ponytail-pinned");
     mkdirSync(sourceRoot);
+    const ponytailCandidate = THIRD_PARTY_MANIFEST.candidates.find(
+      (entry) => entry.id === "ponytail.install",
+    );
+    const ponytailSource = THIRD_PARTY_MANIFEST.sources.find(
+      (entry) => entry.id === ponytailCandidate.sourceId,
+    );
+    const marketplaceName =
+      `harness-ponytail-${ponytailSource.commit.slice(0, 12)}`;
+    const marketplaceRoot = path.join(
+      value.homeDir,
+      ".agents",
+      "harness",
+      "marketplaces",
+      "ponytail",
+      ponytailSource.commit,
+    );
+    mkdirSync(path.join(sourceRoot, ".codex-plugin"));
+    writeFileSync(
+      path.join(sourceRoot, ".codex-plugin", "plugin.json"),
+      JSON.stringify({
+        name: "ponytail",
+        version: ponytailSource.release,
+        license: ponytailSource.license,
+      }),
+    );
     const commands = [];
+    let marketplaceAddedInHost = false;
     let ponytailInstalledInHost = false;
     const result = await runGlobalInit({
       allowNetwork: true,
@@ -258,28 +399,73 @@ test("Global Init exposes approved Ponytail hook trust as a pending manual actio
         commands.push({ command, args });
         if (command === "git") {
           return {
-            stdout: "89427504ba9f7ff3f11b2db65282163464705fa9\n",
+            stdout: `${ponytailCandidate.sourceGitTree}\n`,
             exitCode: 0,
           };
         }
-        if (command === "codex" && args.slice(0, 3).join(" ") === "plugin list --json") {
+        if (
+          command === "codex" &&
+          args.slice(0, 4).join(" ") ===
+            "plugin marketplace list --json"
+        ) {
           return {
-            stdout: JSON.stringify({ plugins: ponytailInstalledInHost ? [{ name: "ponytail" }] : [] }),
+            stdout: JSON.stringify({
+              marketplaces: marketplaceAddedInHost
+                ? [{ name: marketplaceName, root: marketplaceRoot }]
+                : [],
+            }),
             exitCode: 0,
           };
         }
-        if (command === "codex" && args.slice(0, 2).join(" ") === "plugin add") ponytailInstalledInHost = true;
+        if (
+          command === "codex" &&
+          args.slice(0, 4).join(" ") === "plugin list --available --json"
+        ) {
+          return {
+            stdout: JSON.stringify({
+              installed: ponytailInstalledInHost
+                ? [{
+                  pluginId: `ponytail@${marketplaceName}`,
+                  name: "ponytail",
+                  marketplaceName,
+                  version: ponytailSource.release,
+                  installed: true,
+                  source: { source: "local", path: sourceRoot },
+                }]
+                : [],
+            }),
+            exitCode: 0,
+          };
+        }
+        if (
+          command === "codex" &&
+          args.slice(0, 3).join(" ") === "plugin marketplace add"
+        ) {
+          marketplaceAddedInHost = true;
+        }
+        if (
+          command === "codex" &&
+          args.slice(0, 2).join(" ") === "plugin add"
+        ) {
+          ponytailInstalledInHost = true;
+        }
         return { stdout: "", exitCode: 0 };
       },
     });
     assert.equal(result.status, "needs-third-party-actions");
     assert.deepEqual(result.pendingThirdPartyActions.map((entry) => entry.id), [
-      "ponytail.hooks",
+      "ponytail.install",
     ]);
     assert.deepEqual(result.failedThirdPartyActions, []);
-    // The installer now verifies the Codex plugin inventory before it adds the
-    // exact pinned plugin and before it records ownership.
-    assert.equal(commands.filter((entry) => entry.command === "codex").length, 3);
+    assert.match(
+      result.pendingThirdPartyActions[0].reason,
+      /atomic create-only.*not proven non-overwriting/i,
+    );
+    // Read-only inventory is allowed, but neither host marketplace nor plugin
+    // state may be mutated when Codex lacks create-only semantics.
+    assert.equal(commands.filter((entry) => entry.command === "codex").length, 2);
+    assert.equal(marketplaceAddedInHost, false);
+    assert.equal(ponytailInstalledInHost, false);
   } finally {
     value.cleanup();
   }
@@ -957,6 +1143,68 @@ test("Global Init reuses a clone when a Windows retry uses its 8.3 catalog path"
   }
 });
 
+test("provider status commands receive only a minimal non-injectable environment", async () => {
+  const value = fixture();
+  try {
+    const calls = [];
+    const result = await runProviderStatusCommand(
+      "codex",
+      ["--version"],
+      {
+        environment: {
+          HOME: value.homeDir,
+          LANG: "C.UTF-8",
+          LC_ALL: "C.UTF-8",
+          PATH: "C:\\poisoned-path",
+          NODE_OPTIONS: "--require C:\\inject.js",
+          Node_Path: "C:\\inject-modules",
+          LD_PRELOAD: "/tmp/inject.so",
+          DYLD_INSERT_LIBRARIES: "/tmp/inject.dylib",
+          GIT_CONFIG_GLOBAL: "C:\\inject.gitconfig",
+          GIT_SSH_COMMAND: "inject-command",
+          UNRELATED_SECRET: "must-not-pass",
+        },
+        execFileImpl: async (command, args, options) => {
+          calls.push({ command, args, options });
+          return { stdout: "codex 1.0", stderr: "" };
+        },
+        resolveCommand: async (logicalName) => ({
+          logicalName,
+          command: process.execPath,
+          argsPrefix: ["fixture-status.mjs"],
+          identity: { kind: "test-command", logicalName },
+        }),
+        verifyCommand: async () => {},
+      },
+    );
+    assert.equal(result.exitCode, 0);
+    assert.deepEqual(calls[0].args, ["fixture-status.mjs", "--version"]);
+    assert.equal(calls[0].options.shell, false);
+    assert.equal(calls[0].options.env.HOME, value.homeDir);
+    assert.equal(calls[0].options.env.LANG, "C.UTF-8");
+    assert.equal(calls[0].options.env.LC_ALL, "C.UTF-8");
+    const environmentNames = Object.keys(calls[0].options.env).map((name) =>
+      name.toUpperCase(),
+    );
+    for (const forbidden of [
+      "PATH",
+      "NODE_OPTIONS",
+      "NODE_PATH",
+      "LD_PRELOAD",
+      "DYLD_INSERT_LIBRARIES",
+      "GIT_CONFIG_GLOBAL",
+      "GIT_SSH_COMMAND",
+      "UNRELATED_SECRET",
+    ]) {
+      assert.equal(environmentNames.includes(forbidden), false);
+    }
+    assert.equal(existsSync(path.join(value.homeDir, ".claude")), false);
+    assert.equal(existsSync(path.join(value.repoRoot, ".claude")), false);
+  } finally {
+    value.cleanup();
+  }
+});
+
 test("provider status normalization is read-only and exposes install/login/later choices", async () => {
   const calls = [];
   const statuses = await inspectProviderCliStatuses({
@@ -983,7 +1231,16 @@ test("provider status normalization is read-only and exposes install/login/later
   assert.deepEqual(statuses.gemini.choices, ["login", "check", "later"]);
   assert.equal(statuses.grok.status, "authentication-unknown");
   assert.deepEqual(statuses.grok.choices, ["login", "check", "later"]);
+  assert.equal(statuses.claude.status, "manual-only");
+  assert.deepEqual(
+    statuses.claude.choices,
+    ["skip", "install", "login", "later"],
+  );
   assert.equal(statuses.claude.recommendedAction, "skip");
+  assert.deepEqual(
+    calls.filter(([command]) => command === "claude"),
+    [],
+  );
   assert.equal(
     calls.some(
       ([, args]) =>
@@ -1190,6 +1447,188 @@ test("provider install/login selections become pending actions and can resolve w
       /transition is not allowed/i,
     );
     assert.deepEqual(readFileSync(statePath), resolvedStateBytes);
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("provider state permits manual install to advance to a separately approved login", async () => {
+  const value = fixture();
+  try {
+    await runGlobalInit({
+      approved: true,
+      catalogMode: "skip",
+      homeDir: value.homeDir,
+      providerActions: {
+        codex: "install",
+        gemini: "later",
+        grok: "later",
+        claude: "skip",
+      },
+      providerStatusOverrides: {
+        codex: "not-installed",
+        gemini: "not-installed",
+        grok: "not-installed",
+        claude: "manual-only",
+      },
+      skillRoot: SKILL_ROOT,
+    });
+    const advanced = await runGlobalInit({
+      approved: true,
+      catalogMode: "skip",
+      homeDir: value.homeDir,
+      providerActions: {
+        codex: "login",
+        gemini: "later",
+        grok: "later",
+        claude: "skip",
+      },
+      providerStatusOverrides: {
+        codex: "authentication-unknown",
+        gemini: "not-installed",
+        grok: "not-installed",
+        claude: "manual-only",
+      },
+      skillRoot: SKILL_ROOT,
+    });
+    assert.equal(advanced.status, "needs-provider-actions");
+    assert.deepEqual(
+      advanced.pendingProviderActions.map(({ provider, action }) => [
+        provider,
+        action,
+      ]),
+      [["codex", "login"]],
+    );
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("provider action CLI requires a read-only plan and a second default-cancel approval", async () => {
+  const value = fixture();
+  const output = [];
+  const calls = [];
+  try {
+    await runGlobalInit({
+      approved: true,
+      catalogMode: "skip",
+      homeDir: value.homeDir,
+      providerActions: {
+        codex: "login",
+        gemini: "later",
+        grok: "later",
+        claude: "skip",
+      },
+      providerStatusOverrides: {
+        codex: "authentication-unknown",
+        gemini: "not-installed",
+        grok: "not-installed",
+        claude: "manual-only",
+      },
+      skillRoot: SKILL_ROOT,
+    });
+    await assert.rejects(
+      runHarnessInitCli([
+        "provider-action-plan",
+        "--home-dir",
+        value.homeDir,
+        "--provider",
+        "codex",
+        "--action",
+        "login",
+      ]),
+      /requires explicit --repo-root/i,
+    );
+    const plan = await runHarnessInitCli(
+      [
+        "provider-action-plan",
+        "--home-dir",
+        value.homeDir,
+        "--repo-root",
+        value.repoRoot,
+        "--provider",
+        "codex",
+        "--action",
+        "login",
+      ],
+      {
+        providerActionResolveCommand:
+          resolveTestProviderActionCommand,
+        skillRoot: SKILL_ROOT,
+        stdout: { write(chunk) { output.push(String(chunk)); } },
+      },
+    );
+    assert.equal(plan.execution.kind, "manual-only");
+    assert.equal(
+      plan.execution.reason,
+      "provider-login-execution-not-provably-immutable",
+    );
+    assert.deepEqual(
+      plan.execution.command,
+      [process.execPath, "fixture-codex.mjs", "login"],
+    );
+    assert.match(plan.planSha256, /^[a-f0-9]{64}$/);
+
+    const executed = await runHarnessInitCli(
+      [
+        "provider-action-run",
+        "--home-dir",
+        value.homeDir,
+        "--repo-root",
+        value.repoRoot,
+        "--provider",
+        "codex",
+        "--action",
+        "login",
+        "--plan-sha256",
+        plan.planSha256,
+        "--approved",
+      ],
+      {
+        promptChoice: async (question) => {
+          assert.deepEqual(question.options, ["cancel", "show-guide"]);
+          assert.equal(question.recommended, "cancel");
+          return "show-guide";
+        },
+        providerActionRunCommand: async (command, args, options) => {
+          calls.push({ command, args, options });
+          return { exitCode: 0, signal: null };
+        },
+        providerActionResolveCommand:
+          resolveTestProviderActionCommand,
+        providerActionVerifyCommand: async () => {},
+        skillRoot: SKILL_ROOT,
+        stdout: { write(chunk) { output.push(String(chunk)); } },
+      },
+    );
+    assert.equal(executed.status, "manual-only");
+    assert.equal(executed.executed, false);
+    assert.deepEqual(executed.execution.command, [
+      process.execPath,
+      "fixture-codex.mjs",
+      "login",
+    ]);
+    assert.deepEqual(calls, []);
+    assert.equal(existsSync(path.join(value.homeDir, ".claude")), false);
+
+    await assert.rejects(
+      runHarnessInitCli([
+        "provider-action-run",
+        "--non-interactive",
+        "--home-dir",
+        value.homeDir,
+        "--repo-root",
+        value.repoRoot,
+        "--provider",
+        "codex",
+        "--action",
+        "login",
+        "--plan-sha256",
+        plan.planSha256,
+        "--approved",
+      ]),
+      /refuses non-interactive execution/i,
+    );
   } finally {
     value.cleanup();
   }

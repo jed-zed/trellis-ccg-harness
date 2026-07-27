@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { cpSync } from "node:fs";
+import { copyFileSync, cpSync } from "node:fs";
 import {
   existsSync,
   mkdirSync,
@@ -14,10 +14,11 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 import {
-  runHarnessInitCli,
+  runHarnessInitCli as runHarnessInitCliRaw,
   saveSkillRepositoryProfile,
 } from "../.agents/skills/harness-init/scripts/harness-init-core.mjs";
 import {
+  buildThirdPartyApprovalPlan,
   loadThirdPartySourceManifest,
   snapshotThirdPartyTree,
 } from "../.agents/skills/harness-init/scripts/third-party-approval.mjs";
@@ -35,6 +36,63 @@ const PUBLIC_CONTRACT = path.join(
   "fixtures",
   "public-baseline-approved-contract.json",
 );
+
+function testCommandRoots(homeDir) {
+  const root = path.join(path.dirname(homeDir), "trusted-test-commands");
+  const packageRoot = path.join(root, "node_modules");
+  const nativeRoot = path.join(root, "bin");
+  for (const [packageName, binName] of [
+    ["npm", "npm"],
+    ["@openai/codex", "codex"],
+  ]) {
+    const target = path.join(packageRoot, ...packageName.split("/"));
+    mkdirSync(target, { recursive: true });
+    writeFileSync(path.join(target, `${binName}.js`), "#!/usr/bin/env node\n");
+    writeFileSync(
+      path.join(target, "package.json"),
+      JSON.stringify({
+        name: packageName,
+        version: "1.0.0-test",
+        bin: { [binName]: `${binName}.js` },
+      }),
+    );
+  }
+  mkdirSync(nativeRoot, { recursive: true });
+  for (const name of ["git", "powershell", "tar"]) {
+    const target = path.join(
+      nativeRoot,
+      process.platform === "win32" ? `${name}.exe` : name,
+    );
+    if (!existsSync(target)) copyFileSync(process.execPath, target);
+  }
+  return { packageRoot, nativeRoot };
+}
+
+async function testThirdPartyPlanBuilder({
+  homeDir,
+  repoRoot,
+  skillRoot,
+  strictDataBoundary,
+}) {
+  const roots = testCommandRoots(homeDir);
+  return buildThirdPartyApprovalPlan({
+    approvedCommandRoots: [roots.nativeRoot],
+    approvedPackageRoots: [roots.packageRoot],
+    discoverCommandRoots: false,
+    env: { PATH: roots.nativeRoot },
+    homeDir,
+    manifestPath: path.join(skillRoot, "assets", "third-party-sources.json"),
+    repoRoot,
+    strictDataBoundary,
+  });
+}
+
+function runHarnessInitCli(argv, options = {}) {
+  return runHarnessInitCliRaw(argv, {
+    thirdPartyPlanBuilder: testThirdPartyPlanBuilder,
+    ...options,
+  });
+}
 
 function fixture() {
   const root = mkdtempSync(path.join(tmpdir(), "harness-third-party-cli-"));
@@ -266,9 +324,32 @@ test("Global Init CLI records a later explicit selection after reject-all before
       [...base, "--third-party-global-skills", "none"],
       { providerRunCommand: missingProvider, skillRoot: SKILL_ROOT, stdout: { write() {} } },
     );
+    await assert.rejects(
+      runHarnessInitCli(
+        [...base, "--third-party-global-skills", "matt-grilling"],
+        {
+          providerRunCommand: missingProvider,
+          skillRoot: SKILL_ROOT,
+          stdout: { write() {} },
+        },
+      ),
+      /third-party-plan-sha256/i,
+    );
+    const plan = await testThirdPartyPlanBuilder({
+      homeDir: value.homeDir,
+      repoRoot: ROOT,
+      skillRoot: SKILL_ROOT,
+      strictDataBoundary: false,
+    });
     let resolverCalled = false;
     const result = await runHarnessInitCli(
-        [...base, "--third-party-global-skills", "matt-grilling"],
+        [
+          ...base,
+          "--third-party-global-skills",
+          "matt-grilling",
+          "--third-party-plan-sha256",
+          plan.planSha256,
+        ],
         {
           providerRunCommand: missingProvider,
           skillRoot: SKILL_ROOT,
@@ -318,18 +399,123 @@ test("interactive Global Init recommends every global candidate but keeps explic
         entry.question.startsWith("Approve ") &&
         !entry.question.startsWith("Approve Global Init"),
     );
-    assert.equal(candidateQuestions.length, 8);
+    assert.equal(candidateQuestions.length, 9);
     assert.equal(
       candidateQuestions.every(
         (entry) =>
-          entry.recommended === "yes" &&
+          entry.recommended === "no" &&
           entry.options[0] === "no" &&
           entry.options[1] === "yes" &&
           /install is recommended.*unselected until.*yes/is.test(entry.question),
       ),
       true,
     );
+    for (const label of ["Global Skills", "Global Plugins", "MCP / CLI"]) {
+      assert.equal(
+        candidateQuestions.some((entry) =>
+          entry.question.includes(`Approval group: ${label}`),
+        ),
+        true,
+      );
+    }
+    assert.match(
+      candidateQuestions.find((entry) =>
+        entry.question.startsWith("Approve grill-me + grilling"),
+      ).question,
+      /skills\/productivity\/grill-me -> \.agents\/skills\/grill-me/i,
+    );
+    assert.equal(
+      candidateQuestions.every((entry) =>
+        /Source manifest SHA-256: [a-f0-9]{64}/i.test(entry.question),
+      ),
+      true,
+    );
+    assert.equal(
+      candidateQuestions.every((entry) =>
+        /Existing installation: status=(?:absent|exact|drifted|unowned|manual-pending); scope=/i.test(
+          entry.question,
+        ),
+      ),
+      true,
+    );
+    for (const name of ["CodeGraph", "fast-context", "Context7"]) {
+      const candidate = candidateQuestions.find((entry) =>
+        entry.question.startsWith(`Approve ${name}`),
+      );
+      assert.match(candidate.question, /Source Git tree: [a-f0-9]{40}/i);
+      assert.match(candidate.question, /Package SRI: sha512-/i);
+    }
+    assert.match(
+      candidateQuestions.find((entry) =>
+        entry.question.startsWith("Approve ripgrep"),
+      ).question,
+      /Release assets:.*SHA-256=[a-f0-9]{64}/is,
+    );
+    const finalApproval = questions.find((entry) =>
+      entry.question.startsWith("Approve Global Init"),
+    );
+    assert.match(finalApproval.question, /Third-party plan SHA-256: [a-f0-9]{64}/i);
+    assert.match(finalApproval.question, /Approved package roots:/i);
+    assert.match(finalApproval.question, /Subprocess configuration roots:/i);
+    assert.match(finalApproval.question, /Command identities:/i);
     assert.deepEqual(result.thirdParty.approvals.approvedActionIds, []);
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("interactive third-party network approval is separate, default-no, and declines only selected downloads", async () => {
+  const value = fixture();
+  const questions = [];
+  let resolverCalls = 0;
+  try {
+    const result = await runHarnessInitCli(
+      ["global-init", "--home-dir", value.homeDir],
+      {
+        providerRunCommand: missingProvider,
+        skillRoot: SKILL_ROOT,
+        stdout: { write() {} },
+        thirdPartySourceResolver: async () => {
+          resolverCalls += 1;
+          return value.root;
+        },
+        promptChoice: async (question) => {
+          questions.push(question);
+          if (question.question.startsWith("Choose the personal Skill")) {
+            return "skip";
+          }
+          if (question.question.startsWith("Choose the ")) {
+            return question.options.includes("later") ? "later" : "skip";
+          }
+          if (question.question.startsWith("Approve Caveman")) {
+            return "yes";
+          }
+          if (question.question.startsWith("Approve network acquisition")) {
+            assert.deepEqual(question.options, ["no", "yes"]);
+            assert.equal(question.recommended, "no");
+            assert.match(
+              question.question,
+              /caveman.*github\.com.*@\s*[a-f0-9]{40}/is,
+            );
+            assert.match(question.question, /Source manifest SHA-256: [a-f0-9]{64}/i);
+            return "no";
+          }
+          if (question.question.startsWith("Approve Global Init")) {
+            return "approve";
+          }
+          return "no";
+        },
+      },
+    );
+    assert.equal(resolverCalls, 0);
+    assert.deepEqual(result.thirdParty.approvals.approvedActionIds, []);
+    assert.equal(
+      questions.some((entry) =>
+        entry.question.startsWith("Approve network acquisition"),
+      ),
+      true,
+    );
+    assert.equal(result.status, "initialized");
   } finally {
     value.cleanup();
   }
@@ -497,7 +683,22 @@ test("interactive Project Init compiles explicit third-party yes into an approve
       ),
       true,
     );
-    assert.equal(questions.some((entry) => entry.recommended === "yes"), true);
+    const selectionQuestions = questions.filter(
+      (entry) =>
+        entry.question.startsWith("Approve catalog Skill ") ||
+        entry.question.startsWith("Approve demo-third-party"),
+    );
+    assert.equal(
+      selectionQuestions.every((entry) => entry.recommended === "no"),
+      true,
+    );
+    const finalApproval = questions.find((entry) =>
+      entry.question.startsWith("Approve Project Init"),
+    );
+    assert.equal(finalApproval.recommended, "approve");
+    assert.match(finalApproval.question, /Third-party plan SHA-256: [a-f0-9]{64}/i);
+    assert.match(finalApproval.question, /Subprocess configuration roots:/i);
+    assert.match(finalApproval.question, /Command identities:/i);
     assert.equal(existsSync(path.join(value.repoRoot, ".claude")), false);
     assert.equal(existsSync(path.join(value.homeDir, ".claude")), false);
   } finally {
@@ -550,6 +751,11 @@ test("interactive approved contract never offers an unapproved third-party yes",
       questions.some((entry) => entry.question.startsWith("Confirm execution")),
       true,
     );
+    const confirmation = questions.find((entry) =>
+      entry.question.startsWith("Confirm execution"),
+    );
+    assert.match(confirmation.question, /Third-party plan SHA-256: [a-f0-9]{64}/i);
+    assert.match(confirmation.question, /Subprocess configuration roots:/i);
     assert.equal(
       existsSync(path.join(value.repoRoot, ".agents", "skills", "demo-third-party")),
       false,
@@ -786,6 +992,12 @@ test("approved strict contract cannot execute a boundary-blocked exact selection
     };
     const contractPath = path.join(value.root, "approved-contract.json");
     writeFileSync(contractPath, `${JSON.stringify(contract, null, 2)}\n`);
+    const plan = await testThirdPartyPlanBuilder({
+      homeDir: value.homeDir,
+      repoRoot: value.repoRoot,
+      skillRoot: thirdParty.skillRoot,
+      strictDataBoundary: true,
+    });
 
     await assert.rejects(
       runHarnessInitCli(
@@ -804,6 +1016,8 @@ test("approved strict contract cannot execute a boundary-blocked exact selection
           "fast-context",
           "--third-party-source-sha256",
           thirdParty.manifestSha256,
+          "--third-party-plan-sha256",
+          plan.planSha256,
         ],
         {
           skillRoot: thirdParty.skillRoot,

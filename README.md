@@ -54,7 +54,7 @@ CCG 智能层
 - pnpm/Corepack
 - Go（CCG wrapper 的 test/build 门禁必需）
 - Codex CLI（精确安装本地 CCG Codex 插件所必需）
-- Gemini、Grok、Claude Code CLI 均为独立可选 provider；Global Setup 不会替你安装或登录
+- Gemini、Grok、Claude Code CLI 均为独立可选 provider；Global Setup 不会隐式安装或登录，且从不探测或启动 Claude
 
 ```powershell
 git clone --branch v0.2.0 --depth 1 https://github.com/jed-zed/trellis-ccg-harness.git
@@ -77,9 +77,12 @@ pnpm setup
 3. 对相同 snapshot 保持幂等；同名 marketplace/plugin 来自其他路径或版本时
    fail closed，不会覆盖；
 4. 只把 provider 的 `install` / `login` 选择记录为待单独批准动作并输出
-   status/guidance，绝不把安装或登录塞进本次总授权；
-5. Claude 默认 `skip`。显式选择 Claude 安装/登录会被标为退出
-   zero-`.claude` profile，但仍不会由 Global Setup 执行；
+   status/guidance，绝不把安装或登录塞进本次总授权；安装始终按官方文档手动
+   完成。独立命令会绑定 Codex/Grok 的固定 auth-only 指引并要求第二次确认，
+   但不会启动 Provider CLI；Gemini 没有获准的 auth-only 子命令，也只提供
+   手动登录指导，不启动其完整交互 agent；
+5. Claude 默认 `skip`，只提供官方文档，不探测、不启动。显式选择 Claude
+   安装/登录会被标为退出 zero-`.claude` profile，但仍不会由 Harness 执行；
 6. 每个 Harness-owned 步骤后比较用户级和项目级 `.claude` 状态；已有内容
    保持不变，任何创建或修改都会立即停止后续步骤。
 
@@ -87,9 +90,53 @@ pnpm setup
 `node .\scripts\harness-init.mjs third-party-plan --home-dir <absolute-user-home>`
 查看固定来源、许可、写入范围、hook、网络与数据外发影响；四个分组默认全部
 不选，只有用户对具体候选明确批准后才安装。初始化器会明确推荐适用候选，
-包括 Ponytail、Caveman、fast-context 和 CodeGraph，但推荐不会自动勾选或
-授权安装。`fast-context` 会发送查询和目录/检索数据，受严格数据边界时必须
-保持未选。
+包括 Ponytail、Caveman、Context7、fast-context 和 CodeGraph，但推荐不会
+自动勾选或授权安装。Context7 会发送文档查询和库标识，`fast-context`
+会发送查询和目录/检索数据；受严格数据边界时两者必须保持未选。
+最终交互批准会同时展示第三方 `planSha256`、批准的 package/command roots、
+子进程配置根和绑定命令身份；批准只覆盖这一份完整计划。非交互模式只要
+选中了任意第三方候选，就必须在 source manifest 摘要之外再传
+`--third-party-plan-sha256 <reviewed-planSha256>`；拒绝全部候选时仍可使用
+明确的 `none` 公共基线。
+选中需要下载的候选后，交互初始化还会单独询问第三方网络授权，列出候选、
+固定仓库/提交和 source manifest 摘要，默认 `no`。拒绝网络只跳过这些候选，
+不阻塞 13 个 core Skills/Trellis/CCG。私人 catalog clone 使用另一项
+`AllowCatalogNetwork`，不会与第三方下载共用授权；自动化若确需下载第三方，
+必须显式传 `AllowThirdPartyNetwork`/`--allow-third-party-network`。
+批准安装的 MCP 会生成 Harness-owned 本地 launcher；每次启动前都会
+重新验证批准清单摘要、ownership、精确包版本/SRI、lockfile、完整安装树
+指纹和唯一入口，任何漂移都会 fail closed。由于 Codex host 当前没有
+原子 create-only 的 MCP 注册接口，初始化器不会覆盖或自动新增同名配置；
+注册 launcher 保持 `manual-pending`，先向用户展示现有状态和人工命令。
+
+当 Global Init 返回 `needs-provider-actions` 时，先为单个待办生成只读计划：
+
+```powershell
+node .\scripts\harness-init.mjs provider-action-plan `
+  --home-dir <absolute-user-home> --repo-root <absolute-project> `
+  --provider codex --action login
+```
+
+确认 `planSha256` 后，用第二个独立命令显示 Codex/Grok 的固定 auth-only
+手动指引：
+
+```powershell
+node .\scripts\harness-init.mjs provider-action-run `
+  --home-dir <absolute-user-home> --repo-root <absolute-project> `
+  --provider codex --action login `
+  --plan-sha256 <reviewed-planSha256> --approved
+```
+
+该命令会弹出默认 `cancel` 的 `cancel/show-guide` 选择，并拒绝非交互执行。
+计划会绑定规范绝对可执行文件/Node 入口、包版本与文件哈希，供用户核对；
+Harness 不启动命令、不继承 Provider 终端、不生成 Provider action receipt，
+也不记录输出、URL、设备码、账号或 token。所有 Provider 安装与登录均由
+用户在审阅指引后手动完成；这也避免把完整 Gemini agent 误当作认证助手，
+并保证 Claude 永远不会被 Harness 探测或启动。
+Provider 状态探测和第三方来源/安装辅助只运行已绑定且再次验证的绝对命令；
+子进程使用计划内 home/config roots 构造的最小环境，不继承
+`NODE_OPTIONS`、`NODE_PATH`、`LD_PRELOAD`、`DYLD_*`、ambient `GIT_*`
+或其他未允许变量。
 
 公开、无私人 catalog 的非交互示例：
 
@@ -192,6 +239,11 @@ Project Init 只从已明确选择的私人/本地 catalog 安装项目相关 Sk
 时不会把旧事务永久误判为活跃。跨平台 CAS 不承诺
 保留 ACL、扩展属性或 Windows 安全描述符；依赖这些元数据的仓库需使用平台
 专用工具单独验证。
+所有新增目标都必须 create-only 发布；已有 owned 目标必须先原子 claim 到
+事务目录，再对被 claim 的同一对象验证、恢复或删除。若 claim、发布、恢复或
+ownership 写入遇到并发/用户内容碰撞，事务 fail closed，保留被 claim 对象、
+碰撞对象和诊断供人工处理，不覆盖任何一方，也不对仍在原路径上的未知对象做
+递归删除。
 
 ```powershell
 # 只读发现；不会创建 .harness
