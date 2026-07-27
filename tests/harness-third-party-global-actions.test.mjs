@@ -505,7 +505,7 @@ test("approved package roots canonicalize linked ancestors and detect package de
     });
     assert.equal(
       linkedBinding.identity.packageTree.realRoot,
-      realpathSync(path.resolve(realParent, "node_modules")),
+      realpathSync.native(path.resolve(realParent, "node_modules")),
     );
     await assertTrustedCommandUnchanged(linkedBinding);
   } finally {
@@ -878,7 +878,7 @@ test("global actions pass every external command a minimal injection-free enviro
     assert.ok(observed.length >= 1);
     for (const entry of observed) {
       assert.equal(entry.options.shell, false);
-      assert.equal(entry.options.env.HOME, value.homeDir);
+      assert.equal(entry.options.env.HOME, realpathSync.native(value.homeDir));
       for (const forbidden of [
         "PATH",
         "NODE_OPTIONS",

@@ -560,11 +560,11 @@ test("approval plan digest binds canonical command roots, identities, and subpro
       env: { PATH: commandRoot },
     });
     assert.deepEqual(plan.execution.commandPlan.approvedCommandRoots, [
-      realpathSync(commandRoot),
+      realpathSync.native(commandRoot),
     ]);
     assert.equal(
       plan.execution.commandPlan.commands.git.binding.command,
-      realpathSync(executable),
+      realpathSync.native(executable),
     );
     assert.match(
       plan.execution.commandPlan.commands.git.binding.identity.binary.sha256,
@@ -1336,9 +1336,9 @@ test("pinned Git acquisition requires the displayed Git identity and strips call
     assert.equal(existsSync(cache), true);
     assert.ok(calls.length >= 7);
     for (const call of calls) {
-      assert.equal(call.command, path.resolve(executable));
+      assert.equal(call.command, realpathSync.native(executable));
       assert.equal(call.options.shell, false);
-      assert.equal(call.options.env.HOME, path.resolve(value.homeDir));
+      assert.equal(call.options.env.HOME, realpathSync.native(value.homeDir));
       assert.equal(call.options.env.GIT_CONFIG_NOSYSTEM, "1");
       assert.equal(call.options.env.GIT_TERMINAL_PROMPT, "0");
       for (const forbidden of [
@@ -1643,7 +1643,10 @@ test("explicit reject-all approval records a canonical source snapshot without s
     assert.deepEqual(recorded.selections, { globalSkills: [], globalPlugins: [], projectSkills: [], mcpCli: [] });
     assert.equal(recorded.planSha256, plan.planSha256);
     assert.equal(recorded.planEvidence.strictDataBoundary, false);
-    assert.equal(recorded.planEvidence.targetRoots.projectSkills, value.repoRoot);
+    assert.equal(
+      recorded.planEvidence.targetRoots.projectSkills,
+      realpathSync.native(value.repoRoot),
+    );
     assert.equal(readFileSync(sourcePath, "utf8").includes("@latest"), false);
     assert.match(readFileSync(approvalPath, "utf8"), /sourceManifestSha256/);
     assert.equal((await recordThirdPartyGlobalApproval({
