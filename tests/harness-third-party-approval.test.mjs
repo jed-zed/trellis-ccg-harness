@@ -570,19 +570,20 @@ test("approval plan digest binds canonical command roots, identities, and subpro
       plan.execution.commandPlan.commands.git.binding.identity.binary.sha256,
       /^[a-f0-9]{64}$/,
     );
+    const canonicalHome = realpathSync.native(value.homeDir);
     assert.deepEqual(plan.execution.subprocessConfigRoots, {
-      home: path.resolve(value.homeDir),
-      userProfile: path.resolve(value.homeDir),
-      xdgConfigHome: path.join(path.resolve(value.homeDir), ".config"),
-      codexHome: path.join(path.resolve(value.homeDir), ".codex"),
+      home: canonicalHome,
+      userProfile: canonicalHome,
+      xdgConfigHome: path.join(canonicalHome, ".config"),
+      codexHome: path.join(canonicalHome, ".codex"),
       sourceCache: path.join(
-        path.resolve(value.homeDir),
+        canonicalHome,
         ".agents",
         "harness",
         "sources",
       ),
       toolCache: path.join(
-        path.resolve(value.homeDir),
+        canonicalHome,
         ".agents",
         "harness",
         "tools",

@@ -597,3 +597,8 @@ Verification on the clean `main` checkout:
   digests do not depend on the checkout platform. Tests compare canonical
   command/package roots by physical identity instead of the caller's 8.3
   spelling.
+- Final frozen-scope repair changed only the remaining subprocess-config-root
+  test expectation to use the same canonical physical home identity. Its
+  single sequential regression passed 1/1; no new CAS, tombstone, recovery,
+  transaction, or adversarial-concurrency behavior was added, and no further
+  local full-suite run is authorized before submission.
