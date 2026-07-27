@@ -360,7 +360,7 @@ future initialization follows this contract.
 - [x] Setup offers three personal-catalog choices: the authenticated private
   catalog, an existing local Git catalog, or skip. Its default/public baseline
   does not require the private catalog.
-- [ ] A clean-install acceptance run under a new temporary user home completes
+- [x] A clean-install acceptance run under a new temporary user home completes
   the supported bootstrap and initialization flow and proves no user-level or
   project `.claude/` directory was created.
 - [ ] Harness and CCG changes are pushed only after all required local and

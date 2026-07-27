@@ -322,7 +322,7 @@ future initialization. Do not create another Trellis task or CCG plan.
   Run focused RED→GREEN tests, full Harness/CCG/Go gates, source verification,
   doctor, context/conflicts, change/quality/security verification, and
   `git diff --check`.
-- [ ] Commit on `codex/init-third-party-approval`, push, and create a Draft PR.
+- [x] Commit on `codex/init-third-party-approval`, push, and create a Draft PR.
   Do not merge.
 
 Verification for the approved consent implementation on 2026-07-27:
@@ -337,6 +337,11 @@ Verification for the approved consent implementation on 2026-07-27:
   CCG `3.3.3` commit `8bdad64e4e5ccad75e1086ae31ad757e6bbdbef8`
   (tree `847efc20ca938a9c4ded003122f96dbb6ebfb086`) after its mandatory
   lint/typecheck/test/build/Go/Harness gates completed successfully.
+- Fresh remote clean-install of Harness commit
+  `bf2c5a7bb31ded2b8bc5e5f51c2cbe906a3860b9` passed source, bootstrap,
+  plugin, Codex mode, Global Init, Trellis Project Init, Project Init, gates,
+  and mark-ready. The report recorded `claudeState=absent-after-every-phase`
+  and `claudeDirectoryCount=0`.
 - Native Go short tests and build passed. The local Go 1.23.6 result does not
   replace the repository CI matrix pinned to Go 1.26.5.
 - Source verification pinned the third-party manifest digest

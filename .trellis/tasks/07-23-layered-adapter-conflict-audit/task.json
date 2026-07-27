@@ -15,12 +15,12 @@
   "branch": "codex/init-third-party-approval",
   "base_branch": "main",
   "worktree_path": null,
-  "commit": "7de8498340a051d159a7637446d0427fc36a83cc",
-  "pr_url": null,
+  "commit": "bf2c5a7bb31ded2b8bc5e5f51c2cbe906a3860b9",
+  "pr_url": "https://github.com/jed-zed/trellis-ccg-harness/pull/10",
   "subtasks": [],
   "children": [],
   "parent": null,
   "relatedFiles": [],
-  "notes": "Extended in place for the approved third-party initialization consent mechanism. Ponytail, Caveman, fast-context, and CodeGraph are recommended but remain unselected until explicit approval. Interactive Project Init now compiles a complete non-Skill draft contract into an approved exact selection only after final confirmation; approved contracts permit no extra candidate choices. Delivery is a Draft PR and must not be merged by the implementation agent.",
+  "notes": "Extended in place for the approved third-party initialization consent mechanism. Ponytail, Caveman, fast-context, Context7, CodeGraph, and ripgrep are recommended but remain unselected until explicit approval. Interactive Project Init compiles a complete non-Skill draft contract into an approved exact selection only after final confirmation; approved contracts permit no extra candidate choices. Operations without a reliable create-only API remain manual-pending. Fresh remote clean-install at bf2c5a7 passed every phase and created no .claude directory. Delivery is Draft PR #10 and must not be merged by the implementation agent.",
   "meta": {}
 }
