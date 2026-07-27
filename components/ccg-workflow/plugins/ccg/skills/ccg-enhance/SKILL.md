@@ -21,7 +21,9 @@ Use this as the Codex-native equivalent of the original CCG `/ccg:enhance` comma
 
 - Identify current behavior, user-visible contract, tests, and constraints before editing.
 - Keep the enhancement scoped; avoid unrelated refactors.
-- Use Gemini through the bundled browser preview helper with `--prompt-template analyzer`, `--prompt-template frontend`, or `--prompt-template review` depending on whether the enhancement is architectural, UI-heavy, or risk-heavy.
+- Resolve the applicable frontend, backend, and/or search role. Use that
+  provider for the role's analysis and review phases. If a selected provider is
+  Gemini, use the corresponding bundled prompt template.
 - Codex owns final edits, tests, review, and Chinese delivery.
 
 ## Verification

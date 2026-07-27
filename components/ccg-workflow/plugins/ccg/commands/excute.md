@@ -20,4 +20,7 @@ The user invoked:
 /ccg:excute $ARGUMENTS
 ```
 
-This is a typo-compatible alias of `/ccg:execute`. Use the installed CCG plugin skill `ccg:executor` and follow it exactly. Treat `$ARGUMENTS` as the plan path or task description. The architecture is Codex-led: Gemini may provide bounded evidence when the active project policy requires it; Claude is disabled. Codex owns final implementation and verification.
+This is a typo-compatible alias of `/ccg:execute`. Use the installed CCG plugin
+skill `ccg:executor` and follow it exactly. Treat `$ARGUMENTS` as the plan path
+or task description. Resolve configured role providers and keep Codex as final
+implementation and verification owner.

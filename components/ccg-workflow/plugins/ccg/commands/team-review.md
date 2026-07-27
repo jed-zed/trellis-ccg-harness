@@ -22,4 +22,6 @@ The user invoked:
 
 Use the installed CCG plugin skill `ccg:team-review`.
 
-Summarize worker outputs, inspect diffs and tests, require team plan or status evidence, optionally ask Gemini for second-pass review, and deliver Codex final judgment in Chinese.
+Summarize worker outputs, inspect diffs and tests, require team plan or status
+evidence, use the applicable frontend/backend/search provider when a second
+pass is needed, and deliver Codex final judgment in Chinese.

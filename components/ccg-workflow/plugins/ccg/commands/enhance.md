@@ -22,4 +22,5 @@ The user invoked:
 
 Use the installed CCG plugin skill `ccg:enhance`.
 
-Codex should identify current behavior first, keep the change scoped, and verify regressions. Gemini may assist with UX, edge cases, or review through the bundled browser preview helper.
+Resolve the applicable role providers, identify current behavior first, keep
+the change scoped, and have Codex verify regressions.

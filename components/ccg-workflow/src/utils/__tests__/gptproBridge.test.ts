@@ -266,6 +266,7 @@ function runPythonFailure(python: PythonCommand, args: string[], cwd?: string): 
 
 const PACKAGE_ROOT = findPackageRoot()
 const BRIDGE = join(PACKAGE_ROOT, 'templates', 'engine', 'tools', 'gptpro', 'gptpro_bridge.py')
+const PLUGIN_BRIDGE = join(PACKAGE_ROOT, 'plugins', 'ccg', 'skills', 'ccg-gptpro-bridge', 'scripts', 'gptpro_bridge.py')
 const TMP_ROOT = join(tmpdir(), `ccg-gptpro-bridge-${Date.now()}`)
 const PYTHON = findPython()
 const maybeIt = PYTHON ? it : it.skip
@@ -273,6 +274,7 @@ const maybeIt = PYTHON ? it : it.skip
 afterAll(async () => {
   await fs.remove(TMP_ROOT)
   await fs.remove(join(PACKAGE_ROOT, 'templates', 'engine', 'tools', 'gptpro', '__pycache__'))
+  await fs.remove(join(PACKAGE_ROOT, 'plugins', 'ccg', 'skills', 'ccg-gptpro-bridge', 'scripts', '__pycache__'))
 })
 
 describe('GPT Pro manual bridge', () => {
@@ -974,6 +976,43 @@ describe('GPT Pro manual bridge', () => {
       'sys.exit(1)',
     ].join('\n')
     runPython(PYTHON!, ['-c', emptyScript, BRIDGE, statusFile], root)
+  })
+
+  maybeIt.each(['plan', 'review'] as const)('allows %s sessions without Gemini when routed evidence is present', (mode) => {
+    const root = join(TMP_ROOT, `${mode}-without-gemini`)
+    const taskId = `${mode}-without-gemini-task`
+    const taskDir = join(root, '.ccg', 'tasks', taskId)
+    const evidenceDir = join(taskDir, 'evidence')
+    fs.ensureDirSync(evidenceDir)
+    fs.writeJsonSync(join(taskDir, 'task.json'), { id: taskId, status: 'in_progress' })
+    const routing = writeRoutingEvidence(evidenceDir)
+
+    const output = runPython(PYTHON!, [
+      PLUGIN_BRIDGE,
+      '--mode',
+      mode,
+      '--workdir',
+      root,
+      '--task-dir',
+      `.ccg/tasks/${taskId}`,
+      '--prompt',
+      `${mode} using the configured role providers.`,
+      '--routing-evidence-file',
+      routing.evidenceFile,
+      '--routing-summary-file',
+      routing.summaryFile,
+      '--require-routing-evidence',
+    ], root)
+    const status = fs.readJsonSync(parseOutputPath(output, 'CCG_GPTPRO_STATUS_FILE'))
+    expect(status.gemini_evidence).toMatchObject({
+      policy: 'optional',
+      role: 'gate',
+      available: false,
+    })
+    expect(status.routing_evidence).toMatchObject({
+      required: true,
+      available: true,
+    })
   })
 
   maybeIt('rejects plan/review sessions without canonical Gemini gate evidence', () => {

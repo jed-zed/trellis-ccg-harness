@@ -91,8 +91,10 @@ interface InstallConfig {
     mode: string
     frontend: { models: string[], primary: string }
     backend: { models: string[], primary: string }
-    review: { models: string[] }
+    search: { models: string[], primary: string }
+    review?: { models: string[] }
     geminiModel?: string
+    grokModel?: string
   }
   liteMode: boolean
   mcpProvider: string
@@ -1057,7 +1059,10 @@ export async function installWorkflows(
       mode?: string
       frontend?: { models?: string[], primary?: string }
       backend?: { models?: string[], primary?: string }
+      search?: { models?: string[], primary?: string }
       review?: { models?: string[] }
+      geminiModel?: string
+      grokModel?: string
     }
     liteMode?: boolean
     mcpProvider?: string
@@ -1074,7 +1079,7 @@ export async function installWorkflows(
         mode: 'smart',
         frontend: { models: ['gemini'], primary: 'gemini' },
         backend: { models: ['codex'], primary: 'codex' },
-        review: { models: ['codex', 'gemini'] },
+        search: { models: ['grok'], primary: 'grok' },
       },
       liteMode: config?.liteMode || false,
       mcpProvider: config?.mcpProvider || 'fast-context',

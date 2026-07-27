@@ -1,4 +1,4 @@
 interface:
   display_name: "CCG Plan"
-  short_description: "Create a Chinese Codex-native CCG plan with Gemini analysis."
+  short_description: "Create a Chinese CCG plan with applicable role providers."
   default_prompt: "Use $ccg-plan to run /ccg:plan 请为这个需求生成中文 CCG 实施计划."

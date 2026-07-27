@@ -21,18 +21,19 @@ ordinary `/ccg:review`. Required exit 2/3/4 stops GPT Pro bridge creation unless
 `ccg route waive --state-file <state-file> --reason "<user reason>"`; this records a route-state waiver without creating evidence or claiming verification passed. A waived route continues only through ordinary routing evidence and must omit the bridge's external-intelligence flags. Exit code `2`, `3`, or `4` stops before ordinary work. Add
 `--require-external-intelligence` together with `--expected-intelligence-mode <route investigation_mode>` and `--expected-intelligence-depth <route depth>` only when the inherited/re-evaluated route has `status=valid` and `requirement=required`.
 Then run ordinary `/ccg:review`. Preserve the current CCG orchestrator semantics and the normal
-cross-review/model routing for this installation, including Codex, Gemini, or any configured
-helper that ordinary review would use. GPT Pro is fourth evidence: it is appended as a manual review
+cross-review/model routing for this installation, including any configured role providers that
+ordinary review would use. GPT Pro is additional evidence: it is appended as a manual review
 second opinion after ordinary routing evidence exists. In this command GPT Pro is a high-value
 external reviewer for hidden bugs, security risks, compatibility risks, edge cases, test gaps, and
 ordinary model false positives or missed findings.
 
-Claude is disabled in this Codex-native workflow. It is never invoked, required as evidence, or
-offered as a manual handoff before GPT Pro.
+The ordinary review stage follows the applicable frontend, backend, and search
+providers. This named command then adds GPT Pro without changing the saved
+roles.
 
 GPT Pro is not a `codeagent-wrapper` backend and must not be routed through `model-router.md` as an
-automated model. Do not replace routed models, skip ordinary review, or use GPT Pro to decide that
-missing Codex or Gemini evidence exists.
+automated model. Do not replace routed models, skip ordinary review, or use GPT Pro to invent
+missing routed-provider evidence.
 
 Hard boundaries:
 
@@ -60,23 +61,11 @@ fields into Trellis `task.json`.
    for example `<evidence-root>/evidence/routing.md`, plus a routing summary file.
    The routing evidence must identify the current orchestrator, the routed model evidence that
    actually exists, the ordinary reviewer conclusion, and any skipped/failed model steps.
-5. Validate required Gemini review/gate evidence from `<evidence-root>/evidence.json`.
-   Legacy `task.json.gemini_evidence` or `task.json.gemini_gate` may be normalized for read
-   compatibility, but do not expand large evidence arrays into `task.json`.
-
-Required Gemini evidence:
-
-```text
-provider=gemini
-role=gate
-policy=required
-available=true
-artifactFile exists and is non-empty
-artifactSha256 matches when present
-```
-
-If required Gemini evidence is missing or invalid, stop and explain the exact missing evidence.
-Do not create a GPT Pro bridge session with invented Gemini findings.
+5. If ordinary review used Gemini, validate its optional gate evidence from
+   `<evidence-root>/evidence.json`. Legacy `task.json.gemini_evidence` or
+   `task.json.gemini_gate` may be normalized for read compatibility, but do not
+   expand large evidence arrays into `task.json`. Absence of Gemini evidence
+   must not block GPT Pro when Base CCG Routing Evidence is valid.
 
 ## Bridge Creation
 
@@ -87,7 +76,7 @@ Create a concise prompt file with:
 - Project Access Context is injected by the bridge with repository URL, branch, commit, and local
   status; pasted diffs and local evidence override repository contents when they differ;
 - Base CCG Routing Evidence summary and artifact path;
-- Gemini evidence summary and artifact path;
+- optional Gemini evidence summary and artifact path when Gemini actually ran;
 - validated Grok diff-bound summary, claims, evidence/manifest paths and hashes; never raw events;
 - explicit request for hidden bugs, security risks, compatibility risks, edge cases, test gaps,
   likely false positives, and missed findings in ordinary model evidence;
@@ -103,10 +92,8 @@ python "<installed-ccg-plugin>/skills/ccg-gptpro-bridge/scripts/gptpro_bridge.py
   --source-command "/ccg:gptpro-review" \
   --prompt-file "<prompt-file>" \
   --slug "<task-id>-review" \
-  --gemini-policy required \
+  --gemini-policy optional \
   --gemini-evidence-role gate \
-  --gemini-response-file "<gemini-response-file>" \
-  --gemini-summary-file "<gemini-summary-file>" \
   --routing-evidence-file "<routing-evidence-file>" \
   --routing-summary-file "<routing-summary-file>" \
   --require-routing-evidence \
@@ -114,6 +101,9 @@ python "<installed-ccg-plugin>/skills/ccg-gptpro-bridge/scripts/gptpro_bridge.py
   --detach-preview \
   --open-preview
 ```
+
+When ordinary review produced genuine Gemini evidence, also pass
+`--gemini-response-file` and `--gemini-summary-file`. Never invent them.
 
 Expected artifacts:
 

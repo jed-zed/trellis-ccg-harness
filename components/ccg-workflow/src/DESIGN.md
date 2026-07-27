@@ -81,6 +81,20 @@ Inside a Trellis project it delegates to the project hook using the active
 Python interpreter and forwards the original payload/output. Missing delegation
 fails closed to Trellis-only guidance and never creates `.ccg/tasks`.
 
+## Role Routing Boundary
+
+- CCG persists exactly three configurable top-level roles: `frontend`,
+  `backend`, and `search`.
+- Analysis, planning, implementation drafting, and review are phases performed
+  inside the applicable top-level roles, not separate provider routes.
+- Each role resolves to one of the providers already registered by
+  `codeagent-wrapper`: Codex, Gemini, Claude, Antigravity, or Grok.
+- Changing one role preserves the other two. Codex remains the orchestrator,
+  sole real-workspace writer, and final verification owner.
+- Explicit provider commands and GPT Pro manual bridges do not rewrite saved
+  role defaults. This feature adds no generic command backend, task permission
+  store, daemon, database, or second configuration root.
+
 ## Known Risks
 
 - Trusted digest rotation is a reviewed source change and must accompany a
@@ -99,6 +113,19 @@ fails closed to Trellis-only guidance and never creates `.ccg/tasks`.
   scans exclude test fixtures and must have zero Critical/High findings.
 
 ## Change History
+
+### 2026-07-27 - Three-role provider routing
+
+**Change:** Replaced fixed provider responsibilities with independently
+configurable frontend, backend, and search roles while keeping analysis,
+planning, and review inside those roles.
+
+**Reason:** Switching the provider responsible for one domain should be an
+installer/config operation, not a cross-cutting source edit.
+
+**Impact:** Routing types and config commands, installer templates, Codex
+workflow Skills, compatibility tests, and user documentation. The Go wrapper
+execution boundary is unchanged.
 
 ### 2026-07-25 - MCP launch-time boundary verification
 

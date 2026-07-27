@@ -8,8 +8,8 @@
   "plugins": [
     {
       "name": "ccg",
-      "description": "Codex-native CCG workflow with opt-in external intelligence, Gemini review, spec, team, and quality gates; Claude is disabled.",
-      "version": "3.3.3",
+      "description": "Codex-native CCG workflow with independent role-to-provider routing, opt-in external intelligence, spec, team, and quality gates.",
+      "version": "3.4.0",
       "source": "./plugins/ccg",
       "author": {
         "name": "jed-zed",

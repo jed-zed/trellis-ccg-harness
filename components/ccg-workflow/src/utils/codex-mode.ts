@@ -3,6 +3,7 @@ import { homedir } from 'node:os'
 import { isAbsolute, relative, resolve } from 'node:path'
 import fs from 'fs-extra'
 import { join } from 'pathe'
+import { stringify } from 'smol-toml'
 import { version as packageVersion } from '../../package.json'
 import { readCcgConfigAt } from './config'
 import { PACKAGE_ROOT, injectConfigVariables } from './installer-template'
@@ -828,7 +829,16 @@ export async function installCodexModeAt(
       }
       planned.set(normalizedRelative(join('hooks', name)), bytes)
     }
-    planned.set('ccg/config.toml', await fs.readFile(join(templateDir, 'ccg-config.toml')))
+    const ccgConfigBytes = config
+      ? Buffer.from(stringify({
+          ...config,
+          general: {
+            ...config.general,
+            version: packageVersion,
+          },
+        } as any), 'utf8')
+      : await fs.readFile(join(templateDir, 'ccg-config.toml'))
+    planned.set('ccg/config.toml', ccgConfigBytes)
     planned.set('.ccg-version', Buffer.from(packageVersion, 'utf8'))
 
     const configPath = join(codexHome, 'config.toml')
@@ -853,7 +863,8 @@ export async function installCodexModeAt(
       const prior = previousFiles.get(relativePath)
       let original = prior?.original
       if (prior) {
-        if (!current || sha256(current) !== prior.installedSha256)
+        const userEditableCcgConfig = relativePath === 'ccg/config.toml'
+        if (!userEditableCcgConfig && (!current || sha256(current) !== prior.installedSha256))
           throw new Error(`${relativePath} was modified after installation; refusing to overwrite it.`)
       }
       else if (current) {

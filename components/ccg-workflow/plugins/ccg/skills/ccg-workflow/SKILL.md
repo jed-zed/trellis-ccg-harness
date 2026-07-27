@@ -18,9 +18,10 @@ Load `skills/ccg-executor/SKILL.md` for the full rule.
 Explain in Chinese:
 
 - Original CCG: Claude Code orchestrates Codex + Gemini.
-- Codex CCG: Codex creates plans, orchestrates execution, and applies final
-  code; Gemini may assist as a bounded read-only helper when active project
-  policy requires it. Claude is disabled and is neither invoked nor required.
-- Gemini browser preview is automatic whenever the workflow calls Gemini. `/ccg:gemini-preview` is only a manual smoke-test/debug entry for that same helper. Claude is disabled in Codex-only mode.
+- Codex CCG: Codex orchestrates and applies final code; `frontend`, `backend`,
+  and `search` independently select an existing registered provider.
+- Analysis, planning, and review are phases inside those three roles.
+- Gemini browser preview is automatic whenever a role selects Gemini.
+  Provider-specific commands still use their named provider directly.
 
 If the user supplies a plan path or task, route it to `/ccg:execute`.

@@ -20,16 +20,19 @@ Load and follow `skills/ccg-gptpro-bridge/SKILL.md`.
   useful even if the user did not request search. When required, the shared route runs Grok contract evidence
   and require its canonical artifact, manifest, hashes, and active-task pointer. Exit `2`, `3`, or `4`
   stops the workflow; pass only the validated summary, claims, and provenance, never raw Grok output.
-- Run ordinary `/ccg:plan` semantics first. Preserve Codex as the planning authority and use only
-  the bounded Gemini evidence required by that workflow. Claude is disabled and is never a gate.
+- Run ordinary `/ccg:plan` semantics first. Preserve Codex as the planning
+  authority and use the applicable frontend/backend/search planning evidence from that
+  workflow.
 - Before GPT Pro, write Base CCG Routing Evidence that records the current orchestrator, actual
   routed model evidence, ordinary planning conclusion, and skipped/failed
   model steps.
-- Run Gemini according to ordinary planning rules before GPT Pro using the bundled Gemini preview
-  helper with `--prompt-template plan`.
-- Follow the Gemini Gate Before GPT Pro from `skills/ccg-gptpro-bridge/SKILL.md`: require a real `CCG_GEMINI_RESPONSE_FILE`, read a non-empty Gemini response from it, stop and do not create a GPT Pro bridge session if it is missing or empty, and do not invent Gemini findings.
-- Include the ordinary planning context, Project Access Context, Base CCG Routing Evidence, the
-  Gemini response file path, and a concise Gemini findings summary in the GPT Pro prompt.
+- Run whichever frontend/backend/search providers ordinary planning classifies as applicable.
+  Gemini is optional and must not be added merely because GPT Pro is requested.
+- When ordinary planning actually used Gemini, pass its real non-empty
+  `CCG_GEMINI_RESPONSE_FILE` through the optional evidence path. Do not invent findings.
+- Include the ordinary planning context, Project Access Context, and Base CCG Routing Evidence in
+  the GPT Pro prompt. Include a Gemini response path and concise summary only when Gemini actually
+  ran.
 - Ask GPT Pro to focus on requirement ambiguity, wrong assumptions, architecture risk, missing
   constraints, test gaps, and whether the plan is worth continuing.
 - Require output sections: `Blockers`, `Risks`, `Missing Evidence`, `Plan Adjustments`, `Go-NoGo`.
@@ -37,10 +40,11 @@ Load and follow `skills/ccg-gptpro-bridge/SKILL.md`.
 - Expected manual questions: 1.
 - Maximum manual questions: 2.
 - Round 2 only for blocker re-check or revised plan comparison.
-- Use `scripts/gptpro_bridge.py --mode plan --detach-preview --open-preview --gemini-response-file <CCG_GEMINI_RESPONSE_FILE> --gemini-summary-file <summary-file> --routing-evidence-file <routing-evidence-file> --routing-summary-file <routing-summary-file> --require-routing-evidence [--require-external-intelligence --expected-intelligence-mode <route investigation_mode> --expected-intelligence-depth <route depth> when route status=valid and requirement=required]`; omit those three external-intelligence flags for `status=waived`.
+- Use `scripts/gptpro_bridge.py --mode plan --detach-preview --open-preview --gemini-policy optional --gemini-evidence-role gate --routing-evidence-file <routing-evidence-file> --routing-summary-file <routing-summary-file> --require-routing-evidence [--gemini-response-file <CCG_GEMINI_RESPONSE_FILE> --gemini-summary-file <summary-file> when Gemini actually ran] [--require-external-intelligence --expected-intelligence-mode <route investigation_mode> --expected-intelligence-depth <route depth> when route status=valid and requirement=required]`; omit those three external-intelligence flags for `status=waived`.
 - Read the saved response file only after the user manually saves it.
-- Summarize and synthesize validated Grok external intelligence, ordinary planning evidence, Gemini
-  gate evidence, and GPT Pro findings in Chinese; the current orchestrator decides final plan edits.
+- Summarize and synthesize validated Grok external intelligence, ordinary planning evidence,
+  optional Gemini evidence when present, and GPT Pro findings in Chinese; the current orchestrator
+  decides final plan edits.
 - The current CCG orchestrator remains final owner.
 - Do not automate ChatGPT web login.
 - Do not read ChatGPT web DOM.

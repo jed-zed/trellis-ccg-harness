@@ -13,6 +13,13 @@ export {
   getConfigPath,
 } from './utils/config'
 export {
+  createDefaultRoleRouting,
+  isRegisteredModel,
+  isRoutingRole,
+  normalizeModelRouting,
+  setRoleProvider,
+} from './utils/model-routing'
+export {
   getWorkflowConfigs,
   getWorkflowById,
   installWorkflows,

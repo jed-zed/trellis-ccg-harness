@@ -22,7 +22,9 @@ Use this as the Codex-native equivalent of the original CCG `/ccg:debug` command
 - Reproduce or localize the failure before changing code when feasible.
 - Gather exact error messages, failing commands, recent diffs, and relevant files.
 - Prefer small fixes that address the root cause, not broad rewrites.
-- Use Gemini through the bundled browser preview helper with `--prompt-template debugger` for complex root-cause hypotheses, race conditions, state-flow problems, or second-pass review.
+- Resolve the applicable frontend, backend, and/or search role for root-cause
+  analysis and second-pass review. If a selected provider is Gemini, use the
+  bundled preview helper with `--prompt-template debugger` or `review`.
 - Codex owns final diagnosis, edits, verification, and Chinese delivery.
 
 ## Verification

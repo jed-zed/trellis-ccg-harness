@@ -1,6 +1,6 @@
 ---
 name: backend
-description: Implement backend-heavy work with Codex as the primary executor. Use when the user invokes /ccg:backend or asks CCG to handle APIs, services, data flows, jobs, storage, or backend architecture.
+description: Implement backend-heavy work with the configured backend provider and Codex as final workspace owner. Use when the user invokes /ccg:backend or asks CCG to handle APIs, services, data flows, jobs, storage, or backend architecture.
 ---
 
 ## Automatic External Intelligence Gate
@@ -20,9 +20,8 @@ Use this as the Codex-native equivalent of the original CCG `/ccg:backend` comma
 ## Behavior
 
 - Treat the user argument as backend-heavy work: APIs, services, data flow, storage, jobs, migrations, auth, validation, or backend architecture.
-- Codex is the primary implementer and reviewer. Gemini is optional for simple or local backend fixes.
-- Use Gemini through the bundled browser preview helper when the task involves broad architecture, risky edge cases, concurrency, data integrity, security boundaries, or a second-pass review.
-- Prefer `--prompt-template architect` for design alternatives, `--prompt-template tester` for test ideas, and `--prompt-template review` for review.
+- Read `../../rules/ccg-role-routing.md`, then run `ccg routing get backend --json` before assigning backend drafting or analysis.
+- Use the configured backend provider for implementation drafts, design alternatives, risky edge cases, concurrency, data integrity, or tests. If it is Gemini, use the bundled preview helper and prefer `--prompt-template architect` or `--prompt-template tester`; otherwise use the existing provider adapter described by the routing rule.
 - Codex owns final edits, migration safety, tests, diff review, and Chinese delivery.
 
 ## Verification

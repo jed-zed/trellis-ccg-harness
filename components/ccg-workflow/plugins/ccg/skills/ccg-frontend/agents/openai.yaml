@@ -1,4 +1,4 @@
 interface:
   display_name: "CCG Frontend"
-  short_description: "Implement frontend/UI work with Gemini as read-only UI helper."
+  short_description: "Implement frontend/UI work with the configured frontend provider."
   default_prompt: "Use $ccg-frontend to run /ccg:frontend Improve this UI."

@@ -1,5 +1,5 @@
 ---
-description: "Build or review frontend/UI work with Codex and Gemini UI assistance"
+description: "Build or review frontend/UI work with the configured frontend provider"
 argument-hint: "<frontend-task>"
 allowed-tools: [Read, Glob, Grep, Bash, Edit, Write, WebFetch]
 ---
@@ -22,4 +22,5 @@ The user invoked:
 
 Use the installed CCG plugin skill `ccg:frontend`.
 
-Frontend/UI tasks should use Gemini as a strong read-only reference for UX, accessibility, responsive behavior, component structure, and visual risks. Codex must apply final edits and verify the result.
+Resolve `ccg routing get frontend --json`, use that provider for the bounded UI
+draft or review, and keep Codex responsible for final edits and verification.

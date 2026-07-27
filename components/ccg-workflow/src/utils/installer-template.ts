@@ -66,6 +66,7 @@ export function injectConfigVariables(content: string, config: {
     mode?: string
     frontend?: { models?: string[], primary?: string }
     backend?: { models?: string[], primary?: string }
+    search?: { models?: string[], primary?: string }
     review?: { models?: string[] }
     geminiModel?: string
     grokModel?: string
@@ -77,22 +78,36 @@ export function injectConfigVariables(content: string, config: {
 
   // Model routing injection
   const routing = config.routing || {}
+  const roleDefaults = {
+    frontend: { models: ['gemini'], primary: 'gemini' },
+    backend: { models: ['codex'], primary: 'codex' },
+    search: { models: ['grok'], primary: 'grok' },
+  }
+  const roleRoutes = Object.fromEntries(
+    Object.entries(roleDefaults).map(([role, defaults]) => {
+      const configured = routing[role as keyof typeof roleDefaults] as { models?: string[], primary?: string } | undefined
+      const models = configured?.models?.length
+        ? configured.models
+        : configured?.primary
+          ? [configured.primary]
+          : defaults.models
+      return [role, {
+        models,
+        primary: configured?.primary || models[0] || defaults.primary,
+      }]
+    }),
+  ) as Record<keyof typeof roleDefaults, { models: string[], primary: string }>
 
-  // Frontend models
-  const frontendModels = routing.frontend?.models || ['gemini']
-  const frontendPrimary = routing.frontend?.primary || 'gemini'
-  processed = processed.replace(/\{\{FRONTEND_MODELS\}\}/g, JSON.stringify(frontendModels))
-  processed = processed.replace(/\{\{FRONTEND_PRIMARY\}\}/g, frontendPrimary)
-
-  // Backend models
-  const backendModels = routing.backend?.models || ['codex']
-  const backendPrimary = routing.backend?.primary || 'codex'
-  processed = processed.replace(/\{\{BACKEND_MODELS\}\}/g, JSON.stringify(backendModels))
-  processed = processed.replace(/\{\{BACKEND_PRIMARY\}\}/g, backendPrimary)
-
-  // Review models
-  const reviewModels = routing.review?.models || ['codex', 'gemini']
-  processed = processed.replace(/\{\{REVIEW_MODELS\}\}/g, JSON.stringify(reviewModels))
+  for (const [role, route] of Object.entries(roleRoutes)) {
+    const upper = role.toUpperCase()
+    processed = processed.replace(new RegExp(`\\{\\{${upper}_MODELS\\}\\}`, 'g'), JSON.stringify(route.models))
+    processed = processed.replace(new RegExp(`\\{\\{${upper}_PRIMARY\\}\\}`, 'g'), route.primary)
+  }
+  const legacyReviewModels = routing.review?.models?.length
+    ? routing.review.models
+    : [...new Set([roleRoutes.frontend.primary, roleRoutes.backend.primary])]
+  processed = processed.replace(/\{\{REVIEW_MODELS\}\}/g, JSON.stringify(legacyReviewModels))
+  const providerUsageRoutes = Object.values(roleRoutes)
 
   // Routing mode
   const routingMode = routing.mode || 'smart'
@@ -114,10 +129,11 @@ export function injectConfigVariables(content: string, config: {
   //   - If the line uses a conditional expression (`--backend <codex|gemini>`)
   //     or hard-codes gemini — keep the flag (AI picks at runtime).
   const geminiModel = routing.geminiModel || 'gemini-3.1-pro-preview'
-  const usesGemini = frontendPrimary === 'gemini' || backendPrimary === 'gemini'
+  const usesGemini = providerUsageRoutes
+    .some(route => route.primary === 'gemini' || route.models.includes('gemini'))
 
   if (!usesGemini) {
-    // Neither frontend nor backend is gemini — no flag needed anywhere.
+    // No configured role uses Gemini — no flag needed anywhere.
     processed = processed.replace(/\{\{GEMINI_MODEL_FLAG\}\}/g, '')
   }
   else {
@@ -144,8 +160,8 @@ export function injectConfigVariables(content: string, config: {
   // strip the flag on lines that hard-code a non-grok backend, keep it on
   // conditional / grok / runtime-variable ($MODEL) lines.
   const grokModel = routing.grokModel || 'grok-4.5'
-  const usesGrok = frontendPrimary === 'grok' || backendPrimary === 'grok'
-    || frontendModels.includes('grok') || backendModels.includes('grok')
+  const usesGrok = providerUsageRoutes
+    .some(route => route.primary === 'grok' || route.models.includes('grok'))
 
   if (!usesGrok) {
     processed = processed.replace(/\{\{GROK_MODEL_FLAG\}\}/g, '')

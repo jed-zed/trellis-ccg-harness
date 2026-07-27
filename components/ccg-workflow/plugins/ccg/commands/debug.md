@@ -22,4 +22,6 @@ The user invoked:
 
 Use the installed CCG plugin skill `ccg:debug`.
 
-Codex owns reproduction, diagnosis, fixes, and verification. Gemini may provide root-cause hypotheses or a second-pass review through the bundled browser preview helper.
+Classify the bug as frontend, backend, and/or search, then use those role
+providers for hypotheses and second-pass review. Codex owns reproduction,
+fixes, and verification.
