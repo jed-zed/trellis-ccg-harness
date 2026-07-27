@@ -68,7 +68,12 @@ routing.
   permanent Claude-disabled, or Codex-primary-backend rule remains outside
   explicit provider commands and negative tests.
 - Final Harness conflict gate: 14 checks passed, 0 warnings, 0 blockers.
-- `pnpm verify:sources` and `pnpm doctor`: passed.
+- `pwsh -NoProfile -File scripts/verify-sources.ps1
+  -AuthoritativeCheckout I:\ai\ccg-workflow-role-routing-v2` and
+  `pnpm doctor`: passed.
+- Plain `pnpm verify:sources` intentionally cannot fetch the unpushed source
+  commit from the public remote; this is the expected consequence of the
+  no-push boundary, not a local tree or transaction mismatch.
 - Installed routing smoke test:
   `frontend=gemini`, `backend=codex`, `search=grok`.
 
