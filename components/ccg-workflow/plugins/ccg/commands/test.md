@@ -22,4 +22,6 @@ The user invoked:
 
 Use the installed CCG plugin skill `ccg:test`.
 
-Codex owns test implementation and execution. Gemini may supply edge cases, fixture ideas, or review gaps through the bundled browser preview helper.
+Use the applicable frontend, backend, and/or search role providers for edge
+cases, fixture ideas, or review gaps. Codex owns final test implementation and
+execution.

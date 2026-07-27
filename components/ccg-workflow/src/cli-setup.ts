@@ -6,6 +6,7 @@ import { version } from '../package.json'
 import { homedir } from 'node:os'
 import { join } from 'pathe'
 import { configMcp } from './commands/config-mcp'
+import { configRouting } from './commands/config-routing'
 import { doctor, status } from './commands/doctor'
 import { grokAccount } from './commands/grok'
 import { runCodexRoute } from './commands/route'
@@ -32,6 +33,7 @@ function customizeHelp(sections: any[]): any[] {
       `  ${ansis.cyan('ccg fix-mcp')}      ${i18n.t('cli:help.commandDescriptions.fixMcp')}`,
       `  ${ansis.cyan('ccg doctor')}       Check installation health`,
       `  ${ansis.cyan('ccg grok login')}   Sign in to the isolated Grok intelligence profile`,
+      `  ${ansis.cyan('ccg routing')}      List or change Codex role-to-provider routing`,
       `  ${ansis.cyan('ccg status')}       Show installation overview`,
       `  ${ansis.cyan('ccg codex-mode')}   Install/uninstall/recover Codex-Led mode`,
       `  ${ansis.cyan('ccg uninstall')}    Uninstall CCG (non-interactive)`,
@@ -53,6 +55,7 @@ function customizeHelp(sections: any[]): any[] {
       `  ${ansis.green('--skip-prompt, -s')}         ${i18n.t('cli:help.optionDescriptions.skipAllPrompts')}`,
       `  ${ansis.green('--frontend, -F')} <models>   ${i18n.t('cli:help.optionDescriptions.frontendModels')}`,
       `  ${ansis.green('--backend, -B')} <models>    ${i18n.t('cli:help.optionDescriptions.backendModels')}`,
+      `  ${ansis.green('--search, -S')} <models>     ${i18n.t('cli:help.optionDescriptions.searchModels')}`,
       `  ${ansis.green('--mode, -m')} <mode>         ${i18n.t('cli:help.optionDescriptions.collaborationMode')}`,
       `  ${ansis.green('--workflows, -w')} <list>    ${i18n.t('cli:help.optionDescriptions.workflows')}`,
       `  ${ansis.green('--install-dir, -d')} <path>  ${i18n.t('cli:help.optionDescriptions.installDir')}`,
@@ -72,7 +75,7 @@ function customizeHelp(sections: any[]): any[] {
       `  ${ansis.cyan('npx ccg i')}`,
       '',
       ansis.gray(`  # ${i18n.t('cli:help.exampleDescriptions.customModels')}`),
-      `  ${ansis.cyan('npx ccg i --frontend gemini,codex --backend codex,gemini')}`,
+      `  ${ansis.cyan('npx ccg i --frontend gemini --backend codex --search grok')}`,
       '',
       ansis.gray(`  # ${i18n.t('cli:help.exampleDescriptions.parallelMode')}`),
       `  ${ansis.cyan('npx ccg i --mode parallel')}`,
@@ -109,7 +112,7 @@ export function printCodexModeHelp(): void {
 }
 
 export function isCodexNativeRequest(args: readonly string[]): boolean {
-  if (args[0] === 'route' || args[0] === 'codex-mode')
+  if (args[0] === 'route' || args[0] === 'routing' || args[0] === 'codex-mode')
     return true
   if (args[0] !== 'doctor')
     return false
@@ -156,6 +159,7 @@ export async function setupCommands(cli: CAC): Promise<void> {
     .option('--skip-mcp', 'Skip MCP configuration (used during update)')
     .option('--frontend, -F <models>', i18n.t('cli:help.optionDescriptions.frontendModels'))
     .option('--backend, -B <models>', i18n.t('cli:help.optionDescriptions.backendModels'))
+    .option('--search, -S <models>', i18n.t('cli:help.optionDescriptions.searchModels'))
     .option('--mode, -m <mode>', i18n.t('cli:help.optionDescriptions.collaborationMode'))
     .option('--workflows, -w <workflows>', i18n.t('cli:help.optionDescriptions.workflows'))
     .option('--install-dir, -d <path>', i18n.t('cli:help.optionDescriptions.installDir'))
@@ -233,6 +237,18 @@ export async function setupCommands(cli: CAC): Promise<void> {
     .action(() => {
       const index = process.argv.indexOf('route')
       process.exitCode = runCodexRoute(process.argv.slice(index + 1))
+    })
+
+  cli
+    .command('routing [action] [role] [provider]', 'List or change Codex role-to-provider routing')
+    .option('--json', 'Print machine-readable output')
+    .action(async (
+      action: string | undefined,
+      role: string | undefined,
+      provider: string | undefined,
+      options: { json?: boolean },
+    ) => {
+      await configRouting(action, role, provider, options)
     })
 
   // Status: show current installation overview

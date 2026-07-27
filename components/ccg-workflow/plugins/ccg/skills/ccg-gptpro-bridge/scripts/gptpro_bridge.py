@@ -806,7 +806,7 @@ def read_template(name: str) -> str:
 
 
 def default_gemini_policy(mode: str) -> str:
-    return "optional" if mode == "exc" else "required"
+    return "optional"
 
 
 def default_gemini_evidence_role(mode: str) -> str:
@@ -814,7 +814,7 @@ def default_gemini_evidence_role(mode: str) -> str:
 
 
 def normalize_gemini_policy(policy: str) -> str:
-    normalized = (policy or "").strip() or "required"
+    normalized = (policy or "").strip() or "optional"
     if normalized not in GEMINI_POLICIES:
         raise ValueError(f"Invalid Gemini evidence policy: {normalized}")
     return normalized
@@ -828,10 +828,10 @@ def normalize_gemini_evidence_role(role: str) -> str:
 
 
 def validate_mode_gemini_policy(mode: str, policy: str, role: str) -> None:
-    if mode in {"plan", "review"} and (policy != "required" or role != "gate"):
+    if mode in {"plan", "review"} and role != "gate":
         raise ValueError(
-            "Gemini Gate Before GPT Pro is required for plan/review sessions; "
-            "use --gemini-policy required --gemini-evidence-role gate."
+            "Plan/review sessions use the optional Gemini gate evidence role; "
+            "use --gemini-evidence-role gate."
         )
 
 
@@ -1298,7 +1298,7 @@ def create_session(
             inherited_evidence = status.get("gemini_evidence") or status.get("gemini_gate")
             if not inherited_evidence:
                 if policy == "required":
-                    raise ValueError("Gemini Gate Before GPT Pro is required for follow-up sessions.")
+                    raise ValueError("Required Gemini evidence is missing for the follow-up session.")
                 inherited_evidence = empty_gemini_evidence(policy, role)
             gemini_evidence = dict(inherited_evidence)
             gemini_evidence["inherited_from_round"] = 1
@@ -1325,7 +1325,7 @@ def create_session(
     gemini_evidence = normalize_gemini_evidence(gemini_evidence, policy, role)
     if policy == "required" and not gemini_evidence.get("available"):
         raise ValueError("CCG_GEMINI_RESPONSE_FILE is required before GPT Pro bridge session creation.")
-    if policy == "required" and role == "gate":
+    if role == "gate" and gemini_evidence.get("available"):
         if task_dir_path is None:
             raise ValueError("Canonical Gemini gate validation requires an active supported task directory.")
         response_value = str(gemini_evidence.get("response_file") or "")

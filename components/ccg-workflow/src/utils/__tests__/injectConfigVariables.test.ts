@@ -334,6 +334,53 @@ describe('GEMINI_MODEL_FLAG line-aware substitution', () => {
   })
 })
 
+describe('standard role routing variables', () => {
+  it('injects all three top-level role primaries', () => {
+    const input = [
+      '{{FRONTEND_PRIMARY}}',
+      '{{BACKEND_PRIMARY}}',
+      '{{SEARCH_PRIMARY}}',
+    ].join('/')
+    const result = injectConfigVariables(input, {
+      routing: {
+        frontend: { primary: 'antigravity' },
+        backend: { primary: 'grok' },
+        search: { primary: 'gemini' },
+      },
+    })
+    expect(result).toBe('antigravity/grok/gemini')
+  })
+
+  it('keeps the legacy REVIEW_MODELS template variable compatible', () => {
+    const result = injectConfigVariables(
+      '{{FRONTEND_PRIMARY}}/{{BACKEND_PRIMARY}}/{{SEARCH_PRIMARY}}/{{REVIEW_MODELS}}',
+      {
+        routing: {
+          frontend: { primary: 'antigravity' },
+          backend: { primary: 'claude' },
+          review: { models: ['gemini', 'codex'] },
+        },
+      },
+    )
+    expect(result).toBe('antigravity/claude/grok/["gemini","codex"]')
+  })
+
+  it('detects Gemini usage outside frontend and backend', () => {
+    const result = injectConfigVariables(
+      '--backend <configured> {{GEMINI_MODEL_FLAG}}- "/workdir"',
+      {
+        routing: {
+          frontend: { primary: 'claude' },
+          backend: { primary: 'codex' },
+          search: { primary: 'gemini' },
+          geminiModel: 'gemini-3.1-pro-preview',
+        },
+      },
+    )
+    expect(result).toContain('--gemini-model gemini-3.1-pro-preview')
+  })
+})
+
 // ─────────────────────────────────────────────────────────────
 // F. Integration: no dead --gemini-model on hard-coded codex lines
 // ─────────────────────────────────────────────────────────────
@@ -415,11 +462,12 @@ describe('GROK_MODEL_FLAG line-aware substitution', () => {
     expect(result).toContain('--grok-model grok-composer-2.5-fast')
   })
 
-  it('strips all flags when neither role uses grok', () => {
+  it('strips all flags when none of the three roles uses grok', () => {
     const config = {
       routing: {
         frontend: { primary: 'antigravity' },
         backend: { primary: 'codex' },
+        search: { primary: 'codex' },
       },
     }
     const input = [
@@ -429,6 +477,17 @@ describe('GROK_MODEL_FLAG line-aware substitution', () => {
     const result = injectConfigVariables(input, config)
     expect(result).not.toContain('--grok-model')
     expect(result).not.toContain('{{GROK_MODEL_FLAG}}')
+  })
+
+  it('counts the default search route for partial legacy routing', () => {
+    const input = '--backend $MODEL {{GROK_MODEL_FLAG}}- "/w"'
+    const result = injectConfigVariables(input, {
+      routing: {
+        frontend: { primary: 'gemini' },
+        backend: { primary: 'codex' },
+      },
+    })
+    expect(result).toContain('--grok-model grok-4.5')
   })
 
   it('gemini and grok flags coexist on $MODEL lines when both configured', () => {

@@ -6,4 +6,5 @@ Use this as a frontend polish rule, not a heavyweight standalone command.
 - Use real visual assets where appropriate.
 - Avoid text overlap, unstable layout dimensions, and in-app explanatory copy for obvious controls.
 - Check desktop and mobile states when feasible.
-- Gemini may provide read-only UI critique; Codex implements final changes.
+- Resolve the configured `frontend` provider for UI critique; Codex implements
+  and verifies the final changes.

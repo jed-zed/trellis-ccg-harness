@@ -25,4 +25,5 @@ Review spec-driven work for consistency and scope control.
 - Security-sensitive deltas were reviewed.
 - Review output is written or summarized in Chinese and may update `.codex/ccg/specs/<name>/review.md` when requested.
 
-Gemini may provide a bounded second-pass review through the preview helper; Codex makes the final judgment.
+The applicable frontend, backend, and/or search provider may provide a bounded
+second-pass review; Codex makes the final judgment.

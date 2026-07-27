@@ -25,7 +25,7 @@ Route team workflow requests. Codex remains final owner.
 ## Rules
 
 - Workers are scoped helpers with explicit ownership.
-- Gemini remains read-only.
+- Routed external providers remain bounded helpers.
 - Same-file conflicts must be detected before dispatch.
 - No worker can bypass final Codex verification.
 

@@ -1,5 +1,5 @@
 ---
-description: "Review a CCG implementation with Codex plus optional Gemini evidence"
+description: "Review a CCG implementation with the applicable role providers"
 argument-hint: "[diff-or-plan-path]"
 allowed-tools: [Read, Glob, Grep, Bash, Edit, Write, WebFetch]
 ---
@@ -20,14 +20,11 @@ The user invoked:
 /ccg:review $ARGUMENTS
 ```
 
-Use the installed CCG plugin skill `ccg:executor`.
+Use the installed CCG plugin skill `ccg:review`.
 
 Review the current diff or the implementation associated with `$ARGUMENTS`.
-Codex performs the primary review. For non-trivial, risky, or explicitly
-requested CCG reviews, Gemini may provide bounded second-pass review evidence.
-Codex verifies findings before reporting them.
-
-If Gemini is used, invoke the bundled browser preview helper automatically. Do not ask the user to run `/ccg:gemini-preview` first and do not call the raw Gemini CLI directly.
-
-Claude is disabled in Codex-only mode. Do not invoke it or claim Claude review
-evidence.
+Classify changed areas as frontend, backend, and/or search, then use those
+top-level providers for bounded review evidence. Review is an internal phase of
+each role. Codex verifies findings before reporting them. When a selected role
+uses Gemini, invoke the bundled browser preview helper automatically and do not
+call the raw Gemini CLI.

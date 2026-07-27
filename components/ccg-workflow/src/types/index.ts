@@ -1,8 +1,17 @@
 // 支持的语言
 export type SupportedLang = 'zh-CN' | 'en'
 
-// 模型类型
-export type ModelType = 'codex' | 'gemini' | 'claude' | 'antigravity' | 'grok'
+// codeagent-wrapper 已注册的模型类型
+export const REGISTERED_MODEL_TYPES = ['codex', 'gemini', 'claude', 'antigravity', 'grok'] as const
+export type ModelType = typeof REGISTERED_MODEL_TYPES[number]
+
+// 可独立切换的三类大角色。分析、计划和审查是角色内部阶段。
+export const STANDARD_ROUTING_ROLES = [
+  'frontend',
+  'backend',
+  'search',
+] as const
+export type RoutingRole = typeof STANDARD_ROUTING_ROLES[number]
 
 // 协作模式
 export type CollaborationMode = 'parallel' | 'smart' | 'sequential'
@@ -36,22 +45,14 @@ export interface IntelligenceConfig {
   x_search_policy: XSearchPolicy
 }
 
-// 模型路由配置
-export interface ModelRouting {
-  frontend: {
-    models: ModelType[]
-    primary: ModelType
-    strategy: RoutingStrategy
-  }
-  backend: {
-    models: ModelType[]
-    primary: ModelType
-    strategy: RoutingStrategy
-  }
-  review: {
-    models: ModelType[]
-    strategy: 'parallel'
-  }
+export interface RoleRouting {
+  models: ModelType[]
+  primary: ModelType
+  strategy: RoutingStrategy
+}
+
+// 模型路由配置。职责是配置层概念，Go wrapper 仍只负责 provider 执行。
+export interface ModelRouting extends Record<RoutingRole, RoleRouting> {
   mode: CollaborationMode
   geminiModel?: string // Gemini 具体型号（默认 gemini-3.1-pro-preview）
   grokModel?: string // Grok 具体型号（默认 grok-4.5，代码任务可选 grok-composer-2.5-fast）
@@ -106,6 +107,7 @@ export interface InitOptions {
   // 非交互模式参数
   frontend?: string
   backend?: string
+  search?: string
   mode?: CollaborationMode
   workflows?: string
   installDir?: string

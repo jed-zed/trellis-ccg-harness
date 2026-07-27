@@ -107,7 +107,7 @@ export { getCurrentVersion, checkForUpdates, compareVersions } from './utils/ver
 ```
 Step 0: 语言选择（首次/已保存跳过）
 Step 1/4: API 提供方（官方 / 第三方 / 302.AI）
-Step 2/4: 模型路由（Frontend: Gemini|Codex, Backend: Codex|Gemini, Gemini 型号）
+Step 2/4: 模型路由（选择职责，再选择已注册 Provider）
 Step 3/4: MCP 工具多选（ace-tool ✓, context7 ✓, fast-context, grok-search, contextweaver）
 Step 4/4: 性能模式（standard|lite）+ Impeccable 可选安装
 → 安装摘要确认 → installWorkflows() → MCP 安装 → permissions.allow → context7 → MCP 三端同步
@@ -272,7 +272,7 @@ export async function changeLanguage(lang: SupportedLang): Promise<void>
 | `ModelType` | `'codex' \| 'gemini' \| 'claude'` |
 | `CollaborationMode` | `'parallel' \| 'smart' \| 'sequential'` |
 | `RoutingStrategy` | `'parallel' \| 'fallback' \| 'round-robin'` |
-| `ModelRouting` | 前端/后端/review 的模型列表 + 策略 + Gemini 型号 |
+| `ModelRouting` | frontend/backend/search 三大角色的独立 Provider + 策略 |
 | `CcgConfig` | 完整配置结构（general + routing + workflows + paths + mcp + performance）|
 | `WorkflowConfig` | 单个工作流定义（id, name, commands[], category, order）|
 | `InitOptions` | `init()` 函数参数（lang, skipPrompt, skipMcp, force, frontend, backend, ...）|
@@ -288,8 +288,8 @@ export async function changeLanguage(lang: SupportedLang): Promise<void>
 
 | 占位符 | 替换为 | 说明 |
 |--------|--------|------|
-| `{{FRONTEND_PRIMARY}}` | `gemini` / `codex` | 前端主模型 |
-| `{{BACKEND_PRIMARY}}` | `codex` / `gemini` | 后端主模型 |
+| `{{FRONTEND_PRIMARY}}` | 已注册 Provider | 前端职责 Provider |
+| `{{BACKEND_PRIMARY}}` | 已注册 Provider | 后端职责 Provider |
 | `{{FRONTEND_MODELS}}` | JSON 数组 | 前端模型列表 |
 | `{{BACKEND_MODELS}}` | JSON 数组 | 后端模型列表 |
 | `{{REVIEW_MODELS}}` | JSON 数组 | 审查模型列表 |

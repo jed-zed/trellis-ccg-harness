@@ -6,7 +6,8 @@ import ora from 'ora'
 import { homedir } from 'node:os'
 import { join } from 'pathe'
 import { i18n, initI18n } from '../i18n'
-import { createDefaultConfig, ensureCcgDir, readCcgConfig, resolveNonInteractiveIntelligenceConsent, writeCcgConfig } from '../utils/config'
+import { REGISTERED_MODEL_TYPES } from '../types'
+import { createDefaultConfig, createDefaultRouting, ensureCcgDir, readCcgConfig, resolveNonInteractiveIntelligenceConsent, writeCcgConfig } from '../utils/config'
 import { getAllCommandIds, getCoreCommandIds, installAceTool, installContextWeaver, installFastContext, installMcpServer, installWorkflows, showBinaryInstallFailure, syncMcpToCodex, syncMcpToGemini, writeFastContextPrompt } from '../utils/installer'
 import { migrateToV1_4_0, needsMigration } from '../utils/migration'
 import { gitExecutableSource, npmSelector } from '../utils/third-party-sources'
@@ -156,6 +157,34 @@ function navSentinels(canGoBack: boolean): any[] {
   return items
 }
 
+function parseModelOption(value: string | undefined, fallback: ModelType[], optionName: string): ModelType[] {
+  if (!value)
+    return fallback
+
+  const models = [...new Set(value.split(',').map(model => model.trim()).filter(Boolean))]
+  const invalid = models.filter(model => !REGISTERED_MODEL_TYPES.includes(model as ModelType))
+  if (models.length === 0 || invalid.length > 0) {
+    throw new Error(
+      `${optionName} must contain registered providers: ${REGISTERED_MODEL_TYPES.join(', ')}`,
+    )
+  }
+  return models as ModelType[]
+}
+
+function roleProviderChoices(recommended: ModelType): Array<{ name: string, value: ModelType }> {
+  return REGISTERED_MODEL_TYPES.map((provider) => {
+    const name = provider === 'claude'
+      ? 'Claude Code'
+      : provider.charAt(0).toUpperCase() + provider.slice(1)
+    return {
+      name: provider === recommended
+        ? `${name} ${ansis.green(`(${i18n.t('init:model.recommended')})`)}`
+        : name,
+      value: provider,
+    }
+  })
+}
+
 /**
  * Install grok-search MCP server
  */
@@ -235,6 +264,8 @@ export async function init(options: InitOptions = {}): Promise<InitResult> {
   // Model routing configuration (user-selectable since v2.1.0)
   let frontendModels: ModelType[] = ['gemini']
   let backendModels: ModelType[] = ['codex']
+  let searchModels: ModelType[] = ['grok']
+  let inheritedRouting = createDefaultRouting()
   let geminiModel = 'gemini-3.1-pro-preview'
   let grokModel = 'grok-4.5'
   const mode: CollaborationMode = 'smart'
@@ -245,11 +276,16 @@ export async function init(options: InitOptions = {}): Promise<InitResult> {
   if (options.skipPrompt) {
     const existingConfig = await readCcgConfig()
     if (existingConfig?.routing) {
+      inheritedRouting = existingConfig.routing
       frontendModels = existingConfig.routing.frontend?.models || ['gemini']
       backendModels = existingConfig.routing.backend?.models || ['codex']
+      searchModels = existingConfig.routing.search?.models || ['grok']
       geminiModel = existingConfig.routing.geminiModel || 'gemini-3.1-pro-preview'
       grokModel = existingConfig.routing.grokModel || 'grok-4.5'
     }
+    frontendModels = parseModelOption(options.frontend, frontendModels, '--frontend')
+    backendModels = parseModelOption(options.backend, backendModels, '--backend')
+    searchModels = parseModelOption(options.search, searchModels, '--search')
     // Preserve install mode: if existing install has legacy commands, keep them
     if (existingConfig?.workflows?.installed) {
       const hadLegacy = existingConfig.workflows.installed.some(
@@ -331,12 +367,16 @@ export async function init(options: InitOptions = {}): Promise<InitResult> {
 
     // Initialize from existing config so re-running init shows saved values as defaults
     if (existingConfig?.routing) {
+      inheritedRouting = existingConfig.routing
       const ef = existingConfig.routing.frontend?.primary
       const eb = existingConfig.routing.backend?.primary
+      const es = existingConfig.routing.search?.primary
       if (ef)
         frontendModels = [ef]
       if (eb)
         backendModels = [eb]
+      if (es)
+        searchModels = [es]
       if (existingConfig.routing.geminiModel)
         geminiModel = existingConfig.routing.geminiModel
       if (existingConfig.routing.grokModel)
@@ -426,10 +466,7 @@ export async function init(options: InitOptions = {}): Promise<InitResult> {
         name: 'selectedFrontend',
         message: i18n.t('init:model.selectFrontend'),
         choices: [
-          { name: `Gemini ${ansis.green(`(${i18n.t('init:model.recommended')})`)}`, value: 'gemini' as ModelType },
-          { name: 'Antigravity', value: 'antigravity' as ModelType },
-          { name: 'Codex', value: 'codex' as ModelType },
-          { name: 'Grok', value: 'grok' as ModelType },
+          ...roleProviderChoices('gemini'),
           ...navSentinels(canGoBack),
         ],
         default: frontendModels[0] || 'gemini',
@@ -444,19 +481,23 @@ export async function init(options: InitOptions = {}): Promise<InitResult> {
         type: 'list',
         name: 'selectedBackend',
         message: i18n.t('init:model.selectBackend'),
-        choices: [
-          { name: `Codex ${ansis.green(`(${i18n.t('init:model.recommended')})`)}`, value: 'codex' as ModelType },
-          { name: 'Antigravity', value: 'antigravity' as ModelType },
-          { name: 'Gemini', value: 'gemini' as ModelType },
-          { name: 'Grok', value: 'grok' as ModelType },
-        ],
+        choices: roleProviderChoices('codex'),
         default: backendModels[0] || 'codex',
+      }])
+
+      const { selectedSearch } = await inquirer.prompt([{
+        type: 'list',
+        name: 'selectedSearch',
+        message: i18n.t('init:model.selectSearch'),
+        choices: roleProviderChoices('grok'),
+        default: searchModels[0] || 'grok',
       }])
 
       frontendModels = [selectedFrontend]
       backendModels = [selectedBackend]
+      searchModels = [selectedSearch]
 
-      if (selectedFrontend === 'gemini' || selectedBackend === 'gemini') {
+      if ([selectedFrontend, selectedBackend, selectedSearch].includes('gemini')) {
         const { selectedGeminiModel } = await inquirer.prompt([{
           type: 'list',
           name: 'selectedGeminiModel',
@@ -484,7 +525,7 @@ export async function init(options: InitOptions = {}): Promise<InitResult> {
         }
       }
 
-      if (selectedFrontend === 'grok' || selectedBackend === 'grok') {
+      if ([selectedFrontend, selectedBackend, selectedSearch].includes('grok')) {
         const { selectedGrokModel } = await inquirer.prompt([{
           type: 'list',
           name: 'selectedGrokModel',
@@ -802,6 +843,7 @@ export async function init(options: InitOptions = {}): Promise<InitResult> {
       console.log()
       const fmName = frontendModels[0].charAt(0).toUpperCase() + frontendModels[0].slice(1)
       const bmName = backendModels[0].charAt(0).toUpperCase() + backendModels[0].slice(1)
+      const smName = searchModels[0].charAt(0).toUpperCase() + searchModels[0].slice(1)
       const apiLabel = (() => {
         if (apiUrl && apiKey)
           return `${ansis.green('●')} ${apiUrl} ${ansis.gray('+ ***')}`
@@ -810,11 +852,11 @@ export async function init(options: InitOptions = {}): Promise<InitResult> {
         return `${ansis.gray('○')} ${i18n.t('init:summary.apiSelfManaged')}`
       })()
       console.log(`  ${ansis.cyan(i18n.t('init:summary.apiProvider'))}  ${apiLabel}`)
-      console.log(`  ${ansis.cyan(i18n.t('init:summary.modelRouting'))}  ${ansis.green(fmName)} (Frontend) + ${ansis.blue(bmName)} (Backend)`)
-      if (frontendModels[0] === 'gemini' || backendModels[0] === 'gemini') {
+      console.log(`  ${ansis.cyan(i18n.t('init:summary.modelRouting'))}  ${ansis.green(fmName)} (Frontend) + ${ansis.blue(bmName)} (Backend) + ${ansis.magenta(smName)} (Search)`)
+      if ([frontendModels[0], backendModels[0], searchModels[0]].includes('gemini')) {
         console.log(`  ${ansis.cyan(i18n.t('init:summary.geminiModel'))}   ${ansis.gray(geminiModel)}`)
       }
-      if (frontendModels[0] === 'grok' || backendModels[0] === 'grok') {
+      if ([frontendModels[0], backendModels[0], searchModels[0]].includes('grok')) {
         console.log(`  ${ansis.cyan(i18n.t('init:summary.grokModel'))}   ${ansis.gray(grokModel)}`)
       }
       console.log(`  ${ansis.cyan(i18n.t('init:summary.commandCount'))}  ${ansis.yellow(workflowsCount.toString())}`)
@@ -928,6 +970,7 @@ export async function init(options: InitOptions = {}): Promise<InitResult> {
 
   // Build routing config (user-selectable since v2.1.0)
   const routing: ModelRouting = {
+    ...inheritedRouting,
     frontend: {
       models: frontendModels,
       primary: frontendModels[0],
@@ -938,9 +981,10 @@ export async function init(options: InitOptions = {}): Promise<InitResult> {
       primary: backendModels[0],
       strategy: 'fallback',
     },
-    review: {
-      models: [...new Set([...frontendModels, ...backendModels])],
-      strategy: 'parallel',
+    search: {
+      models: searchModels,
+      primary: searchModels[0],
+      strategy: 'fallback',
     },
     mode,
     geminiModel,
@@ -957,7 +1001,8 @@ export async function init(options: InitOptions = {}): Promise<InitResult> {
     console.log()
     const fmName = frontendModels[0].charAt(0).toUpperCase() + frontendModels[0].slice(1)
     const bmName = backendModels[0].charAt(0).toUpperCase() + backendModels[0].slice(1)
-    console.log(`  ${ansis.cyan(i18n.t('init:summary.modelRouting'))}  ${ansis.green(fmName)} (Frontend) + ${ansis.blue(bmName)} (Backend)`)
+    const smName = searchModels[0].charAt(0).toUpperCase() + searchModels[0].slice(1)
+    console.log(`  ${ansis.cyan(i18n.t('init:summary.modelRouting'))}  ${ansis.green(fmName)} (Frontend) + ${ansis.blue(bmName)} (Backend) + ${ansis.magenta(smName)} (Search)`)
     console.log(`  ${ansis.cyan(i18n.t('init:summary.commandCount'))}  ${ansis.yellow(selectedWorkflows.length.toString())}`)
     console.log(`  ${ansis.cyan(i18n.t('init:summary.intelligence'))}  ${intelligenceConsent ? ansis.green('Grok CLI / ACP') : ansis.gray(i18n.t('init:summary.disabled'))}`)
     console.log(ansis.yellow('━'.repeat(50)))

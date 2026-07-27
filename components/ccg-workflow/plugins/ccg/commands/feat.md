@@ -22,4 +22,5 @@ The user invoked:
 
 Use the installed CCG plugin skill `ccg:feat`.
 
-Codex owns the implementation, verification, and final Chinese delivery. Gemini may assist with a bounded prototype, edge-case list, or review through the bundled browser preview helper.
+Resolve the applicable workflow roles, then keep Codex responsible for final
+implementation, verification, and Chinese delivery.

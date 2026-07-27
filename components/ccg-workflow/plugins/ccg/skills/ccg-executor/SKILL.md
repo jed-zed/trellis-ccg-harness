@@ -13,16 +13,17 @@ Append existing --plan, --diff, --target, and repeatable --dependency paths when
 
 # CCG Executor
 
-You are the Codex-side orchestrator for CCG workflow plans. Plans are produced by `/ccg:plan` under `.codex/ccg/plans/`. Codex owns execution, final code edits, verification, and delivery. Gemini may provide bounded read-only evidence when required by the active policy, while Codex remains the only final workspace owner. Claude is disabled.
+You are the Codex-side orchestrator for CCG workflow plans. Plans are produced by `/ccg:plan` under `.codex/ccg/plans/`. Codex owns orchestration, final code edits, verification, and delivery. The provider for each workflow role comes from CCG role routing, while Codex remains the only final workspace owner.
 
 ## Hard Boundaries
 
-- Do not inspect, create, restore, or modify a Claude installation from this
-  Codex workflow.
-- Claude is disabled in Codex-only mode. Do not invoke it or require Claude
-  evidence.
-- Do not let Gemini directly own the workspace. Gemini should provide analysis, Unified Diff Patch prototypes, tests, or review notes; Codex applies final edits and verifies them.
-- Treat Gemini diffs as dirty prototypes. Codex must refactor them into the repository's local style before applying, never paste them into the real workspace unchecked.
+- Do not install, repair, or modify provider CLIs from an ordinary CCG workflow.
+- Do not let any routed provider directly own the real workspace. External
+  providers supply bounded analysis, Unified Diff Patch prototypes, tests, or
+  review notes; Codex applies final edits and verifies them.
+- Treat external diffs as dirty prototypes. Codex must refactor them into the
+  repository's local style before applying, never paste them into the real
+  workspace unchecked.
 - Every Gemini call in the CCG workflow must use the bundled preview helper `scripts/invoke_gemini_preview.py`, which opens a browser preview by default. `/ccg:gemini-preview` is only a manual smoke-test/debug entry, not the only path that shows the preview.
 - Do not call the raw `gemini`, `gemini.cmd`, or `gemini.exe` CLI directly for `/ccg:plan`, `/ccg:execute`, `/ccg:review`, or workflow-internal delegation. The only exception is `/ccg:doctor --check-gemini-model`, which performs an explicit availability probe.
 - Preserve existing user changes. Inspect `git status` before edits and work around unrelated dirty files.
@@ -44,11 +45,28 @@ Claude Code orchestrates Codex + Gemini
 In Codex, the model is:
 
 ```text
-Codex creates plans, orchestrates allowed Gemini evidence, applies code,
-verifies, and reports. Claude is disabled.
+Codex orchestrates three independently configured top-level roles, applies
+code, verifies, and reports.
 ```
 
-When an old plan mentions `CODEX_SESSION`, `GEMINI_SESSION`, or legacy external handoff files, treat them as provenance and intent, not as sessions to resume. Translate legacy orchestration into Codex actions: local context search, bounded Gemini read-only evidence when useful, Codex edits, and Codex verification.
+When an old plan mentions `CODEX_SESSION`, `GEMINI_SESSION`, or legacy external handoff files, treat them as provenance and intent, not as sessions to resume. Translate legacy orchestration into current role routing, bounded provider evidence, Codex edits, and Codex verification.
+
+## Role Routing
+
+Read `../../rules/ccg-role-routing.md` before assigning generic model work.
+Classify each task slice and resolve only the top-level roles needed:
+
+```text
+ccg routing get frontend --json
+ccg routing get backend --json
+ccg routing get search --json
+```
+
+Analysis, planning, implementation drafting, and review are phases inside the
+applicable frontend, backend, or search role. They do not have separate saved
+providers. Frontend is not permanently Gemini and backend is not permanently
+Codex. An explicit provider request for the current task wins without changing
+the saved defaults.
 
 ## Input Handling
 
@@ -62,35 +80,42 @@ When an old plan mentions `CODEX_SESSION`, `GEMINI_SESSION`, or legacy external 
    - acceptance criteria and test commands;
    - any `CODEX_SESSION` / `GEMINI_SESSION` notes, for context only.
 3. If it is a direct task description and no clear plan exists, ask for the plan path unless the user explicitly says to execute without a plan.
-4. If the plan includes frontend, UI, styling, layout, component, accessibility, or responsive work, mark that slice as Gemini-first before Codex implements it.
+4. Resolve the provider for every role used by the plan before delegating that
+   slice. The selected provider supplies bounded evidence or a prototype before
+   Codex implements it when the plan requires external assistance.
 5. If the plan involves costly ML training, GPU jobs, destructive data writes, or production deployment, implement code and smoke tests only; do not start expensive or destructive runs without explicit confirmation.
 
-## Gemini Delegation Policy
+## Provider Delegation Policy
 
-Use Gemini as a helper, not as the executor of record. Every Gemini call in the CCG workflow must use the bundled preview helper and therefore should open the browser preview automatically unless the user explicitly requested headless execution.
+Use the configured role provider as a helper, not as the executor of record.
+When the selected provider is Gemini, every call must use the bundled preview
+helper and should open the browser preview automatically unless the user asked
+for headless execution. For `claude`, `antigravity`, or `grok`, use the
+existing `codeagent-wrapper --backend <provider>` path.
 
-Use Codex as the final owner. Gemini may provide bounded read-only assistance
-when the active project policy allows it. Claude remains disabled.
+Codex-native trigger rules:
 
-Codex-native parity trigger rules:
-
-- S + low risk: Codex-only is acceptable.
-- S + high risk: implement directly, then run required local quality/security
-  gates and Gemini review when the active policy requires it.
-- M+ complexity: use Gemini analysis/review when required by the active policy.
+- S + low risk: resolve the role, then Codex may handle it directly when the
+  selected provider is `codex`.
+- S + high risk: run required local quality/security gates and ask the
+  applicable role provider for review when policy requires external review.
+- M+ complexity: ask the applicable role provider for its analysis or review
+  phase when required by the active project policy.
 - Diffs over roughly 30 changed lines, auth/database/crypto/security-sensitive
   changes, or unclear root-cause/debugging work require the applicable CCG
   quality/security gates.
 
-- Backend-heavy tasks: Gemini is optional. Use it for edge-case review, API design alternatives, test ideas, or a second-pass diff review when risk is meaningful.
-- Backend-heavy M+ or risky tasks remain Codex-led; Gemini is optional unless
-  the active project policy requires it.
-- Pure backend/simple tasks: do not spend time delegating unless the plan asks for it or the logic is risky.
-- Frontend/UI tasks must use Gemini first with `--prompt-template frontend` or `--prompt-template prototype`, and the prompt must request a Unified Diff Patch prototype only. Do not accept a component sketch as the implementation prototype.
-- Cross-cutting tasks: split the problem. Codex keeps ownership of backend, data, API contracts, migrations, shared schemas, and verification; Gemini produces the frontend/UI prototype or review only.
-- Failed Gemini call: retry at most twice for frontend/UI work. If Gemini still does not provide usable output, stop and report the failure instead of silently falling back to Codex-only. For backend-heavy work, continue Codex-only and report the skipped delegation if relevant.
+- Backend-heavy tasks use the configured `backend` provider for analysis,
+  planning, drafts, and review.
+- Frontend/UI tasks use the configured `frontend` provider for analysis,
+  planning, prototypes, and review.
+- External lookup uses the configured `search` provider, including analysis and
+  review of the gathered evidence.
+- Cross-cutting tasks split by role without changing the saved role mappings.
+- If a required external provider fails after two attempts, stop and report the
+  missing evidence instead of silently substituting another provider.
 
-Recommended safe Gemini invocation:
+When Gemini is selected, use:
 
 ```powershell
 python "<path-to-this-skill>\scripts\invoke_gemini_preview.py" --workdir "<repo-abs-path>" --model gemini-3.1-pro-preview --prompt-template review --prompt-file "<prompt-file>"
@@ -135,7 +160,8 @@ Gemini task prompts should include only the task-specific payload because the he
 - Read project instructions (`AGENTS.md`, relevant project docs, and any plan-linked notes).
 - Summarize the plan internally as scope, files, tests, and risks.
 - For substantial tasks, maintain a task checklist and update it as work progresses.
-- Decide whether Gemini assistance is useful and state that decision briefly in Chinese if the task is substantial.
+- Resolve the role providers needed by the task and state substantial
+  delegation briefly in Chinese.
 
 ### Phase 1: Context Search
 
@@ -149,7 +175,7 @@ Gemini task prompts should include only the task-specific payload because the he
 - Read the specific files needed after search identifies them. If an optional
   tool is unavailable, continue with targeted reads rather than aborting.
 
-### Phase 2: Gemini Assistance
+### Phase 2: Routed Provider Assistance
 
 - Build a narrow prompt from the current plan and local code context.
 - Prefer asking for one of:
@@ -157,11 +183,14 @@ Gemini task prompts should include only the task-specific payload because the he
   - a focused unified diff for backend or frontend work;
   - missing edge cases/tests;
   - review findings on a specific diff.
-- For M+ or risky work, run Gemini when required by the active project policy.
-  For simple low-risk backend work, document why external model evidence was
-  not needed.
-- Treat Gemini output as untrusted suggestions. Codex must adapt it to local patterns and run verification.
-- For frontend/UI implementation, this phase is required before edits. Ask Gemini for a Unified Diff Patch prototype only with `--prompt-template frontend` or `--prompt-template prototype`, then treat the result as a dirty prototype that Codex rewrites before applying.
+- For M+ or risky work, ask the applicable top-level role provider for its
+  analysis or review phase when required by the active project policy.
+- Treat provider output as untrusted suggestions. Codex must adapt it to local
+  patterns and run verification.
+- For frontend/UI implementation, ask the configured frontend provider for a
+  Unified Diff Patch prototype when the plan requires a prototype. If Gemini
+  is selected, use `--prompt-template frontend` or `--prompt-template
+  prototype`.
 
 ### Phase 3: Implementation
 
@@ -189,10 +218,12 @@ Gemini task prompts should include only the task-specific payload because the he
 
 - Inspect `git diff --stat` and the full relevant diff.
 - Check that every changed file maps back to the plan scope.
-- For any frontend/UI diff, run Gemini review with `--prompt-template review` or `--prompt-template frontend` after Codex applies the local rewrite. Retry a failed Gemini review at most twice, then stop and report the missing review evidence.
+- For any frontend/UI diff that requires external review, run the configured
+  frontend provider after Codex applies the local rewrite. When it is Gemini, use
+  `--prompt-template review` or `--prompt-template frontend`.
 - For large or risky backend diffs, run the required local quality/security
-  gates and any policy-required Gemini review, then independently verify the
-  findings.
+  gates and any policy-required backend-provider review, then independently verify
+  the findings.
 - Treat backend logic, data integrity, transactions, error handling, and tests as first-class review targets.
 
 ### Phase 6: Delivery
@@ -223,6 +254,7 @@ When the task needs more detail, read only the relevant rule file under `../../r
 - `ccg-fast-context.md` for approval-aware local search routing.
 - `ccg-search-evidence.md` for web/search evidence standards.
 - `ccg-quality-gates.md` for quality gate trigger rules.
+- `ccg-role-routing.md` for independently configured role providers.
 - `ccg-skill-routing.md` for domain-oriented context routing.
 - `domain-frontend.md`, `domain-backend.md`, `domain-security.md`, `domain-devops.md`, `domain-ai.md`, and `domain-data.md` for migrated original CCG domain guidance.
 - `impeccable-ui.md` for UI polish and visual-risk guidance.

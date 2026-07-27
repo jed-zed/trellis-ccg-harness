@@ -1,6 +1,6 @@
 ---
 name: frontend
-description: Build or review frontend/UI work with Codex as implementer and Gemini as a strong read-only UI helper. Use when the user invokes /ccg:frontend or asks CCG for UI, UX, component, styling, accessibility, or responsive work.
+description: Build or review frontend/UI work with the configured frontend provider and Codex as final workspace owner. Use when the user invokes /ccg:frontend or asks CCG for UI, UX, component, styling, accessibility, or responsive work.
 ---
 
 ## Automatic External Intelligence Gate
@@ -20,9 +20,9 @@ Use this as the Codex-native equivalent of the original CCG `/ccg:frontend` comm
 ## Behavior
 
 - Treat the user argument as a frontend, UI, UX, component, styling, accessibility, or responsive-design task.
-- Gemini is a strong reference for UI structure, interaction states, accessibility, responsive behavior, and visual risks.
-- Unless the task is a tiny text-only tweak, call Gemini through the bundled browser preview helper with `--prompt-template frontend` before major UI edits or for a review pass after implementation.
-- Codex must adapt Gemini output to the local framework, design system, and existing component patterns. Gemini output is not authoritative.
+- Read `../../rules/ccg-role-routing.md`, then run `ccg routing get frontend --json` before assigning the frontend draft or review.
+- Ask the configured frontend provider for UI structure, interaction states, accessibility, responsive behavior, and visual risks. If it is Gemini, use the bundled browser preview helper with `--prompt-template frontend`; otherwise use the existing provider adapter described by the routing rule.
+- Codex must adapt provider output to the local framework, design system, and existing component patterns. External output is not authoritative.
 - Codex owns final edits, screenshot/playwright verification where applicable, tests, diff review, and Chinese delivery.
 - Do not create marketing-style landing pages unless the user asked for one; build the actual usable experience first.
 

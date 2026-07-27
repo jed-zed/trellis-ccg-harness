@@ -14,10 +14,10 @@ describe('createDefaultRouting', () => {
     expect(routing.backend.models).toEqual(['codex'])
   })
 
-  it('returns both models for review', () => {
+  it('returns grok as search primary', () => {
     const routing = createDefaultRouting()
-    expect(routing.review.models).toEqual(['codex', 'gemini'])
-    expect(routing.review.strategy).toBe('parallel')
+    expect(routing.search.primary).toBe('grok')
+    expect(routing.search.models).toEqual(['grok'])
   })
 
   it('defaults to smart mode', () => {

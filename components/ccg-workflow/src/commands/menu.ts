@@ -1,3 +1,4 @@
+import type { ModelType, RoutingRole } from '../types'
 import ansis from 'ansis'
 import inquirer from 'inquirer'
 import ora from 'ora'
@@ -10,6 +11,7 @@ import fs from 'fs-extra'
 import { parse as parseTOML } from 'smol-toml'
 import { version } from '../../package.json'
 import { configMcp } from './config-mcp'
+import { configRouting, readCodexRoutingConfig } from './config-routing'
 import { i18n } from '../i18n'
 import { installCodexMode, uninstallCodexMode, uninstallWorkflows } from '../utils/installer'
 import { readCcgConfig, writeCcgConfig } from '../utils/config'
@@ -17,6 +19,8 @@ import { init } from './init'
 import { update } from './update'
 import { isWindows } from '../utils/platform'
 import { npmSelector } from '../utils/third-party-sources'
+import { REGISTERED_MODEL_TYPES, STANDARD_ROUTING_ROLES } from '../types'
+import { setRoleProvider } from '../utils/model-routing'
 
 const execAsync = promisify(exec)
 
@@ -167,7 +171,7 @@ export async function showMainMenu(): Promise<void> {
         item('3', i18n.t('menu:options.configMcp'), isZh ? '代码检索 MCP 工具' : 'Code retrieval MCP tool'),
         item('4', i18n.t('menu:options.configApi'), isZh ? '自定义 API 端点' : 'Custom API endpoint'),
         item('5', i18n.t('menu:options.configStyle'), isZh ? '选择输出人格' : 'Choose output personality'),
-        item('6', i18n.t('menu:options.configModel'), isZh ? '前端/后端模型切换' : 'Switch frontend/backend models'),
+        item('6', i18n.t('menu:options.configModel'), isZh ? '三大角色 Provider 切换' : 'Switch three role providers'),
 
         groupSep(isZh ? '其他工具' : 'Tools'),
         item('X', isZh ? 'Codex 模式' : 'Codex Mode', isZh ? '安装 Codex 主导的多模型编排' : 'Install Codex-led multi-model orchestration'),
@@ -449,60 +453,42 @@ const OUTPUT_STYLES = [
 
 async function configModelRouting(): Promise<void> {
   const config = await readCcgConfig()
-  const _isZh = (config?.general?.language || 'zh-CN') === 'zh-CN'
+  if (!config)
+    throw new Error('CCG config not found. Run `ccg init` first.')
 
   console.log()
   console.log(ansis.cyan.bold(`  ${i18n.t('init:model.title')}`))
   console.log()
 
-  // Show current routing
-  const currentFrontend = config?.routing?.frontend?.primary || 'gemini'
-  const currentBackend = config?.routing?.backend?.primary || 'codex'
-  const currentGeminiModel = config?.routing?.geminiModel || 'gemini-3.1-pro-preview'
-  const currentGrokModel = config?.routing?.grokModel || 'grok-4.5'
-
   console.log(ansis.gray(`  ${i18n.t('init:model.currentRouting')}:`))
-  console.log(`  ${ansis.cyan('Frontend:')} ${ansis.green(currentFrontend)}`)
-  console.log(`  ${ansis.cyan('Backend:')}  ${ansis.blue(currentBackend)}`)
-  if (currentFrontend === 'gemini' || currentBackend === 'gemini') {
-    console.log(`  ${ansis.cyan('Gemini:')}   ${ansis.gray(currentGeminiModel)}`)
-  }
-  if (currentFrontend === 'grok' || currentBackend === 'grok') {
-    console.log(`  ${ansis.cyan('Grok:')}     ${ansis.gray(currentGrokModel)}`)
-  }
+  for (const role of STANDARD_ROUTING_ROLES)
+    console.log(`  ${ansis.cyan(`${role}:`.padEnd(11))} ${ansis.green(config.routing[role].primary)}`)
   console.log()
 
-  // Frontend model selection
-  const { selectedFrontend } = await inquirer.prompt([{
+  const { selectedRole } = await inquirer.prompt<{ selectedRole: RoutingRole }>([{
     type: 'list',
-    name: 'selectedFrontend',
-    message: i18n.t('init:model.selectFrontend'),
-    choices: [
-      { name: `Gemini ${ansis.green(`(${i18n.t('init:model.recommended')})`)}`, value: 'gemini' },
-      { name: 'Antigravity', value: 'antigravity' },
-      { name: 'Codex', value: 'codex' },
-      { name: 'Grok', value: 'grok' },
-    ],
-    default: currentFrontend,
+    name: 'selectedRole',
+    message: 'Select role',
+    choices: STANDARD_ROUTING_ROLES.map(role => ({
+      name: `${role.padEnd(10)} ${ansis.gray(`(${config.routing[role].primary})`)}`,
+      value: role,
+    })),
   }])
 
-  // Backend model selection
-  const { selectedBackend } = await inquirer.prompt([{
+  const currentProvider = config.routing[selectedRole].primary
+  const { selectedProvider } = await inquirer.prompt<{ selectedProvider: ModelType }>([{
     type: 'list',
-    name: 'selectedBackend',
-    message: i18n.t('init:model.selectBackend'),
-    choices: [
-      { name: `Codex ${ansis.green(`(${i18n.t('init:model.recommended')})`)}`, value: 'codex' },
-      { name: 'Antigravity', value: 'antigravity' },
-      { name: 'Gemini', value: 'gemini' },
-      { name: 'Grok', value: 'grok' },
-    ],
-    default: currentBackend,
+    name: 'selectedProvider',
+    message: `Select provider for ${selectedRole}`,
+    choices: REGISTERED_MODEL_TYPES.map(provider => ({
+      name: provider === currentProvider ? `${provider} ${ansis.green('(current)')}` : provider,
+      value: provider,
+    })),
+    default: currentProvider,
   }])
 
-  // Gemini model name (if gemini is selected for any role)
-  let geminiModel = currentGeminiModel
-  if (selectedFrontend === 'gemini' || selectedBackend === 'gemini') {
+  let geminiModel = config.routing.geminiModel || 'gemini-3.1-pro-preview'
+  if (selectedProvider === 'gemini') {
     const { selectedGeminiModel } = await inquirer.prompt([{
       type: 'list',
       name: 'selectedGeminiModel',
@@ -512,7 +498,7 @@ async function configModelRouting(): Promise<void> {
         { name: 'gemini-2.5-flash', value: 'gemini-2.5-flash' },
         { name: `${i18n.t('init:model.custom')}`, value: 'custom' },
       ],
-      default: currentGeminiModel,
+      default: geminiModel,
     }])
 
     if (selectedGeminiModel === 'custom') {
@@ -529,9 +515,8 @@ async function configModelRouting(): Promise<void> {
     }
   }
 
-  // Grok model name (if grok is selected for any role)
-  let grokModel = currentGrokModel
-  if (selectedFrontend === 'grok' || selectedBackend === 'grok') {
+  let grokModel = config.routing.grokModel || 'grok-4.5'
+  if (selectedProvider === 'grok') {
     const { selectedGrokModel } = await inquirer.prompt([{
       type: 'list',
       name: 'selectedGrokModel',
@@ -541,7 +526,7 @@ async function configModelRouting(): Promise<void> {
         { name: 'grok-composer-2.5-fast', value: 'grok-composer-2.5-fast' },
         { name: `${i18n.t('init:model.custom')}`, value: 'custom' },
       ],
-      default: currentGrokModel,
+      default: grokModel,
     }])
 
     if (selectedGrokModel === 'custom') {
@@ -558,32 +543,19 @@ async function configModelRouting(): Promise<void> {
     }
   }
 
-  // Check if anything changed
-  if (selectedFrontend === currentFrontend && selectedBackend === currentBackend && geminiModel === currentGeminiModel && grokModel === currentGrokModel) {
+  if (
+    selectedProvider === currentProvider
+    && geminiModel === (config.routing.geminiModel || 'gemini-3.1-pro-preview')
+    && grokModel === (config.routing.grokModel || 'grok-4.5')
+  ) {
     console.log(ansis.gray(`  ${i18n.t('common:configNotModified')}`))
     return
   }
 
-  // Update config.toml
-  if (config) {
-    config.routing.frontend = {
-      models: [selectedFrontend as any],
-      primary: selectedFrontend as any,
-      strategy: 'fallback',
-    }
-    config.routing.backend = {
-      models: [selectedBackend as any],
-      primary: selectedBackend as any,
-      strategy: 'fallback',
-    }
-    config.routing.review = {
-      models: [...new Set([selectedFrontend, selectedBackend])] as any,
-      strategy: 'parallel',
-    }
-    config.routing.geminiModel = geminiModel
-    config.routing.grokModel = grokModel
-    await writeCcgConfig(config)
-  }
+  config.routing = setRoleProvider(config.routing, selectedRole, selectedProvider)
+  config.routing.geminiModel = geminiModel
+  config.routing.grokModel = grokModel
+  await writeCcgConfig(config)
 
   console.log()
   console.log(ansis.green(`  ✓ ${i18n.t('init:model.routingUpdated')}`))
@@ -685,12 +657,40 @@ async function handleCodexMode(): Promise<void> {
     message: isZh ? '选择操作' : 'Select action',
     choices: [
       { name: isZh ? '安装 / 更新 Codex 模式' : 'Install / Update Codex Mode', value: 'install' },
+      { name: isZh ? '切换职责 Provider' : 'Switch Role Provider', value: 'routing' },
       { name: isZh ? '卸载 Codex 模式（只删 CCG 文件，保留用户配置）' : 'Uninstall Codex Mode (CCG files only, preserves user config)', value: 'uninstall' },
       { name: isZh ? '返回' : 'Back', value: 'back' },
     ],
   }])
 
   if (action === 'back') return
+
+  if (action === 'routing') {
+    const routing = await readCodexRoutingConfig()
+    console.log()
+    for (const role of STANDARD_ROUTING_ROLES)
+      console.log(`  ${ansis.cyan(`${role}:`.padEnd(11))} ${ansis.green(routing[role].primary)}`)
+
+    const { role } = await inquirer.prompt<{ role: RoutingRole }>([{
+      type: 'list',
+      name: 'role',
+      message: isZh ? '选择职责' : 'Select role',
+      choices: STANDARD_ROUTING_ROLES,
+    }])
+    const { provider } = await inquirer.prompt<{ provider: ModelType }>([{
+      type: 'list',
+      name: 'provider',
+      message: isZh ? `选择 ${role} 的 Provider` : `Select provider for ${role}`,
+      choices: REGISTERED_MODEL_TYPES,
+      default: routing[role].primary,
+    }])
+    if (provider === routing[role].primary) {
+      console.log(ansis.gray(`  ${i18n.t('common:configNotModified')}`))
+      return
+    }
+    await configRouting('set', role, provider)
+    return
+  }
 
   if (action === 'uninstall') {
     const spinner = ora(isZh ? '卸载 Codex 模式...' : 'Uninstalling Codex mode...').start()

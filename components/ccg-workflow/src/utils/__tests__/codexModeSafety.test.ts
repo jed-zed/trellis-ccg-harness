@@ -165,6 +165,27 @@ describe('Codex mode ownership and reversibility', () => {
     expect(hooks.hooks.UserPromptSubmit).toHaveLength(1)
   })
 
+  it('preserves customized role routing across Codex mode updates', async () => {
+    const codexHome = await makeCodexHome()
+    expect((await codexMode.installCodexModeAt({ codexHome, pythonCommand: 'python' })).success).toBe(true)
+
+    const configPath = join(codexHome, 'ccg', 'config.toml')
+    const installed = await readFile(configPath, 'utf8')
+    const configured = installed.replace(
+      /(\[routing\.search\]\r?\n)models = \["grok"\](\r?\n)primary = "grok"/,
+      '$1models = ["claude"]$2primary = "claude"',
+    )
+    expect(configured).not.toBe(installed)
+    await writeFile(configPath, configured)
+
+    const updated = await codexMode.installCodexModeAt({ codexHome, pythonCommand: 'python' })
+
+    expect(updated.success).toBe(true)
+    const persisted = await readFile(configPath, 'utf8')
+    expect(persisted).toContain('models = [ "claude" ]')
+    expect(persisted).toContain('primary = "claude"')
+  })
+
   it('installs a Claude-clean Codex runtime without creating or referencing .claude', async () => {
     const codexHome = await makeCodexHome()
     const claudeHome = join(codexHome, '..', '.claude')
@@ -187,7 +208,7 @@ describe('Codex mode ownership and reversibility', () => {
       expect(await readFile(path, 'utf8'), path).not.toContain('.claude')
     const hook = await readFile(join(codexHome, 'hooks', 'ccg-workflow.py'), 'utf8')
     expect(hook).not.toContain('--backend claude')
-    expect(hook).toContain('Claude is disabled')
+    expect(hook).toContain('applicable frontend/backend/search providers')
     const config = await readFile(join(codexHome, 'config.toml'), 'utf8')
     expect(config).not.toContain('[mcp_servers')
   })

@@ -223,7 +223,7 @@ def build_guidance(task, progress, root):
     if phase == "analysis":
         if complexity in ("M", "L", "XL"):
             parts.append("")
-            parts.append(f"⛔ {complexity} complexity: create or reuse the Trellis/CCG plan before coding. Codex owns the analysis; Gemini may provide bounded read-only evidence when the task needs a second perspective.")
+            parts.append(f"⛔ {complexity} complexity: create or reuse the Trellis/CCG plan before coding. Classify the work as frontend, backend, and/or search, then use the configured role providers for bounded analysis. Codex owns final synthesis and verification.")
 
     # Phase: implementation — coding in progress
     elif phase == "implementation":
@@ -234,19 +234,19 @@ def build_guidance(task, progress, root):
     # Phase: review — code is written, need review
     elif phase == "review":
         parts.append("")
-        parts.append("Review phase. Call external models for review, write results to review.md.")
+        parts.append("Review phase. Resolve the applicable frontend/backend/search providers, then write verified results to review.md.")
 
     # --- Cross-phase guardrails ---
 
     # Big changes without review
     if progress["changed_lines"] > 30 and phase != "review":
         parts.append("")
-        parts.append(f"⚠️ {progress['changed_lines']} lines changed. When done coding, Codex must perform the primary review and run the required quality gates. Gemini may provide bounded second-pass evidence for risky or complex changes.")
+        parts.append(f"⚠️ {progress['changed_lines']} lines changed. When done coding, run the required quality gates and ask the applicable frontend/backend/search provider for review when external evidence is required. Codex verifies the findings.")
 
     # Review phase: enforce dual model
     if phase == "review":
         parts.append("")
-        parts.append("⛔ Review phase: Codex performs the primary review and required quality gates. Gemini may provide bounded read-only second-pass evidence; Claude is disabled.")
+        parts.append("⛔ Review phase: resolve the applicable frontend/backend/search providers, run required quality gates, and have Codex verify the findings.")
 
     # High-risk files detected
     if progress["high_risk_files"] and phase not in ("review", "completed"):

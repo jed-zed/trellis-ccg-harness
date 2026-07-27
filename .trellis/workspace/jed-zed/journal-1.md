@@ -79,3 +79,42 @@ Implemented the approval-gated Global and Project Init flow with fixed third-par
 ### Status
 
 [OK] **Completed**
+
+
+## Session 3: Complete CLI capability role-routing decoupling
+
+**Date**: 2026-07-27
+**Task**: Complete CLI capability role-routing decoupling
+**Branch**: `codex/role-routing-harness-sync`
+
+### Summary
+
+Implemented independent frontend/backend/search provider routing in CCG 3.4.0, completed Gemini and Grok reviews, synchronized the exact source tree through the Harness transaction, installed the CLI and Codex plugin cache, and passed final source, doctor, and conflict gates.
+
+### Main Changes
+
+- Decoupled the three persistent roles from provider names.
+- Preserved analysis, planning, implementation/testing, and review as phases inside those roles.
+- Recorded the source and Harness provenance transaction and review evidence.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `19d094b77fa61b9d4408522053294e111aad90bb` | (see git log) |
+| `bf60f343f22812a84c1c628f4d4d669ea9cf6996` | Final Harness projection commit |
+
+### Testing
+
+- [OK] CCG local gates passed: 32 files, 488 tests passed, 1 skipped.
+- [OK] CCG PR #9 CI passed Linux, Windows, and Go jobs.
+- [OK] Remote source verification, Harness tests, doctor, conflicts, and Trellis archive validation passed after the final provenance refresh.
+- [OK] Harness PR #12 CI passed all 10 Node, Bootstrap/doctor, and Go jobs across Ubuntu, Windows, and macOS.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Merge CCG PR #9 before Harness PR #12.

@@ -28,4 +28,5 @@ Turn fuzzy requirements into research and constraints under `.codex/ccg/specs/<n
 - Run `../ccg-spec-init/scripts/spec_manager.js validate <name> --json` after writing both artifacts.
 - If validation fails, report the blocking sections in Chinese instead of pretending the spec is ready.
 
-Gemini may provide a read-only analyzer second view through the preview helper, but Codex writes the final Chinese constraints.
+The applicable frontend, backend, and/or search provider may provide a
+read-only second view; Codex writes the final Chinese constraints.

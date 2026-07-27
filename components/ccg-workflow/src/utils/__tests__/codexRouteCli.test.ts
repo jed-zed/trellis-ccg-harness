@@ -1,10 +1,11 @@
 import { spawnSync } from 'node:child_process'
 import { createRequire } from 'node:module'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import fs from 'fs-extra'
+import { parse } from 'smol-toml'
 import { afterEach, describe, expect, it } from 'vitest'
 
 const roots: string[] = []
@@ -89,5 +90,94 @@ describe('Codex-native CCG route CLI', () => {
     expect(result.status, result.stderr).toBe(0)
     expect(JSON.parse(result.stdout)).toMatchObject({ invoked: false, exitCode: 0 })
     expect(await fs.pathExists(join(home, '.claude'))).toBe(false)
+  })
+
+  it('changes one Codex role without changing the others', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'ccg routing home '))
+    roots.push(home)
+    const configDir = join(home, '.codex', 'ccg')
+    const configPath = join(configDir, 'config.toml')
+    await fs.ensureDir(configDir)
+    await writeFile(configPath, [
+      '[general]',
+      'version = "3.4.0"',
+      '',
+      '[routing.frontend]',
+      'models = ["gemini"]',
+      'primary = "gemini"',
+      'strategy = "fallback"',
+      '',
+      '[routing.backend]',
+      'models = ["codex"]',
+      'primary = "codex"',
+      'strategy = "fallback"',
+      '',
+      '[intelligence]',
+      'enabled = false',
+      'auto_route = false',
+      '',
+    ].join('\n'))
+
+    const tsxImport = pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href
+    const result = spawnSync(
+      process.execPath,
+      [
+        '--import',
+        tsxImport,
+        join(process.cwd(), 'src', 'cli.ts'),
+        'routing',
+        'set',
+        'frontend',
+        'claude',
+      ],
+      {
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          HOME: home,
+          USERPROFILE: home,
+        },
+        timeout: 30_000,
+        windowsHide: true,
+      },
+    )
+
+    expect(result.status, result.stderr).toBe(0)
+    const document = parse(await readFile(configPath, 'utf8')) as any
+    expect(document.routing.frontend.primary).toBe('claude')
+    expect(document.routing.backend.primary).toBe('codex')
+    expect(document.routing.search.primary).toBe('grok')
+    expect(document.routing).not.toHaveProperty('analysis')
+    expect(document.routing).not.toHaveProperty('planning')
+    expect(document.routing).not.toHaveProperty('review')
+    expect(await fs.pathExists(join(home, '.claude'))).toBe(false)
+
+    const getResult = spawnSync(
+      process.execPath,
+      [
+        '--import',
+        tsxImport,
+        join(process.cwd(), 'src', 'cli.ts'),
+        'routing',
+        'get',
+        'frontend',
+        '--json',
+      ],
+      {
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          HOME: home,
+          USERPROFILE: home,
+        },
+        timeout: 30_000,
+        windowsHide: true,
+      },
+    )
+    expect(getResult.status, getResult.stderr).toBe(0)
+    expect(JSON.parse(getResult.stdout)).toEqual({
+      role: 'frontend',
+      provider: 'claude',
+    })
   })
 })
