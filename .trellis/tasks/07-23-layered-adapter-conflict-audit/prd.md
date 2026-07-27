@@ -87,9 +87,12 @@ Adopt the recommended layered-adapter architecture without losing the complete p
 - Initialize Trellis project integrations for this distribution through
   `.agents/` and `.codex/` only. The absence of generated project `.claude/`
   assets is the expected healthy state.
-- Bundle all 14 public Harness platform Skills, including `grill-me`, in the
-  Harness distribution and project them globally as owned copies. `grill-me`
-  is no longer an external runtime prerequisite.
+- Bundle only the 13 Harness/Trellis core Skills in the public distribution.
+  `grill-me` is third-party software and must never be projected by default.
+- Offer the pinned `grill-me` plus `grilling` pair as one optional global
+  dependency unit. A declined dependency skips the pair without blocking core
+  initialization. An approved upgrade from the legacy self-contained
+  `grill-me` is atomic and refuses user-modified content.
 - Publish the 45 personal Skills as a separate private catalog until each
   Skill's provenance and licence permit public redistribution. The public
   Harness baseline must work without that catalog; authenticated users may opt
@@ -101,17 +104,113 @@ Adopt the recommended layered-adapter architecture without losing the complete p
   recommends project Skills from its technology choices, captures its complete
   constraints, obtains approval, and applies the contract plus required gates.
 - During Global Init, inspect installed and authenticated state for the Codex,
-  Gemini, Grok, and Claude Code CLIs without mutating them. Offer installation
-  for missing optional/required tools and assisted login for installed but
-  unauthenticated tools, with separate explicit approval before every network,
-  installation, or login action.
+  Gemini, and Grok CLIs without mutating them. Treat Claude Code as
+  documentation/manual-only: recommend `skip`, offer official install/login
+  guidance, and never probe or launch `claude`.
+- Provider installation and login remain official-documentation/manual-only.
+  A fixed Codex or Grok auth-only command may be shown only after Global Init
+  records the pending action, a read-only plan binds it to an exact digest, the
+  user supplies that digest with `--approved`, and a second interactive choice
+  confirms `show-guide` with cancel as the default. Harness never starts any
+  Provider CLI. Gemini has no approved auth-only subcommand, so Harness never
+  launches its full interactive agent. Automation may generate plans but may
+  not launch provider actions.
 - Skip Claude Code by default because installing or authenticating it may create
-  `~/.claude/`. Opting into Claude authentication exits the zero-`.claude`
-  acceptance profile, but Harness and CCG still may not read or write any
-  `.claude/` path.
+  `~/.claude/`. Opting into an external manual Claude path exits the
+  zero-`.claude` acceptance profile, but never authorizes Harness or CCG to
+  invoke Claude. Provider login assistance records no provider output or
+  authentication material, compares protected `.claude` boundaries, fails on
+  change, and never restores or deletes user content.
 - Make global Skill projection, project selection revision, backup, rollback,
   and global `AGENTS.md` repository discovery ownership-aware, transactional,
   idempotent, and fail-closed on user edits or concurrent drift.
+
+## Approved third-party initialization consent extension
+
+This section supersedes the earlier fixed `14 global / 45 catalog / 2 project`
+release assumptions. Their completed migration evidence remains historical;
+future initialization follows this contract.
+
+- Core initialization remains `harness-init + Trellis + CCG` and is fully
+  usable when every third-party candidate is declined.
+- The initializer presents four separate groups: global Skills, global
+  plugins, project Skills, and MCP/CLI. Every third-party item is unselected by
+  default and requires a candidate-specific approval bound to the exact source
+  manifest digest.
+- The final interactive confirmation displays and binds the canonical
+  third-party plan SHA-256, approved package/command roots, subprocess
+  configuration roots, and exact command identities. Non-interactive Global or
+  Project Init selecting any third party must provide the reviewed
+  `--third-party-plan-sha256`; the source-manifest digest alone is not approval.
+- Catalog-clone network consent and third-party acquisition consent are
+  separate. Interactive third-party consent is asked only after candidate
+  selection, lists exact sources plus the manifest digest, defaults to no, and
+  a refusal removes only those network candidates without blocking core
+  initialization. Automation uses distinct explicit flags.
+- Global Skill candidates are one atomic `grill-me + grilling` unit from
+  `mattpocock/skills` commit
+  `ed37663cc5fbef691ddfecd080dff42f7e7e350d`, plus Caveman `v1.9.1`
+  from `JuliusBrussee/caveman` commit
+  `0d95a81d35a9f2d123a5e9430d1cfc43d55f1bb0`. They are recommended
+  separately and remain unselected until the user explicitly approves them.
+- Global plugin candidate: Ponytail `4.8.4` from commit
+  `bc9ee949d5f439e8b9f3bb92c6d6d3d1e6ebd324`. Plugin installation, lifecycle
+  hook trust, and global `full` default are three independent approvals.
+- Project candidates from the same pinned Matt Skills commit are
+  `diagnosing-bugs`, `tdd`, `codebase-design`,
+  `resolving-merge-conflicts`, `writing-great-skills`, `prototype`,
+  `improve-codebase-architecture`, and `domain-modeling`.
+  `writing-great-skills` is recommended only for Harness/Skill maintenance.
+  `improve-codebase-architecture` must disclose and obtain approval for
+  `codebase-design`, `grilling`, and `domain-modeling` as dependencies.
+- MCP/CLI candidates are separate from Skills:
+  `@colbymchenry/codegraph@1.5.0` at commit
+  `ea72e1b190921232aa7bd02e96bef5bbe4fe0ab6`,
+  `fast-context-mcp@1.5.2` at commit
+  `3595cfcb2cf1c50660351165cdb71101d0996747`,
+  `@upstash/context7-mcp@3.2.4` at commit
+  `4124503867b802a16e7697a838a2bfce0820328d`, and ripgrep `15.2.0` at
+  commit `e89fff89ac9af12e8d4ce9d5fd07beb408ca730f`.
+  CodeGraph installation never authorizes `codegraph init`. fast-context
+  warns that query text, repository trees, and local search results are sent
+  to Windsurf; Context7 warns that documentation queries and library
+  identifiers are sent to its service. Strict-data-boundary projects leave
+  both network-backed MCPs unselected.
+- Approved MCP packages are registered only through a Harness-owned runtime
+  launcher. Before every start it revalidates the exact source-manifest
+  digest, ownership, package version/integrity, lockfile, complete installed
+  tree, and entrypoint; any drift fails closed before the third-party process
+  starts.
+- Matt Pocock candidates outside the approved subset — `ask-matt`,
+  `setup-matt-pocock-skills`, `grill-with-docs`, `triage`, `to-spec`,
+  `to-tickets`, `implement`, `wayfinder`, `code-review`, `research`,
+  `handoff`, and `teach` are excluded from the install catalog.
+- Each preview includes purpose, repository, exact source path and immutable
+  revision, licence, scope, dependencies, write paths, scripts/hooks/
+  executables/network behavior, data-egress risk, and update/rollback/
+  uninstall behavior.
+- Source acquisition and installation use immutable commit/version/integrity
+  facts only. `main`, `latest`, and `@latest` are forbidden as execution
+  selectors.
+- Approval records are secret-free and are written to the approved project
+  contract and ownership/source manifests. Third-party source, plugin cache,
+  MCP source, and Skill contents are never edited by Harness.
+- Installation reuses the authenticated transaction, CAS drift checks,
+  journal, backup, ownership-last commit, recovery, and rollback mechanisms.
+  Existing exact installations are unchanged; source, target, or user-edit
+  drift fails closed.
+- Third-party command execution uses verified absolute bindings and an explicit
+  minimal environment rooted in the approved configuration roots. It strips
+  process-injection variables including `NODE_OPTIONS`, `NODE_PATH`,
+  `LD_PRELOAD`, `DYLD_*`, ambient `GIT_*`, and unrelated variables.
+- New targets publish create-only. Replacement/removal must atomically claim
+  the exact owned object before validation or cleanup. Any claim, publish,
+  restore, or ownership collision fails closed and preserves both sides plus
+  diagnostics for manual review instead of overwriting or recursively deleting
+  an unclaimed path.
+- Ponytail, Caveman, Context7, fast-context, and CodeGraph are visibly recommended in
+  their correct groups. Recommendations never preselect a candidate or count
+  as approval; an explicit yes is required before installation.
 
 ## Acceptance Criteria
 
@@ -210,33 +309,58 @@ Adopt the recommended layered-adapter architecture without losing the complete p
 - [x] Repeated global/project Skill apply is unchanged; edited projections,
   linked sources, invalid ready revisions, transaction interruption, and
   concurrent drift fail closed or recover deterministically.
-- [x] The released Codex-only CCG is versioned `3.3.2`, all user-facing
+- [x] The released Codex-only CCG is versioned `3.3.3`, all user-facing
   package/plugin/config metadata agrees, and the Harness snapshot plus
   `harness.sources.json` bind its exact committed tree.
-- [ ] A fresh Harness installation projects all 14 bundled public platform
-  Skills, including `grill-me`, without relying on an existing global Skill
-  checkout or a personal catalog.
-- [ ] Initial setup offers host-native structured choices where the host
+- [x] A fresh Harness installation projects exactly the 13 bundled
+  Harness/Trellis core Skills. Declining all third-party candidates installs no
+  `grill-me`, `grilling`, Caveman, Ponytail, project Skill, MCP, CLI, hook, or global
+  Ponytail default and still completes ordinary initialization.
+- [x] Initial setup offers host-native structured choices where the host
   supports them; the TTY fallback presents numbered one-at-a-time choices, and
   automation has explicit non-interactive flags with no implicit selection.
-- [ ] Global Init reports installation and authentication status for Codex,
-  Gemini, Grok, and Claude Code; installs/verifies Trellis, the CCG Codex-only
-  CLI/plugin, and all 14 platform Skills; then records the user's private/local/
-  skipped personal-catalog decision.
-- [ ] Every network access, tool installation, and authentication action has a
+- [x] Final interactive approval renders the third-party plan SHA-256,
+  approved package/command roots, subprocess configuration roots, and command
+  identities; selected non-interactive runs require that exact plan digest.
+- [x] Global Init reports installation and authentication status for Codex,
+  Gemini, and Grok, while presenting Claude as unprobed manual-only; installs/verifies Trellis, the CCG Codex-only
+  CLI/plugin, and all 13 core platform Skills; then presents separate,
+  default-unselected global Skill, global plugin, and MCP/CLI approval groups.
+- [x] Every network access, tool installation, and authentication action has a
   distinct preview and approval. Declining one optional action leaves a clear
   skipped/residual status instead of blocking unrelated offline setup.
-- [ ] Claude Code is skipped by default. If the user explicitly selects its
-  installation or login, the result is marked outside the zero-`.claude`
-  acceptance profile while the Harness/CCG no-`.claude` invariant remains.
-- [ ] Project Init derives recommended project Skills from repository evidence
+- [x] Provider install/login intent is recorded without execution. Every
+  Provider install/login remains manual-only; Harness never probes or launches
+  Claude and never starts Gemini's full agent. Codex/Grok guidance needs an
+  exact plan digest, `--approved`, and a second default-cancel TTY confirmation;
+  non-interactive execution is rejected and no Provider action receipt or
+  output is written.
+- [x] Claude Code is skipped by default. If the user explicitly selects its
+  manual installation or login path, the result is marked outside the
+  zero-`.claude` acceptance profile while Harness/CCG remain Claude-free.
+- [x] Project Init derives recommended project Skills from repository evidence
   and confirmed technology choices, obtains approval for the complete project
-  constraint summary, writes the owned contract, and runs the required doctor,
-  conflict, quality, security, and readiness gates.
-- [ ] Setup offers three personal-catalog choices: the authenticated private
+  constraint summary plus every disclosed dependency, writes the approved
+  third-party selections into the owned contract, and runs the required
+  doctor, conflict, quality, security, and readiness gates.
+- [x] Interactive Project Init accepts a complete non-Skill draft contract,
+  presents default-unselected catalog and project-third-party choices, and only
+  after final approval atomically compiles the source digest, exact selections,
+  reasons, and managed paths into the approved contract before installation.
+  An approved contract only permits confirmation of its recorded selection;
+  non-interactive mode continues to consume an exact approved contract.
+- [x] Focused tests cover reject-all, partial approval, dependency approval and
+  rejection, repeat execution, legacy `grill-me` atomic migration, user-edit
+  drift, hard interruption recovery, unavailable external sources, Ponytail
+  hook rejection independent of plugin installation, missing CodeGraph index,
+  and fast-context rejection for strict data boundaries.
+- [x] Focused transaction tests prove create-only publication, exact-object
+  atomic claim, and preservation of both sides on claim/publish/restore/
+  ownership collisions. This criterion remains open until those tests pass.
+- [x] Setup offers three personal-catalog choices: the authenticated private
   catalog, an existing local Git catalog, or skip. Its default/public baseline
   does not require the private catalog.
-- [ ] A clean-install acceptance run under a new temporary user home completes
+- [x] A clean-install acceptance run under a new temporary user home completes
   the supported bootstrap and initialization flow and proves no user-level or
   project `.claude/` directory was created.
 - [ ] Harness and CCG changes are pushed only after all required local and
@@ -251,6 +375,8 @@ Adopt the recommended layered-adapter architecture without losing the complete p
 - Do not call Claude during planning, implementation, review, or verification.
 - Do not restore or create `C:\Users\29933\.claude` or project `.claude/`.
 - Do not call Grok during this implementation; retain only the optional provider contract and offline tests.
+- Do not use Caveman conversational compression for this task.
+- Do not merge the implementation branch. Push it and create a Draft PR.
 - Do not modify or restage the two Windows endpoint-protection false-positive files.
 - Do not write the supplied API key to Git, task artifacts, shell history, logs, or test fixtures.
 - Ordinary CI remains offline and does not call paid models.

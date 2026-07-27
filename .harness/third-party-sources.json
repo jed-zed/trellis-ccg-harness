@@ -1,0 +1,762 @@
+{
+  "schemaVersion": 1,
+  "owner": "trellis-ccg-harness",
+  "generatedAt": "2026-07-26T20:30:00.000Z",
+  "approvalDefaults": {
+    "selected": false
+  },
+  "sources": [
+    {
+      "id": "matt-skills",
+      "repository": "https://github.com/mattpocock/skills.git",
+      "commit": "ed37663cc5fbef691ddfecd080dff42f7e7e350d",
+      "gitTree": "04b0fcb78e3de7c58744fcba2528354cc64ab988",
+      "license": "MIT"
+    },
+    {
+      "id": "ponytail",
+      "repository": "https://github.com/DietrichGebert/ponytail.git",
+      "commit": "bc9ee949d5f439e8b9f3bb92c6d6d3d1e6ebd324",
+      "gitTree": "2b3486c779084a0442ac530affd85fb864499827",
+      "release": "4.8.4",
+      "license": "MIT"
+    },
+    {
+      "id": "caveman",
+      "repository": "https://github.com/JuliusBrussee/caveman.git",
+      "commit": "0d95a81d35a9f2d123a5e9430d1cfc43d55f1bb0",
+      "gitTree": "867418a8efea2c92b3885b8efd99d73d7c58af11",
+      "release": "v1.9.1",
+      "license": "MIT"
+    },
+    {
+      "id": "codegraph",
+      "repository": "https://github.com/colbymchenry/codegraph.git",
+      "commit": "ea72e1b190921232aa7bd02e96bef5bbe4fe0ab6",
+      "gitTree": "7e7eab5e11e3db1a1dfc9f6a7aa846244c1ddfdf",
+      "release": "1.5.0",
+      "package": "@colbymchenry/codegraph",
+      "packageIntegrity": "sha512-/l1JMVOQ9WGQLrc/IIuAg7Igr944t79/oNCJTcnGkYtIeQx2XFIqI0ho+9Les/Yu4zKfmPU17hIUshD6yP1fKw==",
+      "packageLock": {
+        "path": "npm-locks/codegraph.package-lock.json",
+        "sha256": "12ef016f442cf837e433e9a61488b1ec87d7df85490455df384b26a549d27847",
+        "lockfileVersion": 3,
+        "packageCount": 7
+      },
+      "license": "MIT"
+    },
+    {
+      "id": "fast-context",
+      "repository": "https://github.com/awei84/fast-context-mcp.git",
+      "commit": "3595cfcb2cf1c50660351165cdb71101d0996747",
+      "gitTree": "1d5c5b31afbeb3b69b9baf562fbee9e52bc42830",
+      "release": "1.5.2",
+      "package": "fast-context-mcp",
+      "packageIntegrity": "sha512-xgq94v7XAD7HLljtUXPjPvZAc599pExrLZLhnn2CoTxVK4PR8dNy4gjE5kGqgc0O8PRIw54WcE9h6zBcaoJiWA==",
+      "packageLock": {
+        "path": "npm-locks/fast-context.package-lock.json",
+        "sha256": "8cb0cd05af316666ec4057d41c665222bc72ced3e107e382a20c3f4227c29c43",
+        "lockfileVersion": 3,
+        "packageCount": 109
+      },
+      "license": "MIT"
+    },
+    {
+      "id": "context7",
+      "repository": "https://github.com/upstash/context7.git",
+      "commit": "4124503867b802a16e7697a838a2bfce0820328d",
+      "gitTree": "ecbe6f3fd03a1253c1f083b334d3f1234c1c2806",
+      "release": "3.2.4",
+      "package": "@upstash/context7-mcp",
+      "packageIntegrity": "sha512-w2Vg6MkF4Qojp8X1fdmJ6NrjZ8Ip/9lflybtqfDKaqOsUV9iVaXeRbyGTqARdn1O8teIPm7Bt+nfVqFiUcZvjQ==",
+      "packageLock": {
+        "path": "npm-locks/context7.package-lock.json",
+        "sha256": "177549944f63b0186c070cf875c52737ab2842a8c943907e9e988186d8fea328",
+        "lockfileVersion": 3,
+        "packageCount": 109
+      },
+      "license": "MIT"
+    },
+    {
+      "id": "ripgrep",
+      "repository": "https://github.com/BurntSushi/ripgrep.git",
+      "commit": "e89fff89ac9af12e8d4ce9d5fd07beb408ca730f",
+      "gitTree": "c743701524f65f036cf174d6551918be7dfc0d40",
+      "release": "15.2.0",
+      "license": "Unlicense",
+      "assets": [
+        {
+          "platform": "win32-x64",
+          "name": "ripgrep-15.2.0-x86_64-pc-windows-msvc.zip",
+          "sha256": "71b2fef860abe467217a538ff31de02f5258807c0129f771846f87bd029aafc5"
+        },
+        {
+          "platform": "linux-x64",
+          "name": "ripgrep-15.2.0-x86_64-unknown-linux-musl.tar.gz",
+          "sha256": "33e15bcf1624b25cdd2a55813a47a2f95dbe126268203e76aa6a585d1e7b149c"
+        },
+        {
+          "platform": "darwin-x64",
+          "name": "ripgrep-15.2.0-x86_64-apple-darwin.tar.gz",
+          "sha256": "af7825fcc69a2afc7a7aea55fc9af90e26421d8f20fe59df32e233c0b8a231c1"
+        }
+      ]
+    }
+  ],
+  "candidates": [
+    {
+      "id": "matt-grilling",
+      "name": "grill-me + grilling",
+      "kind": "skill-bundle",
+      "group": "global-skills",
+      "purpose": "Relentless one-question-at-a-time requirement and design interview.",
+      "sourceId": "matt-skills",
+      "scope": "global",
+      "approvalDefaults": {
+        "selected": false
+      },
+      "recommended": true,
+      "paths": [
+        {
+          "name": "grill-me",
+          "sourcePath": "skills/productivity/grill-me",
+          "targetPath": ".agents/skills/grill-me",
+          "treeSha256": "cbedc963f6088eae82958b54e397a2dc94c50a2655460eed9849f17ac12caef9",
+          "fileCount": 2,
+          "totalBytes": 296
+        },
+        {
+          "name": "grilling",
+          "sourcePath": "skills/productivity/grilling",
+          "targetPath": ".agents/skills/grilling",
+          "treeSha256": "d298331d956ada756f7e127353384d515a6a98f04a35c54341f2837f95ca0d21",
+          "fileCount": 2,
+          "totalBytes": 963
+        }
+      ],
+      "dependencies": [],
+      "effects": {
+        "scripts": false,
+        "hooks": false,
+        "executables": false,
+        "network": true,
+        "dataEgress": "Only the pinned Git source is fetched."
+      },
+      "lifecycle": {
+        "update": "new-explicit-approval",
+        "rollback": "restore-owned-backup",
+        "uninstall": "remove-only-owned-unchanged"
+      },
+      "migration": {
+        "acceptedLegacyTreeSha256": [
+          "87d0c67e54a2d42935ab3525e7ae7d9f9acc661cfcc78a67ae58a7d0d174f8a9"
+        ]
+      }
+    },
+    {
+      "id": "caveman",
+      "name": "Caveman communication Skill",
+      "kind": "skill",
+      "group": "global-skills",
+      "purpose": "Compress routine assistant prose while preserving exact technical evidence and higher-priority Harness rules.",
+      "sourceId": "caveman",
+      "scope": "global",
+      "approvalDefaults": {
+        "selected": false
+      },
+      "recommended": true,
+      "paths": [
+        {
+          "name": "caveman",
+          "sourcePath": "skills/caveman",
+          "targetPath": ".agents/skills/caveman",
+          "treeSha256": "24ccde7f1ba070390fcd292bf836577ac631a0867316d4ae5df96736b0de8f81",
+          "fileCount": 2,
+          "totalBytes": 7125
+        }
+      ],
+      "dependencies": [],
+      "effects": {
+        "scripts": false,
+        "hooks": false,
+        "executables": false,
+        "network": true,
+        "dataEgress": "Only the pinned Git source is fetched."
+      },
+      "lifecycle": {
+        "update": "new-explicit-approval",
+        "rollback": "restore-owned-backup",
+        "uninstall": "remove-only-owned-unchanged"
+      }
+    },
+    {
+      "id": "ponytail.install",
+      "name": "Ponytail plugin",
+      "kind": "plugin",
+      "group": "global-plugins",
+      "purpose": "Install Ponytail's Codex plugin and six bundled commands/Skills.",
+      "sourceId": "ponytail",
+      "sourcePath": ".codex-plugin",
+      "sourceGitTree": "89427504ba9f7ff3f11b2db65282163464705fa9",
+      "scope": "global",
+      "approvalDefaults": {
+        "selected": false
+      },
+      "recommended": true,
+      "writePaths": [
+        ".agents/harness/sources/ponytail/bc9ee949d5f439e8b9f3bb92c6d6d3d1e6ebd324",
+        "Codex plugin configuration through the Codex host API only"
+      ],
+      "dependencies": [],
+      "effects": {
+        "scripts": true,
+        "hooks": false,
+        "executables": true,
+        "network": true,
+        "dataEgress": "Git source acquisition only; plugin execution is local."
+      },
+      "lifecycle": {
+        "update": "new-explicit-approval",
+        "rollback": "codex-plugin-remove-owned-version",
+        "uninstall": "codex plugin remove ponytail"
+      }
+    },
+    {
+      "id": "ponytail.hooks",
+      "name": "Ponytail lifecycle hooks",
+      "kind": "plugin-hook-trust",
+      "group": "global-plugins",
+      "purpose": "Trust Ponytail lifecycle hooks after reviewing their Node.js commands.",
+      "sourceId": "ponytail",
+      "sourcePath": "hooks",
+      "sourceGitTree": "254aed9063d6723d8fcf0dd2254e5d4e309bca40",
+      "scope": "global",
+      "approvalDefaults": {
+        "selected": false
+      },
+      "recommended": true,
+      "writePaths": [
+        "Codex host hook-trust state"
+      ],
+      "dependencies": [
+        "ponytail.install"
+      ],
+      "effects": {
+        "scripts": true,
+        "hooks": true,
+        "executables": true,
+        "network": false,
+        "dataEgress": "None declared; hooks execute local Node.js scripts."
+      },
+      "lifecycle": {
+        "update": "review-and-approve-new-hook-digest",
+        "rollback": "revoke-host-hook-trust",
+        "uninstall": "revoke-host-hook-trust"
+      }
+    },
+    {
+      "id": "ponytail.default-full",
+      "name": "Ponytail global full default",
+      "kind": "plugin-default",
+      "group": "global-plugins",
+      "purpose": "Set Ponytail's global default mode to full.",
+      "sourceId": "ponytail",
+      "sourcePath": "hooks/ponytail-config.js",
+      "sourceGitTree": "86677b130c4539824031e15c1ab2741808ee798a",
+      "scope": "global",
+      "approvalDefaults": {
+        "selected": false
+      },
+      "recommended": true,
+      "writePaths": [
+        "$XDG_CONFIG_HOME/ponytail/config.json when XDG_CONFIG_HOME is set",
+        "%APPDATA%\\ponytail\\config.json on Windows",
+        "~/.config/ponytail/config.json on macOS and Linux"
+      ],
+      "dependencies": [
+        "ponytail.install"
+      ],
+      "effects": {
+        "scripts": false,
+        "hooks": false,
+        "executables": false,
+        "network": false,
+        "dataEgress": "None."
+      },
+      "lifecycle": {
+        "update": "explicit-mode-approval",
+        "rollback": "restore-owned-config-backup",
+        "uninstall": "remove-only-owned-default"
+      }
+    },
+    {
+      "id": "diagnosing-bugs",
+      "name": "diagnosing-bugs",
+      "kind": "skill",
+      "group": "project-skills",
+      "purpose": "Diagnose hard bugs and regressions without treating diagnosis as fix authorization.",
+      "sourceId": "matt-skills",
+      "scope": "project",
+      "approvalDefaults": {
+        "selected": false
+      },
+      "recommended": true,
+      "paths": [
+        {
+          "name": "diagnosing-bugs",
+          "sourcePath": "skills/engineering/diagnosing-bugs",
+          "targetPath": ".agents/skills/diagnosing-bugs",
+          "treeSha256": "dfcb23601954cd4ec4227cd027d80157fbb40d9145acd35b7a03a896f80c7746",
+          "fileCount": 3,
+          "totalBytes": 9981
+        }
+      ],
+      "dependencies": [],
+      "effects": {
+        "scripts": false,
+        "hooks": false,
+        "executables": false,
+        "network": false,
+        "dataEgress": "None."
+      },
+      "lifecycle": {
+        "update": "new-explicit-project-approval",
+        "rollback": "project-transaction",
+        "uninstall": "remove-only-owned-unchanged"
+      }
+    },
+    {
+      "id": "tdd",
+      "name": "tdd",
+      "kind": "skill",
+      "group": "project-skills",
+      "purpose": "Test-driven development using a seam approved by the Trellis artifact or user.",
+      "sourceId": "matt-skills",
+      "scope": "project",
+      "approvalDefaults": {
+        "selected": false
+      },
+      "recommended": true,
+      "paths": [
+        {
+          "name": "tdd",
+          "sourcePath": "skills/engineering/tdd",
+          "targetPath": ".agents/skills/tdd",
+          "treeSha256": "46c3907221c218ff0aadf9e1df2075b2988629e122c2d487904555935e1f4493",
+          "fileCount": 4,
+          "totalBytes": 7170
+        }
+      ],
+      "dependencies": [],
+      "effects": {
+        "scripts": false,
+        "hooks": false,
+        "executables": false,
+        "network": false,
+        "dataEgress": "None."
+      },
+      "lifecycle": {
+        "update": "new-explicit-project-approval",
+        "rollback": "project-transaction",
+        "uninstall": "remove-only-owned-unchanged"
+      }
+    },
+    {
+      "id": "codebase-design",
+      "name": "codebase-design",
+      "kind": "skill",
+      "group": "project-skills",
+      "purpose": "Deep-module design vocabulary subordinate to project architecture constraints.",
+      "sourceId": "matt-skills",
+      "scope": "project",
+      "approvalDefaults": {
+        "selected": false
+      },
+      "recommended": true,
+      "paths": [
+        {
+          "name": "codebase-design",
+          "sourcePath": "skills/engineering/codebase-design",
+          "targetPath": ".agents/skills/codebase-design",
+          "treeSha256": "95c443d13325bf6f81b9b8f1165ef0fca5a78f7d4601e1f4de688725d95e404b",
+          "fileCount": 4,
+          "totalBytes": 12059
+        }
+      ],
+      "dependencies": [],
+      "effects": {
+        "scripts": false,
+        "hooks": false,
+        "executables": false,
+        "network": false,
+        "dataEgress": "None."
+      },
+      "lifecycle": {
+        "update": "new-explicit-project-approval",
+        "rollback": "project-transaction",
+        "uninstall": "remove-only-owned-unchanged"
+      }
+    },
+    {
+      "id": "resolving-merge-conflicts",
+      "name": "resolving-merge-conflicts",
+      "kind": "skill",
+      "group": "project-skills",
+      "purpose": "Resolve merge or rebase conflicts without authorizing commit or rebase continuation.",
+      "sourceId": "matt-skills",
+      "scope": "project",
+      "approvalDefaults": {
+        "selected": false
+      },
+      "recommended": true,
+      "paths": [
+        {
+          "name": "resolving-merge-conflicts",
+          "sourcePath": "skills/engineering/resolving-merge-conflicts",
+          "targetPath": ".agents/skills/resolving-merge-conflicts",
+          "treeSha256": "2df7ea9037aed9dc83c0b762de70590479d5c096888a31eae225c7aaf48ebc89",
+          "fileCount": 2,
+          "totalBytes": 1051
+        }
+      ],
+      "dependencies": [],
+      "effects": {
+        "scripts": false,
+        "hooks": false,
+        "executables": false,
+        "network": false,
+        "dataEgress": "None."
+      },
+      "lifecycle": {
+        "update": "new-explicit-project-approval",
+        "rollback": "project-transaction",
+        "uninstall": "remove-only-owned-unchanged"
+      }
+    },
+    {
+      "id": "writing-great-skills",
+      "name": "writing-great-skills",
+      "kind": "skill",
+      "group": "project-skills",
+      "purpose": "Maintain Harness or Skill repositories; not recommended for ordinary business projects.",
+      "sourceId": "matt-skills",
+      "scope": "project-maintenance-only",
+      "approvalDefaults": {
+        "selected": false
+      },
+      "paths": [
+        {
+          "name": "writing-great-skills",
+          "sourcePath": "skills/productivity/writing-great-skills",
+          "targetPath": ".agents/skills/writing-great-skills",
+          "treeSha256": "9e275a6886703b2cffd149345e58f6e3587340667cd1e84be76191a6f63d12fd",
+          "fileCount": 3,
+          "totalBytes": 28341
+        }
+      ],
+      "dependencies": [],
+      "effects": {
+        "scripts": false,
+        "hooks": false,
+        "executables": false,
+        "network": false,
+        "dataEgress": "None."
+      },
+      "lifecycle": {
+        "update": "new-explicit-project-approval",
+        "rollback": "project-transaction",
+        "uninstall": "remove-only-owned-unchanged"
+      }
+    },
+    {
+      "id": "prototype",
+      "name": "prototype",
+      "kind": "skill",
+      "group": "project-skills",
+      "purpose": "Build a disposable prototype to answer a design question.",
+      "sourceId": "matt-skills",
+      "scope": "project-advanced",
+      "approvalDefaults": {
+        "selected": false
+      },
+      "paths": [
+        {
+          "name": "prototype",
+          "sourcePath": "skills/engineering/prototype",
+          "targetPath": ".agents/skills/prototype",
+          "treeSha256": "5d7081f1e1abc981cbc6684d23b9d46923d7844367fc9c06794bc84c44853849",
+          "fileCount": 4,
+          "totalBytes": 15715
+        }
+      ],
+      "dependencies": [],
+      "effects": {
+        "scripts": false,
+        "hooks": false,
+        "executables": false,
+        "network": false,
+        "dataEgress": "None."
+      },
+      "lifecycle": {
+        "update": "new-explicit-project-approval",
+        "rollback": "project-transaction",
+        "uninstall": "remove-only-owned-unchanged"
+      }
+    },
+    {
+      "id": "improve-codebase-architecture",
+      "name": "improve-codebase-architecture",
+      "kind": "skill",
+      "group": "project-skills",
+      "purpose": "Find deepening opportunities without creating a fact source parallel to Trellis Specs or ADRs.",
+      "sourceId": "matt-skills",
+      "scope": "project-advanced",
+      "approvalDefaults": {
+        "selected": false
+      },
+      "paths": [
+        {
+          "name": "improve-codebase-architecture",
+          "sourcePath": "skills/engineering/improve-codebase-architecture",
+          "targetPath": ".agents/skills/improve-codebase-architecture",
+          "treeSha256": "5d27bfe4a12cebf8e79c17da1ad98e401769ea95e04fcd60b6c6ef2a2250a68f",
+          "fileCount": 3,
+          "totalBytes": 13089
+        }
+      ],
+      "dependencies": [
+        "codebase-design",
+        "domain-modeling",
+        "grilling"
+      ],
+      "effects": {
+        "scripts": false,
+        "hooks": false,
+        "executables": false,
+        "network": true,
+        "dataEgress": "Generated HTML may load Tailwind and Mermaid from CDNs only when the Skill is invoked."
+      },
+      "lifecycle": {
+        "update": "new-explicit-project-approval",
+        "rollback": "project-transaction",
+        "uninstall": "remove-only-owned-unchanged"
+      }
+    },
+    {
+      "id": "domain-modeling",
+      "name": "domain-modeling",
+      "kind": "skill",
+      "group": "project-skills",
+      "purpose": "Maintain project domain terminology under Trellis Spec and ADR authority.",
+      "sourceId": "matt-skills",
+      "scope": "project-advanced",
+      "approvalDefaults": {
+        "selected": false
+      },
+      "paths": [
+        {
+          "name": "domain-modeling",
+          "sourcePath": "skills/engineering/domain-modeling",
+          "targetPath": ".agents/skills/domain-modeling",
+          "treeSha256": "2d27b80be2138a54b1d2099ef6f2d27ed2f06f3c3952001b7c7c03b9a785031f",
+          "fileCount": 4,
+          "totalBytes": 8777
+        }
+      ],
+      "dependencies": [],
+      "effects": {
+        "scripts": false,
+        "hooks": false,
+        "executables": false,
+        "network": false,
+        "dataEgress": "None."
+      },
+      "lifecycle": {
+        "update": "new-explicit-project-approval",
+        "rollback": "project-transaction",
+        "uninstall": "remove-only-owned-unchanged"
+      }
+    },
+    {
+      "id": "grilling",
+      "name": "grilling",
+      "kind": "skill",
+      "group": "project-skills",
+      "purpose": "Project-local dependency for approved architecture workflows.",
+      "sourceId": "matt-skills",
+      "scope": "project-dependency",
+      "approvalDefaults": {
+        "selected": false
+      },
+      "paths": [
+        {
+          "name": "grilling",
+          "sourcePath": "skills/productivity/grilling",
+          "targetPath": ".agents/skills/grilling",
+          "treeSha256": "d298331d956ada756f7e127353384d515a6a98f04a35c54341f2837f95ca0d21",
+          "fileCount": 2,
+          "totalBytes": 963
+        }
+      ],
+      "dependencies": [],
+      "effects": {
+        "scripts": false,
+        "hooks": false,
+        "executables": false,
+        "network": false,
+        "dataEgress": "None."
+      },
+      "lifecycle": {
+        "update": "new-explicit-project-approval",
+        "rollback": "project-transaction",
+        "uninstall": "remove-only-owned-unchanged"
+      }
+    },
+    {
+      "id": "codegraph",
+      "name": "CodeGraph CLI and MCP",
+      "kind": "mcp-cli",
+      "group": "mcp-cli",
+      "purpose": "Local symbol graph, caller/callee, dependency, and impact analysis.",
+      "sourceId": "codegraph",
+      "packageSelector": "@colbymchenry/codegraph@1.5.0",
+      "entrypoint": "codegraph",
+      "scope": "global",
+      "approvalDefaults": {
+        "selected": false
+      },
+      "recommended": true,
+      "writePaths": [
+        ".agents/harness/tools/codegraph/1.5.0",
+        ".codex MCP configuration"
+      ],
+      "dependencies": [],
+      "effects": {
+        "scripts": false,
+        "hooks": false,
+        "executables": true,
+        "network": true,
+        "dataEgress": "Package acquisition only; indexing and queries are local."
+      },
+      "lifecycle": {
+        "update": "new-explicit-version-approval",
+        "rollback": "restore-owned-tool-and-mcp-config",
+        "uninstall": "remove-only-owned-tool-and-mcp-config"
+      },
+      "prohibitedActions": [
+        "codegraph init"
+      ]
+    },
+    {
+      "id": "fast-context",
+      "name": "fast-context MCP",
+      "kind": "mcp-cli",
+      "group": "mcp-cli",
+      "purpose": "Natural-language semantic code search using Windsurf's remote Devstral service.",
+      "sourceId": "fast-context",
+      "packageSelector": "fast-context-mcp@1.5.2",
+      "entrypoint": "fast-context-mcp",
+      "scope": "global",
+      "approvalDefaults": {
+        "selected": false
+      },
+      "recommended": true,
+      "writePaths": [
+        ".agents/harness/tools/fast-context/1.5.2",
+        ".codex MCP configuration"
+      ],
+      "dependencies": [],
+      "effects": {
+        "scripts": true,
+        "hooks": false,
+        "executables": true,
+        "network": true,
+        "dataEgress": "Sends query text, repository directory trees, and local search results to Windsurf for each search round. The pinned npm package runs a postinstall script and includes a Windsurf API-key extraction helper."
+      },
+      "lifecycle": {
+        "update": "new-explicit-version-and-data-egress-approval",
+        "rollback": "restore-owned-tool-and-mcp-config",
+        "uninstall": "remove-only-owned-tool-and-mcp-config"
+      },
+      "strictDataBoundaryAllowed": false
+    },
+    {
+      "id": "context7",
+      "name": "Context7 documentation MCP",
+      "kind": "mcp-cli",
+      "group": "mcp-cli",
+      "purpose": "Retrieve current library, framework, SDK, CLI, and cloud-service documentation.",
+      "sourceId": "context7",
+      "packageSelector": "@upstash/context7-mcp@3.2.4",
+      "entrypoint": "context7-mcp",
+      "scope": "global",
+      "approvalDefaults": {
+        "selected": false
+      },
+      "recommended": true,
+      "writePaths": [
+        ".agents/harness/tools/context7/3.2.4",
+        ".codex MCP configuration"
+      ],
+      "dependencies": [],
+      "effects": {
+        "scripts": false,
+        "hooks": false,
+        "executables": true,
+        "network": true,
+        "dataEgress": "Sends documentation lookup queries and library identifiers to the Context7 service when invoked."
+      },
+      "lifecycle": {
+        "update": "new-explicit-version-and-data-egress-approval",
+        "rollback": "restore-owned-tool-and-mcp-config",
+        "uninstall": "remove-only-owned-tool-and-mcp-config"
+      },
+      "strictDataBoundaryAllowed": false
+    },
+    {
+      "id": "ripgrep",
+      "name": "ripgrep runtime",
+      "kind": "cli",
+      "group": "mcp-cli",
+      "purpose": "Detect or install the local exact-text search runtime; never expose it as a Skill.",
+      "sourceId": "ripgrep",
+      "entrypoint": "rg",
+      "scope": "global-runtime",
+      "approvalDefaults": {
+        "selected": false
+      },
+      "recommended": true,
+      "writePaths": [
+        ".agents/harness/tools/ripgrep/15.2.0"
+      ],
+      "dependencies": [],
+      "effects": {
+        "scripts": false,
+        "hooks": false,
+        "executables": true,
+        "network": true,
+        "dataEgress": "Release asset acquisition only."
+      },
+      "lifecycle": {
+        "update": "new-explicit-release-approval",
+        "rollback": "restore-owned-runtime",
+        "uninstall": "remove-only-owned-runtime"
+      },
+      "unsupportedPlatformBehavior": "skip-without-fallback"
+    }
+  ],
+  "exclusions": [
+    "ask-matt",
+    "setup-matt-pocock-skills",
+    "grill-with-docs",
+    "triage",
+    "to-spec",
+    "to-tickets",
+    "implement",
+    "wayfinder",
+    "code-review",
+    "research",
+    "handoff",
+    "teach"
+  ]
+}

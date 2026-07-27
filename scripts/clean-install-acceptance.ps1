@@ -30,7 +30,6 @@ $RequiredPhases = @(
   "markReady"
 )
 $GlobalPlatformSkills = @(
-  "grill-me",
   "harness-init",
   "trellis-before-dev",
   "trellis-brainstorm",
@@ -72,6 +71,7 @@ function Get-CommandInterface {
       "{npmPrefix}" = "Isolated npm prefix"
       "{project}" = "Project initialized by the acceptance flow"
       "{contract}" = "Isolated copy of the approved project contract"
+      "{thirdPartySourceSha256}" = "Canonical third-party source manifest SHA-256 resolved from the materialized Harness checkout"
     }
     liveDefaultPhases = $RequiredPhases
     liveCommands = Get-LiveDefaultPhases
@@ -159,6 +159,14 @@ function Get-LiveDefaultPhases {
       "skip",
       "--provider-actions",
       "codex=later,gemini=later,grok=later,claude=skip",
+      "--third-party-global-skills",
+      "none",
+      "--third-party-global-plugins",
+      "none",
+      "--third-party-mcp-cli",
+      "none",
+      "--third-party-source-sha256",
+      "{thirdPartySourceSha256}",
       "--non-interactive",
       "--approved"
     )))
@@ -180,6 +188,10 @@ function Get-LiveDefaultPhases {
       "--contract",
       "{contract}",
       "--no-project-skills",
+      "--third-party-project-skills",
+      "none",
+      "--third-party-source-sha256",
+      "{thirdPartySourceSha256}",
       "--non-interactive",
       "--approved"
     ) "{project}"))
@@ -390,6 +402,32 @@ function Assert-BootstrapArtifacts([string]$CheckoutRoot) {
   Assert-FileExists (Join-Path $CheckoutRoot "scripts/bootstrap.ps1") "Harness bootstrap"
 }
 
+function Get-ThirdPartySourceSha256(
+  [string]$HarnessCheckout,
+  [string]$AcceptanceHome,
+  [string]$AcceptanceProject
+) {
+  $harnessInit = Join-Path $HarnessCheckout "scripts/harness-init.mjs"
+  Assert-FileExists $harnessInit "Harness Init CLI"
+  $output = @(& node $harnessInit "third-party-plan" `
+    "--home-dir" $AcceptanceHome `
+    "--repo-root" $AcceptanceProject 2>&1)
+  if ($LASTEXITCODE -ne 0) {
+    throw "Third-party source plan failed: $($output -join [Environment]::NewLine)"
+  }
+  try {
+    $plan = ($output -join [Environment]::NewLine) | ConvertFrom-Json
+  }
+  catch {
+    throw "Third-party source plan did not return valid JSON."
+  }
+  $digest = [string]$plan.sourceManifestSha256
+  if ($digest -notmatch '^[a-f0-9]{64}$') {
+    throw "Third-party source plan did not return a SHA-256 source manifest digest."
+  }
+  return $digest
+}
+
 function Assert-IsolatedCommand([string]$Name, [string]$ExpectedRoot) {
   $command = Get-Command $Name -ErrorAction SilentlyContinue |
     Where-Object { $_.CommandType -in @("Application", "ExternalScript") } |
@@ -522,7 +560,7 @@ function Assert-GlobalSkillArtifacts([string[]]$CandidateHomes) {
       return
     }
   }
-  throw "The 14 global Harness platform Skills were not projected under isolated HOME or USERPROFILE."
+  throw "The 13 global Harness platform Skills were not projected under isolated HOME or USERPROFILE."
 }
 
 function Assert-TrellisProjectArtifacts([string]$AcceptanceProject) {
@@ -655,6 +693,7 @@ $TokenValues = [ordered]@{
   "{npmPrefix}" = $NpmPrefixRoot
   "{project}" = $ProjectRoot
   "{contract}" = $ProjectContractIsolated
+  "{thirdPartySourceSha256}" = ""
 }
 $AuditRoots = @(
   $HomeRoot,
@@ -889,6 +928,8 @@ try {
   }
   Assert-NoClaudeDirectories "source" $AuditRoots
   Assert-BootstrapArtifacts $CheckoutRoot
+  $TokenValues["{thirdPartySourceSha256}"] = Get-ThirdPartySourceSha256 `
+    $CheckoutRoot $HomeRoot $ProjectRoot
   $PhaseRecords.Add([ordered]@{
     name = "source"
     status = "passed"

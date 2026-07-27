@@ -21,7 +21,11 @@ Use this as the Codex-native equivalent of the original CCG `/ccg:feat` command.
 
 - Treat the user argument as a feature request.
 - If the request is broad or ambiguous, create a short in-chat implementation outline before editing. For high-impact ambiguity, ask a concise Chinese question.
-- Gather context first; prefer ace-tool when available, then `rg` and targeted reads.
+- Gather context according to the current project's `AGENTS.md`. Use `rg` for
+  known identifiers and targeted reads otherwise. Third-party search tools are
+  optional, require explicit user approval, and must never be installed,
+  configured, or enabled by this workflow. Do not invoke ace-tool or create a
+  CodeGraph index automatically.
 - Codex owns all file edits, verification, diff review, and Chinese delivery.
 - Gemini is optional for simple backend-heavy features, but useful for complex design alternatives, edge cases, prototype patches, UI implications, or second-pass review.
 - Whenever Gemini is used, invoke `../ccg-executor/scripts/invoke_gemini_preview.py` directly with the bundled browser preview helper. Do not ask the user to run `/ccg:gemini-preview` manually and do not call the raw Gemini CLI.

@@ -12,6 +12,7 @@
     "toolchain",
     "qualityGates",
     "skills",
+    "thirdParty",
     "security",
     "providers",
     "hooks",
@@ -116,15 +117,10 @@
             "type": "string",
             "pattern": "^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$"
           },
-          "minItems": 14,
-          "maxItems": 14,
+          "minItems": 13,
+          "maxItems": 13,
           "uniqueItems": true,
           "allOf": [
-            {
-              "contains": {
-                "const": "grill-me"
-              }
-            },
             {
               "contains": {
                 "const": "harness-init"
@@ -225,18 +221,81 @@
       },
       "additionalProperties": false
     },
+    "thirdParty": {
+      "type": "object",
+      "required": [
+        "sourceManifestSha256",
+        "globalSkills",
+        "globalPlugins",
+        "projectSkills",
+        "mcpCli",
+        "excluded"
+      ],
+      "properties": {
+        "sourceManifestSha256": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "globalSkills": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "globalPlugins": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "projectSkills": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "mcpCli": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "excluded": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": false
+    },
     "security": {
       "type": "object",
       "required": [
         "dataClassification",
         "secretPolicy",
         "networkPolicy",
+        "strictDataBoundary",
         "credentialFieldsForbidden",
         "forbiddenTrackedPaths"
       ],
       "properties": {
         "secretPolicy": {
           "const": "environment-or-owned-secret-store"
+        },
+        "strictDataBoundary": {
+          "type": [
+            "boolean",
+            "null"
+          ]
         },
         "credentialFieldsForbidden": {
           "const": true

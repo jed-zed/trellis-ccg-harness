@@ -24,10 +24,11 @@ Use the installed CCG plugin skill `ccg:executor`.
 
 Explain or execute the Codex-native CCG workflow:
 
-- Codex creates or revises plans with Gemini + Claude read-only analysis evidence for real planning work.
+- Codex creates or revises plans with Gemini read-only analysis evidence when
+  the active project policy requires it.
 - Codex orchestrates the work and owns final code edits.
 - Gemini assists with bounded code drafts, UI prototypes, edge cases, tests, or review.
-- Claude assists with read-only architecture, security, backend correctness, edge cases, and review evidence when Codex-native parity rules require it.
+- Claude is disabled and is neither invoked nor required.
 - Codex verifies and reports in Chinese.
 
 If `$ARGUMENTS` contains a plan path or task, route to the same behavior as `/ccg:execute`.

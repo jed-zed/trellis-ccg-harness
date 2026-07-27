@@ -17,6 +17,7 @@ param(
   [string]$CatalogUrl,
   [string]$ProviderActions,
   [switch]$AllowCatalogNetwork,
+  [switch]$AllowThirdPartyNetwork,
   [switch]$PreviewOnly
 )
 
@@ -117,6 +118,27 @@ function Invoke-CheckedCommand {
   if ($LASTEXITCODE -ne 0) {
     throw "$Label failed with exit code $LASTEXITCODE."
   }
+}
+
+function Get-ThirdPartySourceSha256 {
+  param(
+    [Parameter(Mandatory)][string]$HarnessInitPath,
+    [Parameter(Mandatory)][string]$ApprovedHomeDir
+  )
+
+  $plan = Invoke-JsonCommand "node" @(
+    $HarnessInitPath,
+    "third-party-plan",
+    "--home-dir",
+    $ApprovedHomeDir,
+    "--repo-root",
+    $RepoRoot
+  ) "Third-party source plan"
+  $digest = [string]$plan.sourceManifestSha256
+  if ($digest -notmatch '^[a-f0-9]{64}$') {
+    throw "Third-party source plan did not return a SHA-256 source manifest digest."
+  }
+  return $digest
 }
 
 function Get-CommandVersion {
@@ -553,9 +575,9 @@ function Assert-GlobalSkillProjection {
   if (
     $manifest.owner -ne "trellis-ccg-harness" -or
     $manifest.installMode -ne "copy" -or
-    $skills.Count -ne 14
+    $skills.Count -ne 13
   ) {
-    throw "Global Init did not verify exactly 14 owned platform Skills."
+    throw "Global Init did not verify exactly 13 owned platform Skills."
   }
   foreach ($skill in $skills) {
     if (-not (Test-Path -LiteralPath $skill.targetPath -PathType Container)) {
@@ -566,7 +588,11 @@ function Assert-GlobalSkillProjection {
 }
 
 function Show-PendingProviderActions {
-  param([object]$Result)
+  param(
+    [object]$Result,
+    [string]$HomeDir,
+    [string]$RepoRoot
+  )
 
   $pending = @($Result.pendingProviderActions)
   if ($pending.Count -eq 0) {
@@ -586,6 +612,26 @@ function Show-PendingProviderActions {
       "  - $($action.provider): $($action.action); status=$($action.status); " +
       "not executed; guidance=$guidance"
     )
+    Write-Output (
+      "    Review plan: node `"$RepoRoot/scripts/harness-init.mjs`" " +
+      "provider-action-plan --home-dir `"$HomeDir`" --repo-root `"$RepoRoot`" " +
+      "--provider $($action.provider) --action $($action.action)"
+    )
+    if (
+      $action.action -eq "login" -and
+      $action.provider -in @("codex", "grok")
+    ) {
+      Write-Output (
+        "    After reviewing planSha256, show manual guidance with a second explicit approval: " +
+        "node `"$RepoRoot/scripts/harness-init.mjs`" provider-action-run " +
+        "--home-dir `"$HomeDir`" --repo-root `"$RepoRoot`" " +
+        "--provider $($action.provider) --action login " +
+        "--plan-sha256 <planSha256> --approved"
+      )
+    }
+    else {
+      Write-Output "    Harness execution: manual-only; follow the official guidance above."
+    }
   }
   if (@($pending | Where-Object { $_.provider -eq "claude" }).Count -gt 0) {
     Write-Output (
@@ -788,8 +834,13 @@ Write-Output (
   "  Codex mode: after plugin registration run 'ccg codex-mode install' " +
   "(never legacy 'ccg init')"
 )
-Write-Output "  Platform Skills: Global Init will install/verify 14 bundled copies"
+Write-Output "  Platform Skills: Global Init will install/verify 13 bundled copies"
 Write-Output "  Personal Skill catalog: $catalogPreview"
+Write-Output (
+  "  Catalog network: $($AllowCatalogNetwork.IsPresent); " +
+  "third-party network: $($AllowThirdPartyNetwork.IsPresent) " +
+  "(otherwise separately prompted, default no, only after candidate selection)"
+)
 Write-Output "  Provider status/actions: $providerPreview"
 Write-Output (
   "  Provider install/login selections are guidance only and require a " +
@@ -810,7 +861,7 @@ if (-not $NonInteractive) {
   Confirm-SetupItem "Codex plugin $pluginId from the local snapshot" `
     $ApproveCcgPlugin.IsPresent
   Confirm-SetupItem "ccg codex-mode install" $ApproveCodexMode.IsPresent
-  Confirm-SetupItem "Global Init and 14 bundled platform Skills" `
+  Confirm-SetupItem "Global Init and 13 bundled platform Skills" `
     $ApproveGlobalInit.IsPresent
 }
 
@@ -880,12 +931,31 @@ if (-not $NonInteractive) {
     $globalArguments += @("--catalog-url", $CatalogUrl)
   }
   if ($AllowCatalogNetwork) {
-    $globalArguments += "--allow-network"
+    $globalArguments += "--allow-catalog-network"
+  }
+  if ($AllowThirdPartyNetwork) {
+    $globalArguments += "--allow-third-party-network"
   }
   if ($ProviderActions) {
     $globalArguments += @("--provider-actions", $ProviderActions)
   }
   if ($NonInteractive) {
+    # The approval receipt is explicit even when every optional candidate is
+    # declined.  Resolve the digest through the pinned Harness plan instead of
+    # duplicating a mutable value in this installer.
+    $thirdPartySourceSha256 = Get-ThirdPartySourceSha256 `
+      -HarnessInitPath (Join-Path $RepoRoot "scripts/harness-init.mjs") `
+      -ApprovedHomeDir $HomeDir
+    $globalArguments += @(
+      "--third-party-global-skills",
+      "none",
+      "--third-party-global-plugins",
+      "none",
+      "--third-party-mcp-cli",
+      "none",
+      "--third-party-source-sha256",
+      $thirdPartySourceSha256
+    )
     $globalArguments += @("--non-interactive", "--approved")
     $globalOutput = @(& node @globalArguments 2>&1)
     if ($LASTEXITCODE -ne 0) {
@@ -914,7 +984,7 @@ if (-not $NonInteractive) {
   }
   Assert-ClaudeUnchanged $claudeBaseline "Global Init"
   $platformManifestPath = Assert-GlobalSkillProjection
-  Show-PendingProviderActions $globalResult
+  Show-PendingProviderActions $globalResult $HomeDir $RepoRoot
 
   Write-Output ""
   Write-Output "Global Setup complete."

@@ -46,7 +46,6 @@
   "skills": {
     "globalPolicy": "minimal-essential-only",
     "globalEssential": [
-      "grill-me",
       "harness-init",
       "trellis-before-dev",
       "trellis-brainstorm",
@@ -66,10 +65,19 @@
     "installMode": "copy",
     "projectSelection": []
   },
+  "thirdParty": {
+    "sourceManifestSha256": null,
+    "globalSkills": [],
+    "globalPlugins": [],
+    "projectSkills": [],
+    "mcpCli": [],
+    "excluded": []
+  },
   "security": {
     "dataClassification": null,
     "secretPolicy": "environment-or-owned-secret-store",
     "networkPolicy": null,
+    "strictDataBoundary": null,
     "credentialFieldsForbidden": true,
     "forbiddenTrackedPaths": []
   },

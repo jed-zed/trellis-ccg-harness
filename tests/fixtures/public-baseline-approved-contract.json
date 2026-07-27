@@ -23,7 +23,9 @@
       "implemented",
       "verified"
     ],
-    "managedProjectPaths": [],
+    "managedProjectPaths": [
+      ".harness/third-party-sources.json"
+    ],
     "ignoredRuntimePaths": [
       ".ccg",
       ".codex/ccg"
@@ -67,7 +69,6 @@
   "skills": {
     "globalPolicy": "minimal-essential-only",
     "globalEssential": [
-      "grill-me",
       "harness-init",
       "trellis-before-dev",
       "trellis-brainstorm",
@@ -87,10 +88,19 @@
     "installMode": "copy",
     "projectSelection": []
   },
+  "thirdParty": {
+    "sourceManifestSha256": "7d4bbe9812e2400f86fed2fcdcf28f47a0cae476e1e849d944ce624013080085",
+    "globalSkills": [],
+    "globalPlugins": [],
+    "projectSkills": [],
+    "mcpCli": [],
+    "excluded": []
+  },
   "security": {
     "dataClassification": "public-source-code-no-credentials",
     "secretPolicy": "environment-or-owned-secret-store",
     "networkPolicy": "offline-by-default-explicit-public-fetch-only",
+    "strictDataBoundary": false,
     "credentialFieldsForbidden": true,
     "forbiddenTrackedPaths": [
       ".env",

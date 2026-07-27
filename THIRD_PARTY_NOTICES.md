@@ -1,11 +1,12 @@
 # Third-Party and Source Notices
 
-This private Harness combines project-generated Trellis assets with a tracked snapshot of a customized CCG fork.
+This publicly visible Harness combines project-generated Trellis assets with a
+tracked snapshot of a customized CCG fork.
 
 ## Trellis
 
 - Package: `@mindfoldhq/trellis`
-- Version: `0.6.8`
+- Version: `0.6.9`
 - Upstream: https://github.com/mindfold-ai/trellis
 - License: AGPL-3.0
 - License copy: `LICENSES/TRELLIS-AGPL-3.0.txt`
@@ -15,13 +16,96 @@ The Trellis CLI source is not vendored. The repository contains project files ge
 ## CCG
 
 - Authoritative customized source: https://github.com/jed-zed/ccg-gptpro-worflow
-- Captured commit: `b0f2c41ff4c99815621f1b659c1a6ed51a290a2e`
+- Captured commit: `a20457da3e8c48126710eb588d4f50a45c4e825a`
 - Original upstream/provenance: https://github.com/fengshao1227/ccg-workflow
 - License: MIT
 - License copy: `components/ccg-workflow/LICENSE`
 
 The CCG tree in this repository is intentionally sourced from the `jed-zed` personal fork. The original repository is credited as upstream history, but it is not the authoritative snapshot used by this Harness.
 
+## Optional third-party initialization candidates
+
+The reviewed candidate inventory is
+`.agents/skills/harness-init/assets/third-party-sources.json`. Every candidate
+is unselected by default and is acquired only after the user explicitly
+approves that candidate and its exact source digest. The manifest records
+commits, Git trees, release assets, and npm integrity values; it must not be
+replaced with `main`, `latest`, or `@latest`.
+
+The three optional npm MCPs also ship complete npm lockfile-v3 artifacts under
+`.agents/skills/harness-init/assets/npm-locks/`. Harness verifies the manifest
+digest for each lock and every transitive `resolved` URL plus `integrity`
+record before running `npm ci --ignore-scripts`; it never generates a dependency
+lock during initialization.
+
+All candidates below are presented with recommendation metadata but remain
+unselected by default. Interactive approval binds the exact plan SHA-256,
+trusted command/package roots, subprocess configuration roots, and command
+identities. Non-interactive selection requires that reviewed plan SHA-256.
+Third-party subprocesses receive an explicit minimal environment rather than
+ambient injection variables. Provider installation/login is manual-only,
+Harness never invokes Claude or creates `.claude`, and installing CodeGraph
+never authorizes automatic `codegraph init`.
+
+- Matt Pocock Skills — repository
+  `https://github.com/mattpocock/skills.git`, commit
+  `ed37663cc5fbef691ddfecd080dff42f7e7e350d`, Git tree
+  `04b0fcb78e3de7c58744fcba2528354cc64ab988` (integrity); MIT. This source supplies the
+  optional `grill-me`/`grilling` bundle and project Skills only through their
+  recorded per-tree SHA-256 snapshots.
+- Caveman — repository `https://github.com/JuliusBrussee/caveman.git`, release
+  `v1.9.1`, commit `0d95a81d35a9f2d123a5e9430d1cfc43d55f1bb0`, Git tree
+  `867418a8efea2c92b3885b8efd99d73d7c58af11` (integrity); MIT. The global
+  communication Skill is recommended but remains unselected until explicitly
+  approved, and its installed Skill snapshot is separately SHA-256 pinned.
+- Ponytail — repository
+  `https://github.com/DietrichGebert/ponytail.git`, release `4.8.4`, commit
+  `bc9ee949d5f439e8b9f3bb92c6d6d3d1e6ebd324`, Git tree
+  `2b3486c779084a0442ac530affd85fb864499827` (integrity); MIT. The optional plugin,
+  hooks, and default-mode candidates additionally pin their source Git trees
+  in the reviewed manifest.
+- CodeGraph — repository
+  `https://github.com/colbymchenry/codegraph.git`, package
+  `@colbymchenry/codegraph@1.5.0`, commit
+  `ea72e1b190921232aa7bd02e96bef5bbe4fe0ab6`, Git tree
+  `7e7eab5e11e3db1a1dfc9f6a7aa846244c1ddfdf` (Git integrity), npm integrity
+  `sha512-/l1JMVOQ9WGQLrc/IIuAg7Igr944t79/oNCJTcnGkYtIeQx2XFIqI0ho+9Les/Yu4zKfmPU17hIUshD6yP1fKw==`;
+  lock SHA-256
+  `12ef016f442cf837e433e9a61488b1ec87d7df85490455df384b26a549d27847`;
+  MIT.
+- fast-context — repository
+  `https://github.com/awei84/fast-context-mcp.git`, package
+  `fast-context-mcp@1.5.2`, commit
+  `3595cfcb2cf1c50660351165cdb71101d0996747`, Git tree
+  `1d5c5b31afbeb3b69b9baf562fbee9e52bc42830` (Git integrity), npm integrity
+  `sha512-xgq94v7XAD7HLljtUXPjPvZAc599pExrLZLhnn2CoTxVK4PR8dNy4gjE5kGqgc0O8PRIw54WcE9h6zBcaoJiWA==`;
+  lock SHA-256
+  `8cb0cd05af316666ec4057d41c665222bc72ced3e107e382a20c3f4227c29c43`;
+  MIT. Its manifest entry discloses its remote data egress and postinstall
+  behavior before approval.
+- Context7 — repository `https://github.com/upstash/context7.git`, package
+  `@upstash/context7-mcp@3.2.4`, commit
+  `4124503867b802a16e7697a838a2bfce0820328d`, Git tree
+  `ecbe6f3fd03a1253c1f083b334d3f1234c1c2806`, npm integrity
+  `sha512-w2Vg6MkF4Qojp8X1fdmJ6NrjZ8Ip/9lflybtqfDKaqOsUV9iVaXeRbyGTqARdn1O8teIPm7Bt+nfVqFiUcZvjQ==`;
+  lock SHA-256
+  `177549944f63b0186c070cf875c52737ab2842a8c943907e9e988186d8fea328`;
+  MIT. Documentation queries and library identifiers may leave the machine only
+  after the user explicitly approves the MCP and invokes it.
+- ripgrep — repository `https://github.com/BurntSushi/ripgrep.git`, release
+  `15.2.0`, commit `e89fff89ac9af12e8d4ce9d5fd07beb408ca730f`, Git tree
+  `c743701524f65f036cf174d6551918be7dfc0d40` (Git integrity); Unlicense. Each supported
+  release asset has a separately pinned SHA-256 in the manifest.
+
 ## Distribution status
 
-This repository is private and currently marked `UNLICENSED` at the Harness integration layer. Do not make it public until the combined redistribution and attribution review is complete.
+The repository is publicly visible, while the Harness integration package is
+still marked `UNLICENSED`. Public visibility does not itself grant permission
+to reuse the integration layer. Do not publish package artifacts or change the
+Harness license until the combined redistribution and attribution review is
+complete.
+
+The notices above identify the current source facts only. They do not resolve
+the repository-wide redistribution, combined-work, or public-release licensing
+policy; that review remains required before changing the Harness license or
+visibility.

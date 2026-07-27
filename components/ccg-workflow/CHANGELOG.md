@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [3.3.3] - 2026-07-26
+
+### Fixed
+
+- **Approval-safe Codex plugin** — The bundled Codex MCP manifest now starts
+  empty. CCG does not install, configure, or enable third-party MCP servers;
+  Harness or another project owner must obtain explicit user approval first.
+- **Search routing** — Codex-facing rules and skills now follow local
+  `AGENTS.md` routing, keep ace-tool disabled, and never create a CodeGraph
+  index automatically.
+- **Codex-only workflow text** — Removed the stale claim that Claude may be a
+  Codex workflow helper. Claude remains disabled and uninvoked.
+
 ## [3.3.2] - 2026-07-26
 
 ### ✨ Features

@@ -23,7 +23,6 @@ const INSTALL_SCRIPT = path.join(REPO_ROOT, "scripts", "install.ps1");
 const CCG_VERSION = "3.3.2";
 const CCG_PLUGIN_VERSION = "3.3.2+codex.1";
 const PLATFORM_SKILLS = [
-  "grill-me",
   "harness-init",
   "trellis-before-dev",
   "trellis-brainstorm",
@@ -170,6 +169,14 @@ function globalInitSource() {
 import path from "node:path";
 
 const args = process.argv.slice(2);
+if (args[0] === "third-party-plan") {
+  appendFileSync(process.env.MOCK_COMMAND_LOG, JSON.stringify({
+    command: "third-party-plan",
+    args,
+  }) + "\\n");
+  console.log(JSON.stringify({ sourceManifestSha256: "f".repeat(64) }));
+  process.exit(0);
+}
 appendFileSync(process.env.MOCK_COMMAND_LOG, JSON.stringify({
   command: "global-init",
   args,
@@ -410,6 +417,12 @@ test("non-interactive Global Setup is explicit, exact, provider-safe, and idempo
     );
     assert.match(first.stdout, /needs-provider-actions/);
     assert.match(first.stdout, /gemini: install/);
+    assert.match(
+      first.stdout,
+      /Catalog network: False; third-party network: False/i,
+    );
+    assert.match(first.stdout, /provider-action-plan/);
+    assert.match(first.stdout, /manual-only/);
     assert.match(first.stdout, /\.claude state: unchanged/);
     assert.equal(
       readFileSync(path.join(value.homeDir, ".claude", "user.txt"), "utf8"),
@@ -450,7 +463,31 @@ test("non-interactive Global Setup is explicit, exact, provider-safe, and idempo
         "utf8",
       ),
     );
-    assert.equal(globalSkills.managedPlatformSkills.length, 14);
+    assert.equal(globalSkills.managedPlatformSkills.length, 13);
+    const firstGlobalInit = commandLog(value).find(
+      ({ command }) => command === "global-init",
+    );
+    assert.ok(firstGlobalInit);
+    for (const flag of [
+      "--third-party-global-skills",
+      "--third-party-global-plugins",
+      "--third-party-mcp-cli",
+    ]) {
+      assert.equal(
+        firstGlobalInit.args[firstGlobalInit.args.indexOf(flag) + 1],
+        "none",
+      );
+    }
+    assert.equal(
+      firstGlobalInit.args[
+        firstGlobalInit.args.indexOf("--third-party-source-sha256") + 1
+      ],
+      "f".repeat(64),
+    );
+    assert.equal(
+      commandLog(value).some(({ command }) => command === "third-party-plan"),
+      true,
+    );
 
     const second = runSetup(value);
     assert.equal(second.status, 0, `${second.stdout}\n${second.stderr}`);
@@ -479,6 +516,52 @@ test("non-interactive Global Setup is explicit, exact, provider-safe, and idempo
           !(command === "codex" && args[0] === "plugin"),
       ),
       false,
+    );
+    for (const relativePath of [
+      ".agents/skills/grill-me",
+      ".agents/skills/grilling",
+      ".agents/skills/caveman",
+      ".agents/harness/sources/ponytail",
+      ".agents/harness/tools/codegraph",
+      ".agents/harness/tools/fast-context",
+    ]) {
+      assert.equal(existsSync(path.join(value.homeDir, relativePath)), false);
+    }
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("interactive Global Setup leaves third-party choices to the CLI prompts", () => {
+  const value = fixture({ createClaudeTrees: false });
+  try {
+    const args = setupArgs(value).filter((entry) => entry !== "-NonInteractive");
+    const result = spawnSync("pwsh", args, {
+      cwd: REPO_ROOT,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        PATH: `${value.binDir}${path.delimiter}${process.env.PATH ?? ""}`,
+        MOCK_CODEX_STATE: value.statePath,
+        MOCK_COMMAND_LOG: value.logPath,
+      },
+    });
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+    const globalInit = commandLog(value).find(
+      ({ command }) => command === "global-init",
+    );
+    assert.ok(globalInit);
+    for (const option of [
+      "--third-party-global-skills",
+      "--third-party-global-plugins",
+      "--third-party-mcp-cli",
+      "--third-party-source-sha256",
+    ]) {
+      assert.equal(globalInit.args.includes(option), false);
+    }
+    assert.match(
+      readFileSync(INSTALL_SCRIPT, "utf8"),
+      /if \(\$NonInteractive\) \{[\s\S]*--third-party-global-skills[\s\S]*"none"/,
     );
   } finally {
     value.cleanup();
@@ -658,6 +741,14 @@ test("Global Setup leaves absent user and project .claude trees absent", () => {
     assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
     assert.equal(existsSync(path.join(value.homeDir, ".claude")), false);
     assert.equal(existsSync(path.join(value.repoRoot, ".claude")), false);
+    for (const relativePath of [
+      ".agents/skills/caveman",
+      ".agents/harness/sources/ponytail",
+      ".agents/harness/tools/codegraph",
+      ".agents/harness/tools/fast-context",
+    ]) {
+      assert.equal(existsSync(path.join(value.homeDir, relativePath)), false);
+    }
   } finally {
     value.cleanup();
   }

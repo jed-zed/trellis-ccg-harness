@@ -4,6 +4,9 @@
 - Codex is the sole workspace writer and final verification owner.
 - CCG Skills and quality gates run through the installed Codex plugin.
 - CCG runtime configuration lives at `~/.codex/ccg/config.toml`.
+- Third-party Skills, plugins, and MCP servers are unselected by default and
+  require the user's explicit approval before a Harness or project initializer
+  installs them.
 - External-intelligence routing uses `ccg route`; it is disabled by default.
 - Gemini may provide bounded read-only evidence. Claude is disabled and must
   not be invoked or required by Codex-mode workflows.

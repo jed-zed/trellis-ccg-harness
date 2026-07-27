@@ -54,7 +54,7 @@ CCG 智能层
 - pnpm/Corepack
 - Go（CCG wrapper 的 test/build 门禁必需）
 - Codex CLI（精确安装本地 CCG Codex 插件所必需）
-- Gemini、Grok、Claude Code CLI 均为独立可选 provider；Global Setup 不会替你安装或登录
+- Gemini、Grok、Claude Code CLI 均为独立可选 provider；Global Setup 不会隐式安装或登录，且从不探测或启动 Claude
 
 ```powershell
 git clone --branch v0.2.0 --depth 1 https://github.com/jed-zed/trellis-ccg-harness.git
@@ -70,18 +70,73 @@ pnpm setup
 
 1. 在任何写入前预览并检查精确 Trellis 版本、CCG 3.3.2 CLI、`ccg
    codex-mode install`、当前 Harness snapshot 的本地 Codex marketplace /
-   CCG 插件、14 个 bundled platform Skills、个人 catalog 选择和 provider
+   CCG 插件、13 个 bundled platform Skills、个人 catalog 选择和 provider
    状态；
 2. 交互模式逐项确认核心动作，随后执行 Global Init；自动化模式必须给出
    完整 flags 和所有批准开关；
 3. 对相同 snapshot 保持幂等；同名 marketplace/plugin 来自其他路径或版本时
    fail closed，不会覆盖；
 4. 只把 provider 的 `install` / `login` 选择记录为待单独批准动作并输出
-   status/guidance，绝不把安装或登录塞进本次总授权；
-5. Claude 默认 `skip`。显式选择 Claude 安装/登录会被标为退出
-   zero-`.claude` profile，但仍不会由 Global Setup 执行；
+   status/guidance，绝不把安装或登录塞进本次总授权；安装始终按官方文档手动
+   完成。独立命令会绑定 Codex/Grok 的固定 auth-only 指引并要求第二次确认，
+   但不会启动 Provider CLI；Gemini 没有获准的 auth-only 子命令，也只提供
+   手动登录指导，不启动其完整交互 agent；
+5. Claude 默认 `skip`，只提供官方文档，不探测、不启动。显式选择 Claude
+   安装/登录会被标为退出 zero-`.claude` profile，但仍不会由 Harness 执行；
 6. 每个 Harness-owned 步骤后比较用户级和项目级 `.claude` 状态；已有内容
    保持不变，任何创建或修改都会立即停止后续步骤。
+
+第三方 Skill、插件和 MCP/CLI 不属于这 13 个核心项。先运行
+`node .\scripts\harness-init.mjs third-party-plan --home-dir <absolute-user-home>`
+查看固定来源、许可、写入范围、hook、网络与数据外发影响；四个分组默认全部
+不选，只有用户对具体候选明确批准后才安装。初始化器会明确推荐适用候选，
+包括 Ponytail、Caveman、Context7、fast-context 和 CodeGraph，但推荐不会
+自动勾选或授权安装。Context7 会发送文档查询和库标识，`fast-context`
+会发送查询和目录/检索数据；受严格数据边界时两者必须保持未选。
+最终交互批准会同时展示第三方 `planSha256`、批准的 package/command roots、
+子进程配置根和绑定命令身份；批准只覆盖这一份完整计划。非交互模式只要
+选中了任意第三方候选，就必须在 source manifest 摘要之外再传
+`--third-party-plan-sha256 <reviewed-planSha256>`；拒绝全部候选时仍可使用
+明确的 `none` 公共基线。
+选中需要下载的候选后，交互初始化还会单独询问第三方网络授权，列出候选、
+固定仓库/提交和 source manifest 摘要，默认 `no`。拒绝网络只跳过这些候选，
+不阻塞 13 个 core Skills/Trellis/CCG。私人 catalog clone 使用另一项
+`AllowCatalogNetwork`，不会与第三方下载共用授权；自动化若确需下载第三方，
+必须显式传 `AllowThirdPartyNetwork`/`--allow-third-party-network`。
+批准安装的 MCP 会生成 Harness-owned 本地 launcher；每次启动前都会
+重新验证批准清单摘要、ownership、精确包版本/SRI、lockfile、完整安装树
+指纹和唯一入口，任何漂移都会 fail closed。由于 Codex host 当前没有
+原子 create-only 的 MCP 注册接口，初始化器不会覆盖或自动新增同名配置；
+注册 launcher 保持 `manual-pending`，先向用户展示现有状态和人工命令。
+
+当 Global Init 返回 `needs-provider-actions` 时，先为单个待办生成只读计划：
+
+```powershell
+node .\scripts\harness-init.mjs provider-action-plan `
+  --home-dir <absolute-user-home> --repo-root <absolute-project> `
+  --provider codex --action login
+```
+
+确认 `planSha256` 后，用第二个独立命令显示 Codex/Grok 的固定 auth-only
+手动指引：
+
+```powershell
+node .\scripts\harness-init.mjs provider-action-run `
+  --home-dir <absolute-user-home> --repo-root <absolute-project> `
+  --provider codex --action login `
+  --plan-sha256 <reviewed-planSha256> --approved
+```
+
+该命令会弹出默认 `cancel` 的 `cancel/show-guide` 选择，并拒绝非交互执行。
+计划会绑定规范绝对可执行文件/Node 入口、包版本与文件哈希，供用户核对；
+Harness 不启动命令、不继承 Provider 终端、不生成 Provider action receipt，
+也不记录输出、URL、设备码、账号或 token。所有 Provider 安装与登录均由
+用户在审阅指引后手动完成；这也避免把完整 Gemini agent 误当作认证助手，
+并保证 Claude 永远不会被 Harness 探测或启动。
+Provider 状态探测和第三方来源/安装辅助只运行已绑定且再次验证的绝对命令；
+子进程使用计划内 home/config roots 构造的最小环境，不继承
+`NODE_OPTIONS`、`NODE_PATH`、`LD_PRELOAD`、`DYLD_*`、ambient `GIT_*`
+或其他未允许变量。
 
 公开、无私人 catalog 的非交互示例：
 
@@ -117,7 +172,7 @@ pwsh -NoProfile -File .\scripts\clean-install-acceptance.ps1 `
 ## Global Init 与 Project Init
 
 - **Global Init**：由 `pnpm setup` 调用，管理用户级 Trellis/CCG runtime、
-  Codex plugin、14 个公开 bundled platform Skills、provider 状态与个人
+  Codex plugin、13 个公开 bundled platform Skills、provider 状态与个人
   catalog 决策。
 - **Project Init**：每个项目单独执行，先只读发现仓库，再批准项目约束与
   项目 Skill 选择，最后写入该项目的 Harness contract 并运行 gates。
@@ -134,15 +189,22 @@ Harness 的运行前提。
 这个 Skill 位于 [`.agents/skills/harness-init`](.agents/skills/harness-init)，
 执行顺序固定为：
 
-1. 首次触发时用 `grill-me` 细化 Skill 使用规范，并让用户选择跳过个人
+1. 首次触发时在已明确批准安装 `grill-me` 时用它细化 Skill 使用规范；否则直接逐项询问，并让用户选择跳过个人
    catalog、使用已有本地 Git catalog，或在单独批准联网后 clone
    credential-free catalog URL；只有选择 catalog 时才保存其规范路径，
    以后初始化可直接复用；
 2. 只读检查仓库、工具链、现有规范、Hook、CI、来源与安全边界，并从
    已保存仓库中推荐一小组与本项目相关的 Skill；
-3. 对仓库无法回答的决定调用 `grill-me`，每轮只问一个问题，并给出推荐项与取舍；
+3. 对仓库无法回答的决定在已批准 `grill-me` 时调用它，否则保持同样的逐项提问；每轮只问一个问题，并给出推荐项与取舍；
 4. 汇总完整项目约束和逐项 Skill 选择理由，等待用户对最新版摘要明确批准；
-5. 批准后由可执行验证器拒绝草稿、凭据、越权 provider 和托管目标冲突，
+5. 交互 `project-init` 接受已填完非 Skill 约束的 `draft` contract：先展示
+   技术发现与推荐，逐项选择 catalog/第三方项目 Skill（推荐不等于选中），在
+   最终确认后用文件指纹 CAS 原子写入固定来源摘要、选择理由和精确托管路径，
+   将该 candidate 提升为 `approved`，然后才执行初始化。已有 `approved`
+   contract 只允许确认并执行其已经记录的集合；非交互模式也只接受完全匹配的
+   `approved` contract。`security.strictDataBoundary` 在 draft 可为 `null`，
+   但在批准时必须固化为布尔值；命令行 `--strict-data-boundary` 只能额外收紧，
+   不能放宽合同中已批准的严格边界。随后验证器拒绝凭据、越权 provider 和托管目标冲突，
    以及畸形或冲突的规则标记；已有安全 `.harness/` 目录只有在所有托管
    目标均不存在时才可增量接入，已有策略/规则块还必须逐字节匹配。验证器用
    项目锁、含权限元数据的 CAS、pending
@@ -157,8 +219,10 @@ Harness 的运行前提。
    `mark-ready` 原子推进合同状态和摘要。
 
 Project Init 默认不调用 Grok、Claude、GPT Pro、付费模型或联网服务，
-也不会读取密钥值。14 个公开 platform Skills 已由 Global Init 安装；
+也不会读取密钥值。13 个公开 platform Skills 已由 Global Init 安装；
 Project Init 只从已明确选择的私人/本地 catalog 安装项目相关 Skills。
+第三方项目 Skill 同样必须在项目合同中记录固定来源摘要和逐项批准，不能从
+`main`、`latest` 或 `@latest` 安装。
 现有全局 Skill 不会被初始化过程擅自删除或移动，清理由独立的所有权感知
 迁移处理。现有文件在没有所有权清单前一律按用户资产处理。
 协作规则的发行版上游来源是
@@ -175,6 +239,11 @@ Project Init 只从已明确选择的私人/本地 catalog 安装项目相关 Sk
 时不会把旧事务永久误判为活跃。跨平台 CAS 不承诺
 保留 ACL、扩展属性或 Windows 安全描述符；依赖这些元数据的仓库需使用平台
 专用工具单独验证。
+所有新增目标都必须 create-only 发布；已有 owned 目标必须先原子 claim 到
+事务目录，再对被 claim 的同一对象验证、恢复或删除。若 claim、发布、恢复或
+ownership 写入遇到并发/用户内容碰撞，事务 fail closed，保留被 claim 对象、
+碰撞对象和诊断供人工处理，不覆盖任何一方，也不对仍在原路径上的未知对象做
+递归删除。
 
 ```powershell
 # 只读发现；不会创建 .harness
@@ -183,22 +252,31 @@ node .\scripts\harness-init.mjs inspect --repo-root .
 # 公开基线 Project Init：批准的 contract 不选择私人项目 Skills
 node .\scripts\harness-init.mjs project-init `
   --repo-root . `
+   --home-dir <absolute-user-home> `
+   --contract .\approved-contract.json `
+   --no-project-skills `
+   --third-party-project-skills none `
+   --third-party-source-sha256 <sha256-from-third-party-plan> `
+   --non-interactive `
+   --approved
+
+# 交互项目初始化：先从 template 填完项目、工具链、质量和安全约束，保持 draft；
+# 工具会展示技术发现，并把最终明确选择编译到同一个 contract 后再应用。
+node .\scripts\harness-init.mjs project-init `
+  --repo-root . `
   --home-dir <absolute-user-home> `
-  --contract .\approved-contract.json `
-  --no-project-skills `
-  --non-interactive `
-  --approved
+  --contract .\draft-contract.json
 
 # 首次细化并批准后保存 Skill 仓库；以后 catalog-skills 自动复用此路径
 node .\scripts\harness-init.mjs configure-skills `
   --repository <absolute-skill-repository> `
-  --global-essential "grill-me,harness-init,trellis-before-dev,trellis-brainstorm,trellis-break-loop,trellis-channel,trellis-check,trellis-continue,trellis-finish-work,trellis-meta,trellis-session-insight,trellis-spec-bootstrap,trellis-start,trellis-update-spec" `
+  --global-essential "harness-init,trellis-before-dev,trellis-brainstorm,trellis-break-loop,trellis-channel,trellis-check,trellis-continue,trellis-finish-work,trellis-meta,trellis-session-insight,trellis-spec-bootstrap,trellis-start,trellis-update-spec" `
   --guidance "<approved-selection-guidance>" `
   --exclude "<optional-comma-separated-exclusions>" `
   --approved
 node .\scripts\harness-init.mjs catalog-skills
 
-# grill-me 完成且用户批准最终约束后
+# 完成逐项约束澄清且用户批准最终约束后
 node .\scripts\harness-init.mjs validate --contract .\approved-contract.json
 node .\scripts\harness-init.mjs apply --repo-root . --contract .\approved-contract.json
 node .\scripts\harness-init.mjs install-skills `
@@ -371,4 +449,4 @@ pwsh -NoProfile -File .\scripts\verify-sources.ps1 -Index
 
 ## 许可证
 
-当前仓库是私有 Harness，集成层标记为 `UNLICENSED`。Trellis 为 AGPL-3.0，CCG 为 MIT；详见 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)。在完成组合分发审查前不要改为公开仓库。
+当前仓库公开可见，但 Harness 集成层仍标记为 `UNLICENSED`；公开可见不等于授予复用许可。Trellis 为 AGPL-3.0，CCG 为 MIT，其他可选来源及固定版本详见 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)。在完成组合分发审查前，不发布包产物，也不擅自更改集成层许可证。

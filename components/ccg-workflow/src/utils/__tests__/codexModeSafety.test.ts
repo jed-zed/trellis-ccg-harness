@@ -188,6 +188,8 @@ describe('Codex mode ownership and reversibility', () => {
     const hook = await readFile(join(codexHome, 'hooks', 'ccg-workflow.py'), 'utf8')
     expect(hook).not.toContain('--backend claude')
     expect(hook).toContain('Claude is disabled')
+    const config = await readFile(join(codexHome, 'config.toml'), 'utf8')
+    expect(config).not.toContain('[mcp_servers')
   })
 
   it('rejects ownership paths that escape Codex home', async () => {

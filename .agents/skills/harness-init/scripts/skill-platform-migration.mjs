@@ -26,7 +26,6 @@ import { promisify } from "node:util";
 const execFile = promisify(execFileCallback);
 
 export const GLOBAL_PLATFORM_SKILLS = Object.freeze([
-  "grill-me",
   "harness-init",
   "trellis-before-dev",
   "trellis-brainstorm",
@@ -525,11 +524,6 @@ export async function planSkillPlatformMigration({
     let action = "add";
     if (await pathExists(targetPath)) {
       target = await snapshotTree(targetPath);
-      if (name === "grill-me" && target.treeSha256 !== source.treeSha256) {
-        throw new Error(
-          "Existing grill-me Skill differs from the Harness distribution and is treated as user-owned; refusing to replace it.",
-        );
-      }
       action = target.treeSha256 === source.treeSha256 ? "preserve" : "replace";
     }
     platform.push({
@@ -696,7 +690,7 @@ function renderGlobalBlock(profilePath, repositoryPath) {
     `- Approved Skill catalog: \`${repositoryPath}\``,
     `- Global platform Skills: ${GLOBAL_PLATFORM_SKILLS.map((name) => `\`${name}\``).join(", ")}`,
     "- Catalog Skills are copied into each project only after explicit project approval.",
-    "- All global platform Skill projections, including `grill-me`, are Harness-owned.",
+    "- Only the listed 13 global platform Skill projections are Harness-owned; pre-existing third-party Skills, including legacy `grill-me`, remain user-owned unless separately approved.",
     GLOBAL_BLOCK_END,
   ].join("\n");
 }
@@ -1363,8 +1357,14 @@ export async function auditSkillPlatformMigration({
   const expectedPlatformNames = [...GLOBAL_PLATFORM_SKILLS].sort((left, right) =>
     left.localeCompare(right),
   );
-  if (canonicalJson(managedPlatformNames) !== canonicalJson(expectedPlatformNames)) {
-    issues.push("Global Skill ownership manifest does not bind exactly 14 platform Skills.");
+  const legacyPlatformNames = [...expectedPlatformNames, "grill-me"].sort(
+    (left, right) => left.localeCompare(right),
+  );
+  if (
+    canonicalJson(managedPlatformNames) !== canonicalJson(expectedPlatformNames) &&
+    canonicalJson(managedPlatformNames) !== canonicalJson(legacyPlatformNames)
+  ) {
+    issues.push("Global Skill ownership manifest does not bind the 13 built-in platform Skills (or the supported 14-Skill legacy set).");
   }
   let repository = null;
   try {

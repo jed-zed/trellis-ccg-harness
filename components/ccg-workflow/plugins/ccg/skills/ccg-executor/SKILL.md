@@ -27,7 +27,11 @@ You are the Codex-side orchestrator for CCG workflow plans. Plans are produced b
 - Do not call the raw `gemini`, `gemini.cmd`, or `gemini.exe` CLI directly for `/ccg:plan`, `/ccg:execute`, `/ccg:review`, or workflow-internal delegation. The only exception is `/ccg:doctor --check-gemini-model`, which performs an explicit availability probe.
 - Preserve existing user changes. Inspect `git status` before edits and work around unrelated dirty files.
 - Communicate with the user in Chinese. Tool prompts and external documentation queries may be English.
-- Prefer `mcp__ace-tool__search_context` as the primary semantic code search tool when the user has configured ace-tool globally. Use `mcp__fast-context__fast_context_search` as a supplement when ace-tool is unavailable or insufficient. If ace-tool, fast-context, or `rg` fail because credentials are missing or access is denied, fall back to PowerShell-native exact search and targeted file reads; do not abort only because an optional search backend is unavailable.
+- Follow the current project's `AGENTS.md` and its code-search policy. CCG
+  must not install, configure, or enable an MCP server. Use a third-party
+  search tool only when its installation was explicitly approved by the user
+  and the active project policy permits it. Do not invoke ace-tool or create a
+  CodeGraph index automatically; fall back to local search and targeted reads.
 
 ## Architecture Shift
 
@@ -135,11 +139,15 @@ Gemini task prompts should include only the task-specific payload because the he
 
 ### Phase 1: Context Search
 
-- Use ace-tool first with a query built from the plan title, key files, domains, and symbols.
-- Read the specific files needed after semantic search identifies them.
-- Use exact search only for known identifiers, filenames, or error messages.
-- If the plan references current library/API behavior, use Context7 or official docs before coding.
-- Keep context focused on files that affect the implementation.
+- Read the current project's `AGENTS.md` before selecting a search tool.
+- Use `rg` for known identifiers, filenames, literals, or error messages.
+- Use CodeGraph only for known-symbol relationships and only when a current
+  `.codegraph` index already exists; never create one automatically.
+- Use an already-approved semantic or documentation tool only when project
+  policy permits it. Do not register an MCP or suggest a direct package-runner
+  installation from this workflow.
+- Read the specific files needed after search identifies them. If an optional
+  tool is unavailable, continue with targeted reads rather than aborting.
 
 ### Phase 2: Gemini Assistance
 
@@ -204,13 +212,15 @@ Do not commit unless the user asks.
 - A plan may still say `/ccg:execute` as the launch command. Inside Codex, this plugin's `/ccg:execute` means direct Codex execution.
 - `/ccg:excute` is preserved as a typo alias for muscle memory.
 - `/ccg:ccg` and `/ccg:workflow` are help/index entries that should route the user into this Codex-native workflow.
-- Respect each repository's local `AGENTS.md` and project-specific rules. When no stronger project rule exists, use ace-tool first if configured and fast-context second.
+- Respect each repository's local `AGENTS.md` and project-specific rules. When
+  no stronger project rule exists, use the local-routing defaults in
+  `ccg-fast-context.md`; do not install or activate a third-party tool.
 
 ## Bundled Rule References
 
 When the task needs more detail, read only the relevant rule file under `../../rules/`:
 
-- `ccg-fast-context.md` for ace-tool and fast-context routing.
+- `ccg-fast-context.md` for approval-aware local search routing.
 - `ccg-search-evidence.md` for web/search evidence standards.
 - `ccg-quality-gates.md` for quality gate trigger rules.
 - `ccg-skill-routing.md` for domain-oriented context routing.

@@ -1,21 +1,3 @@
 {
-  "mcpServers": {
-    "context7": {
-      "command": "npx",
-      "args": [
-        "-y",
-        "@upstash/context7-mcp@3.2.4"
-      ],
-      "note": "Current documentation lookup for libraries, frameworks, SDKs, CLIs, and cloud services."
-    },
-    "fast-context": {
-      "command": "npx",
-      "args": [
-        "-y",
-        "--prefer-online",
-        "fast-context-mcp@1.5.2"
-      ],
-      "note": "Supplementary semantic code search. Prefer ace-tool when the user has configured it globally."
-    }
-  }
+  "mcpServers": {}
 }

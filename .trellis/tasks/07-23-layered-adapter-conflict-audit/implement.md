@@ -146,6 +146,10 @@ not create a second task or plan authority.
   change ownership/migration code so fresh projection does not require an
   external global Skill. Preserve the previous external-dependency statement
   above solely as historical verification for the earlier migration.
+- [x] Superseded by the approved consent extension: keep the public projection
+  at 13 Harness/Trellis core Skills and offer the pinned `grill-me + grilling`
+  dependency unit only after explicit third-party approval. Preserve the
+  previous 14-Skill evidence above solely as historical verification.
 - [x] Publish the existing 45-Skill repository as an authenticated private
   personal catalog pending provenance/licence review. Repair catalog hygiene
   before publishing (including tracked package manifests and exclusion of
@@ -158,15 +162,24 @@ not create a second task or plan authority.
   ambiguity.
 - [x] Implement a resumable Global Init command that inventories installed and
   authenticated state, installs/verifies Trellis, CCG Codex-only CLI/plugin,
-  and the 14 public platform Skills, and then handles the private/local/skip
-  personal-catalog choice.
-- [x] Add read-only status adapters for Codex, Gemini, Grok, and Claude Code
-  CLIs with normalized installed/auth states. For missing tools offer install
-  or skip; for installed unauthenticated tools offer supported assisted login
-  or later. Do not accept credentials as command arguments or persist them.
-- [x] Put every network, install, and login operation behind its own native-UI
-  or numbered-TTY preview and approval. Add explicit non-interactive flags for
-  automation and tests; never reuse a prior approval for a different action.
+  and the 13 public core Skills, then handles the private/local/skip
+  personal-catalog choice and separate default-unselected third-party groups.
+- [x] Add read-only status adapters for Codex, Gemini, and Grok with normalized
+  installed/auth states. Present Claude as unprobed manual-only with skip
+  recommended; never invoke `claude`.
+- [x] Keep every Provider installation and login
+  official-documentation/manual-only. Add state-bound `provider-action-plan`
+  and a separately approved `provider-action-run` that only displays fixed
+  Codex/Grok auth-only guidance; never launch a Provider CLI or Gemini's full
+  interactive agent. Require the exact plan digest, `--approved`, and a second
+  default-cancel TTY confirmation; reject non-interactive execution.
+- [x] Write no Provider action receipt or stdout/stderr/URL/device
+  code/account/token data. Bind guidance to the pending Global Init state and
+  prevent stale-plan reuse through exact state and plan-digest revalidation.
+- [x] Separate catalog-clone network consent from third-party acquisition.
+  Prompt only after exact third-party selection, list pinned sources and the
+  manifest digest, default to no, and on refusal drop only those network
+  candidates while core Global Init continues. Keep distinct automation flags.
 - [x] Default Claude Code to skipped and label its install/login choice as
   leaving the zero-`.claude` acceptance profile. Test that Harness and CCG
   still perform zero `.claude/` reads/writes when this external branch is
@@ -230,6 +243,121 @@ pnpm --dir .\components\ccg-workflow typecheck
 pnpm --dir .\components\ccg-workflow test
 pnpm --dir .\components\ccg-workflow build
 ```
+
+## Approved third-party initialization consent implementation
+
+This checklist supersedes the historical fixed `14/45/2` migration plan for
+future initialization. Do not create another Trellis task or CCG plan.
+
+- [x] Replace the bundled platform baseline with the 13 Harness/Trellis core
+  Skills and remove `grill-me` from Harness-owned projection.
+- [x] Add and validate one immutable third-party source manifest with the
+  pinned Matt Skills, Ponytail, Caveman `v1.9.1`
+  (`0d95a81d35a9f2d123a5e9430d1cfc43d55f1bb0`), CodeGraph, fast-context,
+  and ripgrep identities,
+  path/tree or package integrities, licences, side effects, data-egress risks,
+  update, rollback, and uninstall metadata.
+- [x] RED: add reject-all, partial approval, dependency rejection, repeat,
+  legacy `grill-me`, drift, interruption, unavailable-source, Ponytail-hook,
+  missing-CodeGraph-index, and strict-boundary fast-context tests.
+- [x] Add a read-only approval plan grouped into global Skills, global plugins,
+  project Skills, and MCP/CLI. Every selection is empty by default; automation
+  must bind explicit selections to the source-manifest SHA-256.
+- [x] Bind the approval plan to its canonical `planSha256`, approved
+  package/command roots, subprocess configuration roots, and exact command
+  identities. Render them in final interactive confirmation and require
+  `--third-party-plan-sha256` for selected non-interactive runs.
+- [x] Run Provider status and third-party command helpers only through verified
+  absolute bindings with a minimal approved-root environment that strips
+  `NODE_OPTIONS`, `NODE_PATH`, `LD_PRELOAD`, `DYLD_*`, ambient `GIT_*`, and
+  unrelated variables.
+- [x] Implement atomic `grill-me + grilling` acquisition/upgrade through the
+  existing authenticated user transaction. Preserve and reject unknown
+  user-modified legacy `grill-me`.
+- [x] Implement Ponytail as an exact Codex plugin source. Keep plugin install,
+  hook trust, and global `full` default as independent approvals; never mutate
+  plugin source or plugin cache directly. New host/config mutation remains
+  `manual-pending` because Codex exposes no proven create-only API.
+- [x] Route approved project candidates and disclosed dependencies through the
+  existing project contract/snapshot transaction. Preserve the diagnostic,
+  test-seam, architecture-authority, and merge/rebase authorization bounds.
+- [x] Keep MCP/CLI approvals separate. Install only exact CodeGraph and
+  fast-context/Context7 npm versions and integrities, verify ripgrep release
+  digests, never run `codegraph init`, and block network-backed MCP
+  recommendations for strict data boundaries. New tool-directory publication
+  remains `manual-pending` when no cross-platform no-replace API is available.
+- [ ] Convert every remaining third-party replace/remove edge to create-only
+  publication or exact-object atomic claim. On claim/publish/restore/ownership
+  collision, fail closed and preserve both sides plus diagnostics. Add
+  dedicated race and recovery regressions before marking this item complete.
+  Scope frozen on 2026-07-27: do not expand this adversarial transaction work;
+  operations without a reliable atomic API stay `manual-pending`.
+- [x] Prepare approved MCPs through a Harness-owned runtime launcher that
+  revalidates manifest, ownership, lock/SRI, complete installed-tree
+  fingerprint, and entrypoint before every start. Because the Codex host lacks
+  atomic create-only registration, leave host registration manual-pending and
+  never overwrite an existing same-name server.
+- [x] Add Provider plan/run commands after Global Init. Installation and all
+  login actions remain manual-only; Codex/Grok guidance requires a separately
+  approved exact digest plus a second default-cancel interactive choice. Allow
+  the monotonic `install -> login` transition after manual installation, never
+  invoke Claude, and test stale-plan rejection and zero command execution.
+- [x] Record secret-free approvals and immutable source identities in the
+  approved project contract and ownership/source manifests. Make status,
+  update, rollback, uninstall, and recovery idempotent and drift-safe.
+- [x] Repair the Project Init interactive contract boundary: compile explicit
+  catalog/project-third-party choices from a fingerprinted draft only after the
+  final confirmation, validate dependency and strict-boundary failures before
+  mutation, and then run the existing approved-contract path. Add coverage for
+  draft yes/install, approved-contract no-extra-choice, cancellation,
+  dependency/boundary rejection, and zero `.claude` output.
+- [x] Bind strict data boundaries to `security.strictDataBoundary` in the
+  contract: drafts may defer it, approved contracts require a boolean, and the
+  effective boundary is contract OR CLI. Contract-driven strict mode blocks
+  fast-context without relying on a repeated CLI flag.
+- [x] Offer Caveman as a pinned, recommended global Skill candidate without
+  preselecting it. Install it only after explicit approval, in the same
+  ownership-last transaction as any other approved global Skill.
+- [x] Update initializer Skill/docs/examples and the clean-install baseline.
+  Run focused RED→GREEN tests, full Harness/CCG/Go gates, source verification,
+  doctor, context/conflicts, change/quality/security verification, and
+  `git diff --check`.
+- [x] Commit on `codex/init-third-party-approval`, push, and create a Draft PR.
+  Do not merge.
+
+Verification for the approved consent implementation on 2026-07-27:
+
+- Sequential focused suites passed: approval 62/62, third-party CLI 14/14,
+  guided init 22/22, provider actions 13/13, source verifier 13/13, and global
+  actions 41/41 with one Windows symlink case skipped for `EPERM`.
+- The single final Harness run passed 361/364 with zero failures and three
+  Windows symlink/permission cases skipped. Source verification, doctor,
+  adapter context, and conflicts also passed; conflicts reported no blockers.
+- The official Harness updater replaced `components/ccg-workflow/` from exact
+  CCG `3.3.3` commit `8bdad64e4e5ccad75e1086ae31ad757e6bbdbef8`
+  (tree `847efc20ca938a9c4ded003122f96dbb6ebfb086`) after its mandatory
+  lint/typecheck/test/build/Go/Harness gates completed successfully.
+- Fresh remote clean-install of Harness commit
+  `bf2c5a7bb31ded2b8bc5e5f51c2cbe906a3860b9` passed source, bootstrap,
+  plugin, Codex mode, Global Init, Trellis Project Init, Project Init, gates,
+  and mark-ready. The report recorded `claudeState=absent-after-every-phase`
+  and `claudeDirectoryCount=0`.
+- Native Go short tests and build passed. The local Go 1.23.6 result does not
+  replace the repository CI matrix pinned to Go 1.26.5.
+- Source verification pinned the third-party manifest digest
+  `f91e89fd61f492b4ea49ca650099f811e2acc15c065dcfe822d5380f4ba3e75f`
+  and validator digest
+  `ee1996a444ca1f1a63bbc831243519c1fcd4af2eaa5a4989ced48b8bc39d144c`.
+  Doctor, context, conflict audit, JSON parsing, and `git diff --check` passed;
+  the conflict audit reported 0 blocking and 0 warnings.
+- CCG change/quality/security routes completed without blocking exit codes.
+  Structural quality reported no errors and 104 non-blocking complexity
+  warnings; security reported zero Critical, High, Medium, or Low findings.
+- Final review closed the target-path traversal, activation/ownership TOCTOU,
+  lock ownership, strict-data-boundary contract, and authenticated global
+  action hard-kill recovery findings. File effects recover only after exact
+  hash verification; uncertain Ponytail host effects remain `manual-pending`
+  and are never replayed or claimed.
 
 ## Rollback point
 
@@ -443,3 +571,34 @@ Verification on the clean `main` checkout:
   query fell back. The fix compares the complete fallback process-instance
   identity for the current PID; ten repeated focused runs and the full local
   Harness suite pass before resubmission.
+- Draft PR #10 delivery is frozen at the usable-initializer boundary:
+  third-party choices remain recommended but default-unselected, and host
+  operations without a reliable create-only API remain `manual-pending`.
+- The first PR CI run exposed hosted-runner compatibility issues rather than an
+  approval bypass: Windows temporary roots can sit below an OS-managed junction,
+  macOS Homebrew exposes Git through a file symlink, npm `.bin` paths use
+  platform separators, and PowerShell can wrap expected error text. The repair
+  canonicalizes only outer system-managed links, keeps owned roots and
+  descendants link-checked, executes the resolved native command identity,
+  normalizes `.bin` separators, and pins all text in the CCG snapshot to LF
+  while retaining automatic binary detection.
+- Post-repair sequential focused verification passed: global actions 41/41
+  with one Windows symlink-capability skip, MCP launcher 6/6 with one matching
+  skip, and source verification 13/13. The single final full Harness run passed
+  361 tests with 0 failures and 3 platform-capability skips.
+- The final hosted Windows matrix exposed one remaining 8.3-path identity
+  split: the requested temporary home used `RUNNER~1` while `realpath`
+  returned the physical `runneradmin` root. Managed paths now compute their
+  relative location against the approved requested root and traverse that
+  location from the verified physical root; the MCP launcher applies the same
+  mapping before checking every descendant for links.
+- Harness-owned initializer assets and `.harness` projections are now pinned
+  to LF with automatic binary detection, so immutable manifest and npm-lock
+  digests do not depend on the checkout platform. Tests compare canonical
+  command/package roots by physical identity instead of the caller's 8.3
+  spelling.
+- Final frozen-scope repair changed only the remaining subprocess-config-root
+  test expectation to use the same canonical physical home identity. Its
+  single sequential regression passed 1/1; no new CAS, tombstone, recovery,
+  transaction, or adversarial-concurrency behavior was added, and no further
+  local full-suite run is authorized before submission.
