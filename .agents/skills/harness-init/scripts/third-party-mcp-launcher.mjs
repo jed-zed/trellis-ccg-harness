@@ -64,12 +64,24 @@ async function realNonLinkedDirectory(target, label) {
   return path.resolve(await realpath(target));
 }
 
-async function assertRealPathBelow(root, target, label) {
+function mapPathBelowRoot(root, target, label, { rootAliases = [] } = {}) {
   const resolvedRoot = path.resolve(root);
   const resolvedTarget = assertAbsolutePath(target, label);
-  assertInside(resolvedRoot, resolvedTarget, label);
+  let relative = null;
+  for (const candidateRoot of [resolvedRoot, ...rootAliases.map((value) => path.resolve(value))]) {
+    if (inside(candidateRoot, resolvedTarget)) {
+      relative = path.relative(candidateRoot, resolvedTarget);
+      break;
+    }
+  }
+  if (relative === null) throw new Error(`${label} escapes its approved root.`);
+  return path.resolve(resolvedRoot, relative);
+}
 
-  const relative = path.relative(resolvedRoot, resolvedTarget);
+async function assertRealPathBelow(root, target, label, options = {}) {
+  const resolvedRoot = path.resolve(root);
+  const canonicalTarget = mapPathBelowRoot(root, target, label, options);
+  const relative = path.relative(resolvedRoot, canonicalTarget);
   let current = resolvedRoot;
   const rootDetails = await lstatRequired(current, "Harness home");
   if (!rootDetails.isDirectory() || rootDetails.isSymbolicLink()) {
@@ -80,7 +92,7 @@ async function assertRealPathBelow(root, target, label) {
     const details = await lstatRequired(current, label);
     if (details.isSymbolicLink()) throw new Error(`${label} contains a symbolic link or reparse point.`);
   }
-  return resolvedTarget;
+  return current;
 }
 
 async function readRegularJson(target, label) {
@@ -150,7 +162,13 @@ export async function fingerprintPinnedMcpTree(root) {
   return fingerprintPinnedNpmTool(root);
 }
 
-async function verifyOwnedNodeMcp({ homeDir, candidateId, ownership, manifestPath }) {
+async function verifyOwnedNodeMcp({
+  homeDir,
+  homeAliases = [],
+  candidateId,
+  ownership,
+  manifestPath,
+}) {
   if (
     ownership?.schemaVersion !== 1 ||
     ownership.owner !== OWNER ||
@@ -182,11 +200,22 @@ async function verifyOwnedNodeMcp({ homeDir, candidateId, ownership, manifestPat
   }
   const target = assertAbsolutePath(action.target, `Candidate ${candidateId} installation target`);
   const expectedTarget = path.join(homeDir, ".agents", "harness", "tools", candidateId, source.release);
-  if (path.resolve(target) !== path.resolve(expectedTarget)) {
+  const mappedTarget = mapPathBelowRoot(
+    homeDir,
+    target,
+    `Candidate ${candidateId} installation target`,
+    { rootAliases: homeAliases },
+  );
+  if (path.resolve(mappedTarget) !== path.resolve(expectedTarget)) {
     throw new Error(`Candidate ${candidateId} installation target does not match the trusted MCP manifest.`);
   }
-  await assertRealPathBelow(homeDir, target, `Candidate ${candidateId} installation target`);
-  const targetDetails = await lstatRequired(target, `Candidate ${candidateId} installation target`);
+  const canonicalTarget = await assertRealPathBelow(
+    homeDir,
+    target,
+    `Candidate ${candidateId} installation target`,
+    { rootAliases: homeAliases },
+  );
+  const targetDetails = await lstatRequired(canonicalTarget, `Candidate ${candidateId} installation target`);
   if (!targetDetails.isDirectory() || targetDetails.isSymbolicLink()) {
     throw new Error(`Candidate ${candidateId} installation target must be a real non-linked directory.`);
   }
@@ -209,9 +238,14 @@ async function verifyOwnedNodeMcp({ homeDir, candidateId, ownership, manifestPat
     throw new Error(`Candidate ${candidateId} command arguments must contain exactly one owned entrypoint.`);
   }
   const entrypoint = assertAbsolutePath(action.commandArgs[0], `Candidate ${candidateId} entrypoint`);
-  assertInside(target, entrypoint, `Candidate ${candidateId} entrypoint`);
-  await assertRealPathBelow(homeDir, entrypoint, `Candidate ${candidateId} entrypoint`);
-  const entrypointDetails = await lstatRequired(entrypoint, `Candidate ${candidateId} entrypoint`);
+  const canonicalEntrypoint = await assertRealPathBelow(
+    homeDir,
+    entrypoint,
+    `Candidate ${candidateId} entrypoint`,
+    { rootAliases: homeAliases },
+  );
+  assertInside(canonicalTarget, canonicalEntrypoint, `Candidate ${candidateId} entrypoint`);
+  const entrypointDetails = await lstatRequired(canonicalEntrypoint, `Candidate ${candidateId} entrypoint`);
   if (!entrypointDetails.isFile() || entrypointDetails.isSymbolicLink() || entrypointDetails.nlink > 1) {
     throw new Error(`Candidate ${candidateId} entrypoint is not a regular non-linked file.`);
   }
@@ -219,7 +253,12 @@ async function verifyOwnedNodeMcp({ homeDir, candidateId, ownership, manifestPat
   const { name, version } = parseExactPackageSelector(action.packageSelector);
   const packagePath = path.join(target, "node_modules", ...name.split("/"));
   assertInside(target, packagePath, `Candidate ${candidateId} package path`);
-  await assertRealPathBelow(homeDir, packagePath, `Candidate ${candidateId} package path`);
+  const canonicalPackagePath = await assertRealPathBelow(
+    homeDir,
+    packagePath,
+    `Candidate ${candidateId} package path`,
+    { rootAliases: homeAliases },
+  );
   const packageJson = await readRegularJson(path.join(packagePath, "package.json"), `Candidate ${candidateId} package identity`);
   if (packageJson.name !== name || packageJson.version !== version) {
     throw new Error(`Candidate ${candidateId} package identity drifted from its exact selector.`);
@@ -229,9 +268,9 @@ async function verifyOwnedNodeMcp({ homeDir, candidateId, ownership, manifestPat
   if (typeof binRelative !== "string" || !binRelative) {
     throw new Error(`Candidate ${candidateId} package has no trusted entrypoint.`);
   }
-  const expectedEntrypoint = path.resolve(packagePath, binRelative);
-  assertInside(packagePath, expectedEntrypoint, `Candidate ${candidateId} trusted entrypoint`);
-  if (path.resolve(entrypoint) !== expectedEntrypoint) {
+  const expectedEntrypoint = path.resolve(canonicalPackagePath, binRelative);
+  assertInside(canonicalPackagePath, expectedEntrypoint, `Candidate ${candidateId} trusted entrypoint`);
+  if (path.resolve(canonicalEntrypoint) !== expectedEntrypoint) {
     throw new Error(`Candidate ${candidateId} entrypoint does not match the trusted package metadata.`);
   }
   const lockSegments = source.packageLock.path.replaceAll("\\", "/").split("/");
@@ -322,6 +361,7 @@ export async function launchThirdPartyMcp({
   const ownership = await readRegularJson(ownershipPath, "Third-party MCP ownership record");
   const launch = await verifyOwnedNodeMcp({
     homeDir: canonicalHome,
+    homeAliases: [requestedHome],
     candidateId,
     ownership,
     manifestPath: DEFAULT_SOURCE_MANIFEST,

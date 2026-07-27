@@ -6,6 +6,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   renameSync,
   rmSync,
   writeFileSync,
@@ -559,11 +560,11 @@ test("approval plan digest binds canonical command roots, identities, and subpro
       env: { PATH: commandRoot },
     });
     assert.deepEqual(plan.execution.commandPlan.approvedCommandRoots, [
-      path.resolve(commandRoot),
+      realpathSync(commandRoot),
     ]);
     assert.equal(
       plan.execution.commandPlan.commands.git.binding.command,
-      path.resolve(executable),
+      realpathSync(executable),
     );
     assert.match(
       plan.execution.commandPlan.commands.git.binding.identity.binary.sha256,

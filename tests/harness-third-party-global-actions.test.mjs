@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -505,7 +505,7 @@ test("approved package roots canonicalize linked ancestors and detect package de
     });
     assert.equal(
       linkedBinding.identity.packageTree.realRoot,
-      path.resolve(realParent, "node_modules"),
+      realpathSync(path.resolve(realParent, "node_modules")),
     );
     await assertTrustedCommandUnchanged(linkedBinding);
   } finally {

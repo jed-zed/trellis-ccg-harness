@@ -10,6 +10,8 @@
 
 # Harness ownership binds exact bytes. Keep every hashed projection canonical
 # across Windows, macOS, and Linux checkouts.
+.agents/skills/harness-init/** text=auto eol=lf
+.harness/** text=auto eol=lf
 AGENTS.md text eol=lf
 .agents/skills/harness-init/assets/collaboration-policy.md text eol=lf
 .agents/skills/harness-init/assets/project-contract.schema.json text eol=lf

@@ -275,9 +275,11 @@ async function assertRealDirectory(target, label) {
 }
 
 async function ensureDirectory(root, target) {
-  const canonicalRoot = await assertRealDirectory(root, "User home");
-  assertInside(canonicalRoot, target, "Managed directory");
-  const parts = path.relative(canonicalRoot, path.resolve(target)).split(path.sep).filter(Boolean);
+  const requestedRoot = path.resolve(root);
+  const requestedTarget = path.resolve(target);
+  assertInside(requestedRoot, requestedTarget, "Managed directory");
+  const parts = path.relative(requestedRoot, requestedTarget).split(path.sep).filter(Boolean);
+  const canonicalRoot = await assertRealDirectory(requestedRoot, "User home");
   let current = canonicalRoot;
   for (const part of parts) {
     current = path.join(current, part);
@@ -693,7 +695,7 @@ export async function acquirePinnedGitSource({
   approvalPlan,
   env = process.env,
 }) {
-  await assertRealDirectory(homeDir, "User home");
+  const canonicalHome = await assertRealDirectory(homeDir, "User home");
   if (!source || !SOURCE_ID.test(String(source.id ?? ""))) throw new Error("Pinned source has an unsafe id.");
   assertCredentialFreeHttpsRepository(source.repository, "Pinned source repository");
   immutable(source.commit, `Pinned source ${source.id} commit`);
@@ -704,7 +706,7 @@ export async function acquirePinnedGitSource({
   validateApprovalPlanDigest(approvalPlan);
   assertCanonicalEqual(
     approvalPlan.execution?.subprocessConfigRoots,
-    subprocessConfigRoots(homeDir),
+    subprocessConfigRoots(canonicalHome),
     "Pinned source subprocess configuration roots",
   );
   const displayedSources = approvalPlan.groups
@@ -727,11 +729,11 @@ export async function acquirePinnedGitSource({
   );
   const binding = validateGitBinding(trustedCommands.bindings.git);
   const gitEnvironment = gitSubprocessEnvironment(approvalPlan, env);
-  const root = homePath(homeDir, ".agents/harness/sources", "Pinned source cache");
-  await ensureDirectory(homeDir, root);
+  const root = homePath(canonicalHome, ".agents/harness/sources", "Pinned source cache");
+  await ensureDirectory(canonicalHome, root);
   const sourceRoot = path.join(root, source.id);
   assertInside(root, sourceRoot, "Pinned source cache");
-  await ensureDirectory(homeDir, sourceRoot);
+  await ensureDirectory(canonicalHome, sourceRoot);
   const target = path.join(sourceRoot, source.commit);
   assertInside(sourceRoot, target, "Pinned source checkout");
   if (await exists(target)) {

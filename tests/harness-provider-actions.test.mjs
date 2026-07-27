@@ -428,7 +428,7 @@ test("retargeting a .claude link during reachable-tree traversal is rejected", a
     await assert.rejects(
       fingerprintProtectedClaudeBoundary(homeDir, {
         async onSymlinkTargetBound({ linkPath }) {
-          if (linkPath !== profileLink) return;
+          assert.equal(path.basename(linkPath), path.basename(profileLink));
           await rm(profileLink, { recursive: true, force: true });
           await symlink(
             secondTarget,

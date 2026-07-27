@@ -586,3 +586,14 @@ Verification on the clean `main` checkout:
   with one Windows symlink-capability skip, MCP launcher 6/6 with one matching
   skip, and source verification 13/13. The single final full Harness run passed
   361 tests with 0 failures and 3 platform-capability skips.
+- The final hosted Windows matrix exposed one remaining 8.3-path identity
+  split: the requested temporary home used `RUNNER~1` while `realpath`
+  returned the physical `runneradmin` root. Managed paths now compute their
+  relative location against the approved requested root and traverse that
+  location from the verified physical root; the MCP launcher applies the same
+  mapping before checking every descendant for links.
+- Harness-owned initializer assets and `.harness` projections are now pinned
+  to LF with automatic binary detection, so immutable manifest and npm-lock
+  digests do not depend on the checkout platform. Tests compare canonical
+  command/package roots by physical identity instead of the caller's 8.3
+  spelling.
