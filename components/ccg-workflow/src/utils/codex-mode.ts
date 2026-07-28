@@ -3,7 +3,7 @@ import { homedir } from 'node:os'
 import { isAbsolute, relative, resolve } from 'node:path'
 import fs from 'fs-extra'
 import { join } from 'pathe'
-import { stringify } from 'smol-toml'
+import { parse, stringify } from 'smol-toml'
 import { version as packageVersion } from '../../package.json'
 import { readCcgConfigAt } from './config'
 import { PACKAGE_ROOT, injectConfigVariables } from './installer-template'
@@ -56,6 +56,7 @@ export interface InstallCodexModeOptions {
   codexHome?: string
   templateDir?: string
   pythonCommand?: string
+  productManagerProvider?: 'disabled' | 'codex' | 'gemini'
 }
 
 export interface UninstallCodexModeOptions {
@@ -829,16 +830,31 @@ export async function installCodexModeAt(
       }
       planned.set(normalizedRelative(join('hooks', name)), bytes)
     }
-    const ccgConfigBytes = config
-      ? Buffer.from(stringify({
-          ...config,
-          general: {
-            ...config.general,
-            version: packageVersion,
-          },
-        } as any), 'utf8')
-      : await fs.readFile(join(templateDir, 'ccg-config.toml'))
-    planned.set('ccg/config.toml', ccgConfigBytes)
+    const configTemplate = await fs.readFile(join(templateDir, 'ccg-config.toml'))
+    if (!config && !options.productManagerProvider) {
+      planned.set('ccg/config.toml', configTemplate)
+    }
+    else {
+      const parsed = config
+        ? {
+            ...config,
+            general: {
+              ...config.general,
+              version: packageVersion,
+            },
+          } as Record<string, any>
+        : parse(configTemplate.toString('utf8')) as Record<string, any>
+      if (options.productManagerProvider) {
+        parsed.product_manager = {
+          ...parsed.product_manager,
+          enabled: options.productManagerProvider !== 'disabled',
+          provider: options.productManagerProvider === 'disabled'
+            ? ''
+            : options.productManagerProvider,
+        }
+      }
+      planned.set('ccg/config.toml', Buffer.from(stringify(parsed), 'utf8'))
+    }
     planned.set('.ccg-version', Buffer.from(packageVersion, 'utf8'))
 
     const configPath = join(codexHome, 'config.toml')

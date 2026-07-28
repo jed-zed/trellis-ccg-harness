@@ -204,7 +204,10 @@ describe('Grok intelligence ACP transport', () => {
       rawEventsDir,
       rawEventsMaxBytes: 2 * 1024 * 1024,
       rawEventsMaxEvents: 100,
-      timeoutMs: 3000,
+      // This is integration-fixture scheduling headroom, not the production
+      // timeout contract. Loaded Windows runs spawn many fake child processes
+      // in parallel across the full suite.
+      timeoutMs: 8000,
       neutralHome,
       grokHome,
       authMode: 'browser_oauth',
@@ -327,7 +330,7 @@ describe('Grok intelligence ACP transport', () => {
   it('waits for a delayed turn_completed notification after session/prompt responds', async () => {
     // Keep the production timeout contract unchanged while giving the spawned
     // fixture enough startup headroom on loaded Windows CI hosts.
-    const result = await makeClient('delayed-turn').run(runOptions({ timeoutMs: 6000 }))
+    const result = await makeClient('delayed-turn').run(runOptions({ timeoutMs: 8000 }))
     expect(result.notifications.some((message: any) => (
       message.method === '_x.ai/session/update'
       && message.params?.update?.sessionUpdate === 'turn_completed'
@@ -335,10 +338,9 @@ describe('Grok intelligence ACP transport', () => {
   })
 
   it('accepts the correlated session/prompt response when the optional turn notification is absent', async () => {
-    // Process startup on loaded Windows hosts can consume most of the default
-    // 3-second production budget. Keep runtime behavior unchanged while giving
-    // this integration fixture enough CI scheduling headroom.
-    const result = await makeClient('no-turn').run(runOptions({ timeoutMs: 6000 }))
+    // Keep runtime behavior unchanged while giving this integration fixture
+    // enough scheduling headroom on loaded Windows CI hosts.
+    const result = await makeClient('no-turn').run(runOptions({ timeoutMs: 8000 }))
     expect(result.completion).toEqual({ promptResponse: true, turnCompleted: false })
   })
 

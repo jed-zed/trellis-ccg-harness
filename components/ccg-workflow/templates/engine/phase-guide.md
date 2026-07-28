@@ -1,5 +1,24 @@
 # CCG 通用阶段指导
 
+## Product-manager event boundary
+
+When a project enables the provider-neutral product-manager contract, commands
+and Skills emit event candidates only. The current Codex task is the sole
+orchestrator; Trellis remains the only task, plan, milestone, and completion
+authority. Do not create `.ccg/tasks` or a parallel plan.
+
+- New product work after repository discovery: `INTAKE_REVIEW`.
+- Plan draft before user approval: `PLAN_REVIEW`.
+- Material scope, risk, evidence, or plan change: `DRIFT_REVIEW`.
+- Candidate milestone after required engineering evidence: `MILESTONE_REVIEW`.
+- Final completion matrix after all gates: `FINAL_REVIEW`.
+
+Ordinary implementation, research, and evidence collection do not call a
+provider. Provider execution requires explicit authorization and remains
+read-only with terminal, workspace-write, subagent, and fallback capabilities
+disabled. A validated review may create a user hard gate but may never mutate
+Trellis lifecycle status or call finish/archive.
+
 > 本文件定义所有策略共享的阶段执行规范。策略文件可通过 Read 引用。
 
 ## 1. 阶段状态自检

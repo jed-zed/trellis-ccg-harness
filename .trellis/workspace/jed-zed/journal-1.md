@@ -142,3 +142,32 @@ Decoupled Harness provider role routing from permanent Claude/Grok disablement, 
 ### Status
 
 [OK] **Completed**
+
+
+## Session 5: Deliver original CCG preview parity
+
+**Date**: 2026-07-28
+**Task**: Deliver original CCG preview parity
+**Branch**: `codex/original-preview-parity-harness`
+
+### Summary
+
+Pinned CCG 3.4.1 preview-parity commit 97c4a9d and tree 4d089e95, refreshed the Harness snapshot transactionally, fixed Windows cleanup retries, synchronized global CLI/plugin 3.4.1+codex.2, enabled and exercised Grok intelligence, and passed Harness, CCG, Go, source, doctor, and conflict gates.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `76f6615` | (see git log) |
+| `4ca1892` | (see git log) |
+| `5059f95` | (see git log) |
+| `9331016` | (see git log) |
+| `ff9b32f` | (see git log) |
+| `8dfd44e` | (see git log) |
+| `ea9c052` | (see git log) |
+| `9867c32` | (see git log) |
+| `acee759` | (see git log) |
+
+### Status
+
+[OK] **Completed**

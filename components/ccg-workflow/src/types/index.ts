@@ -45,6 +45,15 @@ export interface IntelligenceConfig {
   x_search_policy: XSearchPolicy
 }
 
+export interface ProductManagerConfig {
+  enabled: boolean
+  provider: '' | 'codex' | 'gemini'
+  contract_version: '1'
+  max_retries: number
+  timeout_ms: number
+  max_output_bytes: number
+}
+
 export interface RoleRouting {
   models: ModelType[]
   primary: ModelType
@@ -79,6 +88,7 @@ export interface CcgConfig {
     setup_url: string
   }
   intelligence: IntelligenceConfig
+  product_manager: ProductManagerConfig
   performance?: {
     liteMode?: boolean // 轻量模式：禁用 Web UI，更快响应
     skipImpeccable?: boolean // 跳过 Impeccable 前端设计命令安装
@@ -112,6 +122,7 @@ export interface InitOptions {
   workflows?: string
   installDir?: string
   intelligence?: boolean
+  productManager?: '' | 'disabled' | 'codex' | 'gemini'
 }
 
 // 安装结果

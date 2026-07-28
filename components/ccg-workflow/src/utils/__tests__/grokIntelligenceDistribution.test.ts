@@ -104,6 +104,8 @@ describe('Grok intelligence distribution', () => {
     expect(pluginFiles).toEqual(templateFiles)
     for (const file of templateFiles)
       expect(readFileSync(join(PLUGIN_RUNTIME, file)), file).toEqual(readFileSync(join(TEMPLATE_RUNTIME, file)))
+    expect(readFileSync(join(TEMPLATE_RUNTIME, 'command.mjs'), 'utf8'))
+      .toContain("eventNormalizerVersion: '2'")
   })
 
   it('installs an executable Node runtime with both manual commands', async () => {

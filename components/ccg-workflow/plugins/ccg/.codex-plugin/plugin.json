@@ -1,7 +1,7 @@
 {
   "name": "ccg",
-  "version": "3.4.0+codex.1",
-  "description": "Codex-native CCG workflow with independent role-to-provider routing, opt-in external intelligence, spec, team, and quality gates. Codex remains the final implementation and verification owner.",
+  "version": "3.4.1+codex.2",
+  "description": "Codex-native CCG workflow with independent role-to-provider routing, a provider-neutral read-only product manager, opt-in external intelligence, spec, team, and quality gates. Codex remains the final implementation and verification owner.",
   "author": {
     "name": "jed-zed",
     "email": "noreply@example.com",

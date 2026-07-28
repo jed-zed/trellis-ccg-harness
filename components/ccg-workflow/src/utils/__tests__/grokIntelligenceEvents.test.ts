@@ -172,6 +172,47 @@ describe('Grok ACP event normalization', () => {
       error: 'rate limited',
     })
   })
+
+  it('accepts equivalent terminal replays but rejects conflicting outcomes', () => {
+    const start = {
+      method: 'session/update',
+      params: {
+        update: {
+          sessionUpdate: 'tool_call',
+          toolCallId: 'replayed-search',
+          kind: 'search',
+          rawInput: { variant: 'WebSearch', backend: true },
+        },
+      },
+    }
+    const completed = {
+      method: 'session/update',
+      params: {
+        update: {
+          sessionUpdate: 'tool_call_update',
+          toolCallId: 'replayed-search',
+          status: 'completed',
+          rawOutput: {
+            action: {
+              query: 'official contract',
+              sources: [{ type: 'url', url: 'https://docs.x.ai/reference' }],
+            },
+          },
+        },
+      },
+    }
+
+    const normalized = normalizeAcpEvents([start, completed, structuredClone(completed)], {
+      requireComplete: false,
+    })
+    expect(normalized.searches).toHaveLength(1)
+    expect(normalized.events.filter((event: any) => event.kind === 'search_result')).toHaveLength(1)
+
+    const conflicting = structuredClone(completed)
+    conflicting.params.update.rawOutput.action.query = 'different contract'
+    expect(() => normalizeAcpEvents([start, completed, conflicting], { requireComplete: false }))
+      .toThrow(/Duplicate search terminal update: replayed-search/)
+  })
 })
 
 describe('runtime source registry', () => {
