@@ -15,6 +15,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 import {
+  assertManagedCcgRuntimePackage,
   assertBootstrapOwnershipContinuity,
   buildBootstrapOwnership,
   buildRestoreAction,
@@ -78,6 +79,43 @@ function runPackageManager(command, args) {
   );
   return String(result.stdout ?? "").trim();
 }
+
+test("activated CCG smoke accepts only the owned packaged runtime", () => {
+  const installed = packageSnapshot({ version: "3.4.2" });
+  const ownership = {
+    id: "ccg-link",
+    kind: "npm-global-package",
+    package: "ccg-workflow",
+    originalBeforeFirstManagement: null,
+    installedByHarness: installed,
+  };
+  assert.equal(
+    assertManagedCcgRuntimePackage(ownership, installed),
+    installed,
+  );
+  assert.throws(
+    () =>
+      assertManagedCcgRuntimePackage(
+        ownership,
+        packageSnapshot({
+          version: "3.4.2",
+          sourcePath: path.resolve("C:/harness/components/ccg-workflow"),
+        }),
+      ),
+    /ownership fingerprint/i,
+  );
+  assert.throws(
+    () =>
+      assertManagedCcgRuntimePackage(ownership, {
+        ...installed,
+        contentIdentity: {
+          ...installed.contentIdentity,
+          digest: "c".repeat(64),
+        },
+      }),
+    /ownership fingerprint/i,
+  );
+});
 
 test("update parsing accepts a clean checkout HEAD or one explicit CCG/Trellis target", () => {
   const parsed = parseLifecycleArgs([

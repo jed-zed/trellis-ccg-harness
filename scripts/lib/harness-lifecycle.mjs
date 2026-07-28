@@ -564,6 +564,23 @@ export function globalPackageSnapshotsEqual(left, right) {
   );
 }
 
+export function assertManagedCcgRuntimePackage(ownershipEntry, observed) {
+  if (
+    ownershipEntry?.id !== "ccg-link" ||
+    ownershipEntry.kind !== "npm-global-package" ||
+    observed?.sourcePath !== undefined ||
+    !globalPackageSnapshotsEqual(
+      observed ?? null,
+      ownershipEntry.installedByHarness ?? null,
+    )
+  ) {
+    throw new Error(
+      "Harness-owned global CCG package no longer matches its ownership fingerprint.",
+    );
+  }
+  return observed;
+}
+
 function buildOwnershipEntry({
   id,
   kind,

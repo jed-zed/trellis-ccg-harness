@@ -13,6 +13,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
+  assertManagedCcgRuntimePackage,
   buildBootstrapOwnership,
   buildOwnedUninstallPlan,
   buildRestoreAction,
@@ -720,18 +721,7 @@ async function runActivatedCcgCliSmokes(repoRoot, componentRoot) {
   );
   if (ccgOwnership) {
     const globalPackages = await observeGlobalPackages();
-    if (
-      !globalPackages.ccg?.sourcePath ||
-      !samePath(globalPackages.ccg.sourcePath, componentRoot) ||
-      !globalPackageSnapshotsEqual(
-        globalPackages.ccg,
-        ccgOwnership.installedByHarness,
-      )
-    ) {
-      throw new Error(
-        "Harness-owned global CCG link no longer matches its ownership fingerprint.",
-      );
-    }
+    assertManagedCcgRuntimePackage(ccgOwnership, globalPackages.ccg);
     const globalVersion =
       process.platform === "win32"
         ? run(
