@@ -87,8 +87,10 @@ state under `.ccg/` and `.codex/ccg/` is evidence only and must remain ignored.
 - A user-level Trellis workflow-state hook must yield whenever the project
   registers its local equivalent; the adapter contract marker makes this
   precedence auditable.
-- Execute CCG through the installed CLI/plugin version recorded in the source
-  manifest. Never use `components/ccg-workflow/` as the integration runtime.
+- Execute CCG through an installed personal CLI/plugin. The version recorded in
+  the source manifest describes the tracked snapshot only; the owner guarantees
+  runtime compatibility across personal CCG versions. Never use
+  `components/ccg-workflow/` as the integration runtime.
 
 ## Provider Rules
 
@@ -106,12 +108,15 @@ state under `.ccg/` and `.codex/ccg/` is evidence only and must remain ignored.
 
 ## Conflict Severity
 
-- **Blocking:** source/version drift, tracked runtime state, unsafe task
+- **Blocking:** source-snapshot or project-tool drift, tracked runtime state, unsafe task
   authority, non-inline dispatch, non-Codex workspace write access, routing
   authority drift, provider credential overlap, or command namespace collision.
 - **Warning:** missing local setup, optional provider outage, or unguarded
   duplicate Trellis prompt-state hooks.
 - **Info:** intentionally inert generated assets or nested component CI.
+
+A valid installed personal CCG CLI/plugin version that differs from
+`harness.sources.json` is not drift and must not produce a conflict.
 
 Blocking conflicts exit with code 2. Warnings and information remain visible
 but do not block ordinary work.

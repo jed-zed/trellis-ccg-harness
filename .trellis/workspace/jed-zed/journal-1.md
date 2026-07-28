@@ -171,3 +171,24 @@ Pinned CCG 3.4.1 preview-parity commit 97c4a9d and tree 4d089e95, refreshed the 
 ### Status
 
 [OK] **Completed**
+
+
+## Session 6: Remove CCG runtime version lock
+
+**Date**: 2026-07-28
+**Task**: Remove CCG runtime version lock
+**Branch**: `codex/remove-ccg-version-lock`
+
+### Summary
+
+Decoupled installed personal CCG CLI/plugin versions from source snapshot provenance; retained strict source/tree checks and added regression coverage.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `d6fab9d566e8b59aff804ee75332985de31fca16` | (see git log) |
+
+### Status
+
+[OK] **Completed**

@@ -30,9 +30,10 @@ integration boundary, not a third framework.
 - Trellis is the canonical authority for task identity, status, requirements,
   design, implementation plans, specifications, and completion.
 - CCG owns model orchestration, evidence helpers, GPT Pro bridges, and quality
-  gates. Run it from the installed CLI/plugin version recorded in
-  `harness.sources.json`; never execute `components/ccg-workflow/` as the
-  integration runtime.
+  gates. Run it from an installed personal CCG CLI/plugin; the version recorded
+  in `harness.sources.json` describes the tracked source snapshot and does not
+  constrain the runtime version. Never execute `components/ccg-workflow/` as
+  the integration runtime.
 - Codex is the only workspace writer and uses Trellis inline mode. CCG-registered
   Provider CLIs, including Gemini, Claude, Antigravity, and Grok, are routable
   bounded read-only helpers when their runtimes are available. GPT Pro is

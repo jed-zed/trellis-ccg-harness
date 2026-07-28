@@ -42,7 +42,6 @@ function runtimeInvocations(contract, env) {
 export function runCcgRuntimeCheck({
   repoRoot,
   contract,
-  sources,
   add,
   runner = defaultRunner,
   env = process.env,
@@ -82,21 +81,16 @@ export function runCcgRuntimeCheck({
     return;
   }
 
-  const versionMatches = installedVersion === sources.ccg.version;
   add(
     "ccg-runtime-cli",
     "blocking",
-    versionMatches ? "ok" : "conflict",
-    versionMatches
-      ? "Installed CCG CLI matches the source manifest."
-      : "Installed CCG CLI version drift was detected.",
-    { expected: sources.ccg.version, actual: installedVersion },
-    "Install the CCG CLI version recorded in harness.sources.json.",
+    "ok",
+    "Installed personal CCG CLI is available.",
+    { actual: installedVersion },
   );
 }
 
 function checkPluginCache({
-  sources,
   add,
   homeDir,
 }) {
@@ -109,19 +103,19 @@ function checkPluginCache({
     "ccg",
   );
   let pluginVersion = null;
+  let candidates = [];
   try {
-    const candidates = readdirSync(pluginCacheRoot, {
+    candidates = readdirSync(pluginCacheRoot, {
       withFileTypes: true,
     })
       .filter((entry) => entry.isDirectory())
       .map((entry) => entry.name)
-      .filter(
-        (version) =>
-          version === sources.ccg.version ||
-          version.startsWith(`${sources.ccg.version}+`),
-      )
       .sort((left, right) => right.localeCompare(left));
-    for (const candidate of candidates) {
+  } catch {
+    // A missing user cache is setup drift, not source drift.
+  }
+  for (const candidate of candidates) {
+    try {
       const manifest = readJson(
         path.join(
           pluginCacheRoot,
@@ -130,32 +124,23 @@ function checkPluginCache({
           "plugin.json",
         ),
       );
-      if (
-        manifest.version === candidate &&
-        (
-          manifest.version === sources.ccg.version ||
-          manifest.version.startsWith(`${sources.ccg.version}+`)
-        )
-      ) {
+      if (manifest.name === "ccg" && manifest.version === candidate) {
         pluginVersion = manifest.version;
         break;
       }
+    } catch {
+      // Ignore malformed or incomplete cache entries and keep looking.
     }
-  } catch {
-    // A missing user cache is setup drift, not source drift.
   }
-  const matches =
-    pluginVersion === sources.ccg.version ||
-    pluginVersion?.startsWith(`${sources.ccg.version}+`);
   add(
     "ccg-plugin-cache",
-    pluginVersion && !matches ? "blocking" : "warning",
-    matches ? "ok" : "conflict",
-    matches
-      ? "Installed CCG Codex plugin cache matches the source manifest."
-      : "Installed CCG Codex plugin cache is missing or mismatched.",
-    { expected: sources.ccg.version, actual: pluginVersion ?? "missing" },
-    "Sync the personal CCG Codex plugin cache.",
+    "warning",
+    pluginVersion ? "ok" : "conflict",
+    pluginVersion
+      ? "Installed personal CCG Codex plugin cache is available."
+      : "Installed personal CCG Codex plugin cache could not be verified.",
+    { actual: pluginVersion ?? "missing" },
+    "Install the personal CCG Codex plugin before running plugin workflows.",
   );
 }
 
