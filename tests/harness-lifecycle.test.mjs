@@ -80,7 +80,7 @@ function runPackageManager(command, args) {
   return String(result.stdout ?? "").trim();
 }
 
-test("activated CCG smoke accepts only the owned packaged runtime", () => {
+test("activated CCG smoke accepts owner-compatible packaged runtime content", () => {
   const installed = packageSnapshot({ version: "3.4.2" });
   const ownership = {
     id: "ccg-link",
@@ -102,18 +102,22 @@ test("activated CCG smoke accepts only the owned packaged runtime", () => {
           sourcePath: path.resolve("C:/harness/components/ccg-workflow"),
         }),
       ),
-    /ownership fingerprint/i,
+    /packaged installation/i,
+  );
+  const rebuilt = {
+    ...installed,
+    contentIdentity: {
+      ...installed.contentIdentity,
+      digest: "c".repeat(64),
+    },
+  };
+  assert.equal(
+    assertManagedCcgRuntimePackage(ownership, rebuilt),
+    rebuilt,
   );
   assert.throws(
-    () =>
-      assertManagedCcgRuntimePackage(ownership, {
-        ...installed,
-        contentIdentity: {
-          ...installed.contentIdentity,
-          digest: "c".repeat(64),
-        },
-      }),
-    /ownership fingerprint/i,
+    () => assertManagedCcgRuntimePackage(ownership, null),
+    /packaged installation/i,
   );
 });
 

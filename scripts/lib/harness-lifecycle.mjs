@@ -568,14 +568,11 @@ export function assertManagedCcgRuntimePackage(ownershipEntry, observed) {
   if (
     ownershipEntry?.id !== "ccg-link" ||
     ownershipEntry.kind !== "npm-global-package" ||
-    observed?.sourcePath !== undefined ||
-    !globalPackageSnapshotsEqual(
-      observed ?? null,
-      ownershipEntry.installedByHarness ?? null,
-    )
+    !observed ||
+    observed.sourcePath !== undefined
   ) {
     throw new Error(
-      "Harness-owned global CCG package no longer matches its ownership fingerprint.",
+      "Harness-owned global CCG runtime must remain a packaged installation.",
     );
   }
   return observed;
