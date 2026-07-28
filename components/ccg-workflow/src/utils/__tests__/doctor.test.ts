@@ -8,12 +8,15 @@ import { pathToFileURL } from 'node:url'
 import fs from 'fs-extra'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { version as packageVersion } from '../../../package.json'
+import type { ModelRouting } from '../../types'
 import {
   buildGrokDoctorArguments,
+  collectRoutingModels,
   doctor,
   execFileSafe,
   formatGrokDoctorFailure,
   getGrokDoctorTimeout,
+  routingStatusRows,
   validateIntelligenceDoctorConfig,
 } from '../../commands/doctor'
 import { isCodexNativeRequest } from '../../cli-setup'
@@ -129,6 +132,29 @@ describe('doctor command helpers', () => {
       '3',
       '--max-bundle-bytes',
       '4096',
+    ])
+  })
+
+  it('includes all three role providers in health checks and status rows', () => {
+    const routing: ModelRouting = {
+      frontend: { primary: 'gemini', models: ['gemini'], strategy: 'fallback' },
+      backend: { primary: 'codex', models: ['codex'], strategy: 'fallback' },
+      search: { primary: 'grok', models: ['grok'], strategy: 'fallback' },
+      mode: 'smart',
+    }
+
+    expect(collectRoutingModels(routing)).toEqual([
+      'gemini',
+      'gemini',
+      'codex',
+      'codex',
+      'grok',
+      'grok',
+    ])
+    expect(routingStatusRows(routing)).toEqual([
+      { role: 'Frontend', provider: 'gemini' },
+      { role: 'Backend', provider: 'codex' },
+      { role: 'Search', provider: 'grok' },
     ])
   })
 

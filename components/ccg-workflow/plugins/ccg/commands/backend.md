@@ -1,5 +1,5 @@
 ---
-description: "Implement backend-heavy work with Codex as the primary executor"
+description: "Implement backend-heavy work with the configured backend provider"
 argument-hint: "<backend-task>"
 allowed-tools: [Read, Glob, Grep, Bash, Edit, Write, WebFetch]
 ---
@@ -22,4 +22,6 @@ The user invoked:
 
 Use the installed CCG plugin skill `ccg:backend`.
 
-Backend work is Codex-led by default. Gemini is optional and should be used only for complex design alternatives, risk review, edge cases, or tests through the bundled browser preview helper.
+Resolve `ccg routing get backend --json` and use that provider for bounded
+backend drafting or analysis. Codex applies the final workspace changes and
+verifies them.

@@ -79,3 +79,116 @@ Implemented the approval-gated Global and Project Init flow with fixed third-par
 ### Status
 
 [OK] **Completed**
+
+
+## Session 3: Complete CLI capability role-routing decoupling
+
+**Date**: 2026-07-27
+**Task**: Complete CLI capability role-routing decoupling
+**Branch**: `codex/role-routing-harness-sync`
+
+### Summary
+
+Implemented independent frontend/backend/search provider routing in CCG 3.4.0, completed Gemini and Grok reviews, synchronized the exact source tree through the Harness transaction, installed the CLI and Codex plugin cache, and passed final source, doctor, and conflict gates.
+
+### Main Changes
+
+- Decoupled the three persistent roles from provider names.
+- Preserved analysis, planning, implementation/testing, and review as phases inside those roles.
+- Recorded the source and Harness provenance transaction and review evidence.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `19d094b77fa61b9d4408522053294e111aad90bb` | (see git log) |
+| `bf60f343f22812a84c1c628f4d4d669ea9cf6996` | Final Harness projection commit |
+
+### Testing
+
+- [OK] CCG local gates passed: 32 files, 488 tests passed, 1 skipped.
+- [OK] CCG PR #9 CI passed Linux, Windows, and Go jobs.
+- [OK] Remote source verification, Harness tests, doctor, conflicts, and Trellis archive validation passed after the final provenance refresh.
+- [OK] Harness PR #12 CI passed all 10 Node, Bootstrap/doctor, and Go jobs across Ubuntu, Windows, and macOS.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Merge CCG PR #9 before Harness PR #12.
+
+
+## Session 4: Close provider role routing rollout
+
+**Date**: 2026-07-27
+**Task**: Close provider role routing rollout
+**Branch**: `codex/provider-routing-closeout`
+
+### Summary
+
+Decoupled Harness provider role routing from permanent Claude/Grok disablement, preserved Codex-only workspace writes, added plugin-only CCG registration, installed and verified CCG 3.4.0+codex.1 from a durable source, passed local and initial GitHub CI gates, and prepared PR #13 for merge.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `b6e2e09` | (see git log) |
+| `ddf09ce` | (see git log) |
+| `1ee673d` | (see git log) |
+| `62ccd67` | (see git log) |
+
+### Status
+
+[OK] **Completed**
+
+
+## Session 5: Deliver original CCG preview parity
+
+**Date**: 2026-07-28
+**Task**: Deliver original CCG preview parity
+**Branch**: `codex/original-preview-parity-harness`
+
+### Summary
+
+Pinned CCG 3.4.1 preview-parity commit 97c4a9d and tree 4d089e95, refreshed the Harness snapshot transactionally, fixed Windows cleanup retries, synchronized global CLI/plugin 3.4.1+codex.2, enabled and exercised Grok intelligence, and passed Harness, CCG, Go, source, doctor, and conflict gates.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `76f6615` | (see git log) |
+| `4ca1892` | (see git log) |
+| `5059f95` | (see git log) |
+| `9331016` | (see git log) |
+| `ff9b32f` | (see git log) |
+| `8dfd44e` | (see git log) |
+| `ea9c052` | (see git log) |
+| `9867c32` | (see git log) |
+| `acee759` | (see git log) |
+
+### Status
+
+[OK] **Completed**
+
+
+## Session 6: Remove CCG runtime version lock
+
+**Date**: 2026-07-28
+**Task**: Remove CCG runtime version lock
+**Branch**: `codex/remove-ccg-version-lock`
+
+### Summary
+
+Decoupled installed personal CCG CLI/plugin versions from source snapshot provenance; retained strict source/tree checks and added regression coverage.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `d6fab9d566e8b59aff804ee75332985de31fca16` | (see git log) |
+
+### Status
+
+[OK] **Completed**

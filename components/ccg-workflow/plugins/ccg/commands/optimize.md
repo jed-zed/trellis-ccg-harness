@@ -22,4 +22,6 @@ The user invoked:
 
 Use the installed CCG plugin skill `ccg:optimize`.
 
-Measure or inspect before changing behavior. Gemini may suggest alternatives, tradeoffs, or missed risks, but Codex applies and verifies the final optimization.
+Measure or inspect before changing behavior. Use the applicable frontend,
+backend, and/or search providers for alternatives or missed risks; Codex
+applies and verifies the final optimization.

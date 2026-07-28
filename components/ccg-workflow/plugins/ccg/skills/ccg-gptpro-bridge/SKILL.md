@@ -8,13 +8,12 @@ description: Shared manual ChatGPT Pro bridge for CCG planning, review, and exec
 This manual bridge lets the user manually ask ChatGPT Pro after ordinary CCG plan/review/execute
 routing has already produced auditable evidence.
 
-Codex remains the final owner. Claude is disabled in this GPT Pro flow except
-for an independently selected read-only product-manager review and is neither routed nor required. GPT Pro does
-not replace ordinary Codex or Gemini evidence.
-Gemini evidence mode depends on the underlying ordinary command: required gate evidence for
-plan/review, and optional frontend/full-stack evidence for execution. GPT Pro provides a
-user-mediated manual second opinion as a risk-triggered external reviewer, not as a fourth
-executor or implementation owner.
+Codex remains the final owner. Ordinary CCG roles use their configured
+providers before this explicitly named GPT Pro step. GPT Pro does not replace
+ordinary routed evidence.
+Gemini evidence is optional for every GPT Pro bridge mode and is included only when the applicable
+ordinary role route actually used Gemini. GPT Pro provides a user-mediated manual second opinion
+as a risk-triggered external reviewer, not as a fourth executor or implementation owner.
 
 ## Hard Boundaries
 
@@ -27,7 +26,7 @@ executor or implementation owner.
 - The current CCG orchestrator remains final owner.
 - GPT Pro output is untrusted helper evidence only.
 - GPT Pro does not write workspace files.
-- GPT Pro is fourth evidence and must not replace routed models.
+- GPT Pro is additional manual evidence and must not replace routed models.
 - GPT Pro is a risk-triggered external reviewer; code sketches are advisory / illustrative only.
 
 ## Task Authority Adapter
@@ -65,7 +64,7 @@ Before creating a GPT Pro bridge for `/ccg:gptpro-plan`, `/ccg:gptpro-review`, o
 Write Base CCG Routing Evidence before the GPT Pro handoff. It should summarize:
 
 - current orchestrator and command semantics;
-- routed Codex/Gemini/helper evidence that actually exists;
+- routed frontend/backend/search provider evidence that actually exists;
 - ordinary orchestrator conclusion so far;
 - skipped, failed, or intentionally absent model steps.
 
@@ -79,37 +78,41 @@ The helper injects `Base CCG Routing Evidence` into `prompt.md` and records
 `routing_evidence.available`, `evidence_file`, `evidence_sha256`, `evidence_chars`, `summary_file`,
 `summary`, and `summary_chars` under `status.json`.
 
-## Gemini Evidence Modes
+## Optional Gemini Evidence
 
 Gemini and GPT Pro remain helper evidence only; the current CCG orchestrator makes the final
 decision.
 
-- For `/ccg:gptpro-plan` and `/ccg:gptpro-review`, keep the ordinary plan/review routing and the
-  Gemini Gate Before GPT Pro requirement.
+- For `/ccg:gptpro-plan` and `/ccg:gptpro-review`, keep ordinary role routing. Gemini is not a
+  mandatory precondition.
 - For `/ccg:gptpro-exc`, follow ordinary execute routing: backend-only tasks normally omit Gemini,
   while frontend/full-stack tasks may include real Gemini frontend evidence.
 - After the user saves GPT Pro output, synthesize ordinary routed evidence, Gemini evidence when
   present, and GPT Pro manual second opinion in Chinese; otherwise state that Gemini evidence was
   not used.
 
-### Required Gate For Plan And Review
+### Optional Gate Evidence For Plan And Review
 
-Before creating a GPT Pro manual prompt for plan or review modes, Codex must have:
+When ordinary planning or review actually used Gemini, Codex may add:
 
 - a successful Gemini helper launch through the bundled Gemini preview helper;
 - a real `CCG_GEMINI_RESPONSE_FILE` path;
 - a non-empty Gemini response read from that file;
 - a concise Gemini findings summary derived from that response file.
 
-If required Gemini evidence fails, does not produce a response file, or writes an empty response, stop in Chinese and do not create a GPT Pro bridge session, and do not invent Gemini findings.
+If Gemini was not selected or did not run, omit its evidence and continue with validated Base CCG
+Routing Evidence. If Gemini evidence is supplied, it must be real, non-empty, and canonical; never
+invent Gemini findings.
 
-Use the helper-level gate arguments for required gate sessions:
+Use the helper-level arguments for optional gate evidence:
 
 ```text
---gemini-policy required --gemini-evidence-role gate --gemini-response-file <CCG_GEMINI_RESPONSE_FILE> --gemini-summary-file <file-with-concise-summary>
+--gemini-policy optional --gemini-evidence-role gate [--gemini-response-file <CCG_GEMINI_RESPONSE_FILE> --gemini-summary-file <file-with-concise-summary>]
 ```
 
-Use `--gemini-summary "<summary>"` only for short diagnostic or fixture calls. The helper injects Gemini Gate Evidence into `prompt.md` and records `gemini_evidence.policy=required`, `role=gate`, `available=true`, `response_file`, `response_non_empty`, `response_chars`, `response_sha256`, and `summary` under `status.json` as auditable provenance.
+Use `--gemini-summary "<summary>"` only for short diagnostic or fixture calls. When evidence is
+present, the helper injects Gemini Gate Evidence into `prompt.md` and records its auditable
+provenance. Otherwise it records `gemini_evidence.policy=optional` and `available=false`.
 
 ### Optional Frontend Evidence For Execution Route Review
 

@@ -44,33 +44,10 @@ function Add-Warning([string]$Message) {
   Write-Output "WARN  $Message"
 }
 
-function Test-CcgUpdateTargetDrift($Finding) {
-  # The lifecycle derives this version from the validated target commit. Keep
-  # the exception exact so arbitrary runtime drift remains blocking.
-  if (
-    -not $CcgUpdateTargetVersion -or
-    [string]$Finding.status -ne "conflict" -or
-    [string]$Finding.id -ne "ccg-runtime-cli"
-  ) {
-    return $false
-  }
-  $expected = [string]$Finding.evidence.expected
-  $actual = [string]$Finding.evidence.actual
-  if (
-    $expected -ne [string]$manifest.ccg.version -or
-    -not $actual -or
-    $actual -eq "missing"
-  ) {
-    return $false
-  }
-  return $actual -eq $CcgUpdateTargetVersion
-}
-
 function Test-CcgUpdateTargetPluginCache($Finding) {
   if (
     -not $CcgUpdateTargetVersion -or
-    [string]$Finding.id -ne "ccg-plugin-cache" -or
-    [string]$Finding.evidence.expected -ne [string]$manifest.ccg.version
+    [string]$Finding.id -ne "ccg-plugin-cache"
   ) {
     return $false
   }
@@ -170,29 +147,6 @@ if (-not $goVersion) {
 }
 else {
   Add-Pass "$goVersion"
-}
-
-$ccgRoot = Join-Path $RepoRoot ([string]$manifest.ccg.snapshotPath)
-$ccgBin = Join-Path $ccgRoot "bin/ccg.mjs"
-if ($CcgUpdateTargetVersion) {
-  Add-Pass (
-    "Current CCG snapshot uses package/source verification; local CLI smoke " +
-    "is deferred to strict post-replacement verification"
-  )
-}
-else {
-  $localCcgVersion = & node $ccgBin --version 2>&1
-  $localCcgText = ($localCcgVersion -join [Environment]::NewLine).Trim()
-  $expectedCcgPattern = "(?:^|[/@])$([Regex]::Escape([string]$manifest.ccg.version))(?:$|\s)"
-  if ($LASTEXITCODE -ne 0) {
-    Add-Failure "The activated CCG CLI cannot run from its final Harness path."
-  }
-  elseif ($localCcgText -ne [string]$manifest.ccg.version -and $localCcgText -notmatch $expectedCcgPattern) {
-    Add-Failure "Activated CCG CLI must be $($manifest.ccg.version); found $($localCcgVersion -join ' ')."
-  }
-  else {
-    Add-Pass "Activated CCG CLI $($manifest.ccg.version)"
-  }
 }
 
 $transactionState = Join-Path $RepoRoot ".harness-cache"
@@ -313,23 +267,8 @@ else {
           $runtimeTargetRejected = $true
           continue
         }
-        if ([string]$finding.status -eq "conflict") {
-          Add-Warning (
-            "CCG update preflight permits ccg-plugin-cache target drift: " +
-            "$($finding.evidence.expected) -> $CcgUpdateTargetVersion."
-          )
-        }
-        else {
-          Add-Pass (
-            "CCG plugin cache includes update target $CcgUpdateTargetVersion"
-          )
-        }
-        continue
-      }
-      if (Test-CcgUpdateTargetDrift $finding) {
-        Add-Warning (
-          "CCG update preflight permits $($finding.id) target drift: " +
-          "$($finding.evidence.expected) -> $($finding.evidence.actual)."
+        Add-Pass (
+          "CCG plugin cache includes update target $CcgUpdateTargetVersion"
         )
         continue
       }

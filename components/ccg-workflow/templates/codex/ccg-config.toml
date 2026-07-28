@@ -1,5 +1,5 @@
 [general]
-version = "3.4.2"
+version = "3.4.1"
 language = "zh-CN"
 
 [routing]
@@ -18,11 +18,6 @@ strategy = "fallback"
 [routing.search]
 models = ["grok"]
 primary = "grok"
-strategy = "fallback"
-
-[routing.product-manager]
-models = ["claude"]
-primary = "claude"
 strategy = "fallback"
 
 [intelligence]
@@ -48,6 +43,7 @@ x_search_policy = "preferred"
 
 [product_manager]
 enabled = false
+provider = ""
 contract_version = "1"
 max_retries = 1
 timeout_ms = 180000

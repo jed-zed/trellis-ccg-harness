@@ -2580,6 +2580,44 @@ test("atomic lock release never removes a replacement created after claim", asyn
   }
 });
 
+test("atomic lock release retries transient non-empty claim directories", async () => {
+  const value = fixture();
+  try {
+    const plan = await buildThirdPartyApprovalPlan({
+      homeDir: value.homeDir,
+      manifestPath: MANIFEST_PATH,
+      repoRoot: value.repoRoot,
+    });
+    const approvals = resolveThirdPartyApprovals({
+      plan,
+      selections: {
+        globalSkills: [],
+        globalPlugins: [],
+        projectSkills: [],
+        mcpCli: [],
+      },
+    });
+    let claimDirectory;
+    const result = await recordThirdPartyGlobalApproval({
+      homeDir: value.homeDir,
+      manifestPath: MANIFEST_PATH,
+      approvals,
+      faultInjector: async (phase, context) => {
+        if (phase === "after-approval-lock-claim") {
+          claimDirectory = path.dirname(context.claimPath);
+          const blocker = path.join(claimDirectory, "transient-antivirus-handle");
+          writeFileSync(blocker, "transient\n");
+          setTimeout(() => rmSync(blocker, { force: true }), 200);
+        }
+      },
+    });
+    assert.equal(result.status, "recorded");
+    assert.equal(existsSync(claimDirectory), false);
+  } finally {
+    value.cleanup();
+  }
+});
+
 test("a hard kill after lock claim is recovered before the next writer", async () => {
   const value = fixture();
   try {

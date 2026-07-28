@@ -568,7 +568,7 @@ test("Codex plugin cache accepts an owned base-version cachebuster", () => {
   }
 });
 
-test("Codex plugin cache reports valid mismatched versions for update preflight", () => {
+test("Codex plugin cache accepts valid owner-compatible versions", () => {
   const fixture = createFixture();
   try {
     const cacheRoot = path.join(
@@ -599,7 +599,8 @@ test("Codex plugin cache reports valid mismatched versions for update preflight"
     const finding = report.findings.find(
       (item) => item.id === "ccg-plugin-cache",
     );
-    assert.equal(finding.status, "conflict");
+    assert.equal(finding.status, "ok");
+    assert.equal(finding.severity, "warning");
     assert.equal(finding.evidence.actual, "3.4.1+codex.1");
     assert.deepEqual(finding.evidence.available, ["3.4.1+codex.1"]);
   } finally {
@@ -607,7 +608,7 @@ test("Codex plugin cache reports valid mismatched versions for update preflight"
   }
 });
 
-test("missing CCG CLI and plugin cache are blocking runtime drift", () => {
+test("missing CCG CLI blocks while a missing plugin cache remains visible", () => {
   const fixture = createFixture();
   try {
     fixture.state.ccgVersion = "";
@@ -625,12 +626,18 @@ test("missing CCG CLI and plugin cache are blocking runtime drift", () => {
       runner: fixture.runner,
       homeDir: fixture.homeDir,
     });
-    for (const id of ["ccg-runtime-cli", "ccg-plugin-cache"]) {
-      const finding = report.findings.find((item) => item.id === id);
-      assert.equal(finding.status, "conflict");
-      assert.equal(finding.severity, "blocking");
-    }
-    assert.ok(report.summary.blocking >= 2);
+    const runtime = report.findings.find(
+      (item) => item.id === "ccg-runtime-cli",
+    );
+    const plugin = report.findings.find(
+      (item) => item.id === "ccg-plugin-cache",
+    );
+    assert.equal(runtime.status, "conflict");
+    assert.equal(runtime.severity, "blocking");
+    assert.equal(plugin.status, "conflict");
+    assert.equal(plugin.severity, "warning");
+    assert.ok(report.summary.blocking >= 1);
+    assert.ok(report.summary.warning >= 1);
   } finally {
     fixture.cleanup();
   }

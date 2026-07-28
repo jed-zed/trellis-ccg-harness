@@ -20,11 +20,6 @@ and completion authority.
   Codex task explicitly invokes `ccg product-manager review`, validates the
   result, applies it through the Harness adapter, and presents any user hard
   gate.
-- `product-manager` is the fourth formal CCG unified routing role. Read or
-  change its selected Provider only through `ccg routing get/set
-  product-manager`; `[product_manager]` stores behavior parameters only.
-- Harness and project `allowedProviders` may reject the unified selection but
-  must never select or fall back to another Provider.
 - Never create `.ccg/tasks`, another task, or a parallel plan. Never let the
   provider write the workspace, use terminal tools, control subagents, mutate
   Trellis status, or call finish/archive.

@@ -7,10 +7,12 @@ export interface CliOptions {
   skipMcp?: boolean
   frontend?: string
   backend?: string
+  search?: string
   mode?: CollaborationMode
   workflows?: string
   installDir?: string
   intelligence?: boolean
+  productManager?: '' | 'disabled' | 'codex' | 'gemini'
 }
 
 export type { CcgConfig, CollaborationMode, SupportedLang }

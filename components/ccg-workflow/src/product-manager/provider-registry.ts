@@ -1,36 +1,31 @@
-import type { ModelType } from '../types'
 import type { ProductManagerProvider } from './contracts'
 import { isAbsolute } from 'node:path'
 
-export const IMPLEMENTED_PRODUCT_MANAGER_PROVIDERS: readonly ProductManagerProvider[] = ['codex', 'gemini', 'claude']
-
-export type ProviderEnvironmentKey = 'CODEX_HOME' | 'GEMINI_CLI_HOME'
+export const IMPLEMENTED_PRODUCT_MANAGER_PROVIDERS: readonly ProductManagerProvider[] = ['codex', 'gemini']
 
 export function resolveEffectiveProductManagerProvider(options: {
   enabled: boolean
-  selected: ModelType | ''
+  selected: ProductManagerProvider | ''
   implemented: readonly ProductManagerProvider[]
   allowed: readonly ProductManagerProvider[]
 }):
   | { status: 'ready', provider: ProductManagerProvider }
   | { status: 'disabled' }
-  | { status: 'unavailable', reason: string, selected: ModelType | '' } {
+  | { status: 'unavailable', reason: string, selected: ProductManagerProvider | '' } {
   if (!options.enabled)
     return { status: 'disabled' }
   if (!options.selected)
     return { status: 'unavailable', reason: 'provider_not_selected', selected: '' }
   if (!options.implemented.includes(options.selected))
     return { status: 'unavailable', reason: 'selected_provider_not_implemented', selected: options.selected }
-  const provider = options.selected as ProductManagerProvider
-  if (!options.allowed.includes(provider))
+  if (!options.allowed.includes(options.selected))
     return { status: 'unavailable', reason: 'selected_provider_not_allowed', selected: options.selected }
-  return { status: 'ready', provider }
+  return { status: 'ready', provider: options.selected }
 }
 
 export interface ProviderExecution {
   executable: string
   args: string[]
-  environmentKeys?: ProviderEnvironmentKey[]
   readOnly: boolean
   shell: false
 }
@@ -44,7 +39,5 @@ export function validateProviderExecution(value: ProviderExecution): ProviderExe
     throw new TypeError('provider execution must use shell:false')
   if (value.args.some(argument => /[\0\r\n]/.test(argument)))
     throw new TypeError('provider arguments must not contain control characters')
-  if (value.environmentKeys?.some(key => !['CODEX_HOME', 'GEMINI_CLI_HOME'].includes(key)))
-    throw new TypeError('provider environment contains an unsupported key')
   return value
 }

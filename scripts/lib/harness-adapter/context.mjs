@@ -237,6 +237,7 @@ export function buildCanonicalContext(
     },
     runtime: contract.runtime,
     models: contract.models,
+    routing: contract.routing,
     providers: summarizeProviders(contract.providers),
   };
 

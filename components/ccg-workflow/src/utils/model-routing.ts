@@ -3,21 +3,20 @@ import { REGISTERED_MODEL_TYPES, STANDARD_ROUTING_ROLES } from '../types'
 
 const REGISTERED_MODELS = new Set<ModelType>(REGISTERED_MODEL_TYPES)
 
-function route(primary: ModelType): RoleRouting {
-  return {
-    models: [primary],
-    primary,
-    strategy: 'fallback',
-  }
-}
-
 export function createDefaultRoleRouting(): ModelRouting {
   return {
     frontend: route('gemini'),
     backend: route('codex'),
     search: route('grok'),
-    'product-manager': route('claude'),
     mode: 'smart',
+  }
+}
+
+function route(primary: ModelType): RoleRouting {
+  return {
+    models: [primary],
+    primary,
+    strategy: 'fallback',
   }
 }
 

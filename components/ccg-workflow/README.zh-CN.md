@@ -240,6 +240,8 @@ node bin/ccg.mjs doctor --platform codex  # 显式检查 Codex 所有权与版�
 node bin/ccg.mjs status                   # 安装概况
 node bin/ccg.mjs codex-mode install       # 安装 Codex 主导模式
 node bin/ccg.mjs codex-mode uninstall     # 卸载 Codex 主导模式
+node bin/ccg.mjs routing list             # 查看三个大角色的 Provider
+node bin/ccg.mjs routing set frontend claude # 只切换一个职责
 node bin/ccg.mjs uninstall                # 卸载 CCG
 node bin/ccg.mjs config mcp               # 配置 MCP Token
 node bin/ccg.mjs diagnose-mcp             # 静态 MCP 诊断
@@ -248,6 +250,11 @@ node bin/ccg.mjs grok login               # 直接进行官方 Grok 浏览器登
 node bin/ccg.mjs doctor --grok            # 非付费 Grok 合约检查
 node bin/ccg.mjs doctor --grok-live       # 显式付费 Web/X 冒烟
 ```
+
+Codex 模式只分别设置 `frontend`、`backend`、`search` 三个大角色，并可为
+每个角色选择 `codeagent-wrapper` 已注册的 `codex`、`gemini`、`claude`、
+`antigravity` 或 `grok`。分析、计划和审查是每个大角色内部的工作阶段，
+不是独立路由项。Codex 仍负责真实工作区的最终写入和验证。
 
 ## 配置
 
@@ -332,4 +339,4 @@ MIT
 
 ---
 
-v3.3.3 | [Issues](https://github.com/jed-zed/ccg-gptpro-worflow/issues) | [Contributing](./CONTRIBUTING.md)
+v3.4.1 | [Issues](https://github.com/jed-zed/ccg-gptpro-worflow/issues) | [Contributing](./CONTRIBUTING.md)

@@ -42,7 +42,6 @@ function runtimeInvocations(contract, env) {
 export function runCcgRuntimeCheck({
   repoRoot,
   contract,
-  sources,
   add,
   runner = defaultRunner,
   env = process.env,
@@ -82,21 +81,16 @@ export function runCcgRuntimeCheck({
     return;
   }
 
-  const versionMatches = installedVersion === sources.ccg.version;
   add(
     "ccg-runtime-cli",
     "blocking",
-    versionMatches ? "ok" : "conflict",
-    versionMatches
-      ? "Installed CCG CLI matches the source manifest."
-      : "Installed CCG CLI version drift was detected.",
-    { expected: sources.ccg.version, actual: installedVersion },
-    "Install the CCG CLI version recorded in harness.sources.json.",
+    "ok",
+    "Installed personal CCG CLI is available.",
+    { actual: installedVersion },
   );
 }
 
 function checkPluginCache({
-  sources,
   add,
   homeDir,
 }) {
@@ -139,33 +133,22 @@ function checkPluginCache({
         // Ignore malformed cache entries; only exact plugin manifests count.
       }
     }
-    pluginVersion =
-      availableVersions.find(
-        (version) =>
-          version === sources.ccg.version ||
-          version.startsWith(`${sources.ccg.version}+`),
-      ) ??
-      availableVersions[0] ??
-      null;
+    pluginVersion = availableVersions[0] ?? null;
   } catch {
-    // A missing user cache is runtime drift and must fail closed.
+    // A missing user cache is setup drift, not source drift.
   }
-  const matches =
-    pluginVersion === sources.ccg.version ||
-    pluginVersion?.startsWith(`${sources.ccg.version}+`);
   add(
     "ccg-plugin-cache",
-    "blocking",
-    matches ? "ok" : "conflict",
-    matches
-      ? "Installed CCG Codex plugin cache matches the source manifest."
-      : "Installed CCG Codex plugin cache is missing or mismatched.",
+    "warning",
+    pluginVersion ? "ok" : "conflict",
+    pluginVersion
+      ? "Installed personal CCG Codex plugin cache is available."
+      : "Installed personal CCG Codex plugin cache could not be verified.",
     {
-      expected: sources.ccg.version,
       actual: pluginVersion ?? "missing",
       available: availableVersions,
     },
-    "Sync the personal CCG Codex plugin cache.",
+    "Install the personal CCG Codex plugin before running plugin workflows.",
   );
 }
 
@@ -308,9 +291,14 @@ export function runInformationalChecks({
     "grok-runtime",
     "info",
     "info",
-    contract.models.grok.enabled
-      ? "Grok is enabled by project policy."
-      : "Grok is optional and disabled; it does not block the Harness.",
+    contract.models.grok.routable
+      ? "Grok is role-routable when its provider CLI is available; external intelligence remains opt-in."
+      : "Grok role routing is unavailable in the adapter contract.",
+    {
+      routable: contract.models.grok.routable,
+      runtimeAvailability: contract.models.grok.runtimeAvailability,
+      externalIntelligence: contract.models.grok.externalIntelligence,
+    },
   );
   const claudeRoot = path.join(repoRoot, ".claude");
   const harnessClaudeAssets = findHarnessClaudeAssets(repoRoot);

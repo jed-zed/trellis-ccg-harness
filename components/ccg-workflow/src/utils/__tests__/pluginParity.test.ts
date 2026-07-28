@@ -31,11 +31,17 @@ describe('Codex plugin release parity', () => {
       join(root, 'plugins', 'ccg', 'skills', 'ccg-executor', 'scripts', 'invoke_gemini_preview.py'),
       'utf8',
     )
+    const template = fs.readFileSync(
+      join(root, 'plugins', 'ccg', 'skills', 'ccg-executor', 'templates', 'live-output.upstream.html'),
+      'utf8',
+    )
 
     expect(preview).toContain('preview_session_id')
     expect(preview).toContain('/api/sessions')
     expect(preview).toContain('/api/stream/')
     expect(preview).toContain('STATE.complete(')
+    expect(template).toContain('9eaff791de19fe45a1713b1153e65c5c7b607f80')
+    expect(template).toContain('<title>gemini - Live Output</title>')
   })
 
   it('keeps the Grok routing runtime and coverage manifest byte-identical across distributions', () => {

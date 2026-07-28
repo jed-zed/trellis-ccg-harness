@@ -2,15 +2,30 @@
 
 > [根目录](../CLAUDE.md) > **skills-v2**
 
-**Last Updated**: 2026-07-26 (v3.3.3)
+**Last Updated**: 2026-07-28 (v3.4.1)
 
-> 本文档已同步 v3.3.3 的版本、Codex 原生分发边界和显式 Codex doctor；较早章节仍保留历史架构背景，完整历史见 [CHANGELOG.md](./CHANGELOG.md)。
+> 本文档已同步 v3.4.1 的 product-manager、v3.4.0 的独立职责路由、Codex 原生分发边界和显式 Codex doctor；较早章节仍保留历史架构背景，完整历史见 [CHANGELOG.md](./CHANGELOG.md)。
 
 ---
 
 ## 变更记录 (Changelog)
 
 > 完整变更历史请查看 [CHANGELOG.md](./CHANGELOG.md)
+
+### 2026-07-28 (v3.4.1)
+
+- 新增 provider-neutral、只读的 product-manager 审查运行时；它不取得
+  工作区写权限，也不替代 Trellis 任务状态或 CCG 三角色路由。
+- `product_manager` 配置与 `frontend`、`backend`、`search` 路由可同时
+  保留并独立更新。
+
+### 2026-07-27 (v3.4.0)
+
+- Codex 模式新增 `frontend`、`backend` 和 `search` 三个独立大角色；每个
+  角色可选择现有注册 Provider，分析、计划和审查属于角色内部阶段。
+- `ccg routing list|get|set` 与交互式 role-first 菜单只修改目标职责。
+- Codex Skills 在运行时解析职责，不再永久绑定 Gemini、Codex 或
+  Claude；Codex 仍是最终工作区写入和验证者。
 
 ### 2026-07-26 (v3.3.3)
 - 🔒 **批准边界**：Codex 插件默认不注册第三方 MCP；任何第三方 Skill、插件或 MCP 必须由 Harness 或项目所有者取得用户明确批准后再安装。

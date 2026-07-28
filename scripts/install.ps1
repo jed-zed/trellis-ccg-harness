@@ -11,6 +11,7 @@ param(
   [switch]$ApproveCodexMode,
   [switch]$ApproveCcgPlugin,
   [switch]$ApproveGlobalInit,
+  [switch]$PluginOnly,
   [ValidateSet("skip", "local", "clone")]
   [string]$CatalogMode,
   [string]$CatalogPath,
@@ -958,13 +959,26 @@ if ($NonInteractive) {
   if (-not $PSBoundParameters.ContainsKey("HomeDir")) {
     throw "Non-interactive setup requires an explicit -HomeDir."
   }
-  if (-not $CatalogMode) {
-    throw "Non-interactive setup requires -CatalogMode."
+  if ($PluginOnly) {
+    if (
+      -not $PreviewOnly -and (
+        -not $Approved -or
+        -not $ApproveCcgPlugin -or
+        -not $ApproveCodexMode
+      )
+    ) {
+      throw (
+        "Non-interactive plugin-only setup requires -Approved, " +
+        "-ApproveCcgPlugin, and -ApproveCodexMode."
+      )
+    }
   }
-  if (-not $ProviderActions) {
-    throw "Non-interactive setup requires -ProviderActions."
+  elseif (-not $CatalogMode -or -not $ProviderActions) {
+    throw (
+      "Non-interactive full setup requires -CatalogMode and -ProviderActions."
+    )
   }
-  if (
+  elseif (
     -not $PreviewOnly -and (
       -not $Approved -or
       -not $ApproveTrellis -or
@@ -998,13 +1012,6 @@ $sourceManifest = Get-Content -LiteralPath $sourceManifestPath -Raw |
   ConvertFrom-Json
 $requiredTrellisVersion = [string]$sourceManifest.trellis.version
 $requiredCcgVersion = [string]$sourceManifest.ccg.version
-if ($requiredCcgVersion -notmatch '^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$') {
-  throw (
-    "Public setup requires an immutable semantic CCG version in the Harness " +
-    "source manifest; found " +
-    "'$requiredCcgVersion'."
-  )
-}
 $ccgRoot = Get-NormalizedPath (
   Join-Path $RepoRoot ([string]$sourceManifest.ccg.snapshotPath)
 )
@@ -1124,6 +1131,10 @@ else {
 }
 
 Write-Output "Harness Global Setup preview"
+Write-Output (
+  "  Scope: " +
+  $(if ($PluginOnly) { "Codex CCG plugin only" } else { "full global setup" })
+)
 Write-Output "  User home: $HomeDir"
 Write-Output (
   "  Trellis: install/verify $requiredTrellisVersion " +
@@ -1168,14 +1179,53 @@ if ($PreviewOnly) {
 }
 
 if (-not $NonInteractive) {
-  Confirm-SetupItem "Trellis $requiredTrellisVersion" $ApproveTrellis.IsPresent
-  Confirm-SetupItem "CCG CLI $requiredCcgVersion" $ApproveCcgCli.IsPresent
-  Confirm-SetupItem "Codex plugin $pluginId from the local snapshot" `
-    $ApproveCcgPlugin.IsPresent
-  Confirm-SetupItem "ccg codex-mode install" $ApproveCodexMode.IsPresent
-  Confirm-SetupItem "Global Init and 13 bundled platform Skills" `
-    $ApproveGlobalInit.IsPresent
+  if ($PluginOnly) {
+    Confirm-SetupItem "Codex plugin $pluginId from the local snapshot" `
+      $ApproveCcgPlugin.IsPresent
+    Confirm-SetupItem "ccg codex-mode install" $ApproveCodexMode.IsPresent
+  }
+  else {
+    Confirm-SetupItem "Trellis $requiredTrellisVersion" $ApproveTrellis.IsPresent
+    Confirm-SetupItem "CCG CLI $requiredCcgVersion" $ApproveCcgCli.IsPresent
+    Confirm-SetupItem "Codex plugin $pluginId from the local snapshot" `
+      $ApproveCcgPlugin.IsPresent
+    Confirm-SetupItem "ccg codex-mode install" $ApproveCodexMode.IsPresent
+    Confirm-SetupItem "Global Init and 13 bundled platform Skills" `
+      $ApproveGlobalInit.IsPresent
+  }
 }
+
+  if ($PluginOnly) {
+    $pluginFailure = $null
+    try {
+      Install-CodexPlugin -Identity $pluginIdentity -InitialState $pluginState
+    }
+    catch {
+      $pluginFailure = $_
+    }
+    Assert-ClaudeUnchanged $claudeBaseline "Codex CCG plugin installation"
+    if ($null -ne $pluginFailure) {
+      throw $pluginFailure
+    }
+    $codexModeFailure = $null
+    try {
+      Invoke-CheckedCommand "ccg" @("codex-mode", "install") `
+        "CCG Codex mode installation"
+    }
+    catch {
+      $codexModeFailure = $_
+    }
+    Assert-ClaudeUnchanged $claudeBaseline "ccg codex-mode install"
+    if ($null -ne $codexModeFailure) {
+      throw $codexModeFailure
+    }
+    Write-Output ""
+    Write-Output "Plugin-only setup complete."
+    Write-Output "  Codex plugin ownership: $ownershipPath"
+    Write-Output "  Codex mode: synchronized"
+    Write-Output "  .claude state: unchanged"
+    return
+  }
 
   $bootstrapArguments = @{
     RepoRoot = $RepoRoot

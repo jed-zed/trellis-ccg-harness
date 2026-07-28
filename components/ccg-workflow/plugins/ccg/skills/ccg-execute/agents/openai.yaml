@@ -1,4 +1,4 @@
 interface:
   display_name: "CCG Execute"
-  short_description: "Execute a CCG plan with Codex orchestrating Gemini."
+  short_description: "Execute a CCG plan with configured role providers."
   default_prompt: "Use $ccg-execute to run /ccg:execute .codex/ccg/plans/task.md."

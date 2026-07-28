@@ -91,8 +91,10 @@ interface InstallConfig {
     mode: string
     frontend: { models: string[], primary: string }
     backend: { models: string[], primary: string }
-    review: { models: string[] }
+    search: { models: string[], primary: string }
+    review?: { models: string[] }
     geminiModel?: string
+    grokModel?: string
   }
   liteMode: boolean
   mcpProvider: string
@@ -619,8 +621,10 @@ async function installSkillGeneratedCommands(ctx: InstallContext): Promise<void>
  * These enable Codex CLI as an alternative lead orchestrator (Codex-led multi-model mode).
  * Files are installed to ~/.codex/ (global) and user copies AGENTS.md to project root.
  */
-export async function installCodexMode(): Promise<{ success: boolean, message: string }> {
-  return installCodexModeAt()
+export async function installCodexMode(options: {
+  productManagerProvider?: 'disabled' | 'codex' | 'gemini'
+} = {}): Promise<{ success: boolean, message: string }> {
+  return installCodexModeAt(options)
 }
 
 /**
@@ -1057,7 +1061,10 @@ export async function installWorkflows(
       mode?: string
       frontend?: { models?: string[], primary?: string }
       backend?: { models?: string[], primary?: string }
+      search?: { models?: string[], primary?: string }
       review?: { models?: string[] }
+      geminiModel?: string
+      grokModel?: string
     }
     liteMode?: boolean
     mcpProvider?: string
@@ -1074,7 +1081,7 @@ export async function installWorkflows(
         mode: 'smart',
         frontend: { models: ['gemini'], primary: 'gemini' },
         backend: { models: ['codex'], primary: 'codex' },
-        review: { models: ['codex', 'gemini'] },
+        search: { models: ['grok'], primary: 'grok' },
       },
       liteMode: config?.liteMode || false,
       mcpProvider: config?.mcpProvider || 'fast-context',

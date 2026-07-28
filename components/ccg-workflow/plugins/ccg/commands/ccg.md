@@ -17,16 +17,16 @@ Use the installed CCG plugin skill `ccg:executor`.
 If `$ARGUMENTS` is empty, show the available CCG commands in Chinese:
 
 - `/ccg:ccg` - show this command index.
-- `/ccg:plan <task>` - create or revise a CCG plan with Codex plus bounded Gemini analysis evidence.
+- `/ccg:plan <task>` - create or revise a CCG plan with applicable role providers.
 - `/ccg:workflow` - explain the Codex-native CCG workflow.
 - `/ccg:doctor` - diagnose local CCG plugin, skill, MCP, bridge, and Gemini availability.
 - `/ccg:doctor --fix` - from this source checkout only, refresh stale local plugin cache.
-- `/ccg:execute <plan>` - execute a CCG plan with Codex as orchestrator and bounded Gemini evidence when useful.
+- `/ccg:execute <plan>` - execute a CCG plan with independently configured role providers.
 - `/ccg:codex-exec <plan>` - explicit Codex-led execution alias with the same parity rules.
 - `/ccg:excute <plan>` - typo-compatible alias.
-- `/ccg:feat <task>` - implement a feature with Codex and bounded Gemini help.
-- `/ccg:frontend <task>` - handle frontend/UI work with Gemini as a strong read-only UI helper.
-- `/ccg:backend <task>` - handle backend-heavy work with Codex as the primary executor.
+- `/ccg:feat <task>` - implement a feature with the applicable configured role providers.
+- `/ccg:frontend <task>` - handle frontend/UI work with the configured frontend provider.
+- `/ccg:backend <task>` - handle backend-heavy work with the configured backend provider.
 - `/ccg:analyze <target>` - read-only code, architecture, risk, or option analysis.
 - `/ccg:debug <bug>` - reproduce, diagnose, fix, and verify failures.
 - `/ccg:optimize <target>` - optimize with evidence and regression checks.
@@ -58,7 +58,12 @@ If `$ARGUMENTS` is empty, show the available CCG commands in Chinese:
 - `/ccg:verify-module <module-path>` - check module completeness.
 - `/ccg:verify-quality <changed-path>` - check quality issues.
 - `/ccg:verify-security <changed-path>` - check security-sensitive changes.
+- `ccg routing list` - show the three top-level role providers.
+- `ccg routing set <role> <provider>` - change one role independently.
 
 If `$ARGUMENTS` contains a plan path or task, treat it as `/ccg:execute $ARGUMENTS`.
 
-Core rule: Codex plans and executes; Gemini may assist as bounded read-only evidence. Codex applies final edits, verifies, and reports in Chinese. Whenever a CCG workflow uses Gemini, it must invoke the bundled browser preview helper automatically. Claude is disabled for ordinary delegation and may run only as an explicitly selected, isolated, read-only product-manager Provider.
+Core rule: generic workflow roles resolve their providers through `ccg
+routing`; Codex remains the orchestrator, sole real-workspace writer, and final
+verifier. Whenever a role selects Gemini, invoke the bundled browser preview
+helper automatically. Explicit provider commands bypass the saved defaults.

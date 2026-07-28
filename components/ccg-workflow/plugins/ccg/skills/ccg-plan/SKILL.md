@@ -1,6 +1,6 @@
 ---
 name: plan
-description: Create or revise a CCG implementation plan with Codex as planner and Gemini read-only analysis evidence. Use when the user invokes /ccg:plan, asks to generate a .codex/ccg/plans/*.md CCG plan, asks to revise an existing CCG plan, or wants Codex-native multi-model planning without modifying product code.
+description: Create or revise a CCG implementation plan with the applicable frontend, backend, and search providers and Codex as final plan owner. Use when the user invokes /ccg:plan, asks to generate a .codex/ccg/plans/*.md CCG plan, asks to revise an existing CCG plan, or wants Codex-native multi-model planning without modifying product code.
 ---
 
 ## Automatic External Intelligence Gate
@@ -14,50 +14,54 @@ Append existing --plan, --diff, --target, and repeatable --dependency paths when
 # CCG Plan
 
 Create decision-complete CCG plans for later `/ccg:execute`. Codex gathers
-context and writes the final plan under `.codex/ccg/plans/`; Gemini provides
-read-only external model evidence when a real plan is created or revised.
+context and writes the final plan under `.codex/ccg/plans/`. Planning is an
+internal phase of the applicable frontend, backend, and search roles; their
+configured providers supply bounded analysis when a real plan is created or
+revised.
 
 ## Boundaries
 
 - Write and revise plans only under `.codex/ccg/plans/*.md`.
 - Do not modify product code, tests, migrations, package files, or original Claude CCG plugin files.
-- Claude is disabled for ordinary planning delegation and is not generic
-  planning evidence. If the active Trellis/Harness
-  contract allows Claude and unified CCG routing selects it for
-  `product-manager`, only the explicit product-manager review boundary may
-  invoke it.
+- Read `../../rules/ccg-role-routing.md`, classify plan slices as frontend,
+  backend, and/or search, then resolve those top-level roles before assigning
+  planning analysis.
 - Do not call `/ccg:execute` automatically and do not ask for a Y/N execution handoff.
 - If no user requirement is provided, answer in Chinese with usage examples and do not write files.
 - If the user explicitly asks to revise an existing plan file, update only that plan file. Otherwise create a new plan and never overwrite an existing plan; use `-v2`, `-v3`, and so on.
 
 ## Language Contract
 
-All `/ccg:plan` user-facing output must be Chinese by default. This includes empty-input usage/help, progress summaries, ambiguity questions, Gemini launch or failure reports, saved-plan summaries, and the final `/ccg:execute <plan-path>` handoff. English is allowed only for literal commands, file paths, code identifiers, generated English slugs, model names, environment variables, and raw Gemini excerpts that are clearly labeled as excerpts.
+All `/ccg:plan` user-facing output must be Chinese by default. This includes empty-input usage/help, progress summaries, ambiguity questions, provider launch or failure reports, saved-plan summaries, and the final `/ccg:execute <plan-path>` handoff. English is allowed only for literal commands, file paths, code identifiers, generated English slugs, model names, environment variables, and raw provider excerpts that are clearly labeled as excerpts.
 
 The generated plan file itself must also be Chinese by default. Hard requirement:
 
 - Use Chinese section headings, table headers, checklist labels, narrative text, risk descriptions, test strategy, and handoff explanation.
-- Keep English only for literal commands, file paths, code identifiers, model names, environment variables, generated slugs, URLs, and clearly labeled raw Gemini excerpts.
+- Keep English only for literal commands, file paths, code identifiers, model names, environment variables, generated slugs, URLs, and clearly labeled short provider excerpts.
 - Do not write an English plan template and then summarize it in Chinese; the saved `.codex/ccg/plans/*.md` content is the final CCG planning output and must be Chinese.
-- If Gemini responds in English, synthesize it into Chinese before writing the final plan, while preserving short literal excerpts only when useful.
+- If a role provider responds in English, synthesize it into Chinese before writing the final plan, while preserving short literal excerpts only when useful.
 
-Internal prompts to tools or Gemini may use English when that improves retrieval or technical precision, but Codex must translate the final planning interaction and the saved plan content back into concise Chinese for the user.
+Internal prompts to tools or providers may use English when that improves retrieval or technical precision, but Codex must translate the final planning interaction and the saved plan content back into concise Chinese for the user.
 
-## Gemini evidence gate
+## Role-provider planning evidence gate
 
-For any real plan creation or plan revision, Gemini participation is mandatory.
-Before you write or present a final plan, you must have all of the following:
+For any real plan creation or plan revision, classify the task into frontend,
+backend, and search slices first. Resolve every top-level role used by the plan.
+Before writing or presenting a final plan:
 
-- a successful Gemini helper launch using `gemini-3.1-pro-preview` by default, unless the user explicitly provided another model;
-- `CCG_GEMINI_PREVIEW_URL` and either `CCG_GEMINI_BROWSER_OPENED=1` or a clear note that the user should open the preview URL manually;
-- a real `CCG_GEMINI_RESPONSE_FILE` path printed by the helper;
-- a non-empty response read from that response file;
-- a final synthesis that includes Codex analysis and Gemini analysis;
-- a record of whether unified `product-manager` routing selected Claude, whether
-  the project allowed it, and, if invoked, the validated task-local evidence
-  identity.
+- when a selected role provider is `codex`, Codex may perform that role's
+  planning analysis directly;
+- when an external role provider is selected, capture and read its non-empty
+  response before writing the plan;
+- when a selected role provider is `gemini`, use the bundled preview helper with
+  `gemini-3.1-pro-preview` by default and record its preview URL and response
+  file;
+- include Codex analysis, applicable role-provider analysis, and the final
+  synthesis.
 
-If a required Gemini helper cannot start, exits unsuccessfully, does not expose a non-empty response, or still fails after two retries, stop and report the failure in Chinese. In that case, do not write or present a final plan, do not create or edit `.codex/ccg/plans/*.md`, and do not emit fake multi-model evidence.
+If a selected external provider cannot start or still has no usable response
+after two attempts, stop and report the failure in Chinese. Do not write or
+present a final plan and do not emit fake multi-model evidence.
 
 This gate does not apply to empty-input usage/help responses.
 
@@ -83,25 +87,24 @@ This gate does not apply to empty-input usage/help responses.
      reads and exact search instead of aborting.
    - Gather enough evidence to name key files, symbols, existing patterns, and verification commands. Do not invent paths.
 
-4. **Run Gemini read-only analysis**
-   - Use the bundled helper from `../ccg-executor/scripts/invoke_gemini_preview.py`.
-   - Invoke Gemini with `--approval-mode plan --detach --prompt-template plan`, default model `gemini-3.1-pro-preview`, no `--direct-workdir`, and no `--no-browser` unless the user explicitly asks for headless mode.
-   - Confirm the helper prints `CCG_GEMINI_BROWSER_OPENED=1` or report the printed `CCG_GEMINI_PREVIEW_URL` so the user can open it manually.
-   - Record `CCG_GEMINI_PROMPT_TEMPLATE=plan` and `CCG_GEMINI_AUTO_CLOSE_BROWSER_SECONDS`; the preview should close itself after completion unless the user explicitly disables auto-close.
-   - Treat `CCG_GEMINI_SNAPSHOT_EXCLUDES` as a security boundary. If excluded secret/config files are relevant, ask the user for sanitized details instead of weakening the snapshot exclusions.
+4. **Run role-provider planning analysis**
+   - Classify the task as frontend, backend, search, or a combination and
+     resolve those roles.
+   - If a selected role uses `codex`, perform that role's analysis directly.
+   - If a selected role uses `gemini`, use the bundled helper from `../ccg-executor/scripts/invoke_gemini_preview.py` with `--approval-mode plan --detach --prompt-template plan`, default model `gemini-3.1-pro-preview`, and no `--direct-workdir`.
+   - For another external provider, use the existing adapter described by
+     `../../rules/ccg-role-routing.md` for bounded read-only analysis of that
+     role's slice.
    - Include the enhanced requirement, context evidence, and a request for concise analysis: alternative approaches, edge cases, UI/UX concerns when relevant, tests, risks, and recommended plan steps.
-   - Retry failed Gemini calls up to 2 times. If all attempts fail, stop and report the failure; do not generate a fake multi-model plan.
-   - After detach, Poll `CCG_GEMINI_RESPONSE_FILE` every 5 seconds. Stop only when the file exists and has size > 0, then read it before writing the final plan.
-   - If the response file is still missing or empty after 10 minutes, inspect `CCG_GEMINI_LAUNCHER_LOG`; if the launcher log shows a failure, retry the helper call. After two retries or 10 minutes on the final attempt, stop and report failure without writing a plan.
-   - Do not create a generic Claude planning prompt. Invoke Claude only through
-     an explicitly authorized product-manager review required by the active
-     Trellis/Harness contract; otherwise record it as not selected.
+   - Retry a failed external provider call at most twice, then stop without
+     writing a plan.
+   - Read the non-empty provider response before writing the final plan.
 
 5. **Synthesize the plan**
-   - Codex is authoritative for backend, data, architecture, repository patterns, and final sequencing.
-   - Treat Gemini as a strong reference for frontend, UX, accessibility, integration risks, and missing test cases.
+   - Codex owns repository adaptation and final sequencing.
+   - Treat configured role providers as bounded planning evidence.
    - Record disagreements and the final tradeoff instead of hiding them.
-   - Translate or synthesize all Gemini findings into Chinese before saving the final plan.
+   - Translate or synthesize provider findings into Chinese before saving the final plan.
 
 6. **Write the plan**
    - Create `.codex/ccg/plans/` if missing.
@@ -120,10 +123,8 @@ Use this Chinese Markdown structure:
 **生成者**：Codex CCG Planner
 **任务类型**：后端 / 前端 / 全栈 / 文档 / 重构
 **计划路径**：`.codex/ccg/plans/<file>.md`
-**Gemini 模型**：`gemini-3.1-pro-preview`
-**Gemini 预览**：`<CCG_GEMINI_PREVIEW_URL>`；浏览器已打开：<是/否>
-**Gemini 响应文件**：`<CCG_GEMINI_RESPONSE_FILE>`
-**Claude 产品经理**：<未选择 / 已选择但本次未调用 / 已调用；证据标识>
+**职责 Providers**：`frontend=<provider>`、`backend=<provider>`、`search=<provider>`（仅列适用项）
+**外部证据**：`<role=response-file-or-inline-codex>`
 
 ## 1. 增强需求
 
@@ -153,8 +154,8 @@ Use this Chinese Markdown structure:
 ### Codex 分析
 <架构、后端/数据影响、仓库模式适配>
 
-### Gemini 分析
-<从响应文件综合后的只读助手发现，用中文表述>
+### 职责 Provider 分析
+<按 frontend/backend/search 分组综合发现，用中文表述>
 
 ### 分歧与最终决策
 | 主题 | 决策 | 原因 |
@@ -198,11 +199,8 @@ Use this Chinese Markdown structure:
 /ccg:execute .codex/ccg/plans/<file>.md
 ```
 
-Gemini 模型：`gemini-3.1-pro-preview`
-Gemini 预览 URL：`<url>`
-Gemini 浏览器已打开：<是/否>
-Gemini 响应文件：`<path>`
-Claude 产品经理：<未选择 / 已选择但本次未调用 / 已调用；证据标识>
+职责 Providers：`<applicable-role-provider-map>`
+外部证据：`<role=evidence-location>`
 ```
 
 ## 交付消息
@@ -211,8 +209,7 @@ Claude 产品经理：<未选择 / 已选择但本次未调用 / 已调用；证
 
 - 说明保存路径。
 - 概括选定的技术方案。
-- 说明 Gemini 是否参与，以及响应文件在哪里。
-- 说明 Claude 产品经理是否由已安装配置选中，以及本次是否产生了已验证证据。
+- 说明适用的职责 Provider 以及证据位置。
 - 提供准确的手动执行命令：
 
 ```text

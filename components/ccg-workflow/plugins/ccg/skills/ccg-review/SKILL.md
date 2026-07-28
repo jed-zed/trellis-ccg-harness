@@ -1,6 +1,6 @@
 ---
 name: review
-description: Review a CCG implementation with Codex-led judgment and optional Gemini evidence. Use when the user invokes /ccg:review or asks for CCG review of a diff/plan.
+description: Review a CCG implementation with the applicable frontend, backend, or search providers and Codex as final verification owner. Use when the user invokes /ccg:review or asks for CCG review of a diff/plan.
 ---
 
 ## Automatic External Intelligence Gate
@@ -16,14 +16,12 @@ For final review append --trigger final_diff_verify and bind the actual --diff p
 Load and follow `skills/ccg-executor/SKILL.md`.
 
 Review the current diff or the implementation associated with the supplied
-plan/task. Codex performs the primary review. Gemini may provide bounded
-second-pass review evidence for non-trivial, risky, or explicitly requested
-CCG reviews; Codex must verify findings before reporting them.
+plan/task. Read `../../rules/ccg-role-routing.md`, classify changed areas as
+frontend, backend, search, or a combination, then resolve those top-level
+providers. Review is a phase inside each role. Have Codex verify every finding
+before reporting it.
 
-Every Gemini call in the CCG workflow must use the bundled preview helper. Do not call the raw `gemini`, `gemini.cmd`, or `gemini.exe` CLI directly. `/ccg:gemini-preview` is only a manual smoke-test/debug entry; `/ccg:review` must open the same browser preview automatically whenever it asks Gemini for a second-pass review.
-
-When using Gemini, call the bundled preview helper with `--prompt-template review`. The template already carries the original CCG-style read-only and prioritized review protocol; put only the concrete diff, plan, and review focus in the task prompt.
-
-Claude is not a generic second-pass reviewer. It may participate only through
-an explicitly selected product-manager contract. If required external evidence
-is missing, say so explicitly and do not claim that review occurred.
+When a selected provider is Gemini, call the bundled preview helper with
+`--prompt-template review`; do not call the raw Gemini CLI. For another
+provider, use the existing adapter described by the routing rule. If required
+external review evidence is missing, say so and do not claim it occurred.

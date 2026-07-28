@@ -1,5 +1,5 @@
 ---
-description: "Execute a CCG plan with Codex and optional Gemini evidence"
+description: "Execute a CCG plan with Codex and configured role providers"
 argument-hint: "<plan-path-or-task>"
 allowed-tools: [Read, Glob, Grep, Bash, Edit, Write, WebFetch]
 ---
@@ -27,12 +27,11 @@ This command is Codex-native:
 - Planning may come from `/ccg:plan` or an existing CCG plan file.
 - CCG plan artifacts live under `.codex/ccg/plans/*.md`.
 - Codex is the orchestrator and final code owner.
-- Gemini is an allowed bounded read-only evidence helper; Codex applies and verifies all changes.
-- Claude is disabled for ordinary delegation. It may run only when unified CCG
-  routing selects Claude for the read-only `product-manager` role and the
-  project allows it; that isolated review never grants workspace-write
-  authority.
-- Use Gemini for bounded code drafting, edge-case analysis, UI prototypes, or review; frontend/UI work remains Gemini-first.
+- Resolve each needed top-level role with
+  `ccg routing get <frontend|backend|search> --json`.
+- Use the selected provider for bounded drafting, analysis, prototypes, or
+  review; Codex applies and verifies all changes.
 - Any Gemini delegation must use the bundled browser preview helper automatically; do not ask the user to run `/ccg:gemini-preview` first and do not call the raw Gemini CLI directly.
-- For M+ or risky work, apply the active project quality gates and use Gemini
-  when that policy requires external review evidence.
+- For M+ or risky work, apply the active project quality gates and ask the
+  applicable top-level provider to perform its analysis or review phase when
+  policy requires external evidence.

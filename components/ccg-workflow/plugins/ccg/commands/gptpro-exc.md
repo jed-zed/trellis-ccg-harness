@@ -23,18 +23,17 @@ required exit 2/3/4 stops GPT Pro bridge creation unless the user runs `ccg rout
 stops before ordinary work. Add `--require-external-intelligence` together with `--expected-intelligence-mode <route investigation_mode>` and `--expected-intelligence-depth <route depth>` only for a route with `status=valid` and `requirement=required`. Then run ordinary
 `/ccg:execute` through the preflight, plan load, model routing, prototype, or
 analysis-evidence phase. Preserve the current CCG orchestrator semantics and the normal execution
-routing for this installation, including Codex, Gemini, or any configured helper that
-ordinary execute would use. GPT Pro is fourth evidence: it is appended as a manual second opinion
+routing for this installation, including any configured role providers that ordinary execute
+would use. GPT Pro is additional evidence: it is appended as a manual second opinion
 after ordinary routing evidence exists and before the ordinary execute owner applies final code.
 In this command GPT Pro decides whether the route is worth local implementation by Codex;
 it is not a fourth implementation owner.
 
-Claude is disabled in this GPT Pro workflow except for an independently selected
-read-only product-manager review. It is never invoked by this command, required as evidence, or
-offered as a manual handoff before GPT Pro.
+Ordinary execution follows the configured role providers. This named command
+then adds GPT Pro without changing those saved roles.
 
 GPT Pro provides manual helper evidence only. It must not write files, own delivery, replace routed
-models, or decide that missing Codex or Gemini evidence exists.
+models, or invent missing routed-provider evidence.
 Any code sketch, localized pseudo patch, key function draft, test sample, or verification command
 from GPT Pro is advisory / illustrative only and must be reimplemented and verified locally by the
 ordinary execute owner.

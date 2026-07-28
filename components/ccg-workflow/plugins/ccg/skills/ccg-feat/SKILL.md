@@ -1,6 +1,6 @@
 ---
 name: feat
-description: Implement a feature with Codex as the executor and Gemini as a bounded helper. Use when the user invokes /ccg:feat or asks CCG to add a feature without a separate plan file.
+description: Implement a feature with configured role providers and Codex as final workspace owner. Use when the user invokes /ccg:feat or asks CCG to add a feature without a separate plan file.
 ---
 
 ## Automatic External Intelligence Gate
@@ -27,9 +27,11 @@ Use this as the Codex-native equivalent of the original CCG `/ccg:feat` command.
   configured, or enabled by this workflow. Do not invoke ace-tool or create a
   CodeGraph index automatically.
 - Codex owns all file edits, verification, diff review, and Chinese delivery.
-- Gemini is optional for simple backend-heavy features, but useful for complex design alternatives, edge cases, prototype patches, UI implications, or second-pass review.
-- Whenever Gemini is used, invoke `../ccg-executor/scripts/invoke_gemini_preview.py` directly with the bundled browser preview helper. Do not ask the user to run `/ccg:gemini-preview` manually and do not call the raw Gemini CLI.
-- Prefer `--prompt-template prototype` for implementation sketches and `--prompt-template review` for second-pass review.
+- Resolve only the applicable frontend, backend, and/or search roles through
+  `ccg routing get <role> --json`; use their providers for analysis, planning,
+  drafting, and review of each slice.
+- When a selected provider is Gemini, use the bundled preview helper and the
+  appropriate `prototype` or `review` prompt template.
 
 ## Verification
 

@@ -7,45 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [3.4.2] - 2026-07-28
-
-### Added
-
-- **Unified fourth routing role** — Register `product-manager` beside
-  frontend/backend/search so `ccg routing get/set product-manager` uses the
-  same role registry, configuration writer, doctor, and isolation rules.
-- **Claude product-manager Provider** — Use an already installed and
-  authenticated native Claude CLI for explicitly authorized, isolated,
-  schema-constrained product reviews with safe mode, no tools, no MCP, no
-  project settings, no session persistence, and no workspace writes.
-
-### Changed
-
-- **One-time provider migration** — Move legacy
-  `[product_manager].provider` into unified routing on first read and remove
-  the legacy field without dual writes.
-- **Codex-mode migration ownership** — Preserve valid mutable CCG
-  configuration during upgrades and accept the deterministic legacy
-  product-manager route migration without weakening drift checks for other
-  managed files.
-- **Coupled source updates** — Consumers update the packaged CCG snapshot and
-  its current source commit/tree/content fingerprint together. The fingerprint
-  records the exact installed snapshot for provenance and replay; it is not a
-  permanent dependency lock.
-- **Provider boundaries** — Claude remains disabled for ordinary implementation
-  and delegation. Selecting it as product manager does not create a second task
-  authority and never transfers Codex workspace ownership.
-- **Claude product-manager model default** — Pass `--model opus` explicitly
-  when `CCG_PRODUCT_MANAGER_CLAUDE_MODEL` is unset; the environment variable
-  remains the deliberate exact-model override.
-
 ## [3.4.1] - 2026-07-27
 
 ### Added
 
 - **Provider-neutral product manager** — Add strict versioned contracts,
-  canonical invocation keys, initial Codex/Gemini selection (migrated into
-  unified routing in 3.4.2),
+  canonical invocation keys, installation-level Codex/Gemini selection,
   no-tool read-only execution, bounded output, task-local redacted evidence,
   same-provider retry, completed-result reuse, and explicit `unavailable`
   outcomes.
@@ -65,6 +32,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   policy in plan mode.
 - **Lease-safe concurrency** — Product-manager locks use nonce ownership and
   heartbeat refresh so a stale owner cannot delete a replacement lock.
+
+## [3.4.0] - 2026-07-27
+
+### Added
+
+- **Independent role routing** — Add three separately configurable top-level
+  Codex roles: `frontend`, `backend`, and `search`. Analysis, planning, and
+  review are phases inside each applicable role.
+- **Local switching** — Add `ccg routing list|get|set` and a role-first
+  interactive menu that changes one role without changing the others.
+
+### Changed
+
+- **Provider-neutral Codex Skills** — Resolve generic workflow providers from
+  role configuration instead of permanently assigning frontend, backend,
+  planning, or review to a model.
+- **GPT Pro bridge routing** — Require ordinary three-role routing evidence for
+  plan and review bridges; Gemini evidence is optional and validated only when
+  the selected role actually used Gemini.
+- **Compatibility** — Normalize legacy frontend/backend/review configuration,
+  reuse the existing Go backend registry, and keep named Gemini, Grok, and GPT
+  Pro commands explicit.
 
 ## [3.3.3] - 2026-07-26
 

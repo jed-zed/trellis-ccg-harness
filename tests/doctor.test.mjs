@@ -36,15 +36,15 @@ function writeCommand(binRoot, name, output) {
 function adapterReport(
   extraFinding = null,
   runtime = {
-    status: "conflict",
+    status: "ok",
     actual: TARGET_VERSION,
-    summary: "Installed CCG CLI version drift was detected.",
+    summary: "Installed personal CCG CLI is available.",
   },
   plugin = {
-    status: "conflict",
+    status: "ok",
     actual: `${TARGET_VERSION}+codex.1`,
     available: [`${TARGET_VERSION}+codex.1`],
-    summary: "Installed CCG plugin cache version drift was detected.",
+    summary: "Installed personal CCG Codex plugin cache is available.",
   },
 ) {
   const findings = [
@@ -83,15 +83,14 @@ function adapterReport(
       severity: "blocking",
       status: runtime.status,
       summary: runtime.summary,
-      evidence: { expected: CURRENT_VERSION, actual: runtime.actual },
+      evidence: { actual: runtime.actual },
     },
     {
       id: "ccg-plugin-cache",
-      severity: "blocking",
+      severity: "warning",
       status: plugin.status,
       summary: plugin.summary,
       evidence: {
-        expected: CURRENT_VERSION,
         actual: plugin.actual,
         available: plugin.available,
       },
@@ -146,16 +145,6 @@ function fixture() {
   write(
     path.join(scriptsRoot, "python-resolver.mjs"),
     'process.stdout.write(\'{"version":"3.12.0","command":"python"}\\n\');\n',
-  );
-  write(
-    path.join(
-      fixtureRoot,
-      "components",
-      "ccg-workflow",
-      "bin",
-      "ccg.mjs",
-    ),
-    'import "../dist/cli.mjs";\n',
   );
   write(
     path.join(scriptsRoot, "verify-sources.ps1"),
@@ -255,21 +244,28 @@ function runSetupDoctor(value, reportPath, previousPluginVersion) {
   });
 }
 
-test("CCG update doctor permits only target-bound runtime drift", () => {
+test("CCG doctor accepts owner-compatible versions while updates remain target-bound", () => {
   const value = fixture();
   try {
     const reportPath = value.writeReport("runtime-drift.json", adapterReport());
     const result = runDoctor(value, reportPath);
     assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
-    assert.match(result.stdout, /permits ccg-runtime-cli target drift/i);
-    assert.match(result.stdout, /permits ccg-plugin-cache target drift/i);
-    assert.match(result.stdout, /local CLI smoke.*post-replacement/i);
+    assert.match(result.stdout, /Installed personal CCG CLI is available/i);
+    assert.match(result.stdout, /plugin cache includes update target/i);
 
-    const strict = runDoctor(value, reportPath, null);
-    assert.notEqual(strict.status, 0);
+    const ownerCompatibleReport = value.writeReport(
+      "owner-compatible-runtime.json",
+      adapterReport(null, {
+        status: "ok",
+        actual: "9.9.9",
+        summary: "Installed personal CCG CLI is available.",
+      }),
+    );
+    const strict = runDoctor(value, ownerCompatibleReport, null);
+    assert.equal(strict.status, 0, `${strict.stdout}\n${strict.stderr}`);
     assert.match(
-      `${strict.stdout}\n${strict.stderr}`,
-      /activated CCG CLI cannot run from its final Harness path/i,
+      strict.stdout,
+      /Installed personal CCG CLI is available/i,
     );
 
     const unrelatedTarget = runDoctor(value, reportPath, "3.4.0");
@@ -284,7 +280,7 @@ test("CCG update doctor permits only target-bound runtime drift", () => {
       adapterReport(null, {
         status: "ok",
         actual: CURRENT_VERSION,
-        summary: "Installed CCG CLI matches the current source manifest.",
+        summary: "Installed personal CCG CLI is available.",
       }),
     );
     const staleRuntime = runDoctor(value, staleRuntimeReport);

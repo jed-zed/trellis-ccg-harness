@@ -26,6 +26,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 PROMPT_TEMPLATE_DIR = Path(__file__).resolve().parent.parent / "templates" / "gemini"
+PREVIEW_TEMPLATE_PATH = (
+    Path(__file__).resolve().parent.parent / "templates" / "live-output.upstream.html"
+)
 PROMPT_TEMPLATES = (
     "none",
     "general",
@@ -41,6 +44,13 @@ PROMPT_TEMPLATES = (
 )
 
 
+def configure_utf8_stdio() -> None:
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if callable(reconfigure):
+            reconfigure(encoding="utf-8", errors="replace")
+
+
 class State:
     def __init__(self) -> None:
         self.lock = threading.Lock()
@@ -51,7 +61,6 @@ class State:
         self.session_id = ""
         self.content = ""
         self.raw = ""
-        self.content_events: list[dict[str, object]] = []
         self.clients: list[queue.Queue[dict[str, object]]] = []
         self.events: list[dict[str, str]] = []
         self.status = "starting"
@@ -99,8 +108,6 @@ class State:
         clients: list[queue.Queue[dict[str, object]]]
         with self.lock:
             self.content += text
-            self.content_events.append(event)
-            self.content_events = self.content_events[-1000:]
             clients = list(self.clients)
         for client in clients:
             self._put_client_event(client, event)
@@ -147,16 +154,17 @@ class State:
                 }
             ]
 
-    def register_client(self, session_id: str) -> tuple[queue.Queue[dict[str, object]], list[dict[str, object]], bool, int | None]:
+    def register_client(
+        self, session_id: str
+    ) -> tuple[queue.Queue[dict[str, object]], bool, int | None]:
         if session_id != self.preview_session_id:
             raise KeyError(session_id)
         client: queue.Queue[dict[str, object]] = queue.Queue(maxsize=200)
         with self.lock:
             self.clients.append(client)
-            backlog = list(self.content_events)
             done = self.done
             exit_code = self.exit_code
-        return client, backlog, done, exit_code
+        return client, done, exit_code
 
     def unregister_client(self, client: queue.Queue[dict[str, object]]) -> None:
         with self.lock:
@@ -478,7 +486,112 @@ def detach(args: argparse.Namespace, prompt: str, output_path: Path) -> int:
     return 0
 
 
+SAFE_TASK_RENDERING = """                    const taskLabel = document.createElement('strong');
+                    taskLabel.textContent = '📋 Task:';
+                    taskEl.appendChild(taskLabel);
+                    taskEl.appendChild(document.createElement('br'));
+                    const taskText = document.createElement('span');
+                    taskText.textContent = session.task;
+                    taskEl.appendChild(taskText);"""
+
+PREVIEW_PATCHES = (
+    (
+        "failure status color",
+        """        .done-indicator {
+            color: #8b949e;
+            font-style: italic;
+            margin-top: 16px;
+            padding-top: 12px;
+            border-top: 1px solid #30363d;
+        }""",
+        """        .done-indicator {
+            color: #8b949e;
+            font-style: italic;
+            margin-top: 16px;
+            padding-top: 12px;
+            border-top: 1px solid #30363d;
+        }
+        .done-indicator.failed {
+            color: #f85149;
+        }""",
+    ),
+    (
+        "real completion status",
+        """                        const doneEl = document.createElement('div');
+                        doneEl.className = 'done-indicator';
+                        doneEl.textContent = '✓ 完成 (3秒后自动关闭)';""",
+        """                        const exitCode = Number(data.exit_code ?? 0);
+                        const ok = exitCode === 0;
+                        const autoClose = Number(data.auto_close_browser_seconds ?? 3);
+                        const doneEl = document.createElement('div');
+                        doneEl.className = ok ? 'done-indicator' : 'done-indicator failed';
+                        doneEl.textContent = ok
+                            ? (autoClose > 0
+                                ? `✓ 完成 (${autoClose}秒后自动关闭)`
+                                : '✓ 完成 (可以关闭此页面)')
+                            : `✗ 失败 (exit code ${exitCode})`;""",
+    ),
+    (
+        "successful notification only",
+        """                        if (Notification.permission === 'granted') {
+                            new Notification('任务完成', { body: '代码生成已完成' });
+                        }""",
+        """                        if (ok && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+                            new Notification('任务完成', { body: '代码生成已完成' });
+                        }""",
+    ),
+    (
+        "configurable successful close",
+        """                        // Auto-close window after 3 seconds
+                        setTimeout(() => {
+                            window.close();
+                            // If window.close() fails (user-opened window), show message
+                            setTimeout(() => {
+                                doneEl.textContent = '✓ 完成 (可以关闭此页面)';
+                            }, 100);
+                        }, 3000);""",
+        """                        // Only successful runs may close automatically.
+                        if (ok && autoClose > 0) {
+                            setTimeout(() => {
+                                window.close();
+                                // If window.close() fails (user-opened window), show message
+                                setTimeout(() => {
+                                    doneEl.textContent = '✓ 完成 (可以关闭此页面)';
+                                }, 100);
+                            }, autoClose * 1000);
+                        }""",
+    ),
+)
+
+
+def render_live_output_html() -> str:
+    try:
+        html = PREVIEW_TEMPLATE_PATH.read_text(encoding="utf-8")
+    except OSError as error:
+        raise RuntimeError(
+            f"Unable to load upstream Live Output template: {PREVIEW_TEMPLATE_PATH}"
+        ) from error
+
+    if html.count(SAFE_TASK_RENDERING) != 1:
+        raise RuntimeError(
+            "Upstream Live Output template patch drift for safe task rendering: "
+            f"expected 1 anchor, found {html.count(SAFE_TASK_RENDERING)}"
+        )
+
+    for label, anchor, replacement in PREVIEW_PATCHES:
+        count = html.count(anchor)
+        if count != 1:
+            raise RuntimeError(
+                f"Upstream Live Output template patch drift for {label}: "
+                f"expected 1 anchor, found {count}"
+            )
+        html = html.replace(anchor, replacement, 1)
+    return html
+
+
 def make_handler() -> type[BaseHTTPRequestHandler]:
+    preview_html = render_live_output_html()
+
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, fmt: str, *args: object) -> None:
             return
@@ -523,7 +636,7 @@ def make_handler() -> type[BaseHTTPRequestHandler]:
 
         def stream_session(self, session_id: str) -> None:
             try:
-                client, backlog, done, exit_code = STATE.register_client(session_id)
+                client, done, exit_code = STATE.register_client(session_id)
             except KeyError:
                 self.send_response(404)
                 self.end_headers()
@@ -533,7 +646,6 @@ def make_handler() -> type[BaseHTTPRequestHandler]:
             self.send_header("Content-Type", "text/event-stream; charset=utf-8")
             self.send_header("Cache-Control", "no-cache")
             self.send_header("Connection", "keep-alive")
-            self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
 
             def send_event(event: dict[str, object]) -> bool:
@@ -546,9 +658,6 @@ def make_handler() -> type[BaseHTTPRequestHandler]:
                     return False
 
             try:
-                for event in backlog:
-                    if not send_event(event):
-                        return
                 if done:
                     send_event(
                         {
@@ -579,230 +688,7 @@ def make_handler() -> type[BaseHTTPRequestHandler]:
 
         @staticmethod
         def index_html() -> str:
-            snap = STATE.snapshot()
-            auto_close = int(snap.get("auto_close_browser_seconds", 0) or 0)
-            return f"""<!doctype html>
-<html lang="zh-CN">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Gemini - Live Output</title>
-  <style>
-    * {{ margin: 0; padding: 0; box-sizing: border-box; }}
-    body {{
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: #0d1117;
-      color: #c9d1d9;
-      min-height: 100vh;
-      display: flex;
-      flex-direction: column;
-    }}
-    header {{
-      background: #161b22;
-      padding: 12px 20px;
-      border-bottom: 1px solid #30363d;
-      display: flex;
-      align-items: center;
-      gap: 12px;
-    }}
-    .panel-icon {{
-      width: 32px;
-      height: 32px;
-      border-radius: 6px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-weight: bold;
-      font-size: 11px;
-      background: #8957e5;
-      color: #fff;
-    }}
-    .title {{ font-size: 18px; font-weight: 600; color: #a371f7; }}
-    .live-indicator {{
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      color: #3fb950;
-      font-size: 12px;
-      margin-left: auto;
-    }}
-    .live-dot {{
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: #3fb950;
-      animation: blink 1s infinite;
-    }}
-    @keyframes blink {{
-      0%, 100% {{ opacity: 1; }}
-      50% {{ opacity: 0.3; }}
-    }}
-    .output-area {{
-      flex: 1;
-      background: #0d1117;
-      padding: 16px 20px;
-      font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
-      font-size: 13px;
-      white-space: pre-wrap;
-      word-break: break-word;
-      overflow-y: auto;
-      line-height: 1.6;
-    }}
-    .task-block {{
-      color: #58a6ff;
-      margin-bottom: 16px;
-      padding-bottom: 12px;
-      border-bottom: 1px solid #30363d;
-      white-space: pre-wrap;
-    }}
-    .cursor {{
-      display: inline-block;
-      width: 8px;
-      height: 16px;
-      background: #3fb950;
-      animation: cursor-blink 1s infinite;
-      vertical-align: text-bottom;
-    }}
-    @keyframes cursor-blink {{
-      0%, 50% {{ opacity: 1; }}
-      51%, 100% {{ opacity: 0; }}
-    }}
-    .done-indicator {{
-      color: #8b949e;
-      font-style: italic;
-      margin-top: 16px;
-      padding-top: 12px;
-      border-top: 1px solid #30363d;
-    }}
-    .failed {{ color: #f85149; }}
-  </style>
-</head>
-<body>
-  <header>
-    <div class="panel-icon">GEM</div>
-    <div class="title">Gemini</div>
-    <div class="live-indicator" id="liveIndicator">
-      <span class="live-dot"></span> LIVE
-    </div>
-  </header>
-  <div class="output-area" id="output"></div>
-  <script>
-    const output = document.getElementById('output');
-    const liveIndicator = document.getElementById('liveIndicator');
-    let connected = false;
-    let userScrolled = false;
-
-    output.addEventListener('scroll', () => {{
-      const isAtBottom = output.scrollHeight - output.scrollTop - output.clientHeight < 50;
-      userScrolled = !isAtBottom;
-    }});
-
-    function scrollToBottom() {{
-      if (!userScrolled) output.scrollTop = output.scrollHeight;
-    }}
-
-    function appendCursor() {{
-      const existing = output.querySelector('.cursor');
-      if (existing) existing.remove();
-      const cursorEl = document.createElement('span');
-      cursorEl.className = 'cursor';
-      output.appendChild(cursorEl);
-    }}
-
-    function appendContent(content, contentType) {{
-      const cursor = output.querySelector('.cursor');
-      if (cursor) cursor.remove();
-
-      const contentEl = document.createElement('span');
-      switch (contentType || 'message') {{
-        case 'reasoning':
-          contentEl.style.cssText = 'color: #8b949e; font-style: italic;';
-          contentEl.textContent = '💭 ' + content;
-          break;
-        case 'command':
-          contentEl.style.cssText = 'color: #fbbf24; background: #1e1e1e; padding: 8px; margin: 8px 0; display: block; border-left: 3px solid #d97706; font-family: monospace;';
-          contentEl.textContent = content;
-          break;
-        case 'message':
-        default:
-          contentEl.style.cssText = 'color: #c9d1d9;';
-          contentEl.textContent = content;
-          break;
-      }}
-
-      output.appendChild(contentEl);
-      appendCursor();
-      setTimeout(scrollToBottom, 0);
-    }}
-
-    function appendDone(state) {{
-      const cursor = output.querySelector('.cursor');
-      if (cursor) cursor.remove();
-      liveIndicator.style.display = 'none';
-      const ok = Number(state.exit_code || 0) === 0;
-      const doneEl = document.createElement('div');
-      doneEl.className = ok ? 'done-indicator' : 'done-indicator failed';
-      const autoClose = Number(state.auto_close_browser_seconds || {auto_close});
-      doneEl.textContent = ok ? '✓ 完成' + (autoClose > 0 ? ' (' + autoClose + '秒后自动关闭)' : '') : 'Finished with exit code ' + state.exit_code;
-      output.appendChild(doneEl);
-      userScrolled = false;
-      setTimeout(scrollToBottom, 0);
-      if (autoClose > 0) {{
-        setTimeout(() => {{
-          window.close();
-          setTimeout(() => {{
-            if (ok) doneEl.textContent = '✓ 完成 (可以关闭此页面)';
-          }}, 100);
-        }}, autoClose * 1000);
-      }}
-    }}
-
-    async function connectToStream() {{
-      try {{
-        const res = await fetch('/api/sessions');
-        const sessions = await res.json();
-        if (sessions.length === 0) {{
-          setTimeout(connectToStream, 500);
-          return;
-        }}
-        const session = sessions[0];
-        if (connected) return;
-        connected = true;
-
-        if (session.task) {{
-          const taskEl = document.createElement('div');
-          taskEl.className = 'task-block';
-          taskEl.innerHTML = '<strong>&#128203; Task:</strong><br>';
-          const taskText = document.createElement('span');
-          taskText.textContent = session.task;
-          taskEl.appendChild(taskText);
-          output.appendChild(taskEl);
-          appendCursor();
-          setTimeout(scrollToBottom, 0);
-        }}
-
-        const es = new EventSource('/api/stream/' + session.id);
-        es.onmessage = (event) => {{
-          const data = JSON.parse(event.data);
-          if (data.content) {{
-            appendContent(data.content, data.content_type || 'message');
-          }}
-          if (data.done) {{
-            appendDone(data);
-            es.close();
-          }}
-        }};
-        es.onerror = () => {{
-          liveIndicator.style.display = 'none';
-        }};
-      }} catch (e) {{
-        setTimeout(connectToStream, 500);
-      }}
-    }}
-    connectToStream();
-  </script>
-</body>
-</html>"""
+            return preview_html
 
     return Handler
 
@@ -1248,6 +1134,7 @@ def run_gemini(args: argparse.Namespace, prompt: str, output_path: Path, gemini_
 
 
 def main() -> int:
+    configure_utf8_stdio()
     args = parse_args()
     raw_prompt = get_prompt(args)
     prompt_preview = raw_prompt[:1200] + ("..." if len(raw_prompt) > 1200 else "")

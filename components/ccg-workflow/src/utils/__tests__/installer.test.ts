@@ -105,7 +105,7 @@ describe('workflow registry', () => {
   })
 })
 
-describe('Codex plugin ordinary CCG Claude-isolated parity', () => {
+describe('Codex plugin role-routing parity', () => {
   const readPluginFile = (...segments: string[]) => readFileSync(join(CCG_PLUGIN_DIR, ...segments), 'utf-8')
 
   const ordinaryParityFiles = [
@@ -117,25 +117,28 @@ describe('Codex plugin ordinary CCG Claude-isolated parity', () => {
     ['skills/ccg-review/SKILL.md', readPluginFile('skills', 'ccg-review', 'SKILL.md')],
   ] as const
 
-  it('keeps ordinary plan/execute/review files independent from generic Claude runtime paths', () => {
+  it('keeps ordinary plan/execute/review files independent from provider runtime paths', () => {
     for (const [relativePath, content] of ordinaryParityFiles) {
-      expect(content, `${relativePath} must not expose a Claude helper route`).not.toContain('--backend claude')
       expect(content, `${relativePath} must not depend on .claude`).not.toContain('.claude')
-      expect(content, `${relativePath} must state the isolated product-manager boundary`).toContain('product-manager')
-      expect(content, `${relativePath} must keep Claude out of ordinary delegation`).toMatch(/Claude .*ordinary|Claude is not a generic/)
+      expect(content, `${relativePath} must keep Codex as final owner`).toMatch(/Codex .*final|final .*Codex|Codex owns/)
     }
   })
 
-  it('requires plan artifacts to record Gemini evidence and Claude product-manager state', () => {
+  it('plans through applicable top-level role providers', () => {
     const planCommand = readPluginFile('commands', 'plan.md')
     const planSkill = readPluginFile('skills', 'ccg-plan', 'SKILL.md')
+    const routingRule = readPluginFile('rules', 'ccg-role-routing.md')
 
-    expect(planCommand).toContain('Gemini must participate as read-only analysis evidence')
-    expect(planCommand).toContain('Codex has read a non-empty Gemini output')
-    expect(planSkill).toContain('Gemini participation is mandatory')
-    expect(planSkill).toContain('**Claude 产品经理**')
-    expect(planSkill).not.toContain('### Claude 分析')
-    expect(planSkill).toContain('说明 Claude 产品经理是否由已安装配置选中')
+    expect(planCommand).toContain('Planning is an internal phase')
+    expect(planSkill).toContain('frontend, backend, and search')
+    expect(planSkill).toContain('**职责 Providers**')
+    expect(planSkill).toContain('### 职责 Provider 分析')
+    expect(routingRule).toContain('ccg routing get frontend --json')
+    expect(routingRule).toContain('ccg routing get backend --json')
+    expect(routingRule).toContain('ccg routing get search --json')
+    expect(planCommand).not.toContain('ccg routing get planning --json')
+    expect(planSkill).not.toContain('ccg routing get planning --json')
+    expect(planSkill).not.toContain('Gemini participation is mandatory')
   })
 
   it('keeps execute contracts tied to risky/M+ triggers with Codex as final owner', () => {
@@ -150,20 +153,28 @@ describe('Codex plugin ordinary CCG Claude-isolated parity', () => {
       expect(content, `${relativePath} must preserve M+ trigger language`).toContain('M+')
       expect(content, `${relativePath} must preserve risky-work trigger language`).toContain('risky')
       expect(content, `${relativePath} must preserve review evidence`).toContain('review')
-      expect(content, `${relativePath} must keep Claude isolated`).toContain('product-manager')
+      expect(content, `${relativePath} must resolve provider routing`).toContain('ccg routing get')
     }
   })
 
-  it('keeps review contracts as Codex primary review plus optional Gemini evidence', () => {
+  it('routes only frontend, backend, and search independently', () => {
+    const routingRule = readPluginFile('rules', 'ccg-role-routing.md')
+    for (const role of ['frontend', 'backend', 'search'])
+      expect(routingRule).toContain(`ccg routing get ${role} --json`)
+    for (const phase of ['analysis', 'planning', 'review'])
+      expect(routingRule).toContain(`\`${phase}\``)
+    expect(routingRule).toContain('not independently configurable provider roles')
+  })
+
+  it('reviews through applicable top-level roles with Codex verification', () => {
     const reviewCommand = readPluginFile('commands', 'review.md')
     const reviewSkill = readPluginFile('skills', 'ccg-review', 'SKILL.md')
 
-    expect(reviewCommand).toContain('Codex performs the primary review')
-    expect(reviewCommand).toContain('Gemini may provide bounded second-pass review evidence')
-    expect(reviewCommand).not.toContain('--backend claude')
-    expect(reviewSkill).toContain('Codex performs the primary review')
-    expect(reviewSkill).toContain('Gemini may provide bounded')
-    expect(reviewSkill).not.toContain('--backend claude')
+    expect(reviewCommand).not.toContain('ccg routing get review --json')
+    expect(reviewCommand).toContain('Codex verifies findings')
+    expect(reviewSkill).not.toContain('ccg routing get review --json')
+    expect(reviewSkill).toContain('frontend, backend, search')
+    expect(reviewSkill).toContain('Codex verify every finding')
   })
 
   it('keeps Claude backend allowed in generated Claude Code settings', () => {

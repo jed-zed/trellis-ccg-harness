@@ -24,12 +24,11 @@ Use the installed CCG plugin skill `ccg:executor`.
 
 Explain or execute the Codex-native CCG workflow:
 
-- Codex creates or revises plans with Gemini read-only analysis evidence when
-  the active project policy requires it.
+- Codex resolves three independent top-level role mappings from `ccg routing`.
+- Analysis, planning, and review are phases inside frontend, backend, or search.
+- The selected provider assists with bounded plans, drafts, UI prototypes,
+  analysis, search, tests, or review.
 - Codex orchestrates the work and owns final code edits.
-- Gemini assists with bounded code drafts, UI prototypes, edge cases, tests, or review.
-- Claude is disabled for ordinary delegation. It may run only as an explicitly
-  selected, isolated, read-only product-manager Provider.
 - Codex verifies and reports in Chinese.
 
 If `$ARGUMENTS` contains a plan path or task, route to the same behavior as `/ccg:execute`.

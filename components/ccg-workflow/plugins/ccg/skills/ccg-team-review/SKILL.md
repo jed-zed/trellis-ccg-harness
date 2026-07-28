@@ -25,4 +25,5 @@ Review team results before delivery.
 - Same-file conflict risks are resolved.
 - Security-sensitive changes are reviewed.
 
-Gemini may provide a second-pass review through the preview helper; Codex delivers final judgment in Chinese.
+The applicable frontend, backend, and/or search provider may provide a
+second-pass review; Codex delivers final judgment in Chinese.
