@@ -852,9 +852,19 @@ function Assert-GlobalSkillProjection {
   }
   $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
   $skills = @($manifest.managedPlatformSkills)
+  $directOwnership = (
+    $manifest.schemaVersion -eq 1 -and
+    $manifest.installMode -eq "copy"
+  )
+  $migrationOwnership = (
+    $manifest.schemaVersion -in @(1, 2) -and
+    -not $manifest.installMode -and
+    [string]$manifest.profileSha256 -match "^[a-f0-9]{64}$" -and
+    [string]$manifest.backupId -match "^[A-Za-z0-9_.:-]+$"
+  )
   if (
     $manifest.owner -ne "trellis-ccg-harness" -or
-    $manifest.installMode -ne "copy" -or
+    (-not $directOwnership -and -not $migrationOwnership) -or
     $skills.Count -ne 13
   ) {
     throw "Global Init did not verify exactly 13 owned platform Skills."

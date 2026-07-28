@@ -213,12 +213,25 @@ async function describePlatformSources(platformSkillsRoot) {
 }
 
 function validateGlobalManifest(manifest) {
-  if (
-    manifest?.schemaVersion !== 1 ||
-    manifest.owner !== OWNER ||
-    manifest.installMode !== "copy" ||
-    !Array.isArray(manifest.managedPlatformSkills)
-  ) {
+  const directManifest =
+    manifest?.schemaVersion === 1 &&
+    manifest.owner === OWNER &&
+    manifest.installMode === "copy" &&
+    Array.isArray(manifest.managedPlatformSkills);
+  const migrationManifest =
+    [1, 2].includes(manifest?.schemaVersion) &&
+    manifest?.owner === OWNER &&
+    manifest.installMode === undefined &&
+    /^[a-f0-9]{64}$/.test(String(manifest.profileSha256 ?? "")) &&
+    path.isAbsolute(String(manifest.repository?.path ?? "")) &&
+    /^[a-f0-9]{40}$/.test(String(manifest.repository?.commit ?? "")) &&
+    /^[a-f0-9]{40}$/.test(String(manifest.repository?.tree ?? "")) &&
+    Array.isArray(manifest.managedPlatformSkills) &&
+    Array.isArray(manifest.preservedExternalSkills) &&
+    Array.isArray(manifest.managedBlocks) &&
+    manifest.project &&
+    /^[A-Za-z0-9_.:-]+$/.test(String(manifest.backupId ?? ""));
+  if (!directManifest && !migrationManifest) {
     throw new Error("Global Skill ownership manifest is invalid.");
   }
   const names = manifest.managedPlatformSkills
@@ -236,7 +249,10 @@ function validateGlobalManifest(manifest) {
   ) {
     throw new Error("Global Skill ownership manifest has an invalid Skill set.");
   }
-  return manifest;
+  return {
+    manifest,
+    mode: migrationManifest ? "skill-platform-migration" : "global-init",
+  };
 }
 
 export async function installBundledPlatformSkills({
@@ -257,9 +273,10 @@ export async function installBundledPlatformSkills({
   const sources = await describePlatformSources(platformSkillsRoot);
 
   if (await pathExists(manifestPath)) {
-    const manifest = validateGlobalManifest(
+    const validated = validateGlobalManifest(
       await readRegularJson(manifestPath, "Global Skill ownership manifest"),
     );
+    const { manifest } = validated;
     for (const source of sources.skills) {
       const owned = manifest.managedPlatformSkills.find(
         (entry) => entry.name === source.name,
@@ -267,7 +284,16 @@ export async function installBundledPlatformSkills({
       const expectedTarget = path.join(targetRoot, source.name);
       if (
         path.resolve(owned?.targetPath ?? "") !== path.resolve(expectedTarget) ||
-        owned?.treeSha256 !== source.treeSha256
+        !path.isAbsolute(String(owned?.sourcePath ?? source.sourcePath)) ||
+        !/^[a-f0-9]{64}$/.test(String(owned?.treeSha256 ?? "")) ||
+        !Number.isInteger(owned?.fileCount) ||
+        owned.fileCount < 1 ||
+        !Number.isInteger(owned?.totalBytes) ||
+        owned.totalBytes < 1 ||
+        (
+          validated.mode === "global-init" &&
+          owned.treeSha256 !== source.treeSha256
+        )
       ) {
         throw new Error(
           `Bundled platform Skill source or ownership changed: ${source.name}`,
@@ -284,6 +310,7 @@ export async function installBundledPlatformSkills({
       status: "unchanged",
       manifestPath,
       installedSkills: [...GLOBAL_PLATFORM_SKILLS],
+      ownershipMode: validated.mode,
     };
   }
 

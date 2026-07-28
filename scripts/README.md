@@ -145,6 +145,11 @@ that clean checkout for provenance only, permits exactly the preflight-observed
 plugin identity during the install transition, and runs strict doctor again
 after the target plugin and Codex mode are installed.
 
+An existing schema-v1/v2 Skill-platform migration ownership file is a separate
+supported Global Init identity. It is accepted read-only only when all 13
+managed target paths and tree digests remain intact; Global Init does not
+rewrite its backup chain, preserved external Skills, or project audit fields.
+
 CCG package and marketplace identity use the release base version, while the
 plugin manifest and Harness ownership record use the exact `+codex.<build>`
 version from that same snapshot. Codex inspection may expose either the exact

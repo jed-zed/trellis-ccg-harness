@@ -721,6 +721,97 @@ test("Global Init accepts the legacy 14-Skill ownership manifest without replaci
   }
 });
 
+test("Global Init preserves an intact legacy Skill-platform migration manifest", async () => {
+  const value = fixture();
+  try {
+    await runGlobalInit({
+      approved: true,
+      catalogMode: "skip",
+      homeDir: value.homeDir,
+      providerActions: PROVIDER_LATER,
+      providerStatusOverrides: {
+        codex: "not-installed",
+        gemini: "not-installed",
+        grok: "not-installed",
+        claude: "not-installed",
+      },
+      skillRoot: SKILL_ROOT,
+    });
+    const manifestPath = path.join(
+      value.homeDir,
+      ".agents",
+      "harness",
+      "global-skills.json",
+    );
+    const direct = JSON.parse(readFileSync(manifestPath, "utf8"));
+    const legacy = {
+      schemaVersion: 1,
+      owner: "trellis-ccg-harness",
+      profileSha256: "a".repeat(64),
+      repository: {
+        path: path.join(value.root, "catalog"),
+        commit: "b".repeat(40),
+        tree: "c".repeat(40),
+      },
+      managedPlatformSkills: direct.managedPlatformSkills.map((entry) => ({
+        ...entry,
+        sourcePath: path.join(SKILL_ROOT, entry.name),
+      })),
+      preservedExternalSkills: [],
+      managedBlocks: [],
+      project: {},
+      backupId: "legacy-backup",
+    };
+    writeFileSync(manifestPath, `${JSON.stringify(legacy, null, 2)}\n`);
+    const before = readFileSync(manifestPath);
+
+    const repeated = await runGlobalInit({
+      approved: true,
+      catalogMode: "skip",
+      homeDir: value.homeDir,
+      providerActions: PROVIDER_LATER,
+      providerStatusOverrides: {
+        codex: "not-installed",
+        gemini: "not-installed",
+        grok: "not-installed",
+        claude: "not-installed",
+      },
+      skillRoot: SKILL_ROOT,
+    });
+    assert.equal(repeated.platform.ownershipMode, "skill-platform-migration");
+    assert.deepEqual(readFileSync(manifestPath), before);
+
+    writeFileSync(
+      path.join(
+        value.homeDir,
+        ".agents",
+        "skills",
+        "harness-init",
+        "SKILL.md",
+      ),
+      "drifted\n",
+    );
+    await assert.rejects(
+      runGlobalInit({
+        approved: true,
+        catalogMode: "skip",
+        homeDir: value.homeDir,
+        providerActions: PROVIDER_LATER,
+        providerStatusOverrides: {
+          codex: "not-installed",
+          gemini: "not-installed",
+          grok: "not-installed",
+          claude: "not-installed",
+        },
+        skillRoot: SKILL_ROOT,
+      }),
+      /Managed global platform Skill drifted: harness-init/i,
+    );
+  } finally {
+    value.cleanup();
+  }
+});
+
 test("Global Init records local catalog paths canonically and supports skip", async () => {
   const value = fixture();
   try {

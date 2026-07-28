@@ -87,6 +87,10 @@ pnpm setup
 6. 每个 Harness-owned 步骤后比较用户级和项目级 `.claude` 状态；已有内容
    保持不变，任何创建或修改都会立即停止后续步骤。
 
+如果 13 个平台 Skill 已由早期 Skill-platform migration 管理，Global Init
+只在旧清单、目标路径和每个 Skill tree digest 全部匹配时接受该状态；它不会
+重写旧清单、备份链、保留的外部 Skill 或项目迁移记录。
+
 未发布到权威远端的固定 CCG commit 只能在明确给出干净源码 checkout 时安装：
 
 ```powershell
