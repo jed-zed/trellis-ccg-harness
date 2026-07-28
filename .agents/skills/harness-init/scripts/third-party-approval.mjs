@@ -14,6 +14,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import path from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { promisify } from "node:util";
 import {
   assertTrustedCommandUnchanged,
@@ -1571,6 +1572,27 @@ async function restoreRegularFileClaimCreateOnly(claim, target, label) {
   }
 }
 
+async function removeEmptyDirectoryWithRetry(directory) {
+  const attempts = process.platform === "win32" ? 6 : 1;
+  let lastError;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      await rmdir(directory);
+      return;
+    } catch (error) {
+      lastError = error;
+      if (
+        (error?.code !== "ENOTEMPTY" && error?.code !== "EEXIST") ||
+        attempt === attempts - 1
+      ) {
+        throw error;
+      }
+      await delay(25 * (attempt + 1));
+    }
+  }
+  throw lastError;
+}
+
 async function recoverReleasedLockClaims(lockPath, key, kind, domain, label) {
   if (await exists(lockPath)) return false;
   const parent = path.dirname(lockPath);
@@ -1603,7 +1625,7 @@ async function recoverReleasedLockClaims(lockPath, key, kind, domain, label) {
     const claim = path.join(claimDirectory, "lock");
     await readOwnedLock(claim, `${label} release claim`, key, kind, domain);
     await rm(claim);
-    await rmdir(claimDirectory);
+    await removeEmptyDirectoryWithRetry(claimDirectory);
     recovered = true;
   }
   return recovered;
@@ -1640,7 +1662,7 @@ async function releaseLock(
       claimPath: claim,
     });
     await rm(claim);
-    await rmdir(claimDirectory);
+    await removeEmptyDirectoryWithRetry(claimDirectory);
   } catch (error) {
     if (error?.leaveLockClaimForRecovery === true) throw error;
     if (await exists(claim)) {
