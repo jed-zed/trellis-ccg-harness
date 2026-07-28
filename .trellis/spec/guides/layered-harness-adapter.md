@@ -75,10 +75,15 @@ state under `.ccg/` and `.codex/ccg/` is evidence only and must remain ignored.
 ## Runtime Rules
 
 - Codex is the sole workspace writer and uses `codex.dispatch_mode: inline`.
-- Gemini is a bounded read-only helper.
-- Claude is disabled by Harness policy.
+- CCG-registered Provider CLIs, including Gemini, Claude, Antigravity, and
+  Grok, are routable bounded read-only helpers when their runtimes are
+  available.
+- CCG is the sole authority for the independent `frontend`, `backend`, and
+  `search` mappings. Harness must not persist a second role map.
 - GPT Pro is manual-only and remains owned by the CCG bridge.
-- Grok is optional and disabled until a working provider is configured.
+- Grok role routing is independent from opt-in external intelligence. Missing
+  Provider CLIs and disabled external-intelligence probes do not block
+  unrelated work.
 - A user-level Trellis workflow-state hook must yield whenever the project
   registers its local equivalent; the adapter contract marker makes this
   precedence auditable.
@@ -87,6 +92,10 @@ state under `.ccg/` and `.codex/ccg/` is evidence only and must remain ignored.
 
 ## Provider Rules
 
+- `models.*.routable` describes CCG role eligibility, while runtime
+  availability is determined by the Provider CLI or wrapper.
+- Provider `enabled` fields in an approved Harness project contract authorize
+  installer/login guidance only; they are not role-routing policy.
 - Official Grok CLI/ACP uses `XAI_API_KEY` or isolated browser login.
 - Compatible Grok APIs use only `HARNESS_GROK_*`.
 - GPT Pro provider configuration uses only `HARNESS_GPTPRO_*`.
@@ -98,8 +107,8 @@ state under `.ccg/` and `.codex/ccg/` is evidence only and must remain ignored.
 ## Conflict Severity
 
 - **Blocking:** source/version drift, tracked runtime state, unsafe task
-  authority, non-inline dispatch, Claude enablement, provider credential
-  overlap, or command namespace collision.
+  authority, non-inline dispatch, non-Codex workspace write access, routing
+  authority drift, provider credential overlap, or command namespace collision.
 - **Warning:** missing local setup, optional provider outage, or unguarded
   duplicate Trellis prompt-state hooks.
 - **Info:** intentionally inert generated assets or nested component CI.
