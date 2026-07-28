@@ -65,7 +65,12 @@ function fixture() {
   return {
     repoRoot,
     candidate,
-    cleanup: () => rmSync(repoRoot, { recursive: true, force: true }),
+    cleanup: () => rmSync(repoRoot, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 25,
+    }),
   };
 }
 
