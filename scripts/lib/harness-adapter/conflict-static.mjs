@@ -1,7 +1,7 @@
 import path from "node:path";
 
 import { resolveCurrentTask } from "./context.mjs";
-import { parseDispatchMode, truthy } from "./conflict-utils.mjs";
+import { parseDispatchMode } from "./conflict-utils.mjs";
 import {
   commandError,
   defaultRunner,
@@ -213,29 +213,37 @@ export function runStateAndTaskChecks(context) {
   checkTaskAuthority({ ...context, taskResolver });
 }
 
-function checkModelPolicy({ contract, add, env }) {
-  const claudeOverride =
-    truthy(env.HARNESS_ENABLE_CLAUDE) ||
-    String(env.HARNESS_MODEL ?? "").toLowerCase() === "claude";
+function checkModelPolicy({ contract, add }) {
+  const models = contract.models ?? {};
+  const externalWriters = Object.entries(models)
+    .filter(
+      ([name, model]) =>
+        name !== contract.authorities.workspaceOwner &&
+        model?.workspaceWrite !== false,
+    )
+    .map(([name]) => name);
+  const roles = contract.routing?.roles ?? [];
   const valid =
     contract.authorities.workspaceOwner === "codex" &&
-    contract.models.codex?.workspaceWrite === true &&
-    contract.models.claude?.enabled === false &&
-    contract.models.claude?.workspaceWrite === false &&
-    !claudeOverride;
+    models.codex?.workspaceWrite === true &&
+    externalWriters.length === 0 &&
+    contract.routing?.authority === "ccg" &&
+    roles.length === 3 &&
+    ["frontend", "backend", "search"].every((role) => roles.includes(role));
   add(
     "model-policy",
     "blocking",
     valid ? "ok" : "conflict",
     valid
-      ? "Codex is the sole writer and Claude is disabled."
-      : "Model ownership or Claude-disable policy was violated.",
+      ? "CCG owns role routing and Codex is the sole workspace writer."
+      : "Role-routing authority or model write ownership was violated.",
     {
       workspaceOwner: contract.authorities.workspaceOwner,
-      claudeEnabled: contract.models.claude?.enabled,
-      claudeEnvironmentOverride: claudeOverride,
+      routingAuthority: contract.routing?.authority,
+      roles,
+      externalWriters,
     },
-    "Restore Codex-only write ownership and remove Claude overrides.",
+    "Restore CCG role-routing authority and Codex-only workspace writes.",
   );
 }
 

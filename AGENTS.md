@@ -33,10 +33,14 @@ integration boundary, not a third framework.
   gates. Run it from the installed CLI/plugin version recorded in
   `harness.sources.json`; never execute `components/ccg-workflow/` as the
   integration runtime.
-- Codex is the only workspace writer and uses Trellis inline mode. Gemini is a
-  bounded read-only helper. Claude is disabled. GPT Pro is manual-only.
-- Grok is optional and disabled by default. Its absence must not block ordinary
-  work. A manual compatible-provider probe requires environment-only
+- Codex is the only workspace writer and uses Trellis inline mode. CCG-registered
+  Provider CLIs, including Gemini, Claude, Antigravity, and Grok, are routable
+  bounded read-only helpers when their runtimes are available. GPT Pro is
+  manual-only.
+- CCG owns the independent `frontend`, `backend`, and `search` role mappings.
+  Grok role routing is separate from opt-in external intelligence, and a missing
+  Provider CLI must not block unrelated work. A manual compatible-provider
+  probe requires environment-only
   `HARNESS_GROK_*` variables and may never claim search capability without
   source-backed evidence.
 - `.ccg/` and `.codex/ccg/` are ignored runtime evidence, never canonical task

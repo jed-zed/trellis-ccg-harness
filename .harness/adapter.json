@@ -35,28 +35,46 @@
   },
   "models": {
     "codex": {
-      "enabled": true,
+      "routable": true,
+      "runtimeAvailability": "built-in",
       "workspaceWrite": true
     },
     "gemini": {
-      "enabled": true,
+      "routable": true,
+      "runtimeAvailability": "provider-cli",
       "workspaceWrite": false
     },
     "claude": {
-      "enabled": false,
+      "routable": true,
+      "runtimeAvailability": "provider-cli",
+      "workspaceWrite": false
+    },
+    "antigravity": {
+      "routable": true,
+      "runtimeAvailability": "provider-cli",
       "workspaceWrite": false
     },
     "grok": {
-      "enabled": false,
-      "optional": true,
-      "autoRoute": false,
+      "routable": true,
+      "runtimeAvailability": "provider-cli",
+      "externalIntelligence": "opt-in",
       "workspaceWrite": false
     },
     "gptpro": {
-      "enabled": true,
+      "routable": false,
+      "runtimeAvailability": "manual-only",
       "manualOnly": true,
       "workspaceWrite": false
     }
+  },
+  "routing": {
+    "authority": "ccg",
+    "roles": [
+      "frontend",
+      "backend",
+      "search"
+    ],
+    "resolutionCommand": "ccg routing get <role> --json"
   },
   "dispatch": {
     "codex": "inline"

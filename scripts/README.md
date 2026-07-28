@@ -24,8 +24,13 @@ runtime model policy, and provider boundaries deterministic.
   guidance that needs a separate approval. Installation is always manual from
   official documentation. A later `provider-action-plan` plus interactive,
   default-cancel `provider-action-run` displays fixed Codex or Grok auth-only
-  guidance but never starts a Provider CLI. Gemini is manual-only; Claude is
-  never probed or executed.
+  guidance but never starts a Provider CLI. Provider installation and login
+  remain manual; this initializer boundary does not restrict CCG from routing
+  an already available Provider CLI as a bounded read-only helper.
+  `-PluginOnly -Approved -ApproveCcgPlugin -ApproveCodexMode` reuses the same
+  transactional source, identity, rollback, and ownership checks while
+  updating only the snapshot-local Codex CCG marketplace/plugin registration
+  and its matching Codex Mode projection.
 
 Third-party Skills, plugins, and MCP/CLI candidates are not part of those 13
 bundled copies. `harness-init.mjs third-party-plan` presents four groups with

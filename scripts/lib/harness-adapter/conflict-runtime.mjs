@@ -298,9 +298,14 @@ export function runInformationalChecks({
     "grok-runtime",
     "info",
     "info",
-    contract.models.grok.enabled
-      ? "Grok is enabled by project policy."
-      : "Grok is optional and disabled; it does not block the Harness.",
+    contract.models.grok.routable
+      ? "Grok is role-routable when its provider CLI is available; external intelligence remains opt-in."
+      : "Grok role routing is unavailable in the adapter contract.",
+    {
+      routable: contract.models.grok.routable,
+      runtimeAvailability: contract.models.grok.runtimeAvailability,
+      externalIntelligence: contract.models.grok.externalIntelligence,
+    },
   );
   const claudeRoot = path.join(repoRoot, ".claude");
   const harnessClaudeAssets = findHarnessClaudeAssets(repoRoot);

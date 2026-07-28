@@ -118,3 +118,27 @@ Implemented independent frontend/backend/search provider routing in CCG 3.4.0, c
 ### Next Steps
 
 - Merge CCG PR #9 before Harness PR #12.
+
+
+## Session 4: Close provider role routing rollout
+
+**Date**: 2026-07-27
+**Task**: Close provider role routing rollout
+**Branch**: `codex/provider-routing-closeout`
+
+### Summary
+
+Decoupled Harness provider role routing from permanent Claude/Grok disablement, preserved Codex-only workspace writes, added plugin-only CCG registration, installed and verified CCG 3.4.0+codex.1 from a durable source, passed local and initial GitHub CI gates, and prepared PR #13 for merge.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `b6e2e09` | (see git log) |
+| `ddf09ce` | (see git log) |
+| `1ee673d` | (see git log) |
+| `62ccd67` | (see git log) |
+
+### Status
+
+[OK] **Completed**

@@ -151,8 +151,10 @@ unclaimed path merely because an earlier observation matched.
 - Bootstrap and lifecycle operations record exactly which global npm state they
   own, restore it on failure, and refuse to overwrite later user changes.
 - Installing CodeGraph never creates or refreshes a `.codegraph` index.
-- Harness and CCG never invoke Claude and never create, restore, mutate, or
-  delete user-level or project `.claude` content.
+- Harness initialization never invokes Claude and never creates, restores,
+  mutates, or deletes user-level or project `.claude` content. CCG may route an
+  already available Claude CLI as a bounded read-only helper without changing
+  that ownership boundary.
 
 Accepted limitation: an operator can intentionally point the manual probe at an
 internal HTTPS service. This is equivalent to running a local HTTP client and

@@ -56,19 +56,43 @@ function adapterContract() {
       forbiddenTrackedPaths: [".ccg", ".codex/ccg"],
     },
     models: {
-      codex: { enabled: true, workspaceWrite: true },
-      gemini: { enabled: true, workspaceWrite: false },
-      claude: { enabled: false, workspaceWrite: false },
+      codex: {
+        routable: true,
+        runtimeAvailability: "built-in",
+        workspaceWrite: true,
+      },
+      gemini: {
+        routable: true,
+        runtimeAvailability: "provider-cli",
+        workspaceWrite: false,
+      },
+      claude: {
+        routable: true,
+        runtimeAvailability: "provider-cli",
+        workspaceWrite: false,
+      },
+      antigravity: {
+        routable: true,
+        runtimeAvailability: "provider-cli",
+        workspaceWrite: false,
+      },
       grok: {
-        enabled: false,
-        optional: true,
+        routable: true,
+        runtimeAvailability: "provider-cli",
+        externalIntelligence: "opt-in",
         workspaceWrite: false,
       },
       gptpro: {
-        enabled: true,
+        routable: false,
+        runtimeAvailability: "manual-only",
         manualOnly: true,
         workspaceWrite: false,
       },
+    },
+    routing: {
+      authority: "ccg",
+      roles: ["frontend", "backend", "search"],
+      resolutionCommand: "ccg routing get <role> --json",
     },
     dispatch: { codex: "inline" },
     hooks: {
@@ -346,7 +370,10 @@ test("builds canonical context from the active Trellis task", () => {
     assert.equal(context.task.status, "in_progress");
     assert.match(context.task.artifacts["prd.md"].sha256, /^[a-f0-9]{64}$/);
     assert.equal(context.sources.ccg.gitTree, "personal-tree");
-    assert.equal(context.models.claude.enabled, false);
+    assert.equal(context.routing.authority, "ccg");
+    assert.deepEqual(context.routing.roles, ["frontend", "backend", "search"]);
+    assert.equal(context.models.claude.routable, true);
+    assert.equal(context.models.grok.externalIntelligence, "opt-in");
   } finally {
     fixture.cleanup();
   }
@@ -514,7 +541,7 @@ test("unrelated project .claude content is reported but preserved", () => {
   }
 });
 
-test("source, runtime state, provider, and Claude drift are blocking", () => {
+test("source, runtime state, provider, and model write drift are blocking", () => {
   const fixture = createFixture();
   try {
     fixture.state.tree = "wrong-tree";
@@ -526,11 +553,11 @@ test("source, runtime state, provider, and Claude drift are blocking", () => {
     );
     const contract = JSON.parse(readFileSync(contractPath, "utf8"));
     contract.providers.openAICompatibleGrok.apiKeyEnv = "XAI_API_KEY";
+    contract.models.claude.workspaceWrite = true;
     writeJson(contractPath, contract);
     const report = auditConflicts(fixture.repoRoot, {
       runner: fixture.runner,
       homeDir: fixture.homeDir,
-      env: { ...process.env, HARNESS_ENABLE_CLAUDE: "true" },
     });
     assert.equal(conflictExitCode(report), 2);
     for (const id of [
@@ -548,6 +575,59 @@ test("source, runtime state, provider, and Claude drift are blocking", () => {
     fixture.cleanup();
   }
 });
+
+test("role selection does not violate the Codex-only write policy", () => {
+  const fixture = createFixture();
+  try {
+    const report = auditConflicts(fixture.repoRoot, {
+      runner: fixture.runner,
+      homeDir: fixture.homeDir,
+      env: {
+        ...process.env,
+        HARNESS_ENABLE_CLAUDE: "true",
+        HARNESS_MODEL: "claude",
+      },
+    });
+    assert.equal(
+      report.findings.find((item) => item.id === "model-policy").status,
+      "ok",
+    );
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+for (const provider of [
+  "gemini",
+  "claude",
+  "antigravity",
+  "grok",
+  "gptpro",
+]) {
+  test(`${provider} workspace write access is blocking`, () => {
+    const fixture = createFixture();
+    try {
+      const contractPath = path.join(
+        fixture.repoRoot,
+        ".harness",
+        "adapter.json",
+      );
+      const contract = JSON.parse(readFileSync(contractPath, "utf8"));
+      contract.models[provider].workspaceWrite = true;
+      writeJson(contractPath, contract);
+      const report = auditConflicts(fixture.repoRoot, {
+        runner: fixture.runner,
+        homeDir: fixture.homeDir,
+      });
+      assert.equal(
+        report.findings.find((item) => item.id === "model-policy").status,
+        "conflict",
+      );
+    } finally {
+      fixture.cleanup();
+    }
+  });
+}
 
 test("unguarded duplicate Trellis prompt hooks remain warning-only", () => {
   const fixture = createFixture();
