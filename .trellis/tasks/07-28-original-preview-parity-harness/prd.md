@@ -25,14 +25,14 @@ without changing Harness authority boundaries or runtime policy.
 
 ## Acceptance Criteria
 
-- [ ] `components/ccg-workflow/` is byte-identical to the tracked Git tree of
+- [x] `components/ccg-workflow/` is byte-identical to the tracked Git tree of
       CCG commit `97c4a9d6904b3ccd75fa4aa396e3016f74e539bf`.
-- [ ] `harness.sources.json` records CCG version `3.4.1`, the exact commit, and
+- [x] `harness.sources.json` records CCG version `3.4.1`, the exact commit, and
       the matching Git tree.
-- [ ] Harness context and conflict checks report no blocking conflict.
-- [ ] Source verification, Harness tests, doctor, CCG lint/typecheck/test/build,
+- [x] Harness context and conflict checks report no blocking conflict.
+- [x] Source verification, Harness tests, doctor, CCG lint/typecheck/test/build,
       and applicable security checks pass.
-- [ ] The Harness worktree contains only the expected snapshot, provenance, and
+- [x] The Harness worktree contains only the expected snapshot, provenance, and
       Trellis task changes.
 
 ## Notes
@@ -42,3 +42,12 @@ without changing Harness authority boundaries or runtime policy.
   `.codex/ccg/plans/original-preview-parity.md`; this PRD does not duplicate
   that plan.
 - The user explicitly authorized updating CCG and Harness together.
+- Final verification: Harness `370` passed / `3` skipped; CCG `531` passed /
+  `1` skipped; Go short tests and build passed; conflicts reported
+  `0 blocking / 0 warning`; source verification bound Git tree
+  `4d089e95160483e9c7cc8f177469a85fab7d7a11`.
+- The installed global runtime now uses CCG `3.4.1` and Codex plugin
+  `3.4.1+codex.2`. External intelligence is explicitly enabled with
+  `search=grok`; the source-backed route completed with a valid evidence
+  package, while its public-repository parity conclusion remained unresolved
+  because the personal upstream was not indexed.
