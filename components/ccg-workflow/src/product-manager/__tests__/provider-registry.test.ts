@@ -65,7 +65,7 @@ describe('product-manager provider policy', () => {
     expect(gemini.args).toContain(policyFile)
     expect(gemini.args.join(' ')).toContain('from stdin')
 
-    const claude = createClaudeProductManagerExecution('C:\\tools\\claude.exe', {
+    const claude = createClaudeProductManagerExecution(resolve('fixtures', 'claude'), {
       model: 'opus',
       schema: PRODUCT_MANAGER_OUTPUT_JSON_SCHEMA,
     })
@@ -87,16 +87,19 @@ describe('product-manager provider policy', () => {
   })
 
   it('passes only provider-specific configuration roots and never arbitrary secrets', () => {
-    vi.stubEnv('CODEX_HOME', 'C:\\codex')
-    vi.stubEnv('GEMINI_CLI_HOME', 'C:\\gemini')
+    const codexHome = resolve('fixtures', 'codex-home')
+    const geminiHome = resolve('fixtures', 'gemini-home')
+    vi.stubEnv('CODEX_HOME', codexHome)
+    vi.stubEnv('GEMINI_CLI_HOME', geminiHome)
     vi.stubEnv('CCG_UNRELATED_SECRET', 'do-not-pass')
-    const codex = createCodexProductManagerExecution('C:\\tools\\codex.exe', {
+    const workspace = resolve('fixtures', 'empty')
+    const codex = createCodexProductManagerExecution(resolve('fixtures', 'codex'), {
       model: 'test',
-      workspace: 'C:\\empty',
-      schemaFile: 'C:\\empty\\schema.json',
+      workspace,
+      schemaFile: resolve(workspace, 'schema.json'),
     })
     const environment = buildProductManagerProviderEnvironment(codex)
-    expect(environment.CODEX_HOME).toBe('C:\\codex')
+    expect(environment.CODEX_HOME).toBe(codexHome)
     expect(environment.GEMINI_CLI_HOME).toBeUndefined()
     expect(environment.CCG_UNRELATED_SECRET).toBeUndefined()
   })
