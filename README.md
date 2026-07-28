@@ -74,8 +74,9 @@ pnpm setup
    状态；
 2. 交互模式逐项确认核心动作，随后执行 Global Init；自动化模式必须给出
    完整 flags 和所有批准开关；
-3. 对相同 snapshot 保持幂等；同名 marketplace/plugin 来自其他路径或版本时
-   fail closed，不会覆盖；
+3. 对相同 snapshot 保持幂等；仅当旧 marketplace/plugin 的精确身份仍匹配
+   Harness ownership 且旧 immutable source 可用于回滚时，才事务式升级；
+   未被 Harness 所有或发生路径/版本漂移时 fail closed，不会覆盖；
 4. 只把 provider 的 `install` / `login` 选择记录为待单独批准动作并输出
    status/guidance，绝不把安装或登录塞进本次总授权；安装始终按官方文档手动
    完成。独立命令会绑定 Codex/Grok 的固定 auth-only 指引并要求第二次确认，

@@ -143,9 +143,11 @@ CCG package and marketplace identity use the release base version, while the
 plugin manifest and Harness ownership record use the exact `+codex.<build>`
 version from that same snapshot. Codex inspection may expose either the exact
 base version or that exact plugin build; setup accepts only those two values
-from the recorded local marketplace/source. A different build, source path,
-marketplace, duplicate, or ownership record fails closed. Codex cache
-directories use the exact plugin-build version.
+from the recorded local marketplace/source. Setup may replace an older exact
+Harness-owned identity only when its immutable source remains available for
+rollback; an unowned different build, source path, marketplace, duplicate, or
+ownership record fails closed. Codex cache directories use the exact
+plugin-build version.
 
 The optional Grok probe is explicit and reads credentials only from
 `HARNESS_GROK_*` process environment variables.

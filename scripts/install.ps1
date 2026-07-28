@@ -22,8 +22,6 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$script:PluginMarketplaceAdded = $false
-$script:PluginInstalled = $false
 
 function Get-NormalizedPath {
   param([Parameter(Mandatory)][string]$Path)
@@ -338,8 +336,10 @@ function Read-PluginOwnership {
   ) {
     throw "Codex plugin ownership must be a regular non-linked file."
   }
+  $ownershipBytes = [System.IO.File]::ReadAllBytes($OwnershipPath)
   try {
-    $ownership = Get-Content -LiteralPath $OwnershipPath -Raw | ConvertFrom-Json
+    $ownership = [System.Text.Encoding]::UTF8.GetString($ownershipBytes) |
+      ConvertFrom-Json
   }
   catch {
     throw "Codex plugin ownership is not valid JSON."
@@ -348,15 +348,57 @@ function Read-PluginOwnership {
     $ownership.schemaVersion -ne 1 -or
     $ownership.owner -ne "trellis-ccg-harness" -or
     $ownership.marketplace.name -ne $MarketplaceName -or
-    -not (Test-SamePath $ownership.marketplace.sourceRoot $MarketplaceRoot) -or
-    $ownership.plugin.id -ne $PluginId -or
-    $ownership.plugin.baseVersion -ne $PluginBaseVersion -or
-    $ownership.plugin.version -ne $PluginVersion -or
-    -not (Test-SamePath $ownership.plugin.sourcePath $PluginSource)
+    $ownership.plugin.id -ne $PluginId
   ) {
-    throw "Existing Codex plugin ownership differs from this Harness snapshot."
+    throw "Existing Codex plugin ownership is not owned by this Harness."
   }
-  return $ownership
+  $ownedMarketplaceRoot = [string]$ownership.marketplace.sourceRoot
+  $ownedPluginBaseVersion = [string]$ownership.plugin.baseVersion
+  $ownedPluginVersion = [string]$ownership.plugin.version
+  $ownedPluginSource = [string]$ownership.plugin.sourcePath
+  if (
+    -not [System.IO.Path]::IsPathFullyQualified($ownedMarketplaceRoot) -or
+    -not [System.IO.Path]::IsPathFullyQualified($ownedPluginSource) -or
+    $ownedPluginBaseVersion -notmatch
+      '^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$' -or
+    $ownedPluginVersion -notmatch (
+      "^" + [regex]::Escape($ownedPluginBaseVersion) + "\+codex\.[0-9]+$"
+    )
+  ) {
+    throw "Existing Codex plugin ownership has an invalid immutable identity."
+  }
+  $ownedMarketplaceRoot = Get-NormalizedPath $ownedMarketplaceRoot
+  $ownedPluginSource = Get-NormalizedPath $ownedPluginSource
+  Assert-NotFilesystemRoot $ownedMarketplaceRoot "Owned Codex marketplace source"
+  $expectedOwnedPluginSource = Get-NormalizedPath (
+    Join-Path $ownedMarketplaceRoot "plugins/ccg"
+  )
+  if (-not (Test-SamePath $ownedPluginSource $expectedOwnedPluginSource)) {
+    throw "Existing Codex plugin ownership has an unsafe plugin source path."
+  }
+  $matchesTarget = (
+    (Test-SamePath $ownedMarketplaceRoot $MarketplaceRoot) -and
+    $ownedPluginBaseVersion -eq $PluginBaseVersion -and
+    $ownedPluginVersion -eq $PluginVersion -and
+    (Test-SamePath $ownedPluginSource $PluginSource)
+  )
+  $ownershipSha256 = [Convert]::ToHexString(
+    [System.Security.Cryptography.SHA256]::HashData($ownershipBytes)
+  ).ToLowerInvariant()
+  return [ordered]@{
+    record = $ownership
+    matchesTarget = $matchesTarget
+    sha256 = $ownershipSha256
+    identity = [ordered]@{
+      marketplaceName = $MarketplaceName
+      marketplaceRoot = $ownedMarketplaceRoot
+      pluginId = $PluginId
+      pluginName = $PluginName
+      pluginBaseVersion = $ownedPluginBaseVersion
+      pluginVersion = $ownedPluginVersion
+      pluginSource = $ownedPluginSource
+    }
+  }
 }
 
 function Get-CodexPluginState {
@@ -368,7 +410,8 @@ function Get-CodexPluginState {
     [Parameter(Mandatory)][string]$PluginBaseVersion,
     [Parameter(Mandatory)][string]$PluginVersion,
     [Parameter(Mandatory)][string]$PluginSource,
-    [string]$OwnershipPath
+    [string]$OwnershipPath,
+    [System.Collections.IDictionary]$AllowedPreviousIdentity
   )
 
   $marketplaceResult = Invoke-JsonCommand "codex" @(
@@ -381,9 +424,21 @@ function Get-CodexPluginState {
   if ($namedMarketplaces.Count -gt 1) {
     throw "Codex has duplicate marketplaces named '$MarketplaceName'."
   }
+  $marketplaceMatchesTarget = (
+    $namedMarketplaces.Count -eq 1 -and
+    (Test-SamePath $namedMarketplaces[0].root $MarketplaceRoot)
+  )
+  $marketplaceMatchesPrevious = (
+    $null -ne $AllowedPreviousIdentity -and
+    $namedMarketplaces.Count -eq 1 -and
+    (Test-SamePath `
+      $namedMarketplaces[0].root `
+      $AllowedPreviousIdentity.marketplaceRoot)
+  )
   if (
     $namedMarketplaces.Count -eq 1 -and
-    -not (Test-SamePath $namedMarketplaces[0].root $MarketplaceRoot)
+    -not $marketplaceMatchesTarget -and
+    -not $marketplaceMatchesPrevious
   ) {
     throw (
       "Codex marketplace '$MarketplaceName' belongs to a different source: " +
@@ -415,42 +470,103 @@ function Get-CodexPluginState {
   else {
     $null
   }
-  if (
-    $installed -and (
-      $installed.marketplaceName -ne $MarketplaceName -or
-      $installed.source.source -ne "local" -or
-      -not (Test-CodexPluginReportedVersion `
-        -ReportedVersion ([string]$installed.version) `
-        -BaseVersion $PluginBaseVersion `
-        -PluginVersion $PluginVersion) -or
-      -not (Test-SamePath $installed.source.path $PluginSource)
-    )
-  ) {
+  $installedMatchesTarget = (
+    $installed -and
+    $installed.marketplaceName -eq $MarketplaceName -and
+    $installed.source.source -eq "local" -and
+    (Test-CodexPluginReportedVersion `
+      -ReportedVersion ([string]$installed.version) `
+      -BaseVersion $PluginBaseVersion `
+      -PluginVersion $PluginVersion) -and
+    (Test-SamePath $installed.source.path $PluginSource)
+  )
+  $installedMatchesPrevious = (
+    $installed -and
+    $null -ne $AllowedPreviousIdentity -and
+    $installed.marketplaceName -eq $AllowedPreviousIdentity.marketplaceName -and
+    $installed.source.source -eq "local" -and
+    (Test-CodexPluginReportedVersion `
+      -ReportedVersion ([string]$installed.version) `
+      -BaseVersion $AllowedPreviousIdentity.pluginBaseVersion `
+      -PluginVersion $AllowedPreviousIdentity.pluginVersion) -and
+    (Test-SamePath $installed.source.path $AllowedPreviousIdentity.pluginSource)
+  )
+  if ($installed -and -not $installedMatchesTarget -and -not $installedMatchesPrevious) {
     throw "Installed Codex plugin '$PluginId' differs from this Harness snapshot."
+  }
+  if (
+    $installedMatchesTarget -and
+    $namedMarketplaces.Count -eq 1 -and
+    -not $marketplaceMatchesTarget
+  ) {
+    throw "Installed Codex plugin '$PluginId' has mismatched marketplace ownership."
+  }
+  if (
+    $installedMatchesPrevious -and
+    $namedMarketplaces.Count -eq 1 -and
+    -not $marketplaceMatchesPrevious
+  ) {
+    throw "Installed Codex plugin '$PluginId' has mismatched marketplace ownership."
   }
 
   $available = @(
     @($pluginResult.available) |
       Where-Object { $_.pluginId -eq $PluginId }
   )
+  $availableMatchesTarget = (
+    $available.Count -eq 1 -and
+    $available[0].name -eq $PluginName -and
+    $available[0].marketplaceName -eq $MarketplaceName -and
+    $available[0].source.source -eq "local" -and
+    (Test-CodexPluginReportedVersion `
+      -ReportedVersion ([string]$available[0].version) `
+      -BaseVersion $PluginBaseVersion `
+      -PluginVersion $PluginVersion) -and
+    (Test-SamePath $available[0].source.path $PluginSource)
+  )
+  $availableMatchesPrevious = (
+    $available.Count -eq 1 -and
+    $null -ne $AllowedPreviousIdentity -and
+    $available[0].name -eq $AllowedPreviousIdentity.pluginName -and
+    $available[0].marketplaceName -eq $AllowedPreviousIdentity.marketplaceName -and
+    $available[0].source.source -eq "local" -and
+    (Test-CodexPluginReportedVersion `
+      -ReportedVersion ([string]$available[0].version) `
+      -BaseVersion $AllowedPreviousIdentity.pluginBaseVersion `
+      -PluginVersion $AllowedPreviousIdentity.pluginVersion) -and
+    (Test-SamePath `
+      $available[0].source.path `
+      $AllowedPreviousIdentity.pluginSource)
+  )
   if (
-    $available.Count -gt 0 -and (
-      $available.Count -ne 1 -or
-      $available[0].name -ne $PluginName -or
-      $available[0].marketplaceName -ne $MarketplaceName -or
-      $available[0].source.source -ne "local" -or
-      -not (Test-CodexPluginReportedVersion `
-        -ReportedVersion ([string]$available[0].version) `
-        -BaseVersion $PluginBaseVersion `
-        -PluginVersion $PluginVersion) -or
-      -not (Test-SamePath $available[0].source.path $PluginSource)
-    )
+    $available.Count -gt 0 -and
+    -not $availableMatchesTarget -and
+    -not $availableMatchesPrevious
   ) {
     throw "Available Codex plugin '$PluginId' has an unexpected identity."
+  }
+  $activeIdentity = if ($installedMatchesTarget) {
+    "target"
+  }
+  elseif ($installedMatchesPrevious) {
+    "previous"
+  }
+  elseif ($marketplaceMatchesTarget -and -not $marketplaceMatchesPrevious) {
+    "target"
+  }
+  elseif ($marketplaceMatchesPrevious -and -not $marketplaceMatchesTarget) {
+    "previous"
+  }
+  elseif ($marketplaceMatchesTarget) {
+    "target"
+  }
+  else {
+    "absent"
   }
   return [ordered]@{
     marketplacePresent = $namedMarketplaces.Count -eq 1
     pluginInstalled = $null -ne $installed
+    activeIdentity = $activeIdentity
   }
 }
 
@@ -463,7 +579,8 @@ function Write-PluginOwnership {
     [string]$PluginName,
     [Parameter(Mandatory)][string]$PluginBaseVersion,
     [Parameter(Mandatory)][string]$PluginVersion,
-    [Parameter(Mandatory)][string]$PluginSource
+    [Parameter(Mandatory)][string]$PluginSource,
+    [string]$ExpectedSha256
   )
 
   $parent = Split-Path -Parent $OwnershipPath
@@ -517,7 +634,32 @@ function Write-PluginOwnership {
       (($payload | ConvertTo-Json -Depth 6) + [Environment]::NewLine),
       [System.Text.UTF8Encoding]::new($false)
     )
-    [System.IO.File]::Move($temporary, $OwnershipPath, $false)
+    if (Test-Path -LiteralPath $OwnershipPath) {
+      if (-not $ExpectedSha256) {
+        throw "Codex plugin ownership appeared during setup."
+      }
+      $currentSha256 = (Get-FileHash `
+        -LiteralPath $OwnershipPath `
+        -Algorithm SHA256).Hash.ToLowerInvariant()
+      if ($currentSha256 -ne $ExpectedSha256) {
+        throw "Codex plugin ownership changed concurrently during setup."
+      }
+      $backup = Join-Path $parent (
+        ".codex-plugin-" + [Guid]::NewGuid().ToString("N") + ".bak"
+      )
+      try {
+        [System.IO.File]::Replace($temporary, $OwnershipPath, $backup, $true)
+      }
+      finally {
+        Remove-Item -LiteralPath $backup -Force -ErrorAction SilentlyContinue
+      }
+    }
+    else {
+      if ($ExpectedSha256) {
+        throw "Codex plugin ownership disappeared during setup."
+      }
+      [System.IO.File]::Move($temporary, $OwnershipPath, $false)
+    }
   }
   finally {
     Remove-Item -LiteralPath $temporary -Force -ErrorAction SilentlyContinue
@@ -527,39 +669,176 @@ function Write-PluginOwnership {
 function Install-CodexPlugin {
   param(
     [Parameter(Mandatory)][System.Collections.IDictionary]$Identity,
-    [Parameter(Mandatory)][System.Collections.IDictionary]$InitialState
+    [Parameter(Mandatory)][System.Collections.IDictionary]$InitialState,
+    [System.Collections.IDictionary]$OwnershipState
   )
 
+  $previousIdentity = if (
+    $null -ne $OwnershipState -and
+    -not $OwnershipState.matchesTarget
+  ) {
+    $OwnershipState.identity
+  }
+  else {
+    $null
+  }
+  $targetMarketplaceAdded = $false
+  $targetPluginInstalled = $false
+  $previousMarketplaceRemoved = $false
+  $previousPluginRemoved = $false
   try {
-    if (-not $InitialState.marketplacePresent) {
+    if ($null -ne $OwnershipState) {
+      $currentOwnershipSha256 = (Get-FileHash `
+        -LiteralPath $Identity.ownershipPath `
+        -Algorithm SHA256).Hash.ToLowerInvariant()
+      if ($currentOwnershipSha256 -ne $OwnershipState.sha256) {
+        throw "Codex plugin ownership changed concurrently during setup."
+      }
+    }
+    $currentState = Get-CodexPluginState `
+      @Identity `
+      -AllowedPreviousIdentity $previousIdentity
+    if ($currentState.activeIdentity -eq "previous") {
+      if (
+        (Test-SamePath `
+          $previousIdentity.marketplaceRoot `
+          $Identity.marketplaceRoot)
+      ) {
+        throw (
+          "Owned Codex plugin upgrade requires a distinct immutable previous " +
+          "source so rollback remains possible."
+        )
+      }
+      Assert-RealDirectory `
+        $previousIdentity.marketplaceRoot `
+        "Previous owned Codex marketplace source"
+      Assert-RealDirectory `
+        $previousIdentity.pluginSource `
+        "Previous owned Codex plugin source"
+      $previousMarketplaceManifest = Get-Content -LiteralPath (
+        Join-Path $previousIdentity.marketplaceRoot ".codex-plugin/marketplace.json"
+      ) -Raw | ConvertFrom-Json
+      $previousPluginManifest = Get-Content -LiteralPath (
+        Join-Path $previousIdentity.pluginSource ".codex-plugin/plugin.json"
+      ) -Raw | ConvertFrom-Json
+      $previousMarketplacePlugins = @(
+        $previousMarketplaceManifest.plugins |
+          Where-Object { $_.name -eq $previousIdentity.pluginName }
+      )
+      if (
+        $previousMarketplaceManifest.name -ne
+          $previousIdentity.marketplaceName -or
+        $previousMarketplacePlugins.Count -ne 1 -or
+        $previousMarketplacePlugins[0].version -ne
+          $previousIdentity.pluginBaseVersion -or
+        -not (Test-SamePath `
+          (Join-Path `
+            $previousIdentity.marketplaceRoot `
+            ([string]$previousMarketplacePlugins[0].source)) `
+          $previousIdentity.pluginSource) -or
+        $previousPluginManifest.name -ne $previousIdentity.pluginName -or
+        $previousPluginManifest.version -ne $previousIdentity.pluginVersion
+      ) {
+        throw "Previous owned Codex plugin source no longer matches ownership."
+      }
+      if ($currentState.pluginInstalled) {
+        Invoke-JsonCommand "codex" @(
+          "plugin", "remove", $previousIdentity.pluginId, "--json"
+        ) "Previous Codex plugin removal" | Out-Null
+        $previousPluginRemoved = $true
+      }
+      if ($currentState.marketplacePresent) {
+        Invoke-JsonCommand "codex" @(
+          "plugin", "marketplace", "remove",
+          $previousIdentity.marketplaceName, "--json"
+        ) "Previous Codex marketplace removal" | Out-Null
+        $previousMarketplaceRemoved = $true
+      }
+    }
+    $targetState = Get-CodexPluginState `
+      @Identity `
+      -AllowedPreviousIdentity $previousIdentity
+    if (-not $targetState.marketplacePresent) {
       Invoke-JsonCommand "codex" @(
         "plugin", "marketplace", "add", $Identity.marketplaceRoot, "--json"
       ) "Codex local marketplace installation" | Out-Null
-      $script:PluginMarketplaceAdded = $true
+      $targetMarketplaceAdded = $true
     }
     $afterMarketplace = Get-CodexPluginState @Identity
     if (-not $afterMarketplace.pluginInstalled) {
       Invoke-JsonCommand "codex" @(
         "plugin", "add", $Identity.pluginId, "--json"
       ) "Codex CCG plugin installation" | Out-Null
-      $script:PluginInstalled = $true
+      $targetPluginInstalled = $true
     }
     $verified = Get-CodexPluginState @Identity
     if (-not $verified.marketplacePresent -or -not $verified.pluginInstalled) {
       throw "Codex CCG plugin verification did not reach the installed state."
     }
-    if (-not (Test-Path -LiteralPath $Identity.ownershipPath)) {
-      Write-PluginOwnership @Identity
+    if (
+      -not (Test-Path -LiteralPath $Identity.ownershipPath) -or
+      ($null -ne $OwnershipState -and -not $OwnershipState.matchesTarget)
+    ) {
+      $ownershipArguments = @{}
+      foreach ($key in $Identity.Keys) {
+        $ownershipArguments[$key] = $Identity[$key]
+      }
+      if ($null -ne $OwnershipState) {
+        $ownershipArguments.ExpectedSha256 = $OwnershipState.sha256
+      }
+      Write-PluginOwnership @ownershipArguments
     }
   }
   catch {
     $failure = $_
-    if ($script:PluginInstalled) {
-      & codex plugin remove $Identity.pluginId --json 2>&1 | Out-Null
+    $rollbackErrors = [System.Collections.Generic.List[string]]::new()
+    if ($targetPluginInstalled) {
+      try {
+        Invoke-JsonCommand "codex" @(
+          "plugin", "remove", $Identity.pluginId, "--json"
+        ) "Target Codex plugin rollback" | Out-Null
+      }
+      catch {
+        $rollbackErrors.Add($_.Exception.Message)
+      }
     }
-    if ($script:PluginMarketplaceAdded) {
-      & codex plugin marketplace remove $Identity.marketplaceName --json 2>&1 |
-        Out-Null
+    if ($targetMarketplaceAdded) {
+      try {
+        Invoke-JsonCommand "codex" @(
+          "plugin", "marketplace", "remove",
+          $Identity.marketplaceName, "--json"
+        ) "Target Codex marketplace rollback" | Out-Null
+      }
+      catch {
+        $rollbackErrors.Add($_.Exception.Message)
+      }
+    }
+    if ($previousMarketplaceRemoved) {
+      try {
+        Invoke-JsonCommand "codex" @(
+          "plugin", "marketplace", "add",
+          $previousIdentity.marketplaceRoot, "--json"
+        ) "Previous Codex marketplace rollback" | Out-Null
+      }
+      catch {
+        $rollbackErrors.Add($_.Exception.Message)
+      }
+    }
+    if ($previousPluginRemoved) {
+      try {
+        Invoke-JsonCommand "codex" @(
+          "plugin", "add", $previousIdentity.pluginId, "--json"
+        ) "Previous Codex plugin rollback" | Out-Null
+      }
+      catch {
+        $rollbackErrors.Add($_.Exception.Message)
+      }
+    }
+    if ($rollbackErrors.Count -gt 0) {
+      throw (
+        "$($failure.Exception.Message) Plugin rollback also failed: " +
+        ($rollbackErrors -join " | ")
+      )
     }
     throw $failure
   }
@@ -794,10 +1073,22 @@ $ownership = Read-PluginOwnership `
   -MarketplaceName $marketplaceName `
   -MarketplaceRoot $ccgRoot `
   -PluginId $pluginId `
+  -PluginName "ccg" `
   -PluginBaseVersion $requiredCcgVersion `
   -PluginVersion $pluginVersion `
   -PluginSource $pluginSource
-$pluginState = Get-CodexPluginState @pluginIdentity
+$previousPluginIdentity = if (
+  $null -ne $ownership -and
+  -not $ownership.matchesTarget
+) {
+  $ownership.identity
+}
+else {
+  $null
+}
+$pluginState = Get-CodexPluginState `
+  @pluginIdentity `
+  -AllowedPreviousIdentity $previousPluginIdentity
 Assert-ClaudeUnchanged $claudeBaseline "Codex plugin preflight"
 $pluginIdentity.ownershipPath = $ownershipPath
 
@@ -829,7 +1120,8 @@ Write-Output (
 )
 Write-Output (
   "  Codex plugin: $pluginId@$pluginVersion from local snapshot $ccgRoot " +
-  "(installed: $($pluginState.pluginInstalled))"
+  "(installed: $($pluginState.pluginInstalled); " +
+  "active identity: $($pluginState.activeIdentity))"
 )
 Write-Output (
   "  Codex mode: after plugin registration run 'ccg codex-mode install' " +
@@ -891,7 +1183,10 @@ if (-not $NonInteractive) {
 
   $pluginFailure = $null
   try {
-    Install-CodexPlugin -Identity $pluginIdentity -InitialState $pluginState
+    Install-CodexPlugin `
+      -Identity $pluginIdentity `
+      -InitialState $pluginState `
+      -OwnershipState $ownership
   }
   catch {
     $pluginFailure = $_

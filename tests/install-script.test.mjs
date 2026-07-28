@@ -54,6 +54,9 @@ const logPath = process.env.MOCK_COMMAND_LOG;
 appendFileSync(logPath, JSON.stringify({ command, args }) + "\\n");
 const readState = () => JSON.parse(readFileSync(statePath, "utf8"));
 const writeState = (value) => writeFileSync(statePath, JSON.stringify(value, null, 2) + "\\n");
+const versionForRoot = (state, root) =>
+  state.reportedPluginVersions?.[path.resolve(root)] ??
+  state.reportedPluginVersion;
 
 if (command === "trellis" && args[0] === "--version") {
   console.log("trellis 0.6.9");
@@ -94,7 +97,7 @@ if (command === "trellis" && args[0] === "--version") {
         pluginId: "ccg@ccg-gptpro-worflow",
         name: "ccg",
         marketplaceName: "ccg-gptpro-worflow",
-        version: state.reportedPluginVersion,
+        version: versionForRoot(state, marketplace.root),
         installed: false,
         source: {
           source: "local",
@@ -126,20 +129,27 @@ if (command === "trellis" && args[0] === "--version") {
     process.exitCode = 94;
   } else {
     const marketplace = state.marketplaces.find((entry) => entry.name === "ccg-gptpro-worflow");
-    state.installed.push({
-      pluginId: "ccg@ccg-gptpro-worflow",
-      name: "ccg",
-      marketplaceName: "ccg-gptpro-worflow",
-      version: state.reportedPluginVersion,
-      installed: true,
-      enabled: true,
-      source: {
-        source: "local",
-        path: path.join(marketplace.root, "plugins", "ccg"),
-      },
-    });
-    writeState(state);
-    console.log(JSON.stringify({ pluginId: args[2], installed: true }));
+    if (state.pluginBehavior === "fail-once") {
+      state.pluginBehavior = "normal";
+      writeState(state);
+      console.error("Codex plugin add failed once");
+      process.exitCode = 95;
+    } else {
+      state.installed.push({
+        pluginId: "ccg@ccg-gptpro-worflow",
+        name: "ccg",
+        marketplaceName: "ccg-gptpro-worflow",
+        version: versionForRoot(state, marketplace.root),
+        installed: true,
+        enabled: true,
+        source: {
+          source: "local",
+          path: path.join(marketplace.root, "plugins", "ccg"),
+        },
+      });
+      writeState(state);
+      console.log(JSON.stringify({ pluginId: args[2], installed: true }));
+    }
   }
 } else if (
   command === "codex" &&
@@ -405,6 +415,71 @@ function commandLog(value) {
     .map((line) => JSON.parse(line));
 }
 
+function installOwnedPreviousPlugin(value, {
+  version = "3.3.1",
+  pluginVersion = `${version}+codex.1`,
+} = {}) {
+  const marketplaceRoot = path.join(value.root, "previous-ccg");
+  const pluginSource = path.join(marketplaceRoot, "plugins", "ccg");
+  mkdirSync(path.join(pluginSource, ".codex-plugin"), { recursive: true });
+  writeJson(path.join(marketplaceRoot, ".codex-plugin", "marketplace.json"), {
+    name: "ccg-gptpro-worflow",
+    plugins: [{
+      name: "ccg",
+      version,
+      source: "./plugins/ccg",
+    }],
+  });
+  writeJson(path.join(pluginSource, ".codex-plugin", "plugin.json"), {
+    name: "ccg",
+    version: pluginVersion,
+  });
+  writeJson(
+    path.join(value.homeDir, ".agents", "harness", "codex-plugin.json"),
+    {
+      schemaVersion: 1,
+      owner: "trellis-ccg-harness",
+      marketplace: {
+        name: "ccg-gptpro-worflow",
+        sourceRoot: marketplaceRoot,
+      },
+      plugin: {
+        id: "ccg@ccg-gptpro-worflow",
+        baseVersion: version,
+        version: pluginVersion,
+        sourcePath: pluginSource,
+      },
+    },
+  );
+  const state = JSON.parse(readFileSync(value.statePath, "utf8"));
+  state.marketplaces = [{
+    name: "ccg-gptpro-worflow",
+    root: marketplaceRoot,
+  }];
+  state.installed = [{
+    pluginId: "ccg@ccg-gptpro-worflow",
+    name: "ccg",
+    marketplaceName: "ccg-gptpro-worflow",
+    version: pluginVersion,
+    installed: true,
+    enabled: true,
+    source: {
+      source: "local",
+      path: pluginSource,
+    },
+  }];
+  state.reportedPluginVersions = {
+    [path.resolve(marketplaceRoot)]: pluginVersion,
+    [path.resolve(
+      value.repoRoot,
+      "components",
+      "ccg-workflow",
+    )]: CCG_PLUGIN_VERSION,
+  };
+  writeJson(value.statePath, state);
+  return { marketplaceRoot, pluginSource, version, pluginVersion };
+}
+
 test("non-interactive Global Setup is explicit, exact, provider-safe, and idempotent", () => {
   const value = fixture();
   try {
@@ -622,6 +697,106 @@ test("Global Setup accepts a newer immutable CCG version recorded by the Harness
     const result = runSetup(value, ["-PreviewOnly"]);
     assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
     assert.match(result.stdout, /CCG CLI: build\/link exact 3\.4\.1 snapshot/);
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("Global Setup transactionally upgrades an exact Harness-owned Codex plugin", () => {
+  const value = fixture();
+  try {
+    installOwnedPreviousPlugin(value);
+    const result = runSetup(value);
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+    const ownership = JSON.parse(
+      readFileSync(
+        path.join(value.homeDir, ".agents", "harness", "codex-plugin.json"),
+        "utf8",
+      ),
+    );
+    assert.equal(ownership.plugin.version, CCG_PLUGIN_VERSION);
+    assert.equal(
+      path.resolve(ownership.marketplace.sourceRoot),
+      path.resolve(value.repoRoot, "components", "ccg-workflow"),
+    );
+    const state = JSON.parse(readFileSync(value.statePath, "utf8"));
+    assert.equal(state.installed.length, 1);
+    assert.equal(state.installed[0].version, CCG_PLUGIN_VERSION);
+    assert.equal(
+      path.resolve(state.installed[0].source.path),
+      path.resolve(
+        value.repoRoot,
+        "components",
+        "ccg-workflow",
+        "plugins",
+        "ccg",
+      ),
+    );
+    const calls = commandLog(value);
+    const removePlugin = calls.findIndex(
+      ({ command, args }) =>
+        command === "codex" &&
+        args.slice(0, 2).join(" ") === "plugin remove",
+    );
+    const removeMarketplace = calls.findIndex(
+      ({ command, args }) =>
+        command === "codex" &&
+        args.slice(0, 3).join(" ") === "plugin marketplace remove",
+    );
+    const addMarketplace = calls.findIndex(
+      ({ command, args }) =>
+        command === "codex" &&
+        args.slice(0, 3).join(" ") === "plugin marketplace add",
+    );
+    const addPlugin = calls.findIndex(
+      ({ command, args }) =>
+        command === "codex" &&
+        args.slice(0, 2).join(" ") === "plugin add",
+    );
+    assert.ok(removePlugin >= 0);
+    assert.ok(removeMarketplace > removePlugin);
+    assert.ok(addMarketplace > removeMarketplace);
+    assert.ok(addPlugin > addMarketplace);
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("a failed owned Codex plugin upgrade restores the previous registration", () => {
+  const value = fixture();
+  try {
+    const previous = installOwnedPreviousPlugin(value);
+    const beforeOwnership = readFileSync(
+      path.join(value.homeDir, ".agents", "harness", "codex-plugin.json"),
+    );
+    const state = JSON.parse(readFileSync(value.statePath, "utf8"));
+    state.pluginBehavior = "fail-once";
+    writeJson(value.statePath, state);
+
+    const result = runSetup(value);
+    assert.notEqual(result.status, 0);
+    assert.match(setupDiagnostic(result), /plugin add failed once/i);
+    assert.deepEqual(
+      readFileSync(
+        path.join(value.homeDir, ".agents", "harness", "codex-plugin.json"),
+      ),
+      beforeOwnership,
+    );
+    const restored = JSON.parse(readFileSync(value.statePath, "utf8"));
+    assert.deepEqual(restored.marketplaces, [{
+      name: "ccg-gptpro-worflow",
+      root: previous.marketplaceRoot,
+    }]);
+    assert.equal(restored.installed.length, 1);
+    assert.equal(restored.installed[0].version, previous.pluginVersion);
+    assert.equal(
+      path.resolve(restored.installed[0].source.path),
+      path.resolve(previous.pluginSource),
+    );
+    assert.equal(
+      commandLog(value).some(({ command }) => command === "global-init"),
+      false,
+    );
   } finally {
     value.cleanup();
   }
