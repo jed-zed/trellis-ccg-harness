@@ -1233,16 +1233,24 @@ if (-not $NonInteractive) {
   }
 
   # Codex plugin registration updates config.toml. Install Codex mode after the
-  # plugin so its ownership digest records the converged final configuration.
+  # plugin on first setup. Re-init validates an existing owned installation
+  # read-only so installation-level provider/routing choices remain preserved.
   $codexModeFailure = $null
+  $codexModeOwnershipPath = Join-Path $env:CODEX_HOME ".ccg/ownership.json"
   try {
-    Invoke-CheckedCommand "ccg" @("codex-mode", "install") `
-      "CCG Codex mode installation"
+    if (Test-Path -LiteralPath $codexModeOwnershipPath) {
+      Invoke-CheckedCommand "ccg" @("doctor", "--platform", "codex") `
+        "existing CCG Codex mode verification"
+    }
+    else {
+      Invoke-CheckedCommand "ccg" @("codex-mode", "install") `
+        "CCG Codex mode installation"
+    }
   }
   catch {
     $codexModeFailure = $_
   }
-  Assert-ClaudeUnchanged $claudeBaseline "ccg codex-mode install"
+  Assert-ClaudeUnchanged $claudeBaseline "CCG Codex mode setup"
   if ($null -ne $codexModeFailure) {
     throw $codexModeFailure
   }

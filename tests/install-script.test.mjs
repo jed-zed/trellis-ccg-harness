@@ -45,7 +45,7 @@ function writeJson(target, value) {
 
 function commandShimSource() {
   return `#!/usr/bin/env node
-import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 const [command, ...args] = process.argv.slice(2);
@@ -77,7 +77,18 @@ if (command === "trellis" && args[0] === "--version") {
     console.error("Codex mode failed once");
     process.exitCode = 93;
   } else {
+    const ownershipPath = path.join(process.env.HOME, ".codex", ".ccg", "ownership.json");
+    mkdirSync(path.dirname(ownershipPath), { recursive: true });
+    writeFileSync(ownershipPath, "{}\\n");
     console.log("Codex mode installed");
+  }
+} else if (command === "ccg" && args.join(" ") === "doctor --platform codex") {
+  const state = readState();
+  if (state.codexDoctorBehavior === "fail") {
+    console.error("Codex mode ownership verification failed");
+    process.exitCode = 94;
+  } else {
+    console.log("All Codex checks passed");
   }
 } else if (command === "codex" && args[0] === "--version") {
   console.log("codex-cli 0.142.0");
@@ -598,6 +609,20 @@ test("non-interactive Global Setup is explicit, exact, provider-safe, and idempo
     assert.equal(
       calls.filter(
         ({ command, args }) =>
+          command === "ccg" && args.join(" ") === "codex-mode install",
+      ).length,
+      1,
+    );
+    assert.equal(
+      calls.filter(
+        ({ command, args }) =>
+          command === "ccg" && args.join(" ") === "doctor --platform codex",
+      ).length,
+      1,
+    );
+    assert.equal(
+      calls.filter(
+        ({ command, args }) =>
           command === "codex" &&
           args.slice(0, 2).join(" ") === "plugin add",
       ).length,
@@ -1095,6 +1120,35 @@ test("a plain Codex mode failure can resume without reinstalling the plugin", ()
       ).length,
       2,
     );
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("an existing Codex mode must pass read-only ownership verification", () => {
+  const value = fixture();
+  try {
+    const first = runSetup(value);
+    assert.equal(first.status, 0, `${first.stdout}\n${first.stderr}`);
+    const state = JSON.parse(readFileSync(value.statePath, "utf8"));
+    state.codexDoctorBehavior = "fail";
+    writeJson(value.statePath, state);
+
+    const second = runSetup(value);
+    assert.notEqual(second.status, 0);
+    assert.match(
+      `${second.stdout}\n${second.stderr}`,
+      /Codex mode ownership verification failed/i,
+    );
+    const calls = commandLog(value);
+    assert.equal(
+      calls.filter(
+        ({ command, args }) =>
+          command === "ccg" && args.join(" ") === "codex-mode install",
+      ).length,
+      1,
+    );
+    assert.equal(calls.filter(({ command }) => command === "global-init").length, 1);
   } finally {
     value.cleanup();
   }
