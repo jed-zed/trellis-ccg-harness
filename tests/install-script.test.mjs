@@ -585,6 +585,48 @@ test("Codex may report the exact marketplace base version for the same plugin sn
   }
 });
 
+test("Global Setup accepts a newer immutable CCG version recorded by the Harness", () => {
+  const value = fixture();
+  try {
+    const version = "3.4.1";
+    const pluginVersion = `${version}+codex.1`;
+    const ccgRoot = path.join(
+      value.repoRoot,
+      "components",
+      "ccg-workflow",
+    );
+    const sourceManifestPath = path.join(value.repoRoot, "harness.sources.json");
+    const sourceManifest = JSON.parse(readFileSync(sourceManifestPath, "utf8"));
+    sourceManifest.ccg.version = version;
+    writeJson(sourceManifestPath, sourceManifest);
+    writeJson(path.join(ccgRoot, "package.json"), {
+      name: "ccg-workflow",
+      version,
+    });
+    writeJson(path.join(ccgRoot, ".codex-plugin", "marketplace.json"), {
+      name: "ccg-gptpro-worflow",
+      plugins: [{
+        name: "ccg",
+        version,
+        source: "./plugins/ccg",
+      }],
+    });
+    writeJson(
+      path.join(ccgRoot, "plugins", "ccg", ".codex-plugin", "plugin.json"),
+      { name: "ccg", version: pluginVersion },
+    );
+    const state = JSON.parse(readFileSync(value.statePath, "utf8"));
+    state.reportedPluginVersion = pluginVersion;
+    writeJson(value.statePath, state);
+
+    const result = runSetup(value, ["-PreviewOnly"]);
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+    assert.match(result.stdout, /CCG CLI: build\/link exact 3\.4\.1 snapshot/);
+  } finally {
+    value.cleanup();
+  }
+});
+
 test("a CCG plugin from another marketplace fails closed before mutation", () => {
   const value = fixture();
   try {

@@ -708,9 +708,10 @@ $sourceManifest = Get-Content -LiteralPath $sourceManifestPath -Raw |
   ConvertFrom-Json
 $requiredTrellisVersion = [string]$sourceManifest.trellis.version
 $requiredCcgVersion = [string]$sourceManifest.ccg.version
-if ($requiredCcgVersion -ne "3.3.2") {
+if ($requiredCcgVersion -notmatch '^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$') {
   throw (
-    "Public setup requires the Harness-recorded CCG 3.3.2 snapshot; found " +
+    "Public setup requires an immutable semantic CCG version in the Harness " +
+    "source manifest; found " +
     "'$requiredCcgVersion'."
   )
 }

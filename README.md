@@ -68,7 +68,7 @@ pnpm setup
 
 `pnpm setup` 是面向用户的 **Global Setup**，每个用户环境运行一次。它会：
 
-1. 在任何写入前预览并检查精确 Trellis 版本、CCG 3.3.2 CLI、`ccg
+1. 在任何写入前预览并检查精确 Trellis 版本、来源清单固定的 CCG CLI、`ccg
    codex-mode install`、当前 Harness snapshot 的本地 Codex marketplace /
    CCG 插件、13 个 bundled platform Skills、个人 catalog 选择和 provider
    状态；
