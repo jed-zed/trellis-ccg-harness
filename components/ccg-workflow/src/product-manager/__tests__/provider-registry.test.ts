@@ -1,3 +1,4 @@
+import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   resolveEffectiveProductManagerProvider,
@@ -21,6 +22,7 @@ describe('product-manager provider policy', () => {
   })
 
   it('requires an absolute trusted executable and read-only execution', () => {
+    const trustedExecutable = resolve('fixtures', 'codex')
     expect(() => validateProviderExecution({
       executable: 'gemini.cmd',
       args: [],
@@ -28,7 +30,7 @@ describe('product-manager provider policy', () => {
       shell: false,
     })).toThrow(/absolute/)
     expect(() => validateProviderExecution({
-      executable: 'C:\\tools\\codex.exe',
+      executable: trustedExecutable,
       args: [],
       readOnly: false,
       shell: false,
@@ -36,22 +38,24 @@ describe('product-manager provider policy', () => {
   })
 
   it('disables Codex tools and applies a Gemini deny-all policy', () => {
-    const codex = createCodexProductManagerExecution('C:\\tools\\codex.exe', {
+    const workspace = resolve('fixtures', 'empty')
+    const policyFile = resolve(workspace, 'deny-all.toml')
+    const codex = createCodexProductManagerExecution(resolve('fixtures', 'codex'), {
       model: 'test',
-      workspace: 'C:\\empty',
-      schemaFile: 'C:\\empty\\schema.json',
+      workspace,
+      schemaFile: resolve(workspace, 'schema.json'),
     })
     expect(codex.args).toContain('shell_tool')
     expect(codex.args).toContain('multi_agent')
     expect(codex.args).toContain('--strict-config')
 
-    const gemini = createGeminiProductManagerExecution('C:\\node\\node.exe', {
-      entrypoint: 'C:\\node\\gemini.js',
+    const gemini = createGeminiProductManagerExecution(resolve('fixtures', 'node'), {
+      entrypoint: resolve('fixtures', 'gemini.js'),
       model: 'test',
-      policyFile: 'C:\\empty\\deny-all.toml',
+      policyFile,
     })
     expect(gemini.args).toContain('--policy')
-    expect(gemini.args).toContain('C:\\empty\\deny-all.toml')
+    expect(gemini.args).toContain(policyFile)
     expect(gemini.args.join(' ')).toContain('from stdin')
   })
 })
