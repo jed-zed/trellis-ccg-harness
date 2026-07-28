@@ -18,7 +18,7 @@
   插件 doctor 与 Grok runtime 文件完整性。
 - [x] 运行全部 Harness、来源与 CCG 门禁。
 - [x] 运行 Gemini 只读 review；Claude 本次按用户限定和现行项目规则禁用。
-- [ ] 提交、推送、创建 PR，等待 CI 后合并。
+- [x] 提交、推送、创建 PR #13，等待 CI 全绿后由 Codex 合并。
 
 ## Completion Evidence
 

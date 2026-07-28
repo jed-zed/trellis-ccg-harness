@@ -50,7 +50,7 @@ Provider 可由 `frontend`、`backend`、`search` 路由选择，不再被 Harne
 - [x] `ccg routing list` 的三个角色保持独立设置；本任务不改写用户选择。
 - [x] 聚焦测试、`pnpm harness:test`、`pnpm doctor`、
   `pnpm harness:conflicts`、`pnpm verify:sources` 和 CCG 完整质量门禁通过。
-- [ ] 变更通过干净分支提交、推送和 PR 交付。
+- [x] 变更通过干净分支提交、推送和 PR 交付。
 
 ## Out of Scope
 
