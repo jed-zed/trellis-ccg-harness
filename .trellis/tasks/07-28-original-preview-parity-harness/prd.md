@@ -9,14 +9,15 @@ without changing Harness authority boundaries or runtime policy.
 ## Requirements
 
 - Import only tracked files from the clean personal CCG checkout at
-  `I:\ai\ccg-workflow-original-preview-parity-3.4`.
+  `I:\ai\ccg-workflow-original-preview-parity-3.4.1`.
 - Pin the exact reviewed CCG commit
-  `b9e88303fef30aa6193bf90036c29f763e824784`, version `3.4.0`, and its Git
+  `97c4a9d6904b3ccd75fa4aa396e3016f74e539bf`, version `3.4.1`, and its Git
   tree in `harness.sources.json`.
 - Refresh `components/ccg-workflow/` only through the repository-owned
   `pnpm harness:update` transaction.
-- Preserve the 3.4 provider-role routing behavior, Trellis task authority,
-  Codex-only workspace writes, and optional Grok policy.
+- Preserve the 3.4.1 read-only product-manager, the three independent provider
+  roles, Trellis task authority, Codex-only workspace writes, and optional
+  Grok policy.
 - Do not import credentials, nested Git metadata, model evidence, caches,
   build output, or other ignored runtime state.
 - Keep the original dirty CCG checkout and the active provider-routing Harness
@@ -25,8 +26,8 @@ without changing Harness authority boundaries or runtime policy.
 ## Acceptance Criteria
 
 - [ ] `components/ccg-workflow/` is byte-identical to the tracked Git tree of
-      CCG commit `b9e88303fef30aa6193bf90036c29f763e824784`.
-- [ ] `harness.sources.json` records CCG version `3.4.0`, the exact commit, and
+      CCG commit `97c4a9d6904b3ccd75fa4aa396e3016f74e539bf`.
+- [ ] `harness.sources.json` records CCG version `3.4.1`, the exact commit, and
       the matching Git tree.
 - [ ] Harness context and conflict checks report no blocking conflict.
 - [ ] Source verification, Harness tests, doctor, CCG lint/typecheck/test/build,
