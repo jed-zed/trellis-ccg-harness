@@ -44,9 +44,6 @@ distribution with public upstream.
   listed in `~/.codex/.ccg/ownership.json`.
 - Existing collisions are backed up. Uninstall removes/restores an asset only
   when its installed digest still matches; user edits are preserved.
-- `~/.codex/ccg/config.toml` is installation-level user-selected state. Doctor
-  parses valid drift as preserved mutable configuration while continuing to
-  fail closed on malformed configuration or drift in executable/agent assets.
 - Ownership and transaction records use strict, versioned schemas with
   allowlisted derived paths and verified SHA-256 snapshots.
 - Every existing managed path component must be a regular directory or file;
