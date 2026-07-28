@@ -1,0 +1,255 @@
+<!--
+Upstream: https://github.com/fengshao1227/ccg-workflow
+Commit: 9eaff791de19fe45a1713b1153e65c5c7b607f80
+Path: codeagent-wrapper/server.go (generateIndexHTML)
+Mechanical substitutions: backend=gemini, iconBg=#8957e5,
+titleColor=#a371f7, iconText=GEM
+Unmodified upstream template SHA-256 (UTF-8):
+f1d29d0e1bd6b8cc3c1f6a8a6e74f7cc03788b85a4b4e3e8319f83e5e0365ab6
+License: MIT.
+
+Copyright (c) 2025 fengshao1227
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+Runtime compatibility patches are restricted to safe task rendering, real exit
+status, failure retention, configurable success close timing, and same-origin
+SSE. The page below is the mechanically resolved upstream template with safe
+task rendering applied in place; the remaining patches are applied at startup.
+-->
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>gemini - Live Output</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0d1117;
+            color: #c9d1d9;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        header {
+            background: #161b22;
+            padding: 12px 20px;
+            border-bottom: 1px solid #30363d;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .panel-icon {
+            width: 32px;
+            height: 32px;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 11px;
+            background: #8957e5;
+            color: #fff;
+        }
+        .title { font-size: 18px; font-weight: 600; color: #a371f7; }
+        .live-indicator {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            color: #3fb950;
+            font-size: 12px;
+            margin-left: auto;
+        }
+        .live-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #3fb950;
+            animation: blink 1s infinite;
+        }
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+        .output-area {
+            flex: 1;
+            background: #0d1117;
+            padding: 16px 20px;
+            font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
+            font-size: 13px;
+            white-space: pre-wrap;
+            word-break: break-word;
+            overflow-y: auto;
+            line-height: 1.6;
+        }
+        .cursor {
+            display: inline-block;
+            width: 8px;
+            height: 16px;
+            background: #3fb950;
+            animation: cursor-blink 1s infinite;
+            vertical-align: text-bottom;
+        }
+        @keyframes cursor-blink {
+            0%, 50% { opacity: 1; }
+            51%, 100% { opacity: 0; }
+        }
+        .done-indicator {
+            color: #8b949e;
+            font-style: italic;
+            margin-top: 16px;
+            padding-top: 12px;
+            border-top: 1px solid #30363d;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="panel-icon">GEM</div>
+        <div class="title">gemini</div>
+        <div class="live-indicator" id="liveIndicator">
+            <span class="live-dot"></span> LIVE
+        </div>
+    </header>
+    <div class="output-area" id="output"></div>
+    <script>
+        const output = document.getElementById('output');
+        const liveIndicator = document.getElementById('liveIndicator');
+        let connected = false;
+        let userScrolled = false;
+
+        // Detect if user manually scrolled up
+        output.addEventListener('scroll', () => {
+            const isAtBottom = output.scrollHeight - output.scrollTop - output.clientHeight < 50;
+            userScrolled = !isAtBottom;
+        });
+
+        // Reliable auto-scroll function
+        function scrollToBottom() {
+            if (userScrolled) return; // Respect user's scroll position
+            output.scrollTop = output.scrollHeight;
+        }
+
+        async function connectToStream() {
+            try {
+                const res = await fetch('/api/sessions');
+                const sessions = await res.json();
+                if (sessions.length === 0) {
+                    setTimeout(connectToStream, 500);
+                    return;
+                }
+                const session = sessions[0];
+                if (connected) return;
+                connected = true;
+
+                // Display user task/prompt first
+                if (session.task) {
+                    const taskEl = document.createElement('div');
+                    taskEl.style.cssText = 'color: #58a6ff; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid #30363d;';
+                    const taskLabel = document.createElement('strong');
+                    taskLabel.textContent = '📋 Task:';
+                    taskEl.appendChild(taskLabel);
+                    taskEl.appendChild(document.createElement('br'));
+                    const taskText = document.createElement('span');
+                    taskText.textContent = session.task;
+                    taskEl.appendChild(taskText);
+                    output.appendChild(taskEl);
+                    // Scroll to bottom after displaying task
+                    setTimeout(scrollToBottom, 0);
+                }
+
+                const es = new EventSource('/api/stream/' + session.id);
+                es.onmessage = (event) => {
+                    const data = JSON.parse(event.data);
+                    if (data.content) {
+                        const cursor = output.querySelector('.cursor');
+                        if (cursor) cursor.remove();
+
+                        // Create content element with appropriate styling
+                        const contentEl = document.createElement('span');
+                        const contentType = data.content_type || 'message';
+
+                        switch (contentType) {
+                            case 'reasoning':
+                                contentEl.style.cssText = 'color: #8b949e; font-style: italic;';
+                                contentEl.textContent = '💭 ' + data.content;
+                                break;
+                            case 'command':
+                                contentEl.style.cssText = 'color: #fbbf24; background: #1e1e1e; padding: 8px; margin: 8px 0; display: block; border-left: 3px solid #d97706; font-family: monospace;';
+                                contentEl.textContent = data.content;
+                                break;
+                            case 'message':
+                            default:
+                                contentEl.style.cssText = 'color: #c9d1d9;';
+                                contentEl.textContent = data.content;
+                                break;
+                        }
+
+                        output.appendChild(contentEl);
+
+                        const cursorEl = document.createElement('span');
+                        cursorEl.className = 'cursor';
+                        output.appendChild(cursorEl);
+
+                        // Auto-scroll to bottom (use setTimeout for reliable DOM update)
+                        setTimeout(scrollToBottom, 0);
+                    }
+                    if (data.done) {
+                        const cursor = output.querySelector('.cursor');
+                        if (cursor) cursor.remove();
+                        liveIndicator.style.display = 'none';
+                        const doneEl = document.createElement('div');
+                        doneEl.className = 'done-indicator';
+                        doneEl.textContent = '✓ 完成 (3秒后自动关闭)';
+                        output.appendChild(doneEl);
+
+                        // Force scroll to bottom on completion
+                        userScrolled = false;
+                        setTimeout(scrollToBottom, 0);
+
+                        es.close();
+
+                        // Browser notification
+                        if (Notification.permission === 'granted') {
+                            new Notification('任务完成', { body: '代码生成已完成' });
+                        }
+
+                        // Auto-close window after 3 seconds
+                        setTimeout(() => {
+                            window.close();
+                            // If window.close() fails (user-opened window), show message
+                            setTimeout(() => {
+                                doneEl.textContent = '✓ 完成 (可以关闭此页面)';
+                            }, 100);
+                        }, 3000);
+                    }
+                };
+                es.onerror = () => {
+                    liveIndicator.style.display = 'none';
+                };
+            } catch (e) {
+                setTimeout(connectToStream, 500);
+            }
+        }
+        connectToStream();
+    </script>
+</body>
+</html>

@@ -271,6 +271,8 @@ export async function init(options: InitOptions = {}): Promise<InitResult> {
   const mode: CollaborationMode = 'smart'
   let selectedWorkflows = getCoreCommandIds()
   let _installMode: 'v3' | 'legacy' = 'v3'
+  let productManagerProvider: '' | 'codex' | 'gemini' = ''
+  let productManagerConsent = false
 
   // Non-interactive mode: preserve existing config
   if (options.skipPrompt) {
@@ -286,6 +288,21 @@ export async function init(options: InitOptions = {}): Promise<InitResult> {
     frontendModels = parseModelOption(options.frontend, frontendModels, '--frontend')
     backendModels = parseModelOption(options.backend, backendModels, '--backend')
     searchModels = parseModelOption(options.search, searchModels, '--search')
+    const requestedProductManager = options.productManager
+    if (requestedProductManager != null && !['', 'disabled', 'codex', 'gemini'].includes(requestedProductManager))
+      throw new TypeError('productManager must be disabled, codex, or gemini')
+    if (requestedProductManager === 'codex' || requestedProductManager === 'gemini') {
+      productManagerProvider = requestedProductManager
+      productManagerConsent = true
+    }
+    else if (requestedProductManager === 'disabled') {
+      productManagerProvider = ''
+      productManagerConsent = false
+    }
+    else {
+      productManagerProvider = existingConfig?.product_manager?.provider || ''
+      productManagerConsent = existingConfig?.product_manager?.enabled === true
+    }
     // Preserve install mode: if existing install has legacy commands, keep them
     if (existingConfig?.workflows?.installed) {
       const hadLegacy = existingConfig.workflows.installed.some(
@@ -364,6 +381,32 @@ export async function init(options: InitOptions = {}): Promise<InitResult> {
     const existingConfig = await readCcgConfig()
     existingIntelligence = existingConfig?.intelligence
     intelligenceConsent = existingIntelligence?.enabled === true
+    const requestedProductManager = options.productManager
+    if (requestedProductManager != null && !['', 'disabled', 'codex', 'gemini'].includes(requestedProductManager))
+      throw new TypeError('productManager must be disabled, codex, or gemini')
+    if (requestedProductManager === 'codex' || requestedProductManager === 'gemini') {
+      productManagerProvider = requestedProductManager
+      productManagerConsent = true
+    }
+    else if (requestedProductManager === 'disabled') {
+      productManagerProvider = ''
+      productManagerConsent = false
+    }
+    else {
+      const answer = await inquirer.prompt([{
+        type: 'list',
+        name: 'provider',
+        message: 'Select the install-level read-only product manager',
+        choices: [
+          { name: 'Disabled (no provider call)', value: '' },
+          { name: 'Codex (selection only; no install, login, network, or call)', value: 'codex' },
+          { name: 'Gemini (selection only; no install, login, network, or call)', value: 'gemini' },
+        ],
+        default: existingConfig?.product_manager?.provider || '',
+      }])
+      productManagerProvider = answer.provider
+      productManagerConsent = productManagerProvider !== ''
+    }
 
     // Initialize from existing config so re-running init shows saved values as defaults
     if (existingConfig?.routing) {
@@ -1060,6 +1103,8 @@ export async function init(options: InitOptions = {}): Promise<InitResult> {
       intelligenceConsent,
       intelligence: existingIntelligence,
       existingInstall: existingIntelligence !== undefined,
+      productManagerProvider,
+      productManagerConsent,
     })
 
     // Save config FIRST - ensure it's created even if installation fails

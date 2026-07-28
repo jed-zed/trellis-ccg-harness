@@ -119,7 +119,7 @@ export function normalizeAcpEvents(messages, { requireComplete = true, promptCom
   const unknownEvents = []
   const searches = []
   const startedCalls = new Map()
-  const completedCalls = new Set()
+  const completedCalls = new Map()
   const agentMessages = []
   let turnCompleted = null
 
@@ -175,10 +175,13 @@ export function normalizeAcpEvents(messages, { requireComplete = true, promptCom
         const startedCall = startedCalls.get(callId)
         if (!startedCall)
           throw new Error(`Uncorrelated search tool_call_update: ${callId}`)
-        if (completedCalls.has(callId))
-          throw new Error(`Duplicate search terminal update: ${callId}`)
         const result = normalizeSearchResult(update, startedCall)
-        completedCalls.add(callId)
+        if (completedCalls.has(callId)) {
+          if (JSON.stringify(completedCalls.get(callId)) !== JSON.stringify(result))
+            throw new Error(`Duplicate search terminal update: ${callId}`)
+          break
+        }
+        completedCalls.set(callId, result)
         searches.push(result)
         events.push(result)
         break

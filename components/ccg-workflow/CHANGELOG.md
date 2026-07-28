@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [3.4.1] - 2026-07-27
+
+### Added
+
+- **Provider-neutral product manager** — Add strict versioned contracts,
+  canonical invocation keys, installation-level Codex/Gemini selection,
+  no-tool read-only execution, bounded output, task-local redacted evidence,
+  same-provider retry, completed-result reuse, and explicit `unavailable`
+  outcomes.
+- **Trellis-first event mapping** — Classify all 44 CCG commands by their
+  actual effects and emit only `INTAKE`, `PLAN`, `DRIFT`, `MILESTONE`, or
+  `FINAL` review candidates. CCG does not create another task or plan
+  authority.
+- **Product acceptance primitives** — Add three-dimensional progress, strict
+  stale-response rejection, final eligibility, and safe last-milestone/final
+  merge predicates for Harness integration.
+
+### Security
+
+- **Independent provider isolation** — Codex disables shell, MCP, browser,
+  app, hook, plugin, workspace-dependency, and subagent surfaces under a
+  read-only ephemeral workspace; Gemini receives a deny-all built-in/MCP tool
+  policy in plan mode.
+- **Lease-safe concurrency** — Product-manager locks use nonce ownership and
+  heartbeat refresh so a stale owner cannot delete a replacement lock.
+
 ## [3.4.0] - 2026-07-27
 
 ### Added

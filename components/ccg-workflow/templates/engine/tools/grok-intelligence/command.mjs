@@ -35,7 +35,7 @@ const CACHE_VERSION = Object.freeze({
   evidenceSchemaVersion: '2',
   routerPolicyVersion: '1',
   sourceTierPolicyVersion: '1',
-  eventNormalizerVersion: '1',
+  eventNormalizerVersion: '2',
   snapshotPolicyVersion: '1',
 })
 

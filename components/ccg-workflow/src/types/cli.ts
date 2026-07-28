@@ -12,6 +12,7 @@ export interface CliOptions {
   workflows?: string
   installDir?: string
   intelligence?: boolean
+  productManager?: '' | 'disabled' | 'codex' | 'gemini'
 }
 
 export type { CcgConfig, CollaborationMode, SupportedLang }
