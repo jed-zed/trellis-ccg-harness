@@ -31,6 +31,9 @@ This command is Codex-native:
   until Codex has read its non-empty output.
 - If Gemini is selected, use the bundled preview helper with
   `gemini-3.1-pro-preview` by default.
+- Claude is disabled for ordinary delegation. It may run only when unified CCG
+  routing selects Claude for the read-only `product-manager` role and the
+  project allows the explicit provider call.
 - Do not modify product code. This command may write CCG plan files only under `.codex/ccg/plans/`.
 - All user-facing output for this command must be Chinese by default, including usage/help, progress summaries, questions, failure reports, saved-plan summaries, and the next manual command.
 - The saved CCG plan content itself must be Chinese by default. Section headings, table headers, checklists, narrative analysis, risks, test strategy, and handoff prose must be Chinese. English is allowed only for literal file paths, commands, code identifiers, generated slugs, URLs, model names, and environment variables.

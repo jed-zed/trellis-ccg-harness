@@ -22,6 +22,7 @@ export function createGeminiProductManagerExecution(nodeExecutable: string, opti
       '--prompt',
       'Read the complete product-manager request from stdin and return only the requested JSON object.',
     ],
+    environmentKeys: ['GEMINI_CLI_HOME'],
     readOnly: true,
     shell: false,
   })

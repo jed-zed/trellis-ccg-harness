@@ -135,11 +135,12 @@ describe('doctor command helpers', () => {
     ])
   })
 
-  it('includes all three role providers in health checks and status rows', () => {
+  it('includes all four role providers in health checks and status rows', () => {
     const routing: ModelRouting = {
       frontend: { primary: 'gemini', models: ['gemini'], strategy: 'fallback' },
       backend: { primary: 'codex', models: ['codex'], strategy: 'fallback' },
       search: { primary: 'grok', models: ['grok'], strategy: 'fallback' },
+      'product-manager': { primary: 'claude', models: ['claude'], strategy: 'fallback' },
       mode: 'smart',
     }
 
@@ -150,11 +151,14 @@ describe('doctor command helpers', () => {
       'codex',
       'grok',
       'grok',
+      'claude',
+      'claude',
     ])
     expect(routingStatusRows(routing)).toEqual([
-      { role: 'Frontend', provider: 'gemini' },
-      { role: 'Backend', provider: 'codex' },
-      { role: 'Search', provider: 'grok' },
+      { role: 'frontend', provider: 'gemini' },
+      { role: 'backend', provider: 'codex' },
+      { role: 'search', provider: 'grok' },
+      { role: 'product-manager', provider: 'claude' },
     ])
   })
 
@@ -226,6 +230,8 @@ describe('Codex-only doctor', () => {
       'Codex version',
       'Codex ownership',
       'Codex transaction',
+      'CCG role routing',
+      'Product manager route',
     ])
     expect(await fs.pathExists(join(root, '.claude'))).toBe(false)
   })
@@ -241,6 +247,44 @@ describe('Codex-only doctor', () => {
 
     expect(result.ok).toBe(false)
     expect(ownership?.detail).toContain('managed file digest mismatch: agents/ccg-review.toml')
+  })
+
+  it('accepts a valid user-selected Codex CCG config while preserving its ownership boundary', async () => {
+    const { codexHome } = await makeCodexFixture()
+    await writeFile(
+      join(codexHome, 'ccg', 'config.toml'),
+      [
+        '[intelligence]',
+        'enabled = true',
+        '',
+        '[product_manager]',
+        'enabled = true',
+        'provider = "gemini"',
+        'contract_version = "1"',
+        '',
+      ].join('\n'),
+    )
+    vi.stubEnv('CODEX_HOME', codexHome)
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+
+    const result = await doctor({ platform: 'codex' })
+    const ownership = result.checks.find(check => check.label === 'Codex ownership')
+
+    expect(result.ok).toBe(true)
+    expect(ownership?.detail).toContain('mutable CCG config differs from the installed template')
+  })
+
+  it('rejects malformed drift in the user-selectable Codex CCG config', async () => {
+    const { codexHome } = await makeCodexFixture()
+    await writeFile(join(codexHome, 'ccg', 'config.toml'), '[product_manager\nprovider = "gemini"\n')
+    vi.stubEnv('CODEX_HOME', codexHome)
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+
+    const result = await doctor({ platform: 'codex' })
+    const ownership = result.checks.find(check => check.label === 'Codex ownership')
+
+    expect(result.ok).toBe(false)
+    expect(ownership?.detail).toContain('mutable CCG config is malformed')
   })
 
   it('rejects ownership paths that escape CODEX_HOME', async () => {

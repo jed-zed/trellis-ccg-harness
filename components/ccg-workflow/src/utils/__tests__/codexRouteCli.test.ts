@@ -100,7 +100,7 @@ describe('Codex-native CCG route CLI', () => {
     await fs.ensureDir(configDir)
     await writeFile(configPath, [
       '[general]',
-      'version = "3.4.0"',
+      'version = "3.4.2"',
       '',
       '[routing.frontend]',
       'models = ["gemini"]',
@@ -112,6 +112,16 @@ describe('Codex-native CCG route CLI', () => {
       'primary = "codex"',
       'strategy = "fallback"',
       '',
+      '[routing.search]',
+      'models = ["grok"]',
+      'primary = "grok"',
+      'strategy = "fallback"',
+      '',
+      '[routing.product-manager]',
+      'models = ["claude"]',
+      'primary = "claude"',
+      'strategy = "fallback"',
+      '',
       '[intelligence]',
       'enabled = false',
       'auto_route = false',
@@ -119,65 +129,111 @@ describe('Codex-native CCG route CLI', () => {
     ].join('\n'))
 
     const tsxImport = pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href
-    const result = spawnSync(
+    const run = (args: string[]) => spawnSync(
       process.execPath,
-      [
-        '--import',
-        tsxImport,
-        join(process.cwd(), 'src', 'cli.ts'),
-        'routing',
-        'set',
-        'frontend',
-        'claude',
-      ],
+      ['--import', tsxImport, join(process.cwd(), 'src', 'cli.ts'), ...args],
       {
         encoding: 'utf8',
         env: {
           ...process.env,
           HOME: home,
           USERPROFILE: home,
+          NO_COLOR: '1',
         },
         timeout: 30_000,
         windowsHide: true,
       },
     )
 
-    expect(result.status, result.stderr).toBe(0)
+    const changed = run(['routing', 'set', 'frontend', 'claude'])
+    expect(changed.status, changed.stderr).toBe(0)
     const document = parse(await readFile(configPath, 'utf8')) as any
     expect(document.routing.frontend.primary).toBe('claude')
     expect(document.routing.backend.primary).toBe('codex')
     expect(document.routing.search.primary).toBe('grok')
+    expect(document.routing['product-manager'].primary).toBe('claude')
     expect(document.routing).not.toHaveProperty('analysis')
     expect(document.routing).not.toHaveProperty('planning')
     expect(document.routing).not.toHaveProperty('review')
-    expect(await fs.pathExists(join(home, '.claude'))).toBe(false)
 
-    const getResult = spawnSync(
-      process.execPath,
-      [
-        '--import',
-        tsxImport,
-        join(process.cwd(), 'src', 'cli.ts'),
-        'routing',
-        'get',
-        'frontend',
-        '--json',
-      ],
-      {
-        encoding: 'utf8',
-        env: {
-          ...process.env,
-          HOME: home,
-          USERPROFILE: home,
-        },
-        timeout: 30_000,
-        windowsHide: true,
-      },
-    )
+    const getResult = run(['routing', 'get', 'frontend', '--json'])
     expect(getResult.status, getResult.stderr).toBe(0)
     expect(JSON.parse(getResult.stdout)).toEqual({
       role: 'frontend',
       provider: 'claude',
     })
+    expect(await fs.pathExists(join(home, '.claude'))).toBe(false)
+  })
+
+  it('migrates legacy product-manager selection and switches only the fourth role', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'ccg product manager routing home '))
+    roots.push(home)
+    const configDir = join(home, '.codex', 'ccg')
+    const configPath = join(configDir, 'config.toml')
+    await fs.ensureDir(configDir)
+    await writeFile(configPath, [
+      '[routing.frontend]',
+      'models = ["gemini"]',
+      'primary = "gemini"',
+      'strategy = "fallback"',
+      '',
+      '[routing.backend]',
+      'models = ["codex"]',
+      'primary = "codex"',
+      'strategy = "fallback"',
+      '',
+      '[routing.search]',
+      'models = ["grok"]',
+      'primary = "grok"',
+      'strategy = "fallback"',
+      '',
+      '[product_manager]',
+      'enabled = true',
+      'provider = "gemini"',
+      'contract_version = "1"',
+      '',
+    ].join('\n'))
+
+    const tsxImport = pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href
+    const cliEnvironment: NodeJS.ProcessEnv = {
+      ...process.env,
+      HOME: home,
+      USERPROFILE: home,
+      NO_COLOR: '1',
+      NODE_ENV: 'production',
+    }
+    delete cliEnvironment.I18NEXT_NO_SUPPORT_NOTICE
+    delete cliEnvironment.CI
+    const run = (args: string[]) => spawnSync(
+      process.execPath,
+      ['--import', tsxImport, join(process.cwd(), 'src', 'cli.ts'), ...args],
+      {
+        encoding: 'utf8',
+        env: cliEnvironment,
+        timeout: 30_000,
+        windowsHide: true,
+      },
+    )
+
+    const migrated = run(['routing', 'get', 'product-manager', '--json'])
+    expect(migrated.status, migrated.stderr).toBe(0)
+    expect(JSON.parse(migrated.stdout)).toEqual({
+      role: 'product-manager',
+      provider: 'gemini',
+    })
+    let document = parse(await readFile(configPath, 'utf8')) as any
+    expect(document.product_manager).not.toHaveProperty('provider')
+
+    for (const provider of ['claude', 'codex', 'gemini']) {
+      const changed = run(['routing', 'set', 'product-manager', provider])
+      expect(changed.status, changed.stderr).toBe(0)
+      document = parse(await readFile(configPath, 'utf8')) as any
+      expect(document.routing['product-manager'].primary).toBe(provider)
+      expect(document.routing.frontend.primary).toBe('gemini')
+      expect(document.routing.backend.primary).toBe('codex')
+      expect(document.routing.search.primary).toBe('grok')
+    }
+
+    expect(await fs.pathExists(join(home, '.claude'))).toBe(false)
   })
 })

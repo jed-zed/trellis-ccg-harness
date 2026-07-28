@@ -105,7 +105,7 @@ describe('workflow registry', () => {
   })
 })
 
-describe('Codex plugin role-routing parity', () => {
+describe('Codex plugin unified role-routing parity', () => {
   const readPluginFile = (...segments: string[]) => readFileSync(join(CCG_PLUGIN_DIR, ...segments), 'utf-8')
 
   const ordinaryParityFiles = [
@@ -117,14 +117,16 @@ describe('Codex plugin role-routing parity', () => {
     ['skills/ccg-review/SKILL.md', readPluginFile('skills', 'ccg-review', 'SKILL.md')],
   ] as const
 
-  it('keeps ordinary plan/execute/review files independent from provider runtime paths', () => {
+  it('keeps ordinary plan/execute/review files independent from generic Claude runtime paths', () => {
     for (const [relativePath, content] of ordinaryParityFiles) {
       expect(content, `${relativePath} must not depend on .claude`).not.toContain('.claude')
       expect(content, `${relativePath} must keep Codex as final owner`).toMatch(/Codex .*final|final .*Codex|Codex owns/)
+      expect(content, `${relativePath} must state the isolated product-manager boundary`).toContain('product-manager')
+      expect(content, `${relativePath} must keep Claude out of ordinary delegation`).toMatch(/Claude .*ordinary|Claude is not a generic/)
     }
   })
 
-  it('plans through applicable top-level role providers', () => {
+  it('plans through applicable top-level role providers and records product-manager state', () => {
     const planCommand = readPluginFile('commands', 'plan.md')
     const planSkill = readPluginFile('skills', 'ccg-plan', 'SKILL.md')
     const routingRule = readPluginFile('rules', 'ccg-role-routing.md')
@@ -139,6 +141,9 @@ describe('Codex plugin role-routing parity', () => {
     expect(planCommand).not.toContain('ccg routing get planning --json')
     expect(planSkill).not.toContain('ccg routing get planning --json')
     expect(planSkill).not.toContain('Gemini participation is mandatory')
+    expect(planSkill).toContain('**Claude 产品经理**')
+    expect(planSkill).not.toContain('### Claude 分析')
+    expect(planSkill).toContain('说明 Claude 产品经理是否由已安装配置选中')
   })
 
   it('keeps execute contracts tied to risky/M+ triggers with Codex as final owner', () => {
@@ -154,12 +159,13 @@ describe('Codex plugin role-routing parity', () => {
       expect(content, `${relativePath} must preserve risky-work trigger language`).toContain('risky')
       expect(content, `${relativePath} must preserve review evidence`).toContain('review')
       expect(content, `${relativePath} must resolve provider routing`).toContain('ccg routing get')
+      expect(content, `${relativePath} must keep Claude isolated`).toContain('product-manager')
     }
   })
 
-  it('routes only frontend, backend, and search independently', () => {
+  it('routes all four formal roles independently', () => {
     const routingRule = readPluginFile('rules', 'ccg-role-routing.md')
-    for (const role of ['frontend', 'backend', 'search'])
+    for (const role of ['frontend', 'backend', 'search', 'product-manager'])
       expect(routingRule).toContain(`ccg routing get ${role} --json`)
     for (const phase of ['analysis', 'planning', 'review'])
       expect(routingRule).toContain(`\`${phase}\``)
@@ -398,6 +404,18 @@ describe('installWorkflows — binary installation', () => {
     const source = readFileSync(join(PACKAGE_ROOT, 'codeagent-wrapper', 'main.go'), 'utf8')
     const sourceVersion = /\bversion\s*=\s*"([^"]+)"/.exec(source)?.[1]
     expect(sourceVersion).toBe(EXPECTED_BINARY_VERSION)
+  })
+
+  it('keeps release binaries independent of the branch, commit, and checkout path', () => {
+    const workflow = readFileSync(
+      join(PACKAGE_ROOT, '.github', 'workflows', 'build-binaries.yml'),
+      'utf8',
+    )
+    expect(workflow).toContain(`- '.github/workflows/build-binaries.yml'`)
+    expect(workflow).toContain(`go-version: '1.21.13'`)
+    expect(workflow).toContain(
+      'go build -buildvcs=false -trimpath -ldflags="-s -w"',
+    )
   })
 
   it('defines every wrapper acquisition or verification failure as fatal', async () => {

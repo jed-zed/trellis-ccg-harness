@@ -3,6 +3,7 @@ name: Build codeagent-wrapper binaries
 on:
   push:
     paths:
+      - '.github/workflows/build-binaries.yml'
       - 'codeagent-wrapper/**'
   workflow_dispatch:
 
@@ -17,7 +18,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.21'
+          go-version: '1.21.13'
 
       - name: Cross-compile binaries
         working-directory: codeagent-wrapper
@@ -38,7 +39,7 @@ jobs:
             IFS=':' read -r os arch ext <<< "$target"
             output="codeagent-wrapper-${os}-${arch}${ext}"
             echo "::group::Building ${output}"
-            CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -ldflags="-s -w" -o "../artifacts/${output}" .
+            CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -buildvcs=false -trimpath -ldflags="-s -w" -o "../artifacts/${output}" .
             echo "::endgroup::"
           done
 

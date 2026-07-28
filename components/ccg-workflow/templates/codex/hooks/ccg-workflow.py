@@ -246,7 +246,7 @@ def build_guidance(task, progress, root):
     # Review phase: enforce dual model
     if phase == "review":
         parts.append("")
-        parts.append("⛔ Review phase: resolve the applicable frontend/backend/search providers, run required quality gates, and have Codex verify the findings.")
+        parts.append("⛔ Review phase: resolve the applicable frontend/backend/search providers, run required quality gates, and have Codex verify the findings. Claude may run only through an explicitly selected read-only product-manager contract.")
 
     # High-risk files detected
     if progress["high_risk_files"] and phase not in ("review", "completed"):

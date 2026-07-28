@@ -11,6 +11,7 @@ import {
   normalizeModelRouting,
   setRoleProvider,
 } from '../utils/model-routing'
+import { migrateLegacyProductManagerProviderDocument } from '../utils/config'
 
 interface CodexConfigDocument {
   [key: string]: unknown
@@ -28,7 +29,11 @@ export function getCodexRoutingConfigPath(): string {
 async function readDocument(configPath: string): Promise<CodexConfigDocument> {
   if (!await fs.pathExists(configPath))
     throw new Error(`Codex CCG config not found: ${configPath}. Run \`ccg codex-mode install\` first.`)
-  return parse(await fs.readFile(configPath, 'utf8')) as CodexConfigDocument
+  const parsed = parse(await fs.readFile(configPath, 'utf8')) as CodexConfigDocument
+  const migrated = migrateLegacyProductManagerProviderDocument(parsed)
+  if (migrated.changed)
+    await writeDocument(configPath, migrated.document)
+  return migrated.document as CodexConfigDocument
 }
 
 async function writeDocument(configPath: string, document: CodexConfigDocument): Promise<void> {
@@ -54,7 +59,7 @@ function printRows(routing: ModelRouting, json = false): void {
     return
   }
   for (const row of rows)
-    console.log(`${row.role.padEnd(10)} ${row.provider}`)
+    console.log(`${row.role.padEnd(16)} ${row.provider}`)
 }
 
 export async function configRouting(

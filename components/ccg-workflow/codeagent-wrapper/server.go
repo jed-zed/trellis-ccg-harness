@@ -13,6 +13,8 @@ import (
 	"time"
 )
 
+var listenWebServer = net.Listen
+
 // WebServer manages SSE connections for real-time output streaming
 type WebServer struct {
 	mu       sync.RWMutex
@@ -62,8 +64,9 @@ func (ws *WebServer) Start() error {
 	mux.HandleFunc("/api/sessions", ws.handleSessions)
 	mux.HandleFunc("/api/stream/", ws.handleStream)
 
-	// Listen on port 0 to get a random available port
-	listener, err := net.Listen("tcp", ":0")
+	// Bind only to the IPv4 loopback interface. The preview is local-only and
+	// must not expose an inbound listener on LAN or public network adapters.
+	listener, err := listenWebServer("tcp", "127.0.0.1:0")
 	if err != nil {
 		return err
 	}
@@ -74,7 +77,7 @@ func (ws *WebServer) Start() error {
 		Handler: mux,
 	}
 
-	url := fmt.Sprintf("http://localhost:%d", ws.port)
+	url := fmt.Sprintf("http://127.0.0.1:%d", ws.port)
 	fmt.Fprintf(os.Stderr, "  Web UI: %s\n", url)
 
 	go func() {

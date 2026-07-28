@@ -4,17 +4,19 @@
 - Codex is the sole workspace writer and final verification owner.
 - CCG Skills and quality gates run through the installed Codex plugin.
 - CCG runtime configuration lives at `~/.codex/ccg/config.toml`.
-- The three top-level CCG roles (`frontend`, `backend`, `search`) resolve at
-  runtime with `ccg routing get <role> --json`. Analysis, planning, and review
-  are phases inside those roles. Change one role with
-  `ccg routing set <role> <provider>`; this must not alter the other two.
+- The four top-level CCG roles (`frontend`, `backend`, `search`, and
+  `product-manager`) resolve through unified routing. Read one role with
+  `ccg routing get <role> --json` and change only that role with
+  `ccg routing set <role> <provider>`.
 - Third-party Skills, plugins, and MCP servers are unselected by default and
   require the user's explicit approval before a Harness or project initializer
   installs them.
 - External-intelligence routing uses `ccg route`; it is disabled by default.
 - Registered provider CLIs may supply bounded drafts or review evidence for
   their configured roles. Provider assignment is configurable, not permanent.
-  Codex remains the sole real-workspace writer and final verification owner.
+  Claude is disabled for
+  ordinary Codex-mode delegation; the only exception is when unified routing
+  selects Claude for the no-tool, no-write `product-manager` contract.
 - When `.trellis/` exists, Trellis owns task identity, lifecycle,
   specifications, plans, and completion. CCG must not create a parallel task
   authority.

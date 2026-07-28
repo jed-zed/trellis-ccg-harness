@@ -46,6 +46,7 @@ export function createCodexProductManagerExecution(executable: string, options: 
       options.workspace,
       '-',
     ],
+    environmentKeys: ['CODEX_HOME'],
     readOnly: true,
     shell: false,
   })

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   PRODUCT_MANAGER_CONTRACT_VERSION,
   PRODUCT_MANAGER_OUTPUT_JSON_SCHEMA,
+  createBoundProductManagerOutputJsonSchema,
   validateProductManagerInput,
   validateProductManagerOutput,
 } from '../contracts'
@@ -54,6 +55,37 @@ describe('product-manager output validation', () => {
     expect(PRODUCT_MANAGER_OUTPUT_JSON_SCHEMA.additionalProperties).toBe(false)
     expect(PRODUCT_MANAGER_OUTPUT_JSON_SCHEMA.required).toContain('invocation_key')
     expect(PRODUCT_MANAGER_OUTPUT_JSON_SCHEMA.properties.provider_identity.additionalProperties).toBe(false)
+  })
+
+  it('binds every invocation and provider identity field as a schema constant', () => {
+    const output = validOutput()
+    const schema = createBoundProductManagerOutputJsonSchema({
+      ...expected,
+      invocation_key: output.invocation_key,
+    }, output.provider_identity) as {
+      properties: Record<string, {
+        const?: unknown
+        properties?: Record<string, { const?: unknown }>
+      }>
+    }
+
+    for (const field of [
+      'contract_version',
+      'task_id',
+      'trigger_type',
+      'checkpoint_id',
+      'plan_revision',
+      'invocation_key',
+      'input_digest',
+      'evidence_digest',
+    ] as const) {
+      expect(schema.properties[field].const).toBe(output[field])
+    }
+    expect(schema.properties.provider_identity.properties).toEqual({
+      provider: { const: 'codex' },
+      model: { const: 'gpt-test' },
+      cli_version: { const: '1.0.0' },
+    })
   })
 
   it('accepts only an input digest derived from the complete canonical input', () => {
