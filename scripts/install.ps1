@@ -1130,7 +1130,7 @@ Write-Output (
   "(current: $($currentTrellisVersion ?? 'missing'))"
 )
 Write-Output (
-  "  CCG CLI: build/link exact $requiredCcgVersion snapshot " +
+  "  CCG CLI: build/package-install exact $requiredCcgVersion snapshot " +
   "(current: $($currentCcgVersion ?? 'missing'))"
 )
 Write-Output (

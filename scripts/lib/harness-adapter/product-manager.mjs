@@ -50,6 +50,22 @@ const REVIEW_TRIGGERS = new Set([
   "MILESTONE_REVIEW",
   "FINAL_REVIEW",
 ]);
+const ADVICE_KEYS = [
+  "invocationKey",
+  "triggerType",
+  "checkpointId",
+  "planRevision",
+  "verdict",
+  "providerIdentity",
+  "generatedAt",
+  "productManagerStatement",
+  "findings",
+  "risks",
+  "processAdjustments",
+  "recommendedNextAction",
+  "evidenceRefs",
+  "presentedAt",
+];
 
 function canonicalJson(value) {
   if (value === null) return "null";
@@ -291,7 +307,156 @@ function assertExactKeys(value, expected, label) {
   }
 }
 
-function validateState(state, taskId) {
+function createAdviceProjection(response, { presentedAt = null } = {}) {
+  return {
+    invocationKey: response.invocation_key,
+    triggerType: response.trigger_type,
+    checkpointId: response.checkpoint_id,
+    planRevision: response.plan_revision,
+    verdict: response.verdict,
+    providerIdentity: structuredClone(response.provider_identity),
+    generatedAt: response.generated_at,
+    productManagerStatement: response.user_acceptance_summary,
+    findings: structuredClone(response.findings),
+    risks: structuredClone(response.risks),
+    processAdjustments: structuredClone(response.process_adjustments),
+    recommendedNextAction: response.recommended_next_action,
+    evidenceRefs: structuredClone(response.evidence_refs),
+    presentedAt,
+  };
+}
+
+function isNonemptyString(value) {
+  return typeof value === "string" && Boolean(value.trim());
+}
+
+function isValidTimestamp(value) {
+  return typeof value === "string" && !Number.isNaN(Date.parse(value));
+}
+
+function isValidProviderIdentity(identity) {
+  return Boolean(
+    identity &&
+    typeof identity === "object" &&
+    !Array.isArray(identity) &&
+    ["codex", "gemini", "claude"].includes(identity.provider) &&
+    typeof identity.model === "string" &&
+    typeof identity.cli_version === "string",
+  );
+}
+
+function hasValidAdviceIdentity(advice) {
+  return (
+    /^[a-f0-9]{64}$/.test(advice.invocationKey) &&
+    REVIEW_TRIGGERS.has(advice.triggerType) &&
+    isNonemptyString(advice.checkpointId) &&
+    Number.isSafeInteger(advice.planRevision) &&
+    advice.planRevision >= 1 &&
+    PM_VERDICTS.has(advice.verdict) &&
+    isValidProviderIdentity(advice.providerIdentity) &&
+    isValidTimestamp(advice.generatedAt)
+  );
+}
+
+function hasValidAdviceContent(advice) {
+  return (
+    isNonemptyString(advice.productManagerStatement) &&
+    Array.isArray(advice.findings) &&
+    Array.isArray(advice.risks) &&
+    Array.isArray(advice.processAdjustments) &&
+    isNonemptyString(advice.recommendedNextAction) &&
+    Array.isArray(advice.evidenceRefs) &&
+    advice.evidenceRefs.every((entry) => typeof entry === "string")
+  );
+}
+
+function hasValidPresentationTimestamp(advice) {
+  return advice.presentedAt === null || isValidTimestamp(advice.presentedAt);
+}
+
+function validateAdvice(advice, label = "Product-manager advice") {
+  if (advice === null) return null;
+  if (!advice || typeof advice !== "object" || Array.isArray(advice)) {
+    throw new Error(`${label} is malformed.`);
+  }
+  assertExactKeys(advice, ADVICE_KEYS, label);
+  if (
+    !hasValidAdviceIdentity(advice) ||
+    !hasValidAdviceContent(advice) ||
+    !hasValidPresentationTimestamp(advice)
+  ) {
+    throw new Error(`${label} is malformed.`);
+  }
+  return advice;
+}
+
+function recoverLegacyAdvice(taskDirectory, state) {
+  const historyEntry = [...state.history]
+    .reverse()
+    .find(
+      (entry) =>
+        entry?.type === "product_manager_review" &&
+        /^[a-f0-9]{64}$/.test(entry.invocationKey),
+    );
+  if (!historyEntry) return null;
+  const resultPath = path.join(
+    taskDirectory,
+    ".ccg-evidence",
+    "product-manager",
+    "calls",
+    historyEntry.invocationKey,
+    "result.json",
+  );
+  assertInside(taskDirectory, resultPath, "Legacy product-manager result");
+  if (!existsSync(resultPath)) return null;
+  try {
+    const response = readJson(resultPath);
+    if (
+      response.invocation_key !== historyEntry.invocationKey ||
+      response.trigger_type !== historyEntry.triggerType ||
+      response.checkpoint_id !== historyEntry.checkpointId
+    ) {
+      return null;
+    }
+    return validateAdvice(
+      createAdviceProjection(response),
+      "Recovered product-manager advice",
+    );
+  } catch {
+    return null;
+  }
+}
+
+function normalizeLegacyState(taskDirectory, state) {
+  let normalized = state;
+  if (!Object.hasOwn(normalized, "latestAdvice")) {
+    normalized = structuredClone(normalized);
+    normalized.latestAdvice = recoverLegacyAdvice(taskDirectory, normalized);
+  }
+  const advice = normalized.latestAdvice;
+  if (!advice) return normalized;
+  const milestone = normalized.milestones.find(
+    (item) => item.pmReview?.invocationKey === advice.invocationKey,
+  );
+  if (
+    milestone &&
+    typeof milestone.pmReview.productManagerStatement !== "string"
+  ) {
+    if (normalized === state) normalized = structuredClone(normalized);
+    const normalizedMilestone = normalized.milestones.find(
+      (item) => item.id === milestone.id,
+    );
+    normalizedMilestone.pmReview = {
+      ...advice,
+      ...normalizedMilestone.pmReview,
+      presentedAt: advice.presentedAt,
+    };
+  }
+  return normalized;
+}
+
+function validateState(state, taskId, taskDirectory) {
+  state = normalizeLegacyState(taskDirectory, state);
   if (
     !state ||
     state.schemaVersion !== 1 ||
@@ -319,6 +484,7 @@ function validateState(state, taskId) {
       "finalReview",
       "progress",
       "nextAction",
+      "latestAdvice",
       "history",
       "updatedAt",
     ],
@@ -378,6 +544,7 @@ function validateState(state, taskId) {
   ) {
     throw new Error("Product-manager next action or timestamp is malformed.");
   }
+  validateAdvice(state.latestAdvice);
   if (
     canonicalJson(state.progress) !==
     canonicalJson(calculateProgress(state.milestones))
@@ -397,7 +564,7 @@ export function readProductManagerState(taskDirectory, { required = true } = {})
     if (!required) return null;
     throw new Error("Canonical product-manager.json is missing; run pm sync-plan.");
   }
-  return validateState(readJson(statePath), task.id);
+  return validateState(readJson(statePath), task.id, canonical.taskDirectory);
 }
 
 export function writeProductManagerState(
@@ -409,7 +576,7 @@ export function writeProductManagerState(
   const task = readJson(canonical.taskPath);
   const statePath = path.join(canonical.taskDirectory, STATE_FILE);
   const current = existsSync(statePath)
-    ? validateState(readJson(statePath), task.id)
+    ? validateState(readJson(statePath), task.id, canonical.taskDirectory)
     : null;
   const actualRevision = current?.stateRevision ?? 0;
   if (expectedRevision !== actualRevision) {
@@ -423,7 +590,7 @@ export function writeProductManagerState(
   next.stateRevision = actualRevision + 1;
   next.progress = calculateProgress(next.milestones);
   next.updatedAt = new Date().toISOString();
-  validateState(next, task.id);
+  validateState(next, task.id, canonical.taskDirectory);
   atomicWriteJson(statePath, next);
   return next;
 }
@@ -456,11 +623,15 @@ export function syncProductManagerPlan(taskDirectory) {
       pmReview: existing?.pmReview ?? null,
       userAcceptance: existing?.userAcceptance ?? null,
       evidenceRefs: existing?.evidenceRefs ?? [],
-      reviewStale: Boolean(current && existing),
+      reviewStale: Boolean(current && existing?.pmReview),
       evidenceGap: existing?.evidenceGap ?? false,
       majorRisk: existing?.majorRisk ?? false,
     };
   });
+  const nextMilestone = milestones.find(
+    (milestone) =>
+      !["completed", "user_overridden"].includes(milestone.status),
+  );
   const next = {
     schemaVersion: 1,
     taskId: task.id,
@@ -471,9 +642,10 @@ export function syncProductManagerPlan(taskDirectory) {
     currentGate: null,
     finalReview: null,
     progress: calculateProgress(milestones),
-    nextAction: milestones[0]
-      ? `Implement ${milestones[0].id}: ${milestones[0].title}`
+    nextAction: nextMilestone
+      ? `Implement ${nextMilestone.id}: ${nextMilestone.title}`
       : "No milestone available.",
+    latestAdvice: current?.latestAdvice ?? null,
     history: [
       ...(current?.history ?? []),
       {
@@ -643,7 +815,9 @@ function assertReviewIdentity(prepared, response) {
   }
   if (
     !response.provider_identity ||
-    !["codex", "gemini"].includes(response.provider_identity.provider)
+    !["codex", "gemini", "claude"].includes(
+      response.provider_identity.provider,
+    )
   ) {
     throw new Error("Product-manager response provider identity is invalid.");
   }
@@ -653,6 +827,19 @@ function assertReviewIdentity(prepared, response) {
   ) {
     throw new Error(
       "Product-manager response requires one recommended next action.",
+    );
+  }
+  if (
+    typeof response.user_acceptance_summary !== "string" ||
+    !response.user_acceptance_summary.trim() ||
+    !Array.isArray(response.findings) ||
+    !Array.isArray(response.risks) ||
+    !Array.isArray(response.process_adjustments) ||
+    !Array.isArray(response.evidence_refs) ||
+    response.evidence_refs.some((entry) => typeof entry !== "string")
+  ) {
+    throw new Error(
+      "Product-manager response requires a statement, findings, risks, process adjustments, and evidence refs.",
     );
   }
 }
@@ -684,6 +871,7 @@ function assertPreparedReviewIsCurrent(taskDirectory, prepared) {
 function acceptanceCard(milestone, response, state) {
   return {
     goal: milestone?.title ?? "Final product acceptance",
+    productManagerStatement: response.user_acceptance_summary,
     delivered: response.user_acceptance_summary,
     userVisibleChange: response.user_acceptance_summary,
     shortestValidation: response.user_acceptance_summary,
@@ -691,9 +879,12 @@ function acceptanceCard(milestone, response, state) {
       ? "The milestone matches the approved product outcome."
       : "Choose remediation or explicitly override the recorded risk.",
     engineeringEvidence: response.evidence_refs,
+    findings: response.findings,
     remainingRisks: response.risks,
+    processAdjustments: response.process_adjustments,
     pmVerdict: response.verdict,
     progress: calculateProgress(state.milestones),
+    recommendedNextAction: response.recommended_next_action,
     nextAction: response.recommended_next_action,
     responses: [
       "验收通过",
@@ -743,16 +934,12 @@ export function applyProductManagerReview(taskDirectory, prepared, response) {
     throw new Error("Stale product-manager response: milestone is missing.");
   }
   const review = {
+    ...createAdviceProjection(response),
     invocationKey: prepared.invocationKey,
-    triggerType: response.trigger_type,
-    verdict: response.verdict,
     inputDigest: response.input_digest,
     evidenceDigest: response.evidence_digest,
-    providerIdentity: response.provider_identity,
-    generatedAt: response.generated_at,
-    recommendedNextAction: response.recommended_next_action,
-    evidenceRefs: response.evidence_refs,
   };
+  state.latestAdvice = createAdviceProjection(response);
   if (prepared.input.trigger_type === "FINAL_REVIEW") {
     const merged = canMergeFinalAcceptance(
       state,
@@ -839,6 +1026,10 @@ export function applyProductManagerReview(taskDirectory, prepared, response) {
     invocationKey: prepared.invocationKey,
     pmVerdict: response.verdict,
     acceptanceCard: acceptanceCard(milestone, response, state),
+    presentationRequired: true,
+    presentedAt: null,
+    presentedStateRevision: null,
+    presentationDigest: null,
   };
   state.nextAction =
     response.verdict === "accepted"
@@ -872,7 +1063,7 @@ function allowedProvidersFromContract(contract) {
     );
   }
   const allowed = configured.filter((provider) => {
-    if (!["codex", "gemini"].includes(provider)) return false;
+    if (!["codex", "gemini", "claude"].includes(provider)) return false;
     const capability = contract.productManager?.providerCapabilities?.[provider];
     return (
       capability?.readOnly === true &&
@@ -1077,6 +1268,96 @@ function normalizeUserResponse(response) {
   );
 }
 
+function markReviewPresented(state, invocationKey, presentedAt) {
+  for (const milestone of state.milestones) {
+    if (milestone.pmReview?.invocationKey === invocationKey) {
+      milestone.pmReview.presentedAt = presentedAt;
+    }
+  }
+  if (state.finalReview?.invocationKey === invocationKey) {
+    state.finalReview.presentedAt = presentedAt;
+  }
+}
+
+function assertPresentableAdvice(state) {
+  if (!state.latestAdvice) {
+    throw new Error("No product-manager advice is available to present.");
+  }
+  const gate = state.currentGate;
+  if (
+    gate &&
+    (
+      gate.status !== "awaiting_user_acceptance" ||
+      gate.invocationKey !== state.latestAdvice.invocationKey
+    )
+  ) {
+    throw new Error(
+      "Pending product-manager gate does not match the latest advice.",
+    );
+  }
+  return gate;
+}
+
+function wasAdvicePresentedAtCurrentRevision(state, gate) {
+  return Boolean(
+    state.latestAdvice.presentedAt &&
+    (
+      !gate ||
+      gate.presentedStateRevision === state.stateRevision
+    ),
+  );
+}
+
+function recordAdvicePresentation(state, gate, expectedRevision) {
+  const presentedAt = new Date().toISOString();
+  state.latestAdvice.presentedAt = presentedAt;
+  markReviewPresented(
+    state,
+    state.latestAdvice.invocationKey,
+    presentedAt,
+  );
+  if (gate) {
+    gate.presentationRequired = true;
+    gate.presentedAt = presentedAt;
+    gate.presentedStateRevision = expectedRevision + 1;
+    gate.presentationDigest = sha256(
+      canonicalJson({
+        advice: state.latestAdvice,
+        acceptanceCard: gate.acceptanceCard,
+      }),
+    );
+  }
+  state.history.push({
+    type: "product_manager_advice_presented",
+    checkpointId: state.latestAdvice.checkpointId,
+    invocationKey: state.latestAdvice.invocationKey,
+    presentationDigest: gate?.presentationDigest ?? sha256(
+      canonicalJson(state.latestAdvice),
+    ),
+    recordedAt: presentedAt,
+  });
+}
+
+export function presentProductManagerGate(
+  taskDirectory,
+  { expectedRevision },
+) {
+  const state = readProductManagerState(taskDirectory);
+  if (expectedRevision !== state.stateRevision) {
+    throw new Error(
+      `Product-manager state revision conflict: expected ${expectedRevision}, actual ${state.stateRevision}.`,
+    );
+  }
+  const gate = assertPresentableAdvice(state);
+  if (wasAdvicePresentedAtCurrentRevision(state, gate)) return state;
+  recordAdvicePresentation(state, gate, expectedRevision);
+  return writeProductManagerState(
+    taskDirectory,
+    state,
+    expectedRevision,
+  );
+}
+
 export function respondToProductManagerGate(
   taskDirectory,
   { response, expectedRevision },
@@ -1090,6 +1371,17 @@ export function respondToProductManagerGate(
   const gate = state.currentGate;
   if (!gate || gate.status !== "awaiting_user_acceptance") {
     throw new Error("No product-manager user-acceptance gate is pending.");
+  }
+  if (
+    gate.presentationRequired !== true ||
+    typeof gate.presentedAt !== "string" ||
+    Number.isNaN(Date.parse(gate.presentedAt)) ||
+    gate.presentedStateRevision !== state.stateRevision ||
+    !/^[a-f0-9]{64}$/.test(gate.presentationDigest)
+  ) {
+    throw new Error(
+      "Product-manager advice must be presented with pm present before accepting a fresh user response.",
+    );
   }
   const decision = normalizeUserResponse(response);
   const milestone = state.milestones.find(
@@ -1228,6 +1520,12 @@ export function buildProductManagerStatus(taskDirectory) {
     currentGate: state.currentGate,
     progress: calculateProgress(state.milestones),
     nextAction: state.nextAction,
+    latestAdvice: state.latestAdvice
+      ? {
+          ...state.latestAdvice,
+          stale: state.latestAdvice.planRevision !== state.planRevision,
+        }
+      : null,
     finalEligibility: determineProductManagerFinalEligibility(state),
   };
 }
@@ -1245,7 +1543,7 @@ export function acquireProductManagerLock(
     canonical.taskDirectory,
     ".ccg-evidence",
     "product-manager",
-    "locks",
+    "projection-locks",
   );
   assertInside(canonical.taskDirectory, root, "Product-manager lock root");
   mkdirSync(root, { recursive: true });

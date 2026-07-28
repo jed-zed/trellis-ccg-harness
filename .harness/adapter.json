@@ -22,10 +22,11 @@
     "stateAuthority": "trellis-task-projection",
     "stateFile": "product-manager.json",
     "evidenceRoot": ".ccg-evidence/product-manager",
-    "selectedProviderAuthority": "installed-ccg-config",
+    "selectedProviderAuthority": "unified-ccg-routing",
     "allowedProviders": [
       "codex",
-      "gemini"
+      "gemini",
+      "claude"
     ],
     "providerCapabilities": {
       "codex": {
@@ -45,12 +46,12 @@
         "paid": "explicit-per-call"
       },
       "claude": {
-        "readOnly": false,
+        "readOnly": true,
         "workspaceWrite": false,
         "terminal": false,
         "subagents": false,
-        "network": "forbidden",
-        "paid": "forbidden"
+        "network": "explicit-per-call",
+        "paid": "explicit-per-call"
       },
       "grok": {
         "readOnly": false,
@@ -87,7 +88,7 @@
       "workspaceWrite": false
     },
     "claude": {
-      "enabled": false,
+      "enabled": true,
       "workspaceWrite": false
     },
     "grok": {

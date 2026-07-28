@@ -9,6 +9,7 @@ import {
   buildProductManagerStatus,
   buildCanonicalContext,
   conflictExitCode,
+  presentProductManagerGate,
   resolveCurrentTask,
   probeOpenAICompatibleGrok,
   redactString,
@@ -128,7 +129,7 @@ async function handleProductManager(args) {
   const [action, ...options] = args;
   if (!action) {
     throw new Error(
-      "pm requires status, sync-plan, review, respond, or final-eligibility.",
+      "pm requires status, sync-plan, review, present, respond, or final-eligibility.",
     );
   }
   const task = resolveCurrentTask(repoRoot);
@@ -142,6 +143,18 @@ async function handleProductManager(args) {
   }
   if (action === "final-eligibility") {
     printJson(buildProductManagerStatus(task.directory).finalEligibility);
+    return;
+  }
+  if (action === "present") {
+    const revision = Number(optionValue(options, "--state-revision"));
+    if (!Number.isSafeInteger(revision)) {
+      throw new Error("pm present requires --state-revision.");
+    }
+    printJson(
+      presentProductManagerGate(task.directory, {
+        expectedRevision: revision,
+      }),
+    );
     return;
   }
   if (action === "respond") {

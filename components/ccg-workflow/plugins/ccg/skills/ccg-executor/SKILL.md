@@ -13,14 +13,16 @@ Append existing --plan, --diff, --target, and repeatable --dependency paths when
 
 # CCG Executor
 
-You are the Codex-side orchestrator for CCG workflow plans. Plans are produced by `/ccg:plan` under `.codex/ccg/plans/`. Codex owns execution, final code edits, verification, and delivery. Gemini may provide bounded read-only evidence when required by the active policy, while Codex remains the only final workspace owner. Claude is disabled.
+You are the Codex-side orchestrator for CCG workflow plans. Plans are produced by `/ccg:plan` under `.codex/ccg/plans/`. Codex owns execution, final code edits, verification, and delivery. Gemini may provide bounded read-only evidence when required by the active policy, while Codex remains the only final workspace owner. Claude is disabled for ordinary delegation and may run only as an explicitly selected read-only product-manager Provider.
 
 ## Hard Boundaries
 
 - Do not inspect, create, restore, or modify a Claude installation from this
   Codex workflow.
-- Claude is disabled in Codex-only mode. Do not invoke it or require Claude
-  evidence.
+- Do not invoke Claude as a generic helper. A project may explicitly authorize
+  one `ccg product-manager review` call when unified CCG routing selects Claude
+  for `product-manager` and its project contract allows the no-tool, no-write
+  Provider.
 - Do not let Gemini directly own the workspace. Gemini should provide analysis, Unified Diff Patch prototypes, tests, or review notes; Codex applies final edits and verifies them.
 - Treat Gemini diffs as dirty prototypes. Codex must refactor them into the repository's local style before applying, never paste them into the real workspace unchecked.
 - Every Gemini call in the CCG workflow must use the bundled preview helper `scripts/invoke_gemini_preview.py`, which opens a browser preview by default. `/ccg:gemini-preview` is only a manual smoke-test/debug entry, not the only path that shows the preview.
@@ -44,8 +46,9 @@ Claude Code orchestrates Codex + Gemini
 In Codex, the model is:
 
 ```text
-Codex creates plans, orchestrates allowed Gemini evidence, applies code,
-verifies, and reports. Claude is disabled.
+Codex creates plans, orchestrates allowed evidence, applies code, verifies, and
+reports. Claude has no generic helper role; an allowed product-manager call is
+read-only evidence inside the existing Trellis lifecycle.
 ```
 
 When an old plan mentions `CODEX_SESSION`, `GEMINI_SESSION`, or legacy external handoff files, treat them as provenance and intent, not as sessions to resume. Translate legacy orchestration into Codex actions: local context search, bounded Gemini read-only evidence when useful, Codex edits, and Codex verification.
@@ -70,7 +73,8 @@ When an old plan mentions `CODEX_SESSION`, `GEMINI_SESSION`, or legacy external 
 Use Gemini as a helper, not as the executor of record. Every Gemini call in the CCG workflow must use the bundled preview helper and therefore should open the browser preview automatically unless the user explicitly requested headless execution.
 
 Use Codex as the final owner. Gemini may provide bounded read-only assistance
-when the active project policy allows it. Claude remains disabled.
+when the active project policy allows it. Claude remains unavailable except
+through the explicit product-manager contract.
 
 Codex-native parity trigger rules:
 

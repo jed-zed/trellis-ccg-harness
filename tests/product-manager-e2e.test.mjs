@@ -15,6 +15,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   applyProductManagerReview,
+  presentProductManagerGate,
   determineProductManagerFinalEligibility,
   prepareProductManagerReview,
   readProductManagerState,
@@ -141,7 +142,11 @@ function configureInstalledRuntime(value) {
 function installedRuntimeOptions(
   value,
   prepared,
-  { driftArtifact = false, rawOutput = null } = {},
+  {
+    driftArtifact = false,
+    rawOutput = null,
+    assertProviderLockAvailable = false,
+  } = {},
 ) {
   const command = path.join(value.repoRoot, "fake-ccg.exe");
   let calls = 0;
@@ -159,6 +164,18 @@ function installedRuntimeOptions(
       calls++;
       if (args.includes("--version")) {
         return { status: 0, stdout: "ccg-workflow 3.4.1", stderr: "" };
+      }
+      if (assertProviderLockAvailable) {
+        const providerLockPath = path.join(
+          value.taskDir,
+          ".ccg-evidence",
+          "product-manager",
+          "locks",
+          `${prepared.invocationKey}.lock`,
+        );
+        mkdirSync(path.dirname(providerLockPath), { recursive: true });
+        writeFileSync(providerLockPath, "ccg-provider-lock\n", { flag: "wx" });
+        rmSync(providerLockPath, { force: true });
       }
       if (driftArtifact) {
         writeFileSync(
@@ -192,7 +209,10 @@ function review(value, triggerType, checkpointId, evidenceRefs, options = {}) {
 }
 
 function respond(value, response) {
-  const state = readProductManagerState(value.taskDir);
+  let state = readProductManagerState(value.taskDir);
+  state = presentProductManagerGate(value.taskDir, {
+    expectedRevision: state.stateRevision,
+  });
   return respondToProductManagerGate(value.taskDir, {
     response,
     expectedRevision: state.stateRevision,
@@ -376,7 +396,9 @@ test("installed review writes the complete ignored call evidence and projection 
         evidenceRefs: ["fake:installed"],
       },
     );
-    const runtime = installedRuntimeOptions(value, prepared);
+    const runtime = installedRuntimeOptions(value, prepared, {
+      assertProviderLockAvailable: true,
+    });
     const projected = await runInstalledProductManagerReview(
       value.repoRoot,
       value.taskDir,

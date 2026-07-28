@@ -23,6 +23,7 @@ export {
   buildProductManagerStatus,
   determineProductManagerFinalEligibility,
   heartbeatProductManagerLock,
+  presentProductManagerGate,
   prepareProductManagerReview,
   runInstalledProductManagerReview,
   readProductManagerState,

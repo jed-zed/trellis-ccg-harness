@@ -56,4 +56,4 @@ If the user provided no argument, answer in Chinese with the CCG command index:
 
 If the user provided a plan path or task, treat it as `/ccg:execute`.
 
-Core rule: Codex plans and executes; Gemini may assist as bounded read-only evidence. Codex applies final edits, verifies, and reports in Chinese. Whenever a CCG workflow uses Gemini, it must invoke the bundled browser preview helper automatically rather than asking the user to run `/ccg:gemini-preview` manually. Claude is disabled in Codex-only mode and must not be invoked or required.
+Core rule: Codex plans and executes; Gemini may assist as bounded read-only evidence. Codex applies final edits, verifies, and reports in Chinese. Whenever a CCG workflow uses Gemini, it must invoke the bundled browser preview helper automatically rather than asking the user to run `/ccg:gemini-preview` manually. Claude is not a generic helper and may run only as an explicitly selected, no-tool, no-write product-manager Provider.

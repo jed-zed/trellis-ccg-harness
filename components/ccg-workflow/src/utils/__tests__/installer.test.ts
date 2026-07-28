@@ -105,7 +105,7 @@ describe('workflow registry', () => {
   })
 })
 
-describe('Codex plugin ordinary CCG Claude-clean parity', () => {
+describe('Codex plugin ordinary CCG Claude-isolated parity', () => {
   const readPluginFile = (...segments: string[]) => readFileSync(join(CCG_PLUGIN_DIR, ...segments), 'utf-8')
 
   const ordinaryParityFiles = [
@@ -117,24 +117,25 @@ describe('Codex plugin ordinary CCG Claude-clean parity', () => {
     ['skills/ccg-review/SKILL.md', readPluginFile('skills', 'ccg-review', 'SKILL.md')],
   ] as const
 
-  it('keeps ordinary plan/execute/review files independent from Claude runtime paths', () => {
+  it('keeps ordinary plan/execute/review files independent from generic Claude runtime paths', () => {
     for (const [relativePath, content] of ordinaryParityFiles) {
       expect(content, `${relativePath} must not expose a Claude helper route`).not.toContain('--backend claude')
       expect(content, `${relativePath} must not depend on .claude`).not.toContain('.claude')
-      expect(content, `${relativePath} must state the Codex-only boundary`).toContain('Claude is disabled')
+      expect(content, `${relativePath} must state the isolated product-manager boundary`).toContain('product-manager')
+      expect(content, `${relativePath} must keep Claude out of ordinary delegation`).toMatch(/Claude .*ordinary|Claude is not a generic/)
     }
   })
 
-  it('requires plan artifacts to record Gemini evidence and the Claude-disabled state', () => {
+  it('requires plan artifacts to record Gemini evidence and Claude product-manager state', () => {
     const planCommand = readPluginFile('commands', 'plan.md')
     const planSkill = readPluginFile('skills', 'ccg-plan', 'SKILL.md')
 
     expect(planCommand).toContain('Gemini must participate as read-only analysis evidence')
     expect(planCommand).toContain('Codex has read a non-empty Gemini output')
     expect(planSkill).toContain('Gemini participation is mandatory')
-    expect(planSkill).toContain('**Claude 状态**：已禁用，未调用')
+    expect(planSkill).toContain('**Claude 产品经理**')
     expect(planSkill).not.toContain('### Claude 分析')
-    expect(planSkill).toContain('说明 Claude 已禁用且未调用')
+    expect(planSkill).toContain('说明 Claude 产品经理是否由已安装配置选中')
   })
 
   it('keeps execute contracts tied to risky/M+ triggers with Codex as final owner', () => {
@@ -149,7 +150,7 @@ describe('Codex plugin ordinary CCG Claude-clean parity', () => {
       expect(content, `${relativePath} must preserve M+ trigger language`).toContain('M+')
       expect(content, `${relativePath} must preserve risky-work trigger language`).toContain('risky')
       expect(content, `${relativePath} must preserve review evidence`).toContain('review')
-      expect(content, `${relativePath} must keep Claude disabled`).toContain('Claude is disabled')
+      expect(content, `${relativePath} must keep Claude isolated`).toContain('product-manager')
     }
   })
 

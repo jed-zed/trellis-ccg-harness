@@ -69,6 +69,21 @@ test("doctor verifies the repository visibility recorded by the source manifest"
   assert.doesNotMatch(doctor, /repository is not private/i)
 })
 
+test("bootstrap package-installs CCG without a global link to the snapshot", async () => {
+  const bootstrap = await readFile(
+    path.join(ROOT, "scripts", "bootstrap.ps1"),
+    "utf8",
+  )
+  assert.match(
+    bootstrap,
+    /npm install -g --install-links=true --install-strategy=nested \$ccgRoot/,
+  )
+  assert.doesNotMatch(
+    bootstrap,
+    /Linking the personal CCG snapshot as the global ccg command/,
+  )
+})
+
 test("Dependabot covers Actions, the CCG package, and the Go wrapper", async () => {
   const config = await readFile(
     path.join(ROOT, ".github", "dependabot.yml"),

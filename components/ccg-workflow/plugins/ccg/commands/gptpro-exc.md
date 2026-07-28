@@ -29,7 +29,8 @@ after ordinary routing evidence exists and before the ordinary execute owner app
 In this command GPT Pro decides whether the route is worth local implementation by Codex;
 it is not a fourth implementation owner.
 
-Claude is disabled in this Codex-native workflow. It is never invoked, required as evidence, or
+Claude is disabled in this GPT Pro workflow except for an independently selected
+read-only product-manager review. It is never invoked by this command, required as evidence, or
 offered as a manual handoff before GPT Pro.
 
 GPT Pro provides manual helper evidence only. It must not write files, own delivery, replace routed

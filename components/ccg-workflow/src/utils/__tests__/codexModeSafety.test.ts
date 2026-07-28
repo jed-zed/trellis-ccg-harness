@@ -7,6 +7,7 @@ import { pathToFileURL } from 'node:url'
 import fs from 'fs-extra'
 import { afterEach, describe, expect, it } from 'vitest'
 import * as codexMode from '../codex-mode'
+import { readCcgConfigAt } from '../config'
 
 const roots: string[] = []
 
@@ -187,9 +188,88 @@ describe('Codex mode ownership and reversibility', () => {
       expect(await readFile(path, 'utf8'), path).not.toContain('.claude')
     const hook = await readFile(join(codexHome, 'hooks', 'ccg-workflow.py'), 'utf8')
     expect(hook).not.toContain('--backend claude')
-    expect(hook).toContain('Claude is disabled')
+    expect(hook).toContain('Claude may run only through an explicitly selected read-only product-manager contract')
     const config = await readFile(join(codexHome, 'config.toml'), 'utf8')
     expect(config).not.toContain('[mcp_servers')
+  })
+
+  it('installs the unified product-manager route without creating Claude project state', async () => {
+    const codexHome = await makeCodexHome()
+    const claudeHome = join(codexHome, '..', '.claude')
+
+    const result = await codexMode.installCodexModeAt({
+      codexHome,
+      pythonCommand: 'python',
+    })
+
+    expect(result.success).toBe(true)
+    expect(await fs.pathExists(claudeHome)).toBe(false)
+    const config = await readFile(join(codexHome, 'ccg', 'config.toml'), 'utf8')
+    expect(config).toContain('[routing.product-manager]')
+    expect(config).toContain('primary = "claude"')
+    expect(config).toContain('[product_manager]')
+    expect(config).not.toMatch(/\[product_manager\][\s\S]*provider\s*=/)
+    expect(config).not.toContain('.claude')
+  })
+
+  it('upgrades after the owned legacy product-manager route is migrated on first read', async () => {
+    const codexHome = await makeCodexHome()
+    expect((await codexMode.installCodexModeAt({
+      codexHome,
+      pythonCommand: 'python',
+    })).success).toBe(true)
+
+    const configPath = join(codexHome, 'ccg', 'config.toml')
+    const ownershipPath = join(codexHome, '.ccg', 'ownership.json')
+    const currentConfig = await readFile(configPath, 'utf8')
+    const legacyConfig = currentConfig
+      .replace(
+        /\r?\n\[routing\.product-manager\]\r?\nmodels\s*=\s*\[[^\]]+\]\r?\nprimary\s*=\s*"claude"\r?\nstrategy\s*=\s*"fallback"\r?\n/u,
+        '\n',
+      )
+      .replace(
+        '[product_manager]\n',
+        '[product_manager]\nprovider = "gemini"\n',
+      )
+      .replace(
+        /enabled = false\r?\nauto_route = false/u,
+        'enabled = true\nauto_route = true',
+      )
+    expect(legacyConfig).not.toContain('[routing.product-manager]')
+    await writeFile(configPath, legacyConfig)
+
+    const ownership = await fs.readJSON(ownershipPath)
+    ownership.version = '3.4.1'
+    ownership.files.find(
+      (file: { relativePath: string }) => file.relativePath === 'ccg/config.toml',
+    ).installedSha256 = createHash('sha256').update(legacyConfig).digest('hex')
+    await writeFile(ownershipPath, `${JSON.stringify(ownership, null, 2)}\n`)
+
+    const migrated = await readCcgConfigAt(configPath)
+    expect(migrated?.routing['product-manager'].primary).toBe('gemini')
+    expect(await readFile(configPath, 'utf8')).not.toMatch(
+      /\[product_manager\][\s\S]*provider\s*=/,
+    )
+
+    const upgraded = await codexMode.installCodexModeAt({
+      codexHome,
+      pythonCommand: 'python',
+    })
+    expect(upgraded.success).toBe(true)
+
+    const installed = await readFile(configPath, 'utf8')
+    expect(installed).toContain('[routing.product-manager]')
+    expect(installed).toContain('primary = "gemini"')
+    expect(installed).toContain('[intelligence]')
+    expect(installed).toContain('enabled = true')
+    expect(installed).not.toMatch(/\[product_manager\][\s\S]*provider\s*=/)
+    const nextOwnership = await fs.readJSON(ownershipPath)
+    expect(nextOwnership.version).toBe('3.4.2')
+    expect(nextOwnership.files.find(
+      (file: { relativePath: string }) => file.relativePath === 'ccg/config.toml',
+    ).installedSha256).toBe(
+      createHash('sha256').update(installed).digest('hex'),
+    )
   })
 
   it('rejects ownership paths that escape Codex home', async () => {

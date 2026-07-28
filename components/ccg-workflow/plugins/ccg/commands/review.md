@@ -29,5 +29,7 @@ Codex verifies findings before reporting them.
 
 If Gemini is used, invoke the bundled browser preview helper automatically. Do not ask the user to run `/ccg:gemini-preview` first and do not call the raw Gemini CLI directly.
 
-Claude is disabled in Codex-only mode. Do not invoke it or claim Claude review
-evidence.
+Claude is disabled for ordinary review delegation. It may run only when
+unified CCG routing selects Claude for the isolated, read-only
+`product-manager` role and the project allows it; do not conflate that evidence
+with the primary CCG review or workspace authority.

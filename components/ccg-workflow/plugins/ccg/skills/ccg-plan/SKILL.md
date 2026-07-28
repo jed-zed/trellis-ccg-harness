@@ -21,7 +21,11 @@ read-only external model evidence when a real plan is created or revised.
 
 - Write and revise plans only under `.codex/ccg/plans/*.md`.
 - Do not modify product code, tests, migrations, package files, or original Claude CCG plugin files.
-- Claude is disabled in Codex-only mode and must not be invoked or required.
+- Claude is disabled for ordinary planning delegation and is not generic
+  planning evidence. If the active Trellis/Harness
+  contract allows Claude and unified CCG routing selects it for
+  `product-manager`, only the explicit product-manager review boundary may
+  invoke it.
 - Do not call `/ccg:execute` automatically and do not ask for a Y/N execution handoff.
 - If no user requirement is provided, answer in Chinese with usage examples and do not write files.
 - If the user explicitly asks to revise an existing plan file, update only that plan file. Otherwise create a new plan and never overwrite an existing plan; use `-v2`, `-v3`, and so on.
@@ -49,7 +53,9 @@ Before you write or present a final plan, you must have all of the following:
 - a real `CCG_GEMINI_RESPONSE_FILE` path printed by the helper;
 - a non-empty response read from that response file;
 - a final synthesis that includes Codex analysis and Gemini analysis;
-- a record that Claude is disabled and was not invoked.
+- a record of whether unified `product-manager` routing selected Claude, whether
+  the project allowed it, and, if invoked, the validated task-local evidence
+  identity.
 
 If a required Gemini helper cannot start, exits unsuccessfully, does not expose a non-empty response, or still fails after two retries, stop and report the failure in Chinese. In that case, do not write or present a final plan, do not create or edit `.codex/ccg/plans/*.md`, and do not emit fake multi-model evidence.
 
@@ -87,8 +93,9 @@ This gate does not apply to empty-input usage/help responses.
    - Retry failed Gemini calls up to 2 times. If all attempts fail, stop and report the failure; do not generate a fake multi-model plan.
    - After detach, Poll `CCG_GEMINI_RESPONSE_FILE` every 5 seconds. Stop only when the file exists and has size > 0, then read it before writing the final plan.
    - If the response file is still missing or empty after 10 minutes, inspect `CCG_GEMINI_LAUNCHER_LOG`; if the launcher log shows a failure, retry the helper call. After two retries or 10 minutes on the final attempt, stop and report failure without writing a plan.
-   - Record Claude as disabled. Do not create a Claude prompt, invoke a Claude
-     helper, or block the plan on missing Claude evidence.
+   - Do not create a generic Claude planning prompt. Invoke Claude only through
+     an explicitly authorized product-manager review required by the active
+     Trellis/Harness contract; otherwise record it as not selected.
 
 5. **Synthesize the plan**
    - Codex is authoritative for backend, data, architecture, repository patterns, and final sequencing.
@@ -116,7 +123,7 @@ Use this Chinese Markdown structure:
 **Gemini 模型**：`gemini-3.1-pro-preview`
 **Gemini 预览**：`<CCG_GEMINI_PREVIEW_URL>`；浏览器已打开：<是/否>
 **Gemini 响应文件**：`<CCG_GEMINI_RESPONSE_FILE>`
-**Claude 状态**：已禁用，未调用
+**Claude 产品经理**：<未选择 / 已选择但本次未调用 / 已调用；证据标识>
 
 ## 1. 增强需求
 
@@ -195,7 +202,7 @@ Gemini 模型：`gemini-3.1-pro-preview`
 Gemini 预览 URL：`<url>`
 Gemini 浏览器已打开：<是/否>
 Gemini 响应文件：`<path>`
-Claude 状态：已禁用，未调用
+Claude 产品经理：<未选择 / 已选择但本次未调用 / 已调用；证据标识>
 ```
 
 ## 交付消息
@@ -205,7 +212,7 @@ Claude 状态：已禁用，未调用
 - 说明保存路径。
 - 概括选定的技术方案。
 - 说明 Gemini 是否参与，以及响应文件在哪里。
-- 说明 Claude 已禁用且未调用。
+- 说明 Claude 产品经理是否由已安装配置选中，以及本次是否产生了已验证证据。
 - 提供准确的手动执行命令：
 
 ```text

@@ -138,10 +138,11 @@
     "stateAuthority": "trellis-task-projection",
     "stateFile": ".trellis/tasks/<task>/product-manager.json",
     "evidenceRoot": ".trellis/tasks/<task>/.ccg-evidence/product-manager",
-    "selectedProviderAuthority": "installed-ccg-config",
+    "selectedProviderAuthority": "unified-ccg-routing",
     "allowedProviders": [
       "codex",
-      "gemini"
+      "gemini",
+      "claude"
     ],
     "providerCapabilities": {
       "codex": {
@@ -153,6 +154,14 @@
         "paid": "explicit-per-call"
       },
       "gemini": {
+        "readOnly": true,
+        "workspaceWrite": false,
+        "terminal": false,
+        "subagents": false,
+        "network": "explicit-per-call",
+        "paid": "explicit-per-call"
+      },
+      "claude": {
         "readOnly": true,
         "workspaceWrite": false,
         "terminal": false,

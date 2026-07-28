@@ -28,7 +28,8 @@ Explain or execute the Codex-native CCG workflow:
   the active project policy requires it.
 - Codex orchestrates the work and owns final code edits.
 - Gemini assists with bounded code drafts, UI prototypes, edge cases, tests, or review.
-- Claude is disabled and is neither invoked nor required.
+- Claude is disabled for ordinary delegation. It may run only as an explicitly
+  selected, isolated, read-only product-manager Provider.
 - Codex verifies and reports in Chinese.
 
 If `$ARGUMENTS` contains a plan path or task, route to the same behavior as `/ccg:execute`.

@@ -21,7 +21,9 @@ Load and follow `skills/ccg-gptpro-bridge/SKILL.md`.
   and require its canonical artifact, manifest, hashes, and active-task pointer. Exit `2`, `3`, or `4`
   stops the workflow; pass only the validated summary, claims, and provenance, never raw Grok output.
 - Run ordinary `/ccg:plan` semantics first. Preserve Codex as the planning authority and use only
-  the bounded Gemini evidence required by that workflow. Claude is disabled and is never a gate.
+  the bounded Gemini evidence required by that workflow. Claude is disabled for
+  this GPT Pro flow and is never a gate; an independently selected read-only
+  product-manager review remains a separate contract.
 - Before GPT Pro, write Base CCG Routing Evidence that records the current orchestrator, actual
   routed model evidence, ordinary planning conclusion, and skipped/failed
   model steps.

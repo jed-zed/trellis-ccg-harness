@@ -151,8 +151,10 @@ unclaimed path merely because an earlier observation matched.
 - Bootstrap and lifecycle operations record exactly which global npm state they
   own, restore it on failure, and refuse to overwrite later user changes.
 - Installing CodeGraph never creates or refreshes a `.codegraph` index.
-- Harness and CCG never invoke Claude and never create, restore, mutate, or
-  delete user-level or project `.claude` content.
+- Harness initialization never invokes Claude and Harness never creates,
+  restores, mutates, or deletes user-level or project `.claude` content.
+  A separately authorized product-manager review may invoke the trusted native
+  Claude CLI in safe, no-tool, non-persistent mode without workspace writes.
 
 Accepted limitation: an operator can intentionally point the manual probe at an
 internal HTTPS service. This is equivalent to running a local HTTP client and
@@ -163,8 +165,9 @@ is not exposed to untrusted task input.
 - User-level Trellis hook precedence depends on the local fallback containing
   the marker declared by the adapter contract; doctor reports drift if a
   future global Trellis update removes that guard.
-- The activated local CCG CLI and any Harness-managed global link are blocking
-  doctor/update checks.
+- The activated local CCG CLI and its Harness-managed packaged global
+  installation are blocking doctor/update checks and must not junction back
+  into the mutable snapshot.
 - Search capability is true only when the response contains both a web-search
   tool call and citation/annotation evidence.
 - GPT Pro remains owned by the existing CCG bridge and is not reimplemented by

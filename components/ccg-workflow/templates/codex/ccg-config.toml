@@ -1,6 +1,29 @@
 [general]
-version = "3.4.1"
+version = "3.4.2"
 language = "zh-CN"
+
+[routing]
+mode = "smart"
+
+[routing.frontend]
+models = ["gemini"]
+primary = "gemini"
+strategy = "fallback"
+
+[routing.backend]
+models = ["codex"]
+primary = "codex"
+strategy = "fallback"
+
+[routing.search]
+models = ["grok"]
+primary = "grok"
+strategy = "fallback"
+
+[routing.product-manager]
+models = ["claude"]
+primary = "claude"
+strategy = "fallback"
 
 [intelligence]
 enabled = false
@@ -25,7 +48,6 @@ x_search_policy = "preferred"
 
 [product_manager]
 enabled = false
-provider = ""
 contract_version = "1"
 max_retries = 1
 timeout_ms = 180000

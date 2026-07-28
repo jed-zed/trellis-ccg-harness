@@ -34,7 +34,8 @@ integration boundary, not a third framework.
   `harness.sources.json`; never execute `components/ccg-workflow/` as the
   integration runtime.
 - Codex is the only workspace writer and uses Trellis inline mode. Gemini is a
-  bounded read-only helper. Claude is disabled. GPT Pro is manual-only.
+  bounded read-only helper. Claude may act only as the explicitly selected,
+  tool-less product-manager Provider. GPT Pro is manual-only.
 - Grok is optional and disabled by default. Its absence must not block ordinary
   work. A manual compatible-provider probe requires environment-only
   `HARNESS_GROK_*` variables and may never claim search capability without
@@ -53,10 +54,10 @@ integration boundary, not a third framework.
 
 The Harness distribution's upstream source for this reusable policy is
 `.agents/skills/harness-init/assets/collaboration-policy.md`. In every
-initialized project, the canonical pinned source is
+initialized project, the canonical owned policy snapshot is
 `.harness/policies/collaboration-policy.md`; `harness-init` updates that owned
 copy from the distribution asset and projects it into a dedicated managed block
-in root `AGENTS.md`. Do not edit the pinned source or managed block directly.
+in root `AGENTS.md`. Do not edit the owned source or managed block directly.
 
 ## Priority and conflict handling
 
@@ -177,25 +178,46 @@ The optional product-manager role is a read-only CCG evidence provider inside
 the existing Trellis lifecycle. It never owns task identity, requirements,
 plans, milestones, status, completion, or workspace writes.
 
-- The installed CCG config is the only selected-provider authority. Project and
-  task state may narrow the allowed provider set but must not select or fall
-  back to another provider.
+- CCG unified routing role `product-manager` is the only selected-provider
+  authority. Project and task state may narrow the allowed provider set but
+  must not select or fall back to another provider. `[product_manager]` stores
+  behavior parameters only.
 - Canonical product state is the tracked
   `.trellis/tasks/<task>/product-manager.json` projection. Raw requests,
   responses, locks, and journals stay under the ignored task-local
   `.ccg-evidence/product-manager/` path.
+- Every valid review projects the Provider's `user_acceptance_summary`,
+  findings, risks, process adjustments, recommended next action, identity, and
+  evidence refs into tracked `latestAdvice` and the checkpoint review. Clearing
+  `currentGate` after a user response must not clear or replace that advice
+  with the generic Trellis resume action.
 - The current Codex task is the sole orchestrator. It prepares review input,
   explicitly authorizes any network or paid provider call, validates the
   response, and applies it through the Harness adapter.
 - Provider executions must be independently read-only with workspace writes,
   terminal tools, subagents, and provider fallback disabled. A provider failure
   records `unavailable`; it never fabricates acceptance.
+- Claude Code may be the explicitly selected product-manager Provider. It must
+  run from its trusted native executable in a disposable directory with safe
+  mode, tools, MCP, skills/plugins, hooks, session persistence, and workspace
+  writes disabled. Harness initialization still never installs or logs in Claude.
 - Existing prompt hooks may inject only pending-gate and resume breadcrumbs.
   They must not call a provider, acquire a product-manager lock, write product
   state, create another hook, or become a second orchestrator.
+- After every valid review, Codex must show the current advice before
+  continuing: restate the Provider's `user_acceptance_summary` verbatim, then
+  report its findings, risks, process adjustments, and recommended next
+  action. `pm status` must keep the same `latestAdvice` visible after the gate
+  is cleared.
 - Milestone and final acceptance remain hard user gates. A product-manager
   verdict does not mutate Trellis lifecycle status or authorize finish/archive
   by itself.
+- For a hard gate, Codex must run `pm present`, show and restate that exact
+  review, list the three allowed responses, and end the turn. `pm respond`
+  requires the resulting presentation revision and a fresh explicit user
+  response. A prior blanket approval, milestone approval, or response from
+  before this presentation may never answer the new gate or trigger an
+  automatic response.
 
 ## Protected sources
 

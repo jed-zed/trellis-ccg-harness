@@ -79,7 +79,7 @@ function runPackageManager(command, args) {
   return String(result.stdout ?? "").trim();
 }
 
-test("update parsing accepts exactly one explicit CCG or Trellis target", () => {
+test("update parsing accepts a clean checkout HEAD or one explicit CCG/Trellis target", () => {
   const parsed = parseLifecycleArgs([
     "update",
     "--ccg-commit",
@@ -90,6 +90,15 @@ test("update parsing accepts exactly one explicit CCG or Trellis target", () => 
   assert.equal(parsed.command, "update");
   assert.equal(parsed.ccgCommit, "a".repeat(40));
   assert.equal(parsed.sourceCheckout, path.resolve("C:/personal/ccg"));
+
+  const coupled = parseLifecycleArgs([
+    "update",
+    "--source-checkout",
+    "C:/personal/ccg",
+  ]);
+  assert.equal(coupled.command, "update");
+  assert.equal(coupled.ccgCommit, null);
+  assert.equal(coupled.sourceCheckout, path.resolve("C:/personal/ccg"));
 
   const trellis = parseLifecycleArgs([
     "update",
@@ -105,7 +114,7 @@ test("update parsing accepts exactly one explicit CCG or Trellis target", () => 
   );
   assert.throws(
     () => parseLifecycleArgs(["update"]),
-    /ccg-commit|trellis-version/i,
+    /source-checkout|ccg-commit|trellis-version/i,
   );
   assert.throws(
     () =>
@@ -387,14 +396,11 @@ test("restore actions preserve a previous package or remove a new owned install"
   assert.deepEqual(
     buildRestoreAction({
       id: "ccg-link",
-      kind: "npm-global-link",
+      kind: "npm-global-package",
       package: "ccg-workflow",
       originalBeforeFirstManagement: null,
       installedByHarness: packageSnapshot({
         version: "3.3.0",
-        sourcePath: path.resolve(
-          "C:/harness/components/ccg-workflow",
-        ),
       }),
     }),
     {
@@ -533,7 +539,7 @@ test("ordinary global package stays content-bound beneath a canonicalized parent
   }
 });
 
-test("an isolated npm prefix keeps a local global link and CLI working with spaces", async () => {
+test("an isolated npm prefix package-installs a local CCG CLI without a global link", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "isolated npm prefix-"));
   const prefix = path.join(root, "global prefix with spaces");
   const source = path.join(root, "ccg source with spaces");
@@ -560,6 +566,8 @@ test("an isolated npm prefix keeps a local global link and CLI working with spac
     runPackageManager("npm", [
       "install",
       "-g",
+      "--install-links=true",
+      "--install-strategy=nested",
       source,
       "--prefix",
       prefix,
@@ -575,11 +583,8 @@ test("an isolated npm prefix keeps a local global link and CLI working with spac
       globalRoot,
       "ccg-workflow",
     );
-    assert.equal(path.isAbsolute(observed.sourcePath), true);
-    assert.deepEqual(
-      filesystemEntryIdentity(observed.sourcePath),
-      filesystemEntryIdentity(source),
-    );
+    assert.equal(observed.sourcePath, undefined);
+    assert.match(observed.contentIdentity.digest, /^[a-f0-9]{64}$/);
 
     const command =
       process.platform === "win32"
@@ -609,7 +614,6 @@ test("repeated bootstrap keeps the first original and rejects same-version repla
   });
   const firstInstalled = packageSnapshot({
     version: "3.3.0",
-    sourcePath: path.resolve("C:/harness/components/ccg-workflow"),
     entryIdentity: { dev: "1", ino: "10", birthtimeNs: "11" },
   });
   const first = buildBootstrapOwnership({
@@ -621,7 +625,6 @@ test("repeated bootstrap keeps the first original and rejects same-version repla
   });
   const secondInstalled = packageSnapshot({
     version: "3.3.0",
-    sourcePath: path.resolve("C:/harness/components/ccg-workflow"),
     entryIdentity: { dev: "1", ino: "12", birthtimeNs: "13" },
   });
   const second = buildBootstrapOwnership({
@@ -663,6 +666,83 @@ test("repeated bootstrap keeps the first original and rejects same-version repla
   );
 });
 
+test("legacy CCG link ownership migrates once only when both links target the owned snapshot", () => {
+  const repoRoot = path.resolve("C:/harness");
+  const ccgSourcePath = path.join(
+    repoRoot,
+    "components",
+    "ccg-workflow",
+  );
+  const original = packageSnapshot({
+    version: "3.2.2",
+    sourcePath: path.resolve("C:/original/ccg"),
+  });
+  const recordedLink = packageSnapshot({
+    version: "3.4.1",
+    sourcePath: ccgSourcePath,
+    entryIdentity: { dev: "1", ino: "20", birthtimeNs: "21" },
+  });
+  const currentLink = packageSnapshot({
+    version: "3.4.2",
+    sourcePath: ccgSourcePath,
+    entryIdentity: { dev: "1", ino: "22", birthtimeNs: "23" },
+  });
+  const legacy = {
+    schemaVersion: 2,
+    repoRoot,
+    updatedAt: new Date(0).toISOString(),
+    entries: [
+      {
+        id: "ccg-link",
+        kind: "npm-global-link",
+        package: "ccg-workflow",
+        originalBeforeFirstManagement: original,
+        installedByHarness: recordedLink,
+      },
+    ],
+  };
+  assert.doesNotThrow(() =>
+    assertBootstrapOwnershipContinuity(
+      legacy,
+      { trellis: null, ccg: currentLink },
+      { trellis: false, ccg: true },
+      repoRoot,
+    ));
+
+  const packaged = packageSnapshot({
+    version: "3.4.2",
+    entryIdentity: { dev: "1", ino: "24", birthtimeNs: "25" },
+  });
+  const migrated = buildBootstrapOwnership({
+    repoRoot,
+    ccgSourcePath,
+    managed: { trellis: false, ccg: true },
+    before: { trellis: null, ccg: currentLink },
+    after: { trellis: null, ccg: packaged },
+    existingOwnership: legacy,
+  });
+  assert.equal(migrated.entries[0].kind, "npm-global-package");
+  assert.deepEqual(
+    migrated.entries[0].originalBeforeFirstManagement,
+    original,
+  );
+
+  const foreignLink = {
+    ...currentLink,
+    sourcePath: path.resolve("C:/foreign/ccg"),
+  };
+  assert.throws(
+    () =>
+      assertBootstrapOwnershipContinuity(
+        legacy,
+        { trellis: null, ccg: foreignLink },
+        { trellis: false, ccg: true },
+        repoRoot,
+      ),
+    /changed|refusing/i,
+  );
+});
+
 test("ownership schema rejects extra fields, wrong targets, and redirected roots", () => {
   const repoRoot = path.resolve("C:/harness");
   const installed = packageSnapshot({
@@ -684,6 +764,17 @@ test("ownership schema rejects extra fields, wrong targets, and redirected roots
     ],
   };
   assert.equal(validateBootstrapOwnership(valid, repoRoot), valid);
+  const packaged = {
+    ...valid,
+    entries: [
+      {
+        ...valid.entries[0],
+        kind: "npm-global-package",
+        installedByHarness: packageSnapshot({ version: "3.3.0" }),
+      },
+    ],
+  };
+  assert.equal(validateBootstrapOwnership(packaged, repoRoot), packaged);
   assert.throws(
     () => validateBootstrapOwnership({ ...valid, unexpected: true }, repoRoot),
     /schema|unexpected/i,

@@ -1026,6 +1026,7 @@ const en: typeof zhCN = {
 }
 
 export async function initI18n(lang: SupportedLang = 'zh-CN'): Promise<void> {
+  process.env.I18NEXT_NO_SUPPORT_NOTICE = '1'
   if (!i18n.isInitialized) {
     await i18n.init({
       lng: lang,

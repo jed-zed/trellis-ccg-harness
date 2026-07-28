@@ -327,14 +327,15 @@
           "const": ".trellis/tasks/<task>/.ccg-evidence/product-manager"
         },
         "selectedProviderAuthority": {
-          "const": "installed-ccg-config"
+          "const": "unified-ccg-routing"
         },
         "allowedProviders": {
           "type": "array",
           "items": {
             "enum": [
               "codex",
-              "gemini"
+              "gemini",
+              "claude"
             ]
           },
           "uniqueItems": true
@@ -343,13 +344,17 @@
           "type": "object",
           "required": [
             "codex",
-            "gemini"
+            "gemini",
+            "claude"
           ],
           "properties": {
             "codex": {
               "$ref": "#/$defs/readOnlyProductManagerProvider"
             },
             "gemini": {
+              "$ref": "#/$defs/readOnlyProductManagerProvider"
+            },
+            "claude": {
               "$ref": "#/$defs/readOnlyProductManagerProvider"
             }
           },

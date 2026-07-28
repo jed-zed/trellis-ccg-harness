@@ -14,6 +14,7 @@
     "finalReview",
     "progress",
     "nextAction",
+    "latestAdvice",
     "history",
     "updatedAt"
   ],
@@ -173,6 +174,134 @@
     "nextAction": {
       "type": "string",
       "minLength": 1
+    },
+    "latestAdvice": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "required": [
+            "invocationKey",
+            "triggerType",
+            "checkpointId",
+            "planRevision",
+            "verdict",
+            "providerIdentity",
+            "generatedAt",
+            "productManagerStatement",
+            "findings",
+            "risks",
+            "processAdjustments",
+            "recommendedNextAction",
+            "evidenceRefs",
+            "presentedAt"
+          ],
+          "properties": {
+            "invocationKey": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "triggerType": {
+              "enum": [
+                "INTAKE_REVIEW",
+                "PLAN_REVIEW",
+                "DRIFT_REVIEW",
+                "MILESTONE_REVIEW",
+                "FINAL_REVIEW"
+              ]
+            },
+            "checkpointId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "planRevision": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "verdict": {
+              "enum": [
+                "accepted",
+                "rejected",
+                "needs_user_decision",
+                "reopen_request",
+                "unavailable"
+              ]
+            },
+            "providerIdentity": {
+              "type": "object",
+              "required": [
+                "provider",
+                "model",
+                "cli_version"
+              ],
+              "properties": {
+                "provider": {
+                  "enum": [
+                    "codex",
+                    "gemini",
+                    "claude"
+                  ]
+                },
+                "model": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "cli_version": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "additionalProperties": false
+            },
+            "generatedAt": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "productManagerStatement": {
+              "type": "string",
+              "minLength": 1
+            },
+            "findings": {
+              "type": "array",
+              "items": {
+                "type": "object"
+              }
+            },
+            "risks": {
+              "type": "array",
+              "items": {
+                "type": "object"
+              }
+            },
+            "processAdjustments": {
+              "type": "array",
+              "items": {
+                "type": "object"
+              }
+            },
+            "recommendedNextAction": {
+              "type": "string",
+              "minLength": 1
+            },
+            "evidenceRefs": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "presentedAt": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "date-time"
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
     },
     "history": {
       "type": "array",

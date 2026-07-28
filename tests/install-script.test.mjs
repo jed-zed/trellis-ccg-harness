@@ -508,7 +508,10 @@ test("non-interactive Global Setup is explicit, exact, provider-safe, and idempo
   try {
     const first = runSetup(value);
     assert.equal(first.status, 0, `${first.stdout}\n${first.stderr}`);
-    assert.match(first.stdout, /CCG CLI: build\/link exact 3\.3\.2/);
+    assert.match(
+      first.stdout,
+      /CCG CLI: build\/package-install exact 3\.3\.2/,
+    );
     assert.match(
       first.stdout,
       /Codex plugin: ccg@ccg-gptpro-worflow@3\.3\.2\+codex\.1/,
@@ -741,7 +744,10 @@ test("Global Setup accepts a newer immutable CCG version recorded by the Harness
 
     const result = runSetup(value, ["-PreviewOnly"]);
     assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
-    assert.match(result.stdout, /CCG CLI: build\/link exact 3\.4\.1 snapshot/);
+    assert.match(
+      result.stdout,
+      /CCG CLI: build\/package-install exact 3\.4\.1 snapshot/,
+    );
   } finally {
     value.cleanup();
   }

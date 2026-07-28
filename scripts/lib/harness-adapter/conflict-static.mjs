@@ -274,7 +274,7 @@ function checkModelPolicy({ contract, add, env }) {
   const valid =
     contract.authorities.workspaceOwner === "codex" &&
     contract.models.codex?.workspaceWrite === true &&
-    contract.models.claude?.enabled === false &&
+    contract.models.claude?.enabled === true &&
     contract.models.claude?.workspaceWrite === false &&
     !claudeOverride;
   add(
@@ -282,14 +282,14 @@ function checkModelPolicy({ contract, add, env }) {
     "blocking",
     valid ? "ok" : "conflict",
     valid
-      ? "Codex is the sole writer and Claude is disabled."
-      : "Model ownership or Claude-disable policy was violated.",
+      ? "Codex is the sole writer and Claude is restricted to read-only provider work."
+      : "Model ownership or the Claude read-only policy was violated.",
     {
       workspaceOwner: contract.authorities.workspaceOwner,
       claudeEnabled: contract.models.claude?.enabled,
       claudeEnvironmentOverride: claudeOverride,
     },
-    "Restore Codex-only write ownership and remove Claude overrides.",
+    "Restore Codex-only write ownership; select Claude only through installed CCG product-manager config.",
   );
 }
 
@@ -334,7 +334,7 @@ function checkProductManagerPolicy({ contract, add }) {
   const validAllowed =
     Array.isArray(allowed) &&
     allowed.length > 0 &&
-    allowed.every((provider) => ["codex", "gemini"].includes(provider)) &&
+    allowed.every((provider) => ["codex", "gemini", "claude"].includes(provider)) &&
     new Set(allowed).size === allowed.length;
   const validCapabilities =
     validAllowed &&
@@ -349,13 +349,12 @@ function checkProductManagerPolicy({ contract, add }) {
         capability?.paid === "explicit-per-call"
       );
     }) &&
-    capabilities?.claude?.readOnly === false &&
     capabilities?.grok?.readOnly === false;
   const validAuthority =
     policy?.stateAuthority === "trellis-task-projection" &&
     policy?.stateFile === "product-manager.json" &&
     policy?.evidenceRoot === ".ccg-evidence/product-manager" &&
-    policy?.selectedProviderAuthority === "installed-ccg-config";
+    policy?.selectedProviderAuthority === "unified-ccg-routing";
   const valid = validAllowed && validCapabilities && validAuthority;
   add(
     "product-manager-policy",

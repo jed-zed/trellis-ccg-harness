@@ -1,8 +1,18 @@
 // 支持的语言
 export type SupportedLang = 'zh-CN' | 'en'
 
-// 模型类型
-export type ModelType = 'codex' | 'gemini' | 'claude' | 'antigravity' | 'grok'
+// codeagent-wrapper 已注册的模型类型
+export const REGISTERED_MODEL_TYPES = ['codex', 'gemini', 'claude', 'antigravity', 'grok'] as const
+export type ModelType = typeof REGISTERED_MODEL_TYPES[number]
+
+// 可独立切换的四类正式角色。分析、计划和审查是角色内部阶段。
+export const STANDARD_ROUTING_ROLES = [
+  'frontend',
+  'backend',
+  'search',
+  'product-manager',
+] as const
+export type RoutingRole = typeof STANDARD_ROUTING_ROLES[number]
 
 // 协作模式
 export type CollaborationMode = 'parallel' | 'smart' | 'sequential'
@@ -38,29 +48,20 @@ export interface IntelligenceConfig {
 
 export interface ProductManagerConfig {
   enabled: boolean
-  provider: '' | 'codex' | 'gemini'
   contract_version: '1'
   max_retries: number
   timeout_ms: number
   max_output_bytes: number
 }
 
-// 模型路由配置
-export interface ModelRouting {
-  frontend: {
-    models: ModelType[]
-    primary: ModelType
-    strategy: RoutingStrategy
-  }
-  backend: {
-    models: ModelType[]
-    primary: ModelType
-    strategy: RoutingStrategy
-  }
-  review: {
-    models: ModelType[]
-    strategy: 'parallel'
-  }
+export interface RoleRouting {
+  models: ModelType[]
+  primary: ModelType
+  strategy: RoutingStrategy
+}
+
+// 模型路由配置。角色是配置层概念，Provider 执行器不获得额外权限。
+export interface ModelRouting extends Record<RoutingRole, RoleRouting> {
   mode: CollaborationMode
   geminiModel?: string // Gemini 具体型号（默认 gemini-3.1-pro-preview）
   grokModel?: string // Grok 具体型号（默认 grok-4.5，代码任务可选 grok-composer-2.5-fast）
@@ -120,7 +121,6 @@ export interface InitOptions {
   workflows?: string
   installDir?: string
   intelligence?: boolean
-  productManager?: '' | 'disabled' | 'codex' | 'gemini'
 }
 
 // 安装结果

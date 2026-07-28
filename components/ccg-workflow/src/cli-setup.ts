@@ -7,6 +7,7 @@ import { version } from '../package.json'
 import { homedir } from 'node:os'
 import { join } from 'pathe'
 import { configMcp } from './commands/config-mcp'
+import { configRouting } from './commands/config-routing'
 import { doctor, status } from './commands/doctor'
 import { grokAccount } from './commands/grok'
 import { productManagerCommand } from './commands/product-manager'
@@ -34,6 +35,7 @@ function customizeHelp(sections: any[]): any[] {
       `  ${ansis.cyan('ccg fix-mcp')}      ${i18n.t('cli:help.commandDescriptions.fixMcp')}`,
       `  ${ansis.cyan('ccg doctor')}       Check installation health`,
       `  ${ansis.cyan('ccg grok login')}   Sign in to the isolated Grok intelligence profile`,
+      `  ${ansis.cyan('ccg routing')}      List or change CCG role-to-provider routing`,
       `  ${ansis.cyan('ccg product-manager status')}  Show the read-only product-manager contract status`,
       `  ${ansis.cyan('ccg status')}       Show installation overview`,
       `  ${ansis.cyan('ccg codex-mode')}   Install/uninstall/recover Codex-Led mode`,
@@ -112,7 +114,7 @@ export function printCodexModeHelp(): void {
 }
 
 export function isCodexNativeRequest(args: readonly string[]): boolean {
-  if (args[0] === 'route' || args[0] === 'codex-mode' || args[0] === 'product-manager')
+  if (args[0] === 'route' || args[0] === 'routing' || args[0] === 'codex-mode' || args[0] === 'product-manager')
     return true
   if (args[0] !== 'doctor')
     return false
@@ -164,7 +166,6 @@ export async function setupCommands(cli: CAC): Promise<void> {
     .option('--install-dir, -d <path>', i18n.t('cli:help.optionDescriptions.installDir'))
     .option('--intelligence', i18n.t('cli:help.optionDescriptions.enableIntelligence'))
     .option('--no-intelligence', i18n.t('cli:help.optionDescriptions.disableIntelligence'))
-    .option('--product-manager <provider>', 'Select product manager: disabled, codex, or gemini')
     .action(async (options: CliOptions) => {
       options.intelligence = resolveCliIntelligenceFlag(process.argv.slice(2))
       if (options.lang) {
@@ -252,6 +253,18 @@ export async function setupCommands(cli: CAC): Promise<void> {
       await productManagerCommand(action, options)
     })
 
+  cli
+    .command('routing [action] [role] [provider]', 'List or change CCG role-to-provider routing')
+    .option('--json', 'Print machine-readable output')
+    .action(async (
+      action: string | undefined,
+      role: string | undefined,
+      provider: string | undefined,
+      options: { json?: boolean },
+    ) => {
+      await configRouting(action, role, provider, options)
+    })
+
   // Status: show current installation overview
   cli
     .command('status', 'Show CCG installation status')
@@ -260,17 +273,9 @@ export async function setupCommands(cli: CAC): Promise<void> {
   // Codex mode: non-interactive install/uninstall
   cli
     .command('codex-mode <action>', 'Install, uninstall, or recover Codex-Led mode (non-interactive)')
-    .option('--product-manager <provider>', 'Select product manager without installing or calling the provider')
-    .action(async (action: string, options: { productManager?: string }) => {
+    .action(async (action: string) => {
       if (action === 'install') {
-        if (options.productManager && !['disabled', 'codex', 'gemini'].includes(options.productManager)) {
-          console.error(ansis.red('Product manager must be disabled, codex, or gemini.'))
-          process.exitCode = 1
-          return
-        }
-        const result = await installCodexMode({
-          productManagerProvider: options.productManager as 'disabled' | 'codex' | 'gemini' | undefined,
-        })
+        const result = await installCodexMode()
         if (result.success) {
           console.log(ansis.green('✓ Codex mode installed'))
           console.log(result.message)

@@ -28,7 +28,10 @@ This command is Codex-native:
 - CCG plan artifacts live under `.codex/ccg/plans/*.md`.
 - Codex is the orchestrator and final code owner.
 - Gemini is an allowed bounded read-only evidence helper; Codex applies and verifies all changes.
-- Claude is disabled in Codex-only mode and must not be invoked or required.
+- Claude is disabled for ordinary delegation. It may run only when unified CCG
+  routing selects Claude for the read-only `product-manager` role and the
+  project allows it; that isolated review never grants workspace-write
+  authority.
 - Use Gemini for bounded code drafting, edge-case analysis, UI prototypes, or review; frontend/UI work remains Gemini-first.
 - Any Gemini delegation must use the bundled browser preview helper automatically; do not ask the user to run `/ccg:gemini-preview` first and do not call the raw Gemini CLI directly.
 - For M+ or risky work, apply the active project quality gates and use Gemini

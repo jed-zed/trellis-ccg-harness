@@ -178,8 +178,14 @@ function applyLifecycleOption(result, args, index, command) {
 }
 
 function assertCcgUpdateArguments(result) {
-  if (!FULL_SHA1.test(result.ccgCommit)) {
+  if (result.ccgCommit !== null && !FULL_SHA1.test(result.ccgCommit)) {
     throw new Error("CCG commit must be a full 40-character SHA-1.");
+  }
+  if (result.ccgCommit === null && result.sourceCheckout === null) {
+    throw new Error(
+      "CCG update requires --source-checkout <clean-checkout> or "
+      + "--ccg-commit <40-character SHA-1>.",
+    );
   }
 }
 
@@ -193,10 +199,14 @@ function assertTrellisUpdateArguments(result) {
 }
 
 function assertUpdateArguments(result) {
-  const targets = [result.ccgCommit, result.trellisVersion].filter(Boolean);
+  const targets = [
+    result.ccgCommit || result.sourceCheckout ? "ccg" : null,
+    result.trellisVersion ? "trellis" : null,
+  ].filter(Boolean);
   if (targets.length === 0) {
     throw new Error(
-      "update requires --ccg-commit <40-character SHA-1> or "
+      "update requires --source-checkout <clean-checkout>, "
+      + "--ccg-commit <40-character SHA-1>, or "
       + "--trellis-version <semantic-version>.",
     );
   }
@@ -205,7 +215,7 @@ function assertUpdateArguments(result) {
       "Update one source per separate transaction; do not combine CCG and Trellis targets.",
     );
   }
-  if (result.ccgCommit) return assertCcgUpdateArguments(result);
+  if (targets[0] === "ccg") return assertCcgUpdateArguments(result);
   return assertTrellisUpdateArguments(result);
 }
 
@@ -589,6 +599,21 @@ function buildOwnershipEntry({
   };
 }
 
+function canMigrateLegacyCcgLink(entry, observed, ccgSourcePath) {
+  return (
+    entry?.id === "ccg-link" &&
+    entry.kind === "npm-global-link" &&
+    entry.package === "ccg-workflow" &&
+    entry.installedByHarness?.sourcePath !== undefined &&
+    observed?.sourcePath !== undefined &&
+    normalizedPath(entry.installedByHarness.sourcePath) ===
+      normalizedPath(ccgSourcePath) &&
+    normalizedPath(observed.sourcePath) === normalizedPath(ccgSourcePath) &&
+    normalizedPath(entry.installedByHarness.entryPath) ===
+      normalizedPath(observed.entryPath)
+  );
+}
+
 export function buildBootstrapOwnership(options) {
   const entries = [];
   const previousById = new Map(
@@ -618,22 +643,29 @@ export function buildBootstrapOwnership(options) {
     }));
   }
   if (options.managed?.ccg) {
-    if (
-      !options.after?.ccg?.sourcePath ||
-      normalizedPath(options.after.ccg.sourcePath) !==
-        normalizedPath(options.ccgSourcePath)
-    ) {
+    if (!options.after?.ccg || options.after.ccg.sourcePath !== undefined) {
       throw new Error(
-        "Managed global CCG package is not linked to the Harness component.",
+        "Managed global CCG package must be a packaged installation, not a link to the Harness component.",
       );
     }
+    const recordedCcg = previousById.get("ccg-link");
+    const previousCcg = canMigrateLegacyCcgLink(
+      recordedCcg,
+      options.before?.ccg,
+      options.ccgSourcePath,
+    )
+      ? {
+          ...recordedCcg,
+          installedByHarness: options.before.ccg,
+        }
+      : recordedCcg;
     entries.push(buildOwnershipEntry({
       id: "ccg-link",
-      kind: "npm-global-link",
+      kind: "npm-global-package",
       packageName: "ccg-workflow",
       before: options.before?.ccg ?? null,
       after: options.after?.ccg ?? null,
-      previousEntry: previousById.get("ccg-link"),
+      previousEntry: previousCcg,
     }));
   }
   return {
@@ -684,13 +716,14 @@ function validateOwnershipEntry(entry) {
       package: "@mindfoldhq/trellis",
     },
     "ccg-link": {
-      kind: "npm-global-link",
+      kinds: new Set(["npm-global-link", "npm-global-package"]),
       package: "ccg-workflow",
     },
   }[entry.id];
   if (
     !expected ||
-    entry.kind !== expected.kind ||
+    (expected.kind !== undefined && entry.kind !== expected.kind) ||
+    (expected.kinds !== undefined && !expected.kinds.has(entry.kind)) ||
     entry.package !== expected.package
   ) {
     throw new Error("Harness ownership entry target is invalid.");
@@ -703,6 +736,19 @@ function validateOwnershipEntry(entry) {
     entry.installedByHarness,
     `${entry.id} installed package`,
   );
+  if (
+    entry.id === "ccg-link" &&
+    (
+      (entry.kind === "npm-global-link" &&
+        entry.installedByHarness.sourcePath === undefined) ||
+      (entry.kind === "npm-global-package" &&
+        entry.installedByHarness.sourcePath !== undefined)
+    )
+  ) {
+    throw new Error(
+      "Harness CCG ownership kind does not match the installed package shape.",
+    );
+  }
   return entry;
 }
 
@@ -763,6 +809,14 @@ export function assertBootstrapOwnershipContinuity(
       !globalPackageSnapshotsEqual(
         beforeById[entry.id],
         entry.installedByHarness,
+      ) &&
+      !(
+        entry.id === "ccg-link" &&
+        canMigrateLegacyCcgLink(
+          entry,
+          beforeById[entry.id],
+          path.join(repoRoot, "components", "ccg-workflow"),
+        )
       )
     ) {
       throw new Error(

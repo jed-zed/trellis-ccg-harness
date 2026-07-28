@@ -576,10 +576,6 @@ async function configModelRouting(): Promise<void> {
       primary: selectedBackend as any,
       strategy: 'fallback',
     }
-    config.routing.review = {
-      models: [...new Set([selectedFrontend, selectedBackend])] as any,
-      strategy: 'parallel',
-    }
     config.routing.geminiModel = geminiModel
     config.routing.grokModel = grokModel
     await writeCcgConfig(config)

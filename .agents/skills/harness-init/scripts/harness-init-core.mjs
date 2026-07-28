@@ -108,7 +108,7 @@ const PROJECT_SKILL_MAX_FILE_BYTES = 16 * 1024 * 1024;
 const PROJECT_SKILL_MAX_TOTAL_BYTES = 64 * 1024 * 1024;
 const COLLABORATION_BLOCK_START = "<!-- HARNESS-COLLABORATION:START -->";
 const COLLABORATION_BLOCK_END = "<!-- HARNESS-COLLABORATION:END -->";
-const PROJECT_POLICY_VERSION = 3;
+const PROJECT_POLICY_VERSION = 6;
 const COLLABORATION_MARKER_FORMAT_VERSION = 1;
 const PROJECT_OWNERSHIP_SCHEMA_VERSION = 2;
 const PROJECT_SKILL_OWNERSHIP_SCHEMA_VERSION = 3;
@@ -1878,10 +1878,7 @@ function assertProviders(providers) {
   if (!providers.codex.enabled || !providers.codex.workspaceWrite) {
     throw new Error("Codex must remain the enabled workspace writer.");
   }
-  if (providers.claude.enabled || providers.claude.workspaceWrite) {
-    throw new Error("Claude must remain disabled with no workspace write access.");
-  }
-  for (const provider of ["gemini", "grok", "gptPro"]) {
+  for (const provider of ["gemini", "claude", "grok", "gptPro"]) {
     if (providers[provider].workspaceWrite) {
       throw new Error(
         `${provider} cannot receive workspace write authority.`,
@@ -1917,7 +1914,7 @@ function assertProductManager(productManager) {
     stateFile: ".trellis/tasks/<task>/product-manager.json",
     evidenceRoot:
       ".trellis/tasks/<task>/.ccg-evidence/product-manager",
-    selectedProviderAuthority: "installed-ccg-config",
+    selectedProviderAuthority: "unified-ccg-routing",
   };
   for (const [field, value] of Object.entries(expected)) {
     if (productManager[field] !== value) {
@@ -1928,13 +1925,13 @@ function assertProductManager(productManager) {
     !Array.isArray(productManager.allowedProviders) ||
     productManager.allowedProviders.length === 0 ||
     productManager.allowedProviders.some(
-      (provider) => !["codex", "gemini"].includes(provider),
+      (provider) => !["codex", "gemini", "claude"].includes(provider),
     ) ||
     new Set(productManager.allowedProviders).size !==
       productManager.allowedProviders.length
   ) {
     throw new Error(
-      "productManager.allowedProviders must be a unique non-empty subset of codex and gemini.",
+      "productManager.allowedProviders must be a unique non-empty subset of codex, gemini, and claude.",
     );
   }
   assertObject(
@@ -1943,10 +1940,10 @@ function assertProductManager(productManager) {
   );
   assertExactKeys(
     productManager.providerCapabilities,
-    ["codex", "gemini"],
+    ["codex", "gemini", "claude"],
     "productManager.providerCapabilities",
   );
-  for (const provider of ["codex", "gemini"]) {
+  for (const provider of ["codex", "gemini", "claude"]) {
     const capabilities = productManager.providerCapabilities[provider];
     assertObject(
       capabilities,
@@ -4400,6 +4397,9 @@ export async function applyProjectContract({
 
 export async function migrateProjectProductManager({
   approved,
+  allowedProviders = null,
+  coupledSourceUpdate = false,
+  markReady = true,
   repoRoot,
   skillRoot = DEFAULT_SKILL_ROOT,
   faultInjector,
@@ -4436,15 +4436,44 @@ export async function migrateProjectProductManager({
   const current = JSON.parse(currentFingerprint.bytes.toString("utf8"));
   const template = JSON.parse(templateFingerprint.bytes.toString("utf8"));
   assertProductManager(template.productManager);
+  const selectedAllowedProviders =
+    allowedProviders ??
+    current.productManager?.allowedProviders ??
+    template.productManager.allowedProviders;
+  if (
+    !Array.isArray(selectedAllowedProviders) ||
+    selectedAllowedProviders.some(
+      (provider) => !template.productManager.allowedProviders.includes(provider),
+    )
+  ) {
+    throw new Error(
+      "Requested product-manager providers are not supported by the current Harness template.",
+    );
+  }
+  const enableClaude = selectedAllowedProviders.includes("claude");
   const candidate = {
     ...current,
     status: "approved",
+    providers: {
+      ...current.providers,
+      claude: {
+        ...current.providers.claude,
+        enabled: enableClaude,
+        workspaceWrite: false,
+      },
+    },
     productManager: {
       ...template.productManager,
-      allowedProviders:
-        current.productManager?.allowedProviders ??
-        template.productManager.allowedProviders,
+      allowedProviders: selectedAllowedProviders,
     },
+    source: coupledSourceUpdate
+      ? {
+          ...current.source,
+          dependencyPolicy: "source-verified-current-snapshot",
+          updatePolicy:
+            "coupled-bundle-update-with-current-snapshot-source-fingerprint",
+        }
+      : current.source,
   };
   validateProjectContract(candidate, { requireApproved: true });
   const temporaryRoot = await mkdtemp(
@@ -4469,18 +4498,20 @@ export async function migrateProjectProductManager({
       readProcessIdentity,
       provenanceKeyPath,
     });
-    const ready = await markProjectReady({
-      repoRoot: root,
-      skillRoot: sourceSkill,
-      faultInjector,
-      isProcessAlive,
-      readProcessIdentity,
-      provenanceKeyPath,
-    });
+    const ready = markReady
+      ? await markProjectReady({
+          repoRoot: root,
+          skillRoot: sourceSkill,
+          faultInjector,
+          isProcessAlive,
+          readProcessIdentity,
+          provenanceKeyPath,
+        })
+      : null;
     return {
-      status: "ready",
+      status: markReady ? "ready" : "approved-awaiting-gates",
       appliedStatus: applied.status,
-      readyStatus: ready.status,
+      readyStatus: ready?.status ?? null,
       projectPath,
     };
   } finally {

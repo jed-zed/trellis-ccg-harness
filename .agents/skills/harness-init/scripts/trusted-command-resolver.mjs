@@ -203,6 +203,7 @@ async function nodePackageCommand({
   packageName,
   binName,
   label,
+  dependencySurface,
 }) {
   const root = path.resolve(packageRoot);
   let realRoot;
@@ -239,7 +240,10 @@ async function nodePackageCommand({
   const [script, identity, packageTree] = await Promise.all([
     fileIdentity(entrypoint, `${label} entrypoint`),
     fileIdentity(packageJsonPath, `${label} package identity`),
-    packageTreeIdentity(trustedRoot, `${label} dependency surface`),
+    packageTreeIdentity(
+      dependencySurface === "package" ? realRoot : trustedRoot,
+      `${label} dependency surface`,
+    ),
   ]);
   if (
     !inside(realRoot, script.realPath) ||
@@ -352,6 +356,8 @@ async function resolveNodePackage({
         packageName,
         binName,
         label,
+        dependencySurface:
+          packageName === "ccg-workflow" ? "package" : "trusted-root",
       });
       if (resolved) return resolved;
     } catch (error) {

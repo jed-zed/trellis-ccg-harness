@@ -4,6 +4,10 @@ import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { homedir } from 'node:os'
 import { join } from 'pathe'
+import type { ModelRouting, ModelType } from '../types'
+import type { ProductManagerProvider } from '../product-manager/contracts'
+import { STANDARD_ROUTING_ROLES } from '../types'
+import { IMPLEMENTED_PRODUCT_MANAGER_PROVIDERS } from '../product-manager/provider-registry'
 import { readCcgConfig, readCcgConfigAt } from '../utils/config'
 import { resolveCodexHome, validateOwnershipManifest } from '../utils/codex-mode'
 import { EXPECTED_BINARY_VERSION, verifyBinaryVersion } from '../utils/installer'
@@ -65,6 +69,20 @@ export interface DoctorResult {
   ok: boolean
   failures: DoctorCheck[]
   checks: DoctorCheck[]
+}
+
+export function collectRoutingModels(routing?: Partial<ModelRouting>): string[] {
+  return STANDARD_ROUTING_ROLES.flatMap((role) => {
+    const route = routing?.[role]
+    return [route?.primary, ...(route?.models || [])]
+  }).filter((model): model is ModelType => Boolean(model))
+}
+
+export function routingStatusRows(routing?: Partial<ModelRouting>): Array<{ role: string, provider: string }> {
+  return STANDARD_ROUTING_ROLES.map(role => ({
+    role,
+    provider: routing?.[role]?.primary || '—',
+  }))
 }
 
 export function buildGrokDoctorArguments(options: DoctorOptions, intelligence?: Partial<NonNullable<Awaited<ReturnType<typeof readCcgConfig>>>['intelligence']>): string[] {
@@ -320,6 +338,36 @@ async function doctorCodex(): Promise<DoctorResult> {
       : 'No interrupted operation',
   })
 
+  const ccgConfigPath = join(codexHome, 'ccg', 'config.toml')
+  let codexConfig: Awaited<ReturnType<typeof readCcgConfigAt>> = null
+  let routingError: string | null = null
+  try {
+    codexConfig = await readCcgConfigAt(ccgConfigPath)
+  }
+  catch (error) {
+    routingError = error instanceof Error ? error.message : String(error)
+  }
+  const routeRows = routingStatusRows(codexConfig?.routing)
+  checks.push({
+    label: 'CCG role routing',
+    status: codexConfig && !routingError ? OK : FAIL,
+    detail: routingError || (codexConfig
+      ? routeRows.map(row => `${row.role}=${row.provider}`).join(', ')
+      : `Not found (${ccgConfigPath})`),
+  })
+  const productManagerProvider = codexConfig?.routing?.['product-manager']?.primary
+  const productManagerImplemented = Boolean(
+    productManagerProvider
+    && IMPLEMENTED_PRODUCT_MANAGER_PROVIDERS.includes(productManagerProvider as ProductManagerProvider),
+  )
+  checks.push({
+    label: 'Product manager route',
+    status: productManagerImplemented ? OK : FAIL,
+    detail: productManagerProvider
+      ? `${productManagerProvider}${productManagerImplemented ? '; read-only adapter implemented' : '; adapter unavailable, no fallback'}`
+      : 'No unified product-manager route',
+  })
+
   console.log()
   console.log(ansis.cyan.bold(`  CCG Doctor (Codex) v${packageVersion}`))
   console.log()
@@ -546,12 +594,7 @@ export async function doctor(options: DoctorOptions = {}): Promise<DoctorResult>
   })
 
   // 12. Grok CLI (only when routing uses grok)
-  const routingModels = [
-    config?.routing?.frontend?.primary,
-    config?.routing?.backend?.primary,
-    ...(config?.routing?.frontend?.models || []),
-    ...(config?.routing?.backend?.models || []),
-  ]
+  const routingModels = collectRoutingModels(config?.routing)
   if (routingModels.includes('grok')) {
     const grokName = process.platform === 'win32' ? 'grok.exe' : 'grok'
     const grokFallback = join(homedir(), '.grok', 'bin', grokName)
@@ -613,8 +656,7 @@ export async function status(): Promise<void> {
     binaryVer = `v${EXPECTED_BINARY_VERSION}`
 
   // Model routing
-  const frontend = config?.routing?.frontend?.primary || '—'
-  const backend = config?.routing?.backend?.primary || '—'
+  const roleRows = routingStatusRows(config?.routing)
 
   // MCP
   let mcpServers: string[] = []
@@ -658,8 +700,8 @@ export async function status(): Promise<void> {
   console.log(`  ${ansis.bold('Commands')}       ${cmds.length}`)
   console.log(`  ${ansis.bold('Hooks')}          ${hooks.length} scripts`)
   console.log(`  ${ansis.bold('Binary')}         ${binaryVer}`)
-  console.log(`  ${ansis.bold('Frontend')}       ${frontend}`)
-  console.log(`  ${ansis.bold('Backend')}        ${backend}`)
+  for (const row of roleRows)
+    console.log(`  ${ansis.bold(row.role.padEnd(15))} ${row.provider}`)
   console.log(`  ${ansis.bold('MCP')}            ${mcpServers.length > 0 ? mcpServers.join(', ') : ansis.gray('none')}`)
   console.log(`  ${ansis.bold('Codex mode')}     ${codexMode ? 'installed' : ansis.gray('not installed')}`)
   console.log(`  ${ansis.bold('Active tasks')}   ${activeTasks > 0 ? ansis.yellow(String(activeTasks)) : '0'}`)

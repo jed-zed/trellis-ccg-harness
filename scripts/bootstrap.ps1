@@ -106,10 +106,16 @@ try {
   }
 
   if ($LinkCcg) {
-    Write-Output "Linking the personal CCG snapshot as the global ccg command..."
-    & npm install -g $ccgRoot
+    Write-Output (
+      "Installing the packaged personal CCG snapshot as the global ccg command..."
+    )
+    # Keep -LinkCcg as the compatibility switch used by existing lifecycle and
+    # clean-install callers. npm's install-links option packages and copies a
+    # local directory instead of leaving a global junction back into the
+    # mutable Harness snapshot.
+    & npm install -g --install-links=true --install-strategy=nested $ccgRoot
     if ($LASTEXITCODE -ne 0) {
-      throw "Global CCG link failed."
+      throw "Packaged global CCG installation failed."
     }
   }
 

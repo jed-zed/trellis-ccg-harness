@@ -27,7 +27,10 @@ This command is Codex-native:
 - Codex owns context search, requirement enhancement, final plan synthesis, and writing new plans under `.codex/ccg/plans/*.md`.
 - Gemini must participate as read-only analysis evidence for real plan creation/revision.
 - Gemini must use the bundled preview helper, using `gemini-3.1-pro-preview` by default.
-- Claude is disabled in Codex-only mode and must not be invoked or required.
+- Claude is disabled for ordinary delegation. It may run only when unified CCG
+  routing selects Claude for the read-only `product-manager` role and the
+  project allows it; that role supplies evidence inside the existing plan
+  authority.
 - Do not write or present a final plan unless Codex has read a non-empty Gemini output.
 - Do not modify product code. This command may write CCG plan files only under `.codex/ccg/plans/`.
 - All user-facing output for this command must be Chinese by default, including usage/help, progress summaries, questions, failure reports, saved-plan summaries, and the next manual command.

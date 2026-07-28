@@ -353,7 +353,7 @@ test("approved contracts atomically create the owned Harness contract", async ()
       },
     ]);
     assert.deepEqual(ownership.policy, {
-      policyVersion: 3,
+      policyVersion: 6,
       markerFormatVersion: 1,
       sourcePath: ".harness/policies/collaboration-policy.md",
       sourceSha256: sha256(readFileSync(POLICY_PATH)),
@@ -570,6 +570,8 @@ test("approved product-manager migration updates owned files and preserves unkno
 
     const result = await migrateProjectProductManager({
       approved: true,
+      allowedProviders: ["codex", "gemini", "claude"],
+      coupledSourceUpdate: true,
       repoRoot: value.repoRoot,
       skillRoot: SKILL_ROOT,
     });
@@ -589,7 +591,21 @@ test("approved product-manager migration updates owned files and preserves unkno
     );
     assert.equal(
       project.productManager.selectedProviderAuthority,
-      "installed-ccg-config",
+      "unified-ccg-routing",
+    );
+    assert.deepEqual(
+      project.productManager.allowedProviders,
+      ["codex", "gemini", "claude"],
+    );
+    assert.equal(project.providers.claude.enabled, true);
+    assert.equal(project.providers.claude.workspaceWrite, false);
+    assert.equal(
+      project.source.updatePolicy,
+      "coupled-bundle-update-with-current-snapshot-source-fingerprint",
+    );
+    assert.equal(
+      project.source.dependencyPolicy,
+      "source-verified-current-snapshot",
     );
   } finally {
     value.cleanup();
@@ -1643,7 +1659,7 @@ test("policy content cannot change without a policy version bump", async () => {
       "# Harness Collaboration Policy",
       "# Harness Collaboration Policy without version bump",
     );
-    setOwnedPolicyProjection(value.repoRoot, differentPolicy, 3);
+    setOwnedPolicyProjection(value.repoRoot, differentPolicy, 6);
     const before = {
       agents: readFileSync(path.join(value.repoRoot, "AGENTS.md"), "utf8"),
       policy: readFileSync(

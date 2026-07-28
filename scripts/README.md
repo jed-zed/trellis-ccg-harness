@@ -8,8 +8,9 @@ runtime model policy, and provider boundaries deterministic.
 
 ## Responsibilities
 
-- `harness-adapter.mjs`: exposes canonical context, conflict audit, and explicit
-  OpenAI-compatible Grok probe commands.
+- `harness-adapter.mjs`: exposes canonical context, conflict audit, explicit
+  OpenAI-compatible Grok probes, and the Trellis-attached product-manager
+  status/review/presentation/response boundary.
 - `lib/harness-adapter/`: implements redaction, safe subprocess execution,
   Trellis context resolution, conflict checks, and provider probing.
 - `doctor.ps1`: combines machine prerequisites, personal source provenance,
@@ -49,15 +50,19 @@ Interactive initialization asks the latter after candidate selection, displays
 the candidate sources and manifest digest, defaults to `no`, and drops only
 the declined network candidates while core initialization continues.
 - `bootstrap.ps1`: internal toolchain bootstrap. It installs dependencies and
-  optionally links the personal CCG CLI inside a rollback-capable ownership
-  transaction; users normally enter through `pnpm setup`.
+  optionally package-installs the personal CCG CLI as a real global directory
+  with a self-contained nested dependency tree inside a rollback-capable
+  ownership transaction; the compatibility switch is still named `-LinkCcg`,
+  and users normally enter through `pnpm setup`.
 - `harness-init.mjs`: performs read-only discovery, persists an explicitly
   approved user Skill-repository profile, applies only a credential-free
   project contract plus the ownership-recorded collaboration-policy block in
   `AGENTS.md`, installs only the exact approved project Skill copies, and
   atomically promotes a verified approved contract to `ready`.
-- `harness-lifecycle.mjs`: performs exact-version Trellis or commit-pinned CCG
-  updates, rollback, crash recovery, and ownership-safe uninstall transactions.
+- `harness-lifecycle.mjs`: performs exact-version Trellis updates or coupled CCG
+  bundle updates from a clean checkout's current HEAD, records the current
+  snapshot source fingerprint, and provides rollback, crash recovery, and
+  ownership-safe uninstall transactions.
 - `lib/harness-gates.mjs`: runs the exact CCG, Go, and root test commands used
   by lifecycle transactions.
 - `lib/harness-transaction.mjs`: provides exclusive locking, durable journals,
@@ -84,6 +89,9 @@ personal CCG source implementation.
 pnpm setup
 node .\scripts\harness-adapter.mjs context
 node .\scripts\harness-adapter.mjs conflicts
+node .\scripts\harness-adapter.mjs pm status
+node .\scripts\harness-adapter.mjs pm present --state-revision <revision-from-status>
+node .\scripts\harness-adapter.mjs pm respond --response "验收通过" --state-revision <revision-from-present>
 node .\scripts\harness-init.mjs third-party-plan --home-dir <absolute-user-home>
 node .\scripts\harness-init.mjs global-init --non-interactive --home-dir <absolute-user-home> --catalog-mode skip --provider-actions "codex=later,gemini=later,grok=later,claude=skip" --third-party-global-skills none --third-party-global-plugins none --third-party-mcp-cli none --third-party-source-sha256 <sha256-from-third-party-plan> --approved
 node .\scripts\harness-init.mjs provider-action-plan --home-dir <absolute-user-home> --repo-root <absolute-project> --provider codex --action login
@@ -102,11 +110,20 @@ pwsh -NoProfile -File .\scripts\clean-install-acceptance.ps1 -Live -HarnessRef v
 pnpm harness:test
 pwsh -NoProfile -File .\scripts\doctor.ps1
 pnpm harness:update -- --trellis-version <exact-semantic-version>
+pnpm harness:update -- --source-checkout <clean-personal-ccg-checkout>
+# Optional audit replay:
 pnpm harness:update -- --ccg-commit <40-character-commit> --source-checkout <path>
 pnpm harness:rollback
 pnpm harness:recover
 pnpm harness:uninstall
 ```
+
+`pm status` always returns tracked `latestAdvice`, including the Provider's
+statement, findings, risks, process adjustments, and recommended next action,
+even after a gate response clears `currentGate`. A hard gate must be passed
+through `pm present` first. Codex then restates that exact advice to the user
+and stops; only a fresh explicit response may be applied with `pm respond`.
+Previous blanket approvals cannot answer a new gate.
 
 For an interactive project, begin with a `draft` contract whose project,
 toolchain, quality, security, and provider constraints are complete. `project-init`

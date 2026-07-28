@@ -22,7 +22,7 @@ import {
   writeProductManagerState,
 } from "../scripts/lib/harness-adapter.mjs";
 
-test("a product-manager invocation key has one cross-process lock owner", () => {
+test("a product-manager projection has one cross-process lock owner", () => {
   const root = mkdtempSync(path.join(tmpdir(), "harness pm lock-"));
   const taskDir = path.join(root, ".trellis", "tasks", "pm");
   mkdirSync(taskDir, { recursive: true });
@@ -30,6 +30,7 @@ test("a product-manager invocation key has one cross-process lock owner", () => 
   try {
     const key = "a".repeat(64);
     const first = acquireProductManagerLock(taskDir, key);
+    assert.match(first.lockPath, /product-manager[\\/]projection-locks[\\/]/);
     assert.throws(() => acquireProductManagerLock(taskDir, key), /in progress/i);
     releaseProductManagerLock(first);
     const second = acquireProductManagerLock(taskDir, key);
@@ -115,7 +116,9 @@ test("a late response cannot update state after revision drift", () => {
       invocation_key: prepared.invocationKey,
       verdict: "accepted",
       evidence_refs: prepared.input.evidence_refs,
+      findings: [],
       risks: [],
+      process_adjustments: [],
       recommended_next_action: "Wait for user acceptance.",
       material_change_proposal: null,
       reopen_request: null,

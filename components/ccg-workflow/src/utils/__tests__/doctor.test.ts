@@ -200,6 +200,8 @@ describe('Codex-only doctor', () => {
       'Codex version',
       'Codex ownership',
       'Codex transaction',
+      'CCG role routing',
+      'Product manager route',
     ])
     expect(await fs.pathExists(join(root, '.claude'))).toBe(false)
   })

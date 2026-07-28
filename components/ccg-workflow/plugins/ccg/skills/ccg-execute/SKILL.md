@@ -19,8 +19,9 @@ Treat the user argument as a CCG plan path or task description. Plans from `/ccg
 
 Every Gemini call in the CCG workflow must use the bundled preview helper. Do not call the raw `gemini`, `gemini.cmd`, or `gemini.exe` CLI directly. `/ccg:gemini-preview` is only a manual smoke-test/debug entry; `/ccg:execute` must open the same browser preview automatically whenever it delegates to Gemini.
 
-Claude is disabled in Codex-only mode. Use Codex and any explicitly allowed
-non-Claude read-only helper evidence; Codex remains the only final workspace
-owner.
+Claude is disabled for ordinary Codex-mode delegation. The only exception is
+an explicitly selected product-manager Provider invoked through `ccg
+product-manager review` with per-call authorization and the no-tool, no-write,
+non-persistent contract. Codex remains the only final workspace owner.
 
 For frontend, UI, styling, layout, component, accessibility, or responsive work, `/ccg:execute` must call Gemini with `--prompt-template frontend` or `--prompt-template prototype` before Codex edits the real workspace. Treat Gemini diffs as dirty prototypes, not final code. After Codex applies any frontend/UI change, run Gemini bounded review with `--prompt-template review` or `--prompt-template frontend`; retry Gemini failures twice, then stop and report missing Gemini evidence instead of pretending the review happened.

@@ -161,9 +161,18 @@ export function collectProductManagerSummary(
           kind: state.currentGate.kind,
           checkpointId: state.currentGate.checkpointId,
           status: state.currentGate.status,
+          presentationRequired:
+            state.currentGate.presentationRequired === true,
+          presentedAt: state.currentGate.presentedAt ?? null,
         }
       : null,
     nextAction: state.nextAction,
+    latestAdvice: state.latestAdvice
+      ? {
+          ...state.latestAdvice,
+          stale: state.latestAdvice.planRevision !== state.planRevision,
+        }
+      : null,
   };
 }
 

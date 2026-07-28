@@ -11,7 +11,12 @@
 | 提供者合同 | `.harness/adapter.json` 当前允许只读 Gemini、禁用 Claude、默认禁用 Grok；`.harness/project.json` 规定离线默认与显式手动 Provider | 安装级选择与项目 allow/deny 取交集，不能静默 fallback |
 | 证据先例 | `components/ccg-workflow/templates/engine/tools/gptpro/gptpro_bridge.py` 的 `resolve_task_dir()`、`task_evidence_root()` 和路径边界校验已支持 Trellis task-local `.ccg-evidence` | 抽取或复用边界模式，不复制任务，不写 Trellis `task.json` 的 CCG gate 字段 |
 | Hook 所有权 | `.codex/hooks.json` 已由 Trellis 占有 `UserPromptSubmit`；`.harness/adapter.json` 固定 `project-local-precedence` 和 yield marker | 不新增 Hook；现有 Hook 最多注入 pending 状态，不能调用产品经理 |
-| 来源绑定 | `harness.sources.json` 固定 CCG `3.3.3`、commit `8bdad64...`、Git tree `847efc...`；`scripts/verify-sources.ps1` 验证 clean authoritative checkout、commit、tree 和 snapshot | CCG 源码先行，随后原子同步来源清单、快照和安装运行时 |
+| 来源绑定 | 规划时点的 `harness.sources.json` 记录 CCG `3.3.3` 当前快照、commit `8bdad64...`、Git tree `847efc...`；`scripts/verify-sources.ps1` 验证 clean authoritative checkout、commit、tree 和 snapshot | CCG 源码先行，随后联动同步来源清单、打包快照和安装运行时；这些指纹用于溯源，不是长期锁版 |
+
+> 以上两行保留为规划时点的历史证据。2026-07-28 用户随后明确选择本机已安装并登录的
+> Claude Code 作为只读产品经理，并将来源策略修订为“联动打包更新 + 当前快照来源指纹”。
+> 新决策由同一 Trellis task 的 `prd.md`、`design.md`、`implement.md` 和当前规格覆盖；
+> 精确 commit/tree 继续用于快照溯源和回滚，但不再表示长期锁版。
 | 测试面 | `tests/harness-adapter.test.mjs`、`tests/harness-lifecycle.test.mjs`、`tests/harness-init-cli.test.mjs`、`tests/verify-sources.test.mjs` | 在现有测试层增加 provider policy、state projection、concurrency、clean-install 与 provenance 用例 |
 
 ## 2. 当前状态风险
@@ -20,7 +25,7 @@
 - `I:\ai\ccg-workflow` 当前分支
   `codex/harden-gptpro-review` 落后远端 6 个提交，并有 4 个已跟踪 `CLAUDE.md`
   删除和本 PRD untracked。实施前必须隔离或获得用户指示，不能覆盖这些改动。
-- 当前全局 `ccg --version` 报 `3.4.0`，而 Harness 来源清单固定 `3.3.3`。
+- 规划时点全局 `ccg --version` 报 `3.4.0`，而 Harness 来源清单记录的当前快照为 `3.3.3`。
   这是实施前必须由 `conflicts`/`verify:sources` 重新判定的 runtime drift，规划不能假定兼容。
 
 ## 3. Grok 外部证据
@@ -73,4 +78,3 @@ Gemini `gemini-3.1-pro-preview` 通过浏览器预览器读取 851 个快照文�
    摘要、证据引用、用户验收和进度。
 4. CCG 命令/Skill/Hook/子代理只能报告事件候选；inline Codex 主编排器是唯一调用者。
 5. 六个一级实施阶段直接作为本 Trellis 任务的里程碑，不拆成平行任务或第二份计划。
-

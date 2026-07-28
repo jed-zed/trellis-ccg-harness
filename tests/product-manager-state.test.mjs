@@ -8,6 +8,7 @@ import {
   applyProductManagerReview,
   buildProductManagerStatus,
   collectProductManagerSummary,
+  presentProductManagerGate,
   prepareProductManagerReview,
   readProductManagerState,
   respondToProductManagerGate,
@@ -43,14 +44,22 @@ function fixture() {
   return { root, taskDir };
 }
 
-function acceptedResponse(prepared) {
+function acceptedResponse(prepared, provider = "gemini") {
   return {
     ...prepared.input,
     invocation_key: prepared.invocationKey,
     verdict: "accepted",
     facts: [],
     hypotheses: [],
-    findings: [],
+    findings: [
+      {
+        id: "F1",
+        title: "Checkpoint is ready",
+        severity: "info",
+        detail: "The evidence satisfies the approved checkpoint.",
+        evidence_refs: prepared.input.evidence_refs,
+      },
+    ],
     evidence_refs: prepared.input.evidence_refs,
     progress: {
       implementation: 0,
@@ -58,14 +67,26 @@ function acceptedResponse(prepared) {
       health: "green",
       reasons: [],
     },
-    risks: [],
+    risks: [
+      {
+        id: "R1",
+        severity: "low",
+        statement: "A follow-up verification remains.",
+        mitigation: "Run the follow-up verification before FINAL_REVIEW.",
+      },
+    ],
     recommended_next_action: "Request user acceptance.",
-    process_adjustments: [],
+    process_adjustments: [
+      {
+        id: "PA1",
+        statement: "Attach the follow-up verification to the next checkpoint.",
+      },
+    ],
     material_change_proposal: null,
     reopen_request: null,
     user_acceptance_summary: "The checkpoint is ready.",
     provider_identity: {
-      provider: "gemini",
+      provider,
       model: "fake",
       cli_version: "test",
     },
@@ -143,6 +164,10 @@ test("user responses preserve the PM verdict and derive progress", () => {
       checkpointId: "M1",
       status: "awaiting_user_acceptance",
       acceptanceCard: { goal: "Contract", nextAction: "Implement M2" },
+      presentationRequired: true,
+      presentedAt: "2026-07-27T00:00:00.000Z",
+      presentedStateRevision: state.stateRevision + 1,
+      presentationDigest: "a".repeat(64),
     };
     state = writeProductManagerState(value.taskDir, state, state.stateRevision);
     state = respondToProductManagerGate(value.taskDir, {
@@ -161,6 +186,10 @@ test("user responses preserve the PM verdict and derive progress", () => {
       checkpointId: "M2",
       status: "awaiting_user_acceptance",
       acceptanceCard: { goal: "Bridge", nextAction: "Implement M3" },
+      presentationRequired: true,
+      presentedAt: "2026-07-27T00:00:00.000Z",
+      presentedStateRevision: state.stateRevision + 1,
+      presentationDigest: "b".repeat(64),
     };
     state = writeProductManagerState(value.taskDir, state, state.stateRevision);
     state = respondToProductManagerGate(value.taskDir, {
@@ -275,6 +304,182 @@ test("review application rejects stale identities and creates a user hard gate",
     assert.equal(state.milestones[0].status, "awaiting_user_acceptance");
     assert.equal(state.currentGate.checkpointId, "M1");
     assert.equal(state.currentGate.status, "awaiting_user_acceptance");
+    assert.equal(
+      state.currentGate.acceptanceCard.productManagerStatement,
+      "M1 is ready.",
+    );
+    assert.deepEqual(state.currentGate.acceptanceCard.findings, response.findings);
+    assert.deepEqual(
+      state.currentGate.acceptanceCard.processAdjustments,
+      response.process_adjustments,
+    );
+    assert.equal(
+      state.currentGate.acceptanceCard.recommendedNextAction,
+      response.recommended_next_action,
+    );
+    assert.equal(state.latestAdvice.productManagerStatement, "M1 is ready.");
+    assert.equal(
+      state.milestones[0].pmReview.productManagerStatement,
+      "M1 is ready.",
+    );
+  } finally {
+    rmSync(value.root, { recursive: true, force: true });
+  }
+});
+
+test("a fresh presentation is required before response and advice remains visible afterward", () => {
+  const value = fixture();
+  try {
+    const taskBefore = readFileSync(path.join(value.taskDir, "task.json"), "utf8");
+    syncProductManagerPlan(value.taskDir);
+    const prepared = prepareProductManagerReview(value.root, value.taskDir, {
+      triggerType: "MILESTONE_REVIEW",
+      checkpointId: "M1",
+      evidenceRefs: ["test:advice-presentation"],
+    });
+    const response = acceptedResponse(prepared, "claude");
+    let state = applyProductManagerReview(
+      value.taskDir,
+      prepared,
+      response,
+    );
+    assert.throws(
+      () =>
+        respondToProductManagerGate(value.taskDir, {
+          response: "验收通过",
+          expectedRevision: state.stateRevision,
+        }),
+      /present/i,
+    );
+
+    state = presentProductManagerGate(value.taskDir, {
+      expectedRevision: state.stateRevision,
+    });
+    assert.equal(state.currentGate.presentationRequired, true);
+    assert.equal(
+      state.currentGate.presentedStateRevision,
+      state.stateRevision,
+    );
+    assert.ok(Date.parse(state.currentGate.presentedAt));
+
+    state = respondToProductManagerGate(value.taskDir, {
+      response: "验收通过",
+      expectedRevision: state.stateRevision,
+    });
+    assert.equal(state.currentGate, null);
+    assert.match(state.nextAction, /Resume M2/);
+    assert.equal(
+      state.latestAdvice.productManagerStatement,
+      response.user_acceptance_summary,
+    );
+    assert.deepEqual(state.latestAdvice.findings, response.findings);
+    assert.equal(
+      state.milestones[0].pmReview.productManagerStatement,
+      response.user_acceptance_summary,
+    );
+    assert.deepEqual(state.latestAdvice.risks, response.risks);
+    assert.deepEqual(
+      state.latestAdvice.processAdjustments,
+      response.process_adjustments,
+    );
+    assert.equal(
+      state.latestAdvice.recommendedNextAction,
+      response.recommended_next_action,
+    );
+
+    const status = buildProductManagerStatus(value.taskDir);
+    assert.equal(status.currentGate, null);
+    assert.equal(status.latestAdvice.stale, false);
+    assert.equal(
+      status.latestAdvice.productManagerStatement,
+      response.user_acceptance_summary,
+    );
+    assert.equal(
+      collectProductManagerSummary(value.root, value.taskDir, "pm")
+        .latestAdvice.productManagerStatement,
+      response.user_acceptance_summary,
+    );
+    assert.equal(
+      readFileSync(path.join(value.taskDir, "task.json"), "utf8"),
+      taskBefore,
+    );
+    writeFileSync(
+      path.join(value.taskDir, "implement.md"),
+      `${readFileSync(path.join(value.taskDir, "implement.md"), "utf8")}\n<!-- presentation contract revision -->\n`,
+    );
+    state = syncProductManagerPlan(value.taskDir);
+    assert.match(state.nextAction, /Implement M2/);
+    assert.equal(state.milestones[0].reviewStale, true);
+    assert.equal(state.milestones[1].reviewStale, false);
+    assert.equal(buildProductManagerStatus(value.taskDir).latestAdvice.stale, true);
+  } finally {
+    rmSync(value.root, { recursive: true, force: true });
+  }
+});
+
+test("legacy projections recover the latest rich advice from task-local evidence", () => {
+  const value = fixture();
+  try {
+    syncProductManagerPlan(value.taskDir);
+    const prepared = prepareProductManagerReview(value.root, value.taskDir, {
+      triggerType: "MILESTONE_REVIEW",
+      checkpointId: "M1",
+      evidenceRefs: ["test:legacy-advice-recovery"],
+    });
+    const response = acceptedResponse(prepared, "claude");
+    const projected = applyProductManagerReview(
+      value.taskDir,
+      prepared,
+      response,
+    );
+    const callRoot = path.join(
+      value.taskDir,
+      ".ccg-evidence",
+      "product-manager",
+      "calls",
+      prepared.invocationKey,
+    );
+    mkdirSync(callRoot, { recursive: true });
+    writeFileSync(
+      path.join(callRoot, "result.json"),
+      `${JSON.stringify(response, null, 2)}\n`,
+    );
+
+    const statePath = path.join(value.taskDir, "product-manager.json");
+    const legacy = JSON.parse(readFileSync(statePath, "utf8"));
+    delete legacy.latestAdvice;
+    legacy.milestones[0].pmReview = {
+      invocationKey: projected.milestones[0].pmReview.invocationKey,
+      triggerType: projected.milestones[0].pmReview.triggerType,
+      verdict: projected.milestones[0].pmReview.verdict,
+      inputDigest: projected.milestones[0].pmReview.inputDigest,
+      evidenceDigest: projected.milestones[0].pmReview.evidenceDigest,
+      providerIdentity: projected.milestones[0].pmReview.providerIdentity,
+      generatedAt: projected.milestones[0].pmReview.generatedAt,
+      recommendedNextAction:
+        projected.milestones[0].pmReview.recommendedNextAction,
+      evidenceRefs: projected.milestones[0].pmReview.evidenceRefs,
+    };
+    writeFileSync(statePath, `${JSON.stringify(legacy, null, 2)}\n`);
+
+    let state = readProductManagerState(value.taskDir);
+    assert.equal(
+      state.latestAdvice.productManagerStatement,
+      response.user_acceptance_summary,
+    );
+    assert.deepEqual(state.latestAdvice.findings, response.findings);
+
+    writeFileSync(
+      path.join(value.taskDir, "implement.md"),
+      `${readFileSync(path.join(value.taskDir, "implement.md"), "utf8")}\n<!-- revision -->\n`,
+    );
+    state = syncProductManagerPlan(value.taskDir);
+    const persisted = JSON.parse(readFileSync(statePath, "utf8"));
+    assert.equal(
+      persisted.latestAdvice.productManagerStatement,
+      response.user_acceptance_summary,
+    );
+    assert.equal(buildProductManagerStatus(value.taskDir).latestAdvice.stale, true);
   } finally {
     rmSync(value.root, { recursive: true, force: true });
   }
@@ -303,6 +508,30 @@ test("review application rechecks current artifact input before projecting state
     assert.equal(
       readProductManagerState(value.taskDir).milestones[0].status,
       "not_started",
+    );
+  } finally {
+    rmSync(value.root, { recursive: true, force: true });
+  }
+});
+
+test("review application accepts Claude as a registered read-only provider identity", () => {
+  const value = fixture();
+  try {
+    syncProductManagerPlan(value.taskDir);
+    const prepared = prepareProductManagerReview(value.root, value.taskDir, {
+      triggerType: "MILESTONE_REVIEW",
+      checkpointId: "M1",
+      evidenceRefs: ["test:claude-provider-identity"],
+    });
+    const state = applyProductManagerReview(
+      value.taskDir,
+      prepared,
+      acceptedResponse(prepared, "claude"),
+    );
+    assert.equal(state.milestones[0].status, "awaiting_user_acceptance");
+    assert.equal(
+      state.milestones[0].pmReview.providerIdentity.provider,
+      "claude",
     );
   } finally {
     rmSync(value.root, { recursive: true, force: true });
@@ -415,6 +644,9 @@ test("intake acceptance resumes automatically while material decisions remain a 
       state.currentGate.status,
       "awaiting_user_acceptance",
     );
+    state = presentProductManagerGate(value.taskDir, {
+      expectedRevision: state.stateRevision,
+    });
     state = respondToProductManagerGate(value.taskDir, {
       response: "验收不通过：保持原范围",
       expectedRevision: state.stateRevision,
@@ -516,6 +748,9 @@ test("FINAL_REVIEW merges with the last unchanged milestone into one atomic user
       state,
       state.stateRevision,
     );
+    state = presentProductManagerGate(value.taskDir, {
+      expectedRevision: state.stateRevision,
+    });
     state = respondToProductManagerGate(value.taskDir, {
       response: "验收通过",
       expectedRevision: state.stateRevision,

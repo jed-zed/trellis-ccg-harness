@@ -24,7 +24,8 @@ the execution route is worth local implementation before real code landing.
   the plan, diff, dependencies, or external-evidence digest changed. Pass only validated summary,
   claims, and provenance to GPT Pro, never raw Grok output.
 - Preserve the current CCG orchestrator as the ordinary execution owner after that route gate.
-- Preserve Codex as the CCG orchestrator and ordinary execution owner. Claude is disabled and is
+- Preserve Codex as the CCG orchestrator and ordinary execution owner. Claude is disabled in this
+  GPT Pro flow except for an independently selected read-only product-manager review and is
   never required for execution evidence or a manual handoff.
 - Before GPT Pro, write Base CCG Routing Evidence that records the current orchestrator, actual
   routed model evidence, ordinary execute conclusion so far, and

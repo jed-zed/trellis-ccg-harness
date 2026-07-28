@@ -8,7 +8,8 @@ description: Shared manual ChatGPT Pro bridge for CCG planning, review, and exec
 This manual bridge lets the user manually ask ChatGPT Pro after ordinary CCG plan/review/execute
 routing has already produced auditable evidence.
 
-Codex remains the final owner. Claude is disabled and is neither routed nor required. GPT Pro does
+Codex remains the final owner. Claude is disabled in this GPT Pro flow except
+for an independently selected read-only product-manager review and is neither routed nor required. GPT Pro does
 not replace ordinary Codex or Gemini evidence.
 Gemini evidence mode depends on the underlying ordinary command: required gate evidence for
 plan/review, and optional frontend/full-stack evidence for execution. GPT Pro provides a

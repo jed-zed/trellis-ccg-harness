@@ -27,7 +27,8 @@ second opinion after ordinary routing evidence exists. In this command GPT Pro i
 external reviewer for hidden bugs, security risks, compatibility risks, edge cases, test gaps, and
 ordinary model false positives or missed findings.
 
-Claude is disabled in this Codex-native workflow. It is never invoked, required as evidence, or
+Claude is disabled in this GPT Pro workflow except for an independently selected
+read-only product-manager review. It is never invoked by this command, required as evidence, or
 offered as a manual handoff before GPT Pro.
 
 GPT Pro is not a `codeagent-wrapper` backend and must not be routed through `model-router.md` as an

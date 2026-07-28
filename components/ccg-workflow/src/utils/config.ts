@@ -4,6 +4,11 @@ import { homedir } from 'node:os'
 import { join } from 'pathe'
 import { parse, stringify } from 'smol-toml'
 import { version as packageVersion } from '../../package.json'
+import {
+  createDefaultRoleRouting,
+  normalizeModelRouting,
+  setRoleProvider,
+} from './model-routing'
 
 // v1.4.0: 配置目录统一到 ~/.claude/.ccg/
 const CCG_DIR = join(homedir(), '.claude', '.ccg')
@@ -25,21 +30,31 @@ export async function readCcgConfig(): Promise<CcgConfig | null> {
   return readCcgConfigAt(CONFIG_FILE)
 }
 
-export async function readCcgConfigAt(configFile: string): Promise<CcgConfig | null> {
+export async function readCcgConfigAt(
+  configFile: string,
+  options: { persistMigration?: boolean } = {},
+): Promise<CcgConfig | null> {
   if (!await fs.pathExists(configFile))
     return null
   const content = await fs.readFile(configFile, 'utf-8')
-  const parsed = parse(content) as unknown as CcgConfig
+  const parsed = parse(content) as Record<string, any>
+  const migrated = migrateLegacyProductManagerProviderDocument(parsed)
+  if (migrated.changed && options.persistMigration !== false)
+    await fs.writeFile(configFile, stringify(migrated.document as any), 'utf-8')
   return {
-    ...parsed,
-    intelligence: normalizeIntelligenceConfig(parsed.intelligence, { existingInstall: true }),
-    product_manager: normalizeProductManagerConfig(parsed.product_manager, { existingInstall: true }),
-  }
+    ...migrated.document,
+    routing: normalizeModelRouting(migrated.document.routing),
+    intelligence: normalizeIntelligenceConfig(migrated.document.intelligence, { existingInstall: true }),
+    product_manager: normalizeProductManagerConfig(migrated.document.product_manager, { existingInstall: true }),
+  } as CcgConfig
 }
 
 export async function writeCcgConfig(config: CcgConfig): Promise<void> {
   await ensureCcgDir()
-  const content = stringify(config as any)
+  const content = stringify({
+    ...config,
+    routing: normalizeModelRouting(config.routing),
+  } as any)
   await fs.writeFile(CONFIG_FILE, content, 'utf-8')
 }
 
@@ -67,20 +82,45 @@ const DEFAULT_INTELLIGENCE_CONFIG: IntelligenceConfig = {
 
 const DEFAULT_PRODUCT_MANAGER_CONFIG: ProductManagerConfig = {
   enabled: false,
-  provider: '',
   contract_version: '1',
   max_retries: 1,
   timeout_ms: 180_000,
   max_output_bytes: 1024 * 1024,
 }
 
+export function migrateLegacyProductManagerProviderDocument(
+  value: Record<string, any>,
+): { changed: boolean, document: Record<string, any> } {
+  const productManager = value.product_manager
+  if (!productManager || !Object.prototype.hasOwnProperty.call(productManager, 'provider'))
+    return { changed: false, document: value }
+
+  const legacyProvider = productManager.provider
+  if (!['', 'codex', 'gemini', 'claude'].includes(legacyProvider))
+    throw new TypeError('legacy product_manager.provider must be codex, gemini, claude, or empty')
+
+  const { provider: _removedProvider, ...behavior } = productManager
+  let routing = normalizeModelRouting(value.routing)
+  if (!value.routing?.['product-manager'] && legacyProvider)
+    routing = setRoleProvider(routing, 'product-manager', legacyProvider)
+
+  return {
+    changed: true,
+    document: {
+      ...value,
+      routing,
+      product_manager: behavior,
+    },
+  }
+}
+
 export function normalizeProductManagerConfig(
   value: Partial<ProductManagerConfig> | undefined,
   options: { existingInstall: boolean, explicitConsent?: boolean },
 ): ProductManagerConfig {
-  const provider = value?.provider ?? ''
-  if (!['', 'codex', 'gemini'].includes(provider))
-    throw new TypeError('product_manager.provider must be codex, gemini, or empty')
+  const { provider: _legacyProvider, ...behavior } = (value ?? {}) as Partial<ProductManagerConfig> & {
+    provider?: unknown
+  }
   if (value?.contract_version != null && value.contract_version !== '1')
     throw new TypeError('product_manager.contract_version must remain "1"')
   const integerField = (
@@ -96,14 +136,11 @@ export function normalizeProductManagerConfig(
       throw new RangeError(`product_manager.${key} must be an integer between ${minimum} and ${maximum}`)
     return candidate
   }
-  const configuredEnabled = options.existingInstall
-    && value?.enabled === true
-    && provider !== ''
-  const enabled = (options.explicitConsent ?? configuredEnabled) && provider !== ''
+  const configuredEnabled = options.existingInstall && value?.enabled === true
+  const enabled = options.explicitConsent ?? configuredEnabled
   return {
-    ...value,
+    ...behavior,
     enabled,
-    provider,
     contract_version: '1',
     max_retries: integerField('max_retries', DEFAULT_PRODUCT_MANAGER_CONFIG.max_retries, 0, 2),
     timeout_ms: integerField('timeout_ms', DEFAULT_PRODUCT_MANAGER_CONFIG.timeout_ms, 1_000, 600_000),
@@ -216,7 +253,6 @@ export function createDefaultConfig(options: {
   intelligenceConsent?: boolean
   intelligence?: Partial<IntelligenceConfig>
   existingInstall?: boolean
-  productManagerProvider?: ProductManagerConfig['provider']
   productManagerConsent?: boolean
   productManager?: Partial<ProductManagerConfig>
 }): CcgConfig {
@@ -243,10 +279,7 @@ export function createDefaultConfig(options: {
       existingInstall: options.existingInstall ?? false,
       explicitConsent: options.intelligenceConsent,
     }),
-    product_manager: normalizeProductManagerConfig({
-      ...options.productManager,
-      provider: options.productManagerProvider ?? options.productManager?.provider ?? '',
-    }, {
+    product_manager: normalizeProductManagerConfig(options.productManager, {
       existingInstall: options.existingInstall ?? false,
       explicitConsent: options.productManagerConsent,
     }),
@@ -258,21 +291,5 @@ export function createDefaultConfig(options: {
 }
 
 export function createDefaultRouting(): ModelRouting {
-  return {
-    frontend: {
-      models: ['gemini'],
-      primary: 'gemini',
-      strategy: 'parallel',
-    },
-    backend: {
-      models: ['codex'],
-      primary: 'codex',
-      strategy: 'parallel',
-    },
-    review: {
-      models: ['codex', 'gemini'],
-      strategy: 'parallel',
-    },
-    mode: 'smart',
-  }
+  return createDefaultRoleRouting()
 }

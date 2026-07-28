@@ -24,5 +24,6 @@ Every Gemini call in the CCG workflow must use the bundled preview helper. Do no
 
 When using Gemini, call the bundled preview helper with `--prompt-template review`. The template already carries the original CCG-style read-only and prioritized review protocol; put only the concrete diff, plan, and review focus in the task prompt.
 
-Claude is disabled in Codex-only mode. If required Gemini review evidence is
-missing, say so explicitly and do not claim that an external review occurred.
+Claude is not a generic second-pass reviewer. It may participate only through
+an explicitly selected product-manager contract. If required external evidence
+is missing, say so explicitly and do not claim that review occurred.

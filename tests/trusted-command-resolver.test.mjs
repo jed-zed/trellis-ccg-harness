@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { link, mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -25,6 +25,11 @@ test("trusted command resolver binds CCG to an exact Node package entrypoint", a
       })}\n`,
     );
     await writeFile(entrypoint, "process.stdout.write('3.4.1\\n')\n");
+    const unrelatedRoot = path.join(packageRoot, "unrelated-package");
+    await mkdir(unrelatedRoot);
+    const unrelatedOriginal = path.join(unrelatedRoot, "original.js");
+    await writeFile(unrelatedOriginal, "unrelated\n");
+    await link(unrelatedOriginal, path.join(unrelatedRoot, "hard-linked.js"));
 
     const binding = await resolveTrustedCommand("ccg", {
       env: {},
@@ -40,6 +45,10 @@ test("trusted command resolver binds CCG to an exact Node package entrypoint", a
     assert.equal(
       binding.identity.packageVersion,
       "3.4.1",
+    );
+    assert.equal(
+      binding.identity.packageTree.realRoot,
+      ccgRoot,
     );
   } finally {
     await rm(packageRoot, { recursive: true, force: true });

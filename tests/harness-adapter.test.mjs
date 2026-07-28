@@ -60,8 +60,8 @@ function adapterContract() {
       stateAuthority: "trellis-task-projection",
       stateFile: "product-manager.json",
       evidenceRoot: ".ccg-evidence/product-manager",
-      selectedProviderAuthority: "installed-ccg-config",
-      allowedProviders: ["codex", "gemini"],
+      selectedProviderAuthority: "unified-ccg-routing",
+      allowedProviders: ["codex", "gemini", "claude"],
       providerCapabilities: {
         codex: {
           readOnly: true,
@@ -80,12 +80,12 @@ function adapterContract() {
           paid: "explicit-per-call",
         },
         claude: {
-          readOnly: false,
+          readOnly: true,
           workspaceWrite: false,
           terminal: false,
           subagents: false,
-          network: "forbidden",
-          paid: "forbidden",
+          network: "explicit-per-call",
+          paid: "explicit-per-call",
         },
         grok: {
           readOnly: false,
@@ -104,7 +104,7 @@ function adapterContract() {
     models: {
       codex: { enabled: true, workspaceWrite: true },
       gemini: { enabled: true, workspaceWrite: false },
-      claude: { enabled: false, workspaceWrite: false },
+      claude: { enabled: true, workspaceWrite: false },
       grok: {
         enabled: false,
         optional: true,
@@ -364,6 +364,26 @@ test("redacts nested credentials, bearer tokens, query tokens, and JWTs", () => 
   assert.equal(serialized.includes("eyJabcdefghijk"), false);
 });
 
+test("preserves repeated aliases while still stopping actual cycles", () => {
+  const shared = { artifact: "implement.md", token: "unsafe" };
+  const cyclic = { name: "root" };
+  cyclic.self = cyclic;
+
+  const redacted = redactValue({
+    first: shared,
+    second: shared,
+    cyclic,
+  });
+
+  assert.deepEqual(redacted.first, {
+    artifact: "implement.md",
+    token: REDACTED,
+  });
+  assert.deepEqual(redacted.second, redacted.first);
+  assert.notEqual(redacted.second, "[CIRCULAR]");
+  assert.equal(redacted.cyclic.self, "[CIRCULAR]");
+});
+
 test("normalizes HTTPS provider URLs and rejects remote HTTP", () => {
   assert.equal(
     normalizeBaseUrl("https://example.test/api///?token=unsafe"),
@@ -433,7 +453,7 @@ test("builds canonical context from the active Trellis task", () => {
     assert.equal(context.task.status, "in_progress");
     assert.match(context.task.artifacts["prd.md"].sha256, /^[a-f0-9]{64}$/);
     assert.equal(context.sources.ccg.gitTree, "personal-tree");
-    assert.equal(context.models.claude.enabled, false);
+    assert.equal(context.models.claude.enabled, true);
   } finally {
     fixture.cleanup();
   }

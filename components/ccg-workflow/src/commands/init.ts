@@ -1,4 +1,4 @@
-import type { CollaborationMode, InitOptions, IntelligenceConfig, ModelRouting, ModelType, SupportedLang } from '../types'
+import type { CollaborationMode, InitOptions, IntelligenceConfig, ModelRouting, ModelType, ProductManagerConfig, SupportedLang } from '../types'
 import ansis from 'ansis'
 import fs from 'fs-extra'
 import inquirer from 'inquirer'
@@ -6,7 +6,7 @@ import ora from 'ora'
 import { homedir } from 'node:os'
 import { join } from 'pathe'
 import { i18n, initI18n } from '../i18n'
-import { createDefaultConfig, ensureCcgDir, readCcgConfig, resolveNonInteractiveIntelligenceConsent, writeCcgConfig } from '../utils/config'
+import { createDefaultConfig, createDefaultRouting, ensureCcgDir, readCcgConfig, resolveNonInteractiveIntelligenceConsent, writeCcgConfig } from '../utils/config'
 import { getAllCommandIds, getCoreCommandIds, installAceTool, installContextWeaver, installFastContext, installMcpServer, installWorkflows, showBinaryInstallFailure, syncMcpToCodex, syncMcpToGemini, writeFastContextPrompt } from '../utils/installer'
 import { migrateToV1_4_0, needsMigration } from '../utils/migration'
 import { gitExecutableSource, npmSelector } from '../utils/third-party-sources'
@@ -240,32 +240,17 @@ export async function init(options: InitOptions = {}): Promise<InitResult> {
   const mode: CollaborationMode = 'smart'
   let selectedWorkflows = getCoreCommandIds()
   let _installMode: 'v3' | 'legacy' = 'v3'
-  let productManagerProvider: '' | 'codex' | 'gemini' = ''
-  let productManagerConsent = false
+  let existingProductManager: Partial<ProductManagerConfig> | undefined
 
   // Non-interactive mode: preserve existing config
   if (options.skipPrompt) {
     const existingConfig = await readCcgConfig()
+    existingProductManager = existingConfig?.product_manager
     if (existingConfig?.routing) {
       frontendModels = existingConfig.routing.frontend?.models || ['gemini']
       backendModels = existingConfig.routing.backend?.models || ['codex']
       geminiModel = existingConfig.routing.geminiModel || 'gemini-3.1-pro-preview'
       grokModel = existingConfig.routing.grokModel || 'grok-4.5'
-    }
-    const requestedProductManager = options.productManager
-    if (requestedProductManager != null && !['', 'disabled', 'codex', 'gemini'].includes(requestedProductManager))
-      throw new TypeError('productManager must be disabled, codex, or gemini')
-    if (requestedProductManager === 'codex' || requestedProductManager === 'gemini') {
-      productManagerProvider = requestedProductManager
-      productManagerConsent = true
-    }
-    else if (requestedProductManager === 'disabled') {
-      productManagerProvider = ''
-      productManagerConsent = false
-    }
-    else {
-      productManagerProvider = existingConfig?.product_manager?.provider || ''
-      productManagerConsent = existingConfig?.product_manager?.enabled === true
     }
     // Preserve install mode: if existing install has legacy commands, keep them
     if (existingConfig?.workflows?.installed) {
@@ -345,32 +330,7 @@ export async function init(options: InitOptions = {}): Promise<InitResult> {
     const existingConfig = await readCcgConfig()
     existingIntelligence = existingConfig?.intelligence
     intelligenceConsent = existingIntelligence?.enabled === true
-    const requestedProductManager = options.productManager
-    if (requestedProductManager != null && !['', 'disabled', 'codex', 'gemini'].includes(requestedProductManager))
-      throw new TypeError('productManager must be disabled, codex, or gemini')
-    if (requestedProductManager === 'codex' || requestedProductManager === 'gemini') {
-      productManagerProvider = requestedProductManager
-      productManagerConsent = true
-    }
-    else if (requestedProductManager === 'disabled') {
-      productManagerProvider = ''
-      productManagerConsent = false
-    }
-    else {
-      const answer = await inquirer.prompt([{
-        type: 'list',
-        name: 'provider',
-        message: 'Select the install-level read-only product manager',
-        choices: [
-          { name: 'Disabled (no provider call)', value: '' },
-          { name: 'Codex (selection only; no install, login, network, or call)', value: 'codex' },
-          { name: 'Gemini (selection only; no install, login, network, or call)', value: 'gemini' },
-        ],
-        default: existingConfig?.product_manager?.provider || '',
-      }])
-      productManagerProvider = answer.provider
-      productManagerConsent = productManagerProvider !== ''
-    }
+    existingProductManager = existingConfig?.product_manager
 
     // Initialize from existing config so re-running init shows saved values as defaults
     if (existingConfig?.routing) {
@@ -971,6 +931,7 @@ export async function init(options: InitOptions = {}): Promise<InitResult> {
 
   // Build routing config (user-selectable since v2.1.0)
   const routing: ModelRouting = {
+    ...createDefaultRouting(),
     frontend: {
       models: frontendModels,
       primary: frontendModels[0],
@@ -980,10 +941,6 @@ export async function init(options: InitOptions = {}): Promise<InitResult> {
       models: backendModels,
       primary: backendModels[0],
       strategy: 'fallback',
-    },
-    review: {
-      models: [...new Set([...frontendModels, ...backendModels])],
-      strategy: 'parallel',
     },
     mode,
     geminiModel,
@@ -1057,9 +1014,9 @@ export async function init(options: InitOptions = {}): Promise<InitResult> {
       skipImpeccable,
       intelligenceConsent,
       intelligence: existingIntelligence,
-      existingInstall: existingIntelligence !== undefined,
-      productManagerProvider,
-      productManagerConsent,
+      existingInstall: existingIntelligence !== undefined || existingProductManager !== undefined,
+      productManagerConsent: existingProductManager?.enabled === true,
+      productManager: existingProductManager,
     })
 
     // Save config FIRST - ensure it's created even if installation fails

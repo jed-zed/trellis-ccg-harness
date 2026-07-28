@@ -43,9 +43,9 @@ and recovery tests; ordinary callers use only `repoRoot`.
   `.harness/ownership.json` are all absent.
 - Existing unrelated entries, including `.harness/adapter.json`, remain
   user-owned and byte-preserved.
-- An existing pinned collaboration policy or managed `AGENTS.md` block is
+- An existing owned collaboration-policy snapshot or managed `AGENTS.md` block is
   adopted only when it exactly matches the distribution policy projection.
-- `.harness/ownership.json` schema v2 binds the exact contract, schema, pinned
+- `.harness/ownership.json` schema v2 binds the exact contract, schema, owned
   policy, and rendered block digests.
 - Project Schema JSON is parsed and serialized canonically with LF before
   installation and hashing; source-checkout line endings never enter ownership.
@@ -88,7 +88,7 @@ Errors propagate to `scripts/harness-init.mjs`, which writes one
 ## 5. Good / Base / Bad Cases
 
 - Good: `.harness/adapter.json` exists, all initializer-owned targets are
-  absent, and an exact pinned policy/block already exists. Apply preserves the
+  absent, and an exact owned policy/block snapshot already exists. Apply preserves the
   existing bytes and installs only the missing owned contract files.
 - Base: `.harness/` and `AGENTS.md` do not exist. Apply creates the complete
   owned projection transactionally.

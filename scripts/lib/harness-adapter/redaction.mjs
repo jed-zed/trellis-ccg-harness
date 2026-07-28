@@ -36,29 +36,33 @@ export function redactString(value, secrets = []) {
   return output;
 }
 
-export function redactValue(value, secrets = [], seen = new WeakSet()) {
+export function redactValue(value, secrets = [], ancestors = new WeakSet()) {
   if (typeof value === "string") {
     return redactString(value, secrets);
   }
   if (value === null || typeof value !== "object") {
     return value;
   }
-  if (seen.has(value)) {
+  if (ancestors.has(value)) {
     return "[CIRCULAR]";
   }
-  seen.add(value);
-  if (Array.isArray(value)) {
-    return value.map((item) => redactValue(item, secrets, seen));
+  ancestors.add(value);
+  try {
+    if (Array.isArray(value)) {
+      return value.map((item) => redactValue(item, secrets, ancestors));
+    }
+    const output = {};
+    for (const [key, item] of Object.entries(value)) {
+      const namesEnvironmentVariable =
+        /(?:env|environment|name|names|path|paths)$/i.test(key);
+      output[key] = isSecretKeyName(key) && !namesEnvironmentVariable
+        ? REDACTED
+        : redactValue(item, secrets, ancestors);
+    }
+    return output;
+  } finally {
+    ancestors.delete(value);
   }
-  const output = {};
-  for (const [key, item] of Object.entries(value)) {
-    const namesEnvironmentVariable =
-      /(?:env|environment|name|names|path|paths)$/i.test(key);
-    output[key] = isSecretKeyName(key) && !namesEnvironmentVariable
-      ? REDACTED
-      : redactValue(item, secrets, seen);
-  }
-  return output;
 }
 
 export function createSafeSubprocessEnv(sourceEnv = process.env) {

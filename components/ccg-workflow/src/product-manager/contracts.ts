@@ -209,6 +209,34 @@ export const PRODUCT_MANAGER_OUTPUT_JSON_SCHEMA = {
   },
 } as const
 
+export function createBoundProductManagerOutputJsonSchema(
+  expected: InvocationIdentity & { invocation_key: string },
+  providerIdentity: ProductManagerOutput['provider_identity'],
+): Record<string, unknown> {
+  return {
+    ...PRODUCT_MANAGER_OUTPUT_JSON_SCHEMA,
+    properties: {
+      ...PRODUCT_MANAGER_OUTPUT_JSON_SCHEMA.properties,
+      contract_version: { const: expected.contract_version },
+      task_id: { const: expected.task_id },
+      trigger_type: { const: expected.trigger_type },
+      checkpoint_id: { const: expected.checkpoint_id },
+      plan_revision: { const: expected.plan_revision },
+      invocation_key: { const: expected.invocation_key },
+      input_digest: { const: expected.input_digest },
+      evidence_digest: { const: expected.evidence_digest },
+      provider_identity: {
+        ...PRODUCT_MANAGER_OUTPUT_JSON_SCHEMA.properties.provider_identity,
+        properties: {
+          provider: { const: providerIdentity.provider },
+          model: { const: providerIdentity.model },
+          cli_version: { const: providerIdentity.cli_version },
+        },
+      },
+    },
+  }
+}
+
 const HEX_64 = /^[a-f0-9]{64}$/
 const SINGLE_LINE = /^[^\u0000-\u001F\u007F]+$/
 const PROVIDER_ID = /^[a-z0-9][a-z0-9._-]{0,63}$/

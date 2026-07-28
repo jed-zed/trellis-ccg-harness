@@ -8,16 +8,20 @@ The Harness is the combined Trellis workflow layer and the user's personal CCG i
 
 ## Source hierarchy
 
-1. The personal CCG fork and its verified local `main` checkout are authoritative.
-2. `components/ccg-workflow/` must match the recorded personal Git tree exactly.
+1. The personal CCG fork and its verified local checkout are authoritative.
+2. `components/ccg-workflow/` must match the personal Git tree recorded for the current bundled snapshot.
 3. The original CCG repository is upstream provenance only and must never silently replace the personal tree.
 4. Trellis project assets must come from the version recorded in `harness.sources.json`.
 
 ## Import and update rules
 
-- Import only tracked files from a clean personal CCG commit.
-- Verify the personal remote URL, commit, and Git tree before accepting an update.
-- Refresh `harness.sources.json` whenever either component version changes.
+- Import only tracked files from the clean current HEAD of the selected personal CCG checkout.
+- Treat CCG source, component snapshot, source manifest, and installed CLI/plugin
+  as one coupled update transaction; partial updates fail closed and roll back.
+- Verify the personal remote URL, current commit, Git tree, package version, and
+  content digest before accepting an update.
+- Refresh `harness.sources.json` on every coupled update. Its exact identifiers
+  are the provenance fingerprint of the current snapshot, not a permanent version lock.
 - Keep runtime evidence, model state, credentials, caches, build output, and nested Git metadata out of the repository.
 - Use the installed personal CCG CLI/plugin as runtime integration. The exact component tree is provenance and update input, not a direct runtime helper path.
 - Run source verification, project tests, quality checks, security checks, and the Harness doctor before publishing.
