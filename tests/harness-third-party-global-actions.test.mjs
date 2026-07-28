@@ -143,7 +143,7 @@ function removeFixtureRoot(root) {
     } catch (error) {
       if (
         process.platform !== "win32" ||
-        error?.code !== "EPERM" ||
+        !["ENOTEMPTY", "EPERM"].includes(error?.code) ||
         attempt >= 20
       ) {
         throw error;
