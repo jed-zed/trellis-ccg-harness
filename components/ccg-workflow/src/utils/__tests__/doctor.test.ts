@@ -217,6 +217,44 @@ describe('Codex-only doctor', () => {
     expect(ownership?.detail).toContain('managed file digest mismatch: agents/ccg-review.toml')
   })
 
+  it('accepts a valid user-selected Codex CCG config while preserving its ownership boundary', async () => {
+    const { codexHome } = await makeCodexFixture()
+    await writeFile(
+      join(codexHome, 'ccg', 'config.toml'),
+      [
+        '[intelligence]',
+        'enabled = true',
+        '',
+        '[product_manager]',
+        'enabled = true',
+        'provider = "gemini"',
+        'contract_version = "1"',
+        '',
+      ].join('\n'),
+    )
+    vi.stubEnv('CODEX_HOME', codexHome)
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+
+    const result = await doctor({ platform: 'codex' })
+    const ownership = result.checks.find(check => check.label === 'Codex ownership')
+
+    expect(result.ok).toBe(true)
+    expect(ownership?.detail).toContain('mutable CCG config differs from the installed template')
+  })
+
+  it('rejects malformed drift in the user-selectable Codex CCG config', async () => {
+    const { codexHome } = await makeCodexFixture()
+    await writeFile(join(codexHome, 'ccg', 'config.toml'), '[product_manager\nprovider = "gemini"\n')
+    vi.stubEnv('CODEX_HOME', codexHome)
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+
+    const result = await doctor({ platform: 'codex' })
+    const ownership = result.checks.find(check => check.label === 'Codex ownership')
+
+    expect(result.ok).toBe(false)
+    expect(ownership?.detail).toContain('mutable CCG config is malformed')
+  })
+
   it('rejects ownership paths that escape CODEX_HOME', async () => {
     const { root, codexHome } = await makeCodexFixture()
     const victim = 'outside codex home\n'

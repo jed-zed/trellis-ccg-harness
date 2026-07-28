@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { homedir } from 'node:os'
 import { join } from 'pathe'
-import { readCcgConfig } from '../utils/config'
+import { readCcgConfig, readCcgConfigAt } from '../utils/config'
 import { resolveCodexHome, validateOwnershipManifest } from '../utils/codex-mode'
 import { EXPECTED_BINARY_VERSION, verifyBinaryVersion } from '../utils/installer'
 import { assertManagedPath } from '../utils/managed-path'
@@ -156,6 +156,7 @@ async function inspectCodexOwnership(
   }
 
   const issues: string[] = []
+  const notes: string[] = []
   const files = Array.isArray(ownership?.files) ? ownership.files : []
   if (ownership?.schemaVersion !== 1)
     issues.push('unsupported schema')
@@ -212,8 +213,22 @@ async function inspectCodexOwnership(
         issues.push(`managed file missing: ${relativePath}`)
         continue
       }
-      if (sha256(await fs.readFile(target)) !== installedSha256)
-        issues.push(`managed file digest mismatch: ${relativePath}`)
+      if (sha256(await fs.readFile(target)) !== installedSha256) {
+        if (relativePath === 'ccg/config.toml') {
+          try {
+            if (!(await readCcgConfigAt(target)))
+              issues.push('mutable CCG config is missing')
+            else
+              notes.push('mutable CCG config differs from the installed template and will be preserved')
+          }
+          catch {
+            issues.push('mutable CCG config is malformed')
+          }
+        }
+        else {
+          issues.push(`managed file digest mismatch: ${relativePath}`)
+        }
+      }
     }
     catch {
       issues.push(`managed file unreadable: ${relativePath}`)
@@ -230,7 +245,9 @@ async function inspectCodexOwnership(
   return {
     valid: issues.length === 0,
     detail: issues.length === 0
-      ? `v${String(ownership.version)}, ${files.length} managed files; ownership digests verified`
+      ? `v${String(ownership.version)}, ${files.length} managed files; ownership digests verified${
+        notes.length === 0 ? '' : `; ${notes.join('; ')}`
+      }`
       : issues.join('; '),
   }
 }
