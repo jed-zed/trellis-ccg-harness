@@ -39,6 +39,8 @@ const SOURCE_ID = /^[a-z0-9]+(?:[._-][a-z0-9]+)*$/i;
 const SAFE_IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const EXACT_RELEASE = /^v?\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
 const NPM_PACKAGE = /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/;
+const LOCK_CLAIM_DIRECTORY_REMOVE_RETRIES = 5;
+const LOCK_CLAIM_DIRECTORY_REMOVE_RETRY_DELAY_MS = 100;
 const TARGET_TRANSACTION_PHASES = new Set([
   "prepared",
   "claiming-previous",
@@ -1571,6 +1573,25 @@ async function restoreRegularFileClaimCreateOnly(claim, target, label) {
   }
 }
 
+async function removeEmptyLockClaimDirectory(claimDirectory) {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      await rmdir(claimDirectory);
+      return;
+    } catch (error) {
+      if (
+        error?.code !== "ENOTEMPTY" ||
+        attempt >= LOCK_CLAIM_DIRECTORY_REMOVE_RETRIES
+      ) {
+        throw error;
+      }
+      await new Promise((resolve) => {
+        setTimeout(resolve, LOCK_CLAIM_DIRECTORY_REMOVE_RETRY_DELAY_MS);
+      });
+    }
+  }
+}
+
 async function recoverReleasedLockClaims(lockPath, key, kind, domain, label) {
   if (await exists(lockPath)) return false;
   const parent = path.dirname(lockPath);
@@ -1603,7 +1624,7 @@ async function recoverReleasedLockClaims(lockPath, key, kind, domain, label) {
     const claim = path.join(claimDirectory, "lock");
     await readOwnedLock(claim, `${label} release claim`, key, kind, domain);
     await rm(claim);
-    await rmdir(claimDirectory);
+    await removeEmptyLockClaimDirectory(claimDirectory);
     recovered = true;
   }
   return recovered;
@@ -1640,7 +1661,7 @@ async function releaseLock(
       claimPath: claim,
     });
     await rm(claim);
-    await rmdir(claimDirectory);
+    await removeEmptyLockClaimDirectory(claimDirectory);
   } catch (error) {
     if (error?.leaveLockClaimForRecovery === true) throw error;
     if (await exists(claim)) {
