@@ -2,13 +2,28 @@
 param(
   [string]$RepoRoot = (Split-Path -Parent $PSScriptRoot),
   [switch]$LinkCcg,
-  [switch]$SkipInstall
+  [switch]$SkipInstall,
+  [string]$CcgSetupTargetVersion,
+  [string]$CcgSetupPreviousPluginVersion,
+  [string]$AuthoritativeCcgCheckout
 )
 
 $ErrorActionPreference = "Stop"
 $RepoRoot = [System.IO.Path]::GetFullPath($RepoRoot)
 $manifest = Get-Content -LiteralPath (Join-Path $RepoRoot "harness.sources.json") -Raw | ConvertFrom-Json
 $ccgRoot = Join-Path $RepoRoot ([string]$manifest.ccg.snapshotPath)
+if ($CcgSetupTargetVersion -and -not $LinkCcg) {
+  throw "CcgSetupTargetVersion requires -LinkCcg."
+}
+if (
+  $CcgSetupTargetVersion -and
+  $CcgSetupTargetVersion -ne [string]$manifest.ccg.version
+) {
+  throw "CcgSetupTargetVersion must match the Harness source manifest."
+}
+if ($CcgSetupPreviousPluginVersion -and -not $CcgSetupTargetVersion) {
+  throw "CcgSetupPreviousPluginVersion requires -CcgSetupTargetVersion."
+}
 
 if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
   throw "Node.js 20+ is required."
@@ -98,7 +113,20 @@ try {
     }
   }
 
-  & (Join-Path $PSScriptRoot "doctor.ps1") -RepoRoot $RepoRoot
+  $doctorArguments = @{
+    RepoRoot = $RepoRoot
+  }
+  if ($CcgSetupTargetVersion) {
+    $doctorArguments.CcgUpdateTargetVersion = $CcgSetupTargetVersion
+  }
+  if ($CcgSetupPreviousPluginVersion) {
+    $doctorArguments.CcgSetupPreviousPluginVersion =
+      $CcgSetupPreviousPluginVersion
+  }
+  if ($AuthoritativeCcgCheckout) {
+    $doctorArguments.AuthoritativeCheckout = $AuthoritativeCcgCheckout
+  }
+  & (Join-Path $PSScriptRoot "doctor.ps1") @doctorArguments
   $doctorExitCode = $LASTEXITCODE
   if ($doctorExitCode -ne 0) {
     throw "Harness doctor failed."

@@ -230,6 +230,31 @@ function runDoctor(value, reportPath, targetVersion = TARGET_VERSION) {
   );
 }
 
+function runSetupDoctor(value, reportPath, previousPluginVersion) {
+  const args = [
+    "-NoProfile",
+    "-ExecutionPolicy",
+    "Bypass",
+    "-File",
+    path.join(value.fixtureRoot, "scripts", "doctor.ps1"),
+    "-RepoRoot",
+    value.fixtureRoot,
+    "-CcgUpdateTargetVersion",
+    TARGET_VERSION,
+    "-CcgSetupPreviousPluginVersion",
+    previousPluginVersion,
+  ];
+  return spawnSync("pwsh", args, {
+    encoding: "utf8",
+    shell: false,
+    env: {
+      ...process.env,
+      PATH: `${value.binRoot}${delimiter}${process.env.PATH}`,
+      TEST_ADAPTER_REPORT: reportPath,
+    },
+  });
+}
+
 test("CCG update doctor permits only target-bound runtime drift", () => {
   const value = fixture();
   try {
@@ -326,6 +351,65 @@ test("CCG update doctor still blocks interrupted transaction state", () => {
     assert.match(
       `${result.stdout}\n${result.stderr}`,
       /Transaction lock residue found/i,
+    );
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("CCG setup doctor permits only the exact preflight plugin transition", () => {
+  const value = fixture();
+  try {
+    const missing = value.writeReport(
+      "missing-plugin.json",
+      adapterReport(null, undefined, {
+        status: "conflict",
+        actual: "missing",
+        available: [],
+        summary: "Installed CCG plugin cache is missing.",
+      }),
+    );
+    const permittedMissing = runSetupDoctor(value, missing, "missing");
+    assert.equal(
+      permittedMissing.status,
+      0,
+      `${permittedMissing.stdout}\n${permittedMissing.stderr}`,
+    );
+    assert.match(
+      permittedMissing.stdout,
+      /permits the exact previous plugin identity missing/i,
+    );
+
+    const previousVersion = "3.3.0+codex.1";
+    const previous = value.writeReport(
+      "previous-plugin.json",
+      adapterReport(null, undefined, {
+        status: "conflict",
+        actual: previousVersion,
+        available: [previousVersion],
+        summary: "Installed CCG plugin cache is mismatched.",
+      }),
+    );
+    const permittedPrevious = runSetupDoctor(
+      value,
+      previous,
+      previousVersion,
+    );
+    assert.equal(
+      permittedPrevious.status,
+      0,
+      `${permittedPrevious.stdout}\n${permittedPrevious.stderr}`,
+    );
+
+    const wrongPrevious = runSetupDoctor(
+      value,
+      previous,
+      "3.2.9+codex.1",
+    );
+    assert.notEqual(wrongPrevious.status, 0);
+    assert.match(
+      `${wrongPrevious.stdout}\n${wrongPrevious.stderr}`,
+      /plugin cache must include update target/i,
     );
   } finally {
     value.cleanup();

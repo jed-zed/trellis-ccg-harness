@@ -87,6 +87,12 @@ pnpm setup
 6. 每个 Harness-owned 步骤后比较用户级和项目级 `.claude` 状态；已有内容
    保持不变，任何创建或修改都会立即停止后续步骤。
 
+未发布到权威远端的固定 CCG commit 只能在明确给出干净源码 checkout 时安装：
+
+```powershell
+pnpm setup -- -CcgSourceCheckout I:\path\to\clean-ccg-checkout
+```
+
 第三方 Skill、插件和 MCP/CLI 不属于这 13 个核心项。先运行
 `node .\scripts\harness-init.mjs third-party-plan --home-dir <absolute-user-home>`
 查看固定来源、许可、写入范围、hook、网络与数据外发影响；四个分组默认全部

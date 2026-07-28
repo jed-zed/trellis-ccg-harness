@@ -16,6 +16,7 @@ param(
   [string]$CatalogPath,
   [string]$CatalogUrl,
   [string]$ProviderActions,
+  [string]$CcgSourceCheckout,
   [switch]$AllowCatalogNetwork,
   [switch]$AllowThirdPartyNetwork,
   [switch]$PreviewOnly
@@ -998,6 +999,10 @@ $ccgRoot = Get-NormalizedPath (
   Join-Path $RepoRoot ([string]$sourceManifest.ccg.snapshotPath)
 )
 Assert-RealDirectory $ccgRoot "Recorded CCG snapshot"
+if ($CcgSourceCheckout) {
+  $CcgSourceCheckout = Get-NormalizedPath $CcgSourceCheckout
+  Assert-RealDirectory $CcgSourceCheckout "Authoritative CCG source checkout"
+}
 $relativeCcgRoot = [System.IO.Path]::GetRelativePath($RepoRoot, $ccgRoot)
 if (
   $relativeCcgRoot.StartsWith("..") -or
@@ -1119,6 +1124,10 @@ Write-Output (
   "(current: $($currentCcgVersion ?? 'missing'))"
 )
 Write-Output (
+  "  CCG provenance checkout: " +
+  "$($CcgSourceCheckout ?? 'recorded remote commit')"
+)
+Write-Output (
   "  Codex plugin: $pluginId@$pluginVersion from local snapshot $ccgRoot " +
   "(installed: $($pluginState.pluginInstalled); " +
   "active identity: $($pluginState.activeIdentity))"
@@ -1158,9 +1167,26 @@ if (-not $NonInteractive) {
     $ApproveGlobalInit.IsPresent
 }
 
-  & (Join-Path $RepoRoot "scripts/bootstrap.ps1") `
-    -RepoRoot $RepoRoot `
-    -LinkCcg
+  $bootstrapArguments = @{
+    RepoRoot = $RepoRoot
+    LinkCcg = $true
+    CcgSetupTargetVersion = $requiredCcgVersion
+    CcgSetupPreviousPluginVersion = if (
+      $pluginState.activeIdentity -eq "previous"
+    ) {
+      $previousPluginIdentity.pluginVersion
+    }
+    elseif ($pluginState.activeIdentity -eq "absent") {
+      "missing"
+    }
+    else {
+      $null
+    }
+  }
+  if ($CcgSourceCheckout) {
+    $bootstrapArguments.AuthoritativeCcgCheckout = $CcgSourceCheckout
+  }
+  & (Join-Path $RepoRoot "scripts/bootstrap.ps1") @bootstrapArguments
   if ($LASTEXITCODE -ne 0) {
     throw "Harness bootstrap failed with exit code $LASTEXITCODE."
   }
@@ -1210,6 +1236,18 @@ if (-not $NonInteractive) {
   if ($null -ne $codexModeFailure) {
     throw $codexModeFailure
   }
+
+  $finalDoctorArguments = @{
+    RepoRoot = $RepoRoot
+  }
+  if ($CcgSourceCheckout) {
+    $finalDoctorArguments.AuthoritativeCheckout = $CcgSourceCheckout
+  }
+  & (Join-Path $RepoRoot "scripts/doctor.ps1") @finalDoctorArguments
+  if ($LASTEXITCODE -ne 0) {
+    throw "Final Harness doctor failed with exit code $LASTEXITCODE."
+  }
+  Assert-ClaudeUnchanged $claudeBaseline "final Harness doctor"
 
   $globalArguments = @(
     (Join-Path $RepoRoot "scripts/harness-init.mjs"),

@@ -331,9 +331,21 @@ function fixture({
     : "";
   writeFileSync(
     path.join(repoRoot, "scripts", "bootstrap.ps1"),
-    `param([string]$RepoRoot, [switch]$LinkCcg)
+    `param(
+  [string]$RepoRoot,
+  [switch]$LinkCcg,
+  [string]$CcgSetupTargetVersion,
+  [string]$CcgSetupPreviousPluginVersion,
+  [string]$AuthoritativeCcgCheckout
+)
 Add-Content -LiteralPath $env:MOCK_COMMAND_LOG -Value '{"command":"bootstrap"}'
 ${bootstrapMutation}
+`,
+  );
+  writeFileSync(
+    path.join(repoRoot, "scripts", "doctor.ps1"),
+    `param([string]$RepoRoot, [string]$AuthoritativeCheckout)
+Add-Content -LiteralPath $env:MOCK_COMMAND_LOG -Value '{"command":"doctor"}'
 `,
   );
   writeFileSync(
@@ -532,6 +544,14 @@ test("non-interactive Global Setup is explicit, exact, provider-safe, and idempo
     );
     assert.ok(pluginInstallIndex >= 0);
     assert.ok(codexModeIndex > pluginInstallIndex);
+    const finalDoctorIndex = firstCalls.findIndex(
+      ({ command }) => command === "doctor",
+    );
+    const globalInitIndex = firstCalls.findIndex(
+      ({ command }) => command === "global-init",
+    );
+    assert.ok(finalDoctorIndex > codexModeIndex);
+    assert.ok(globalInitIndex > finalDoctorIndex);
     const globalSkills = JSON.parse(
       readFileSync(
         path.join(value.homeDir, ".agents", "harness", "global-skills.json"),

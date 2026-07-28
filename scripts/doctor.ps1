@@ -2,7 +2,9 @@
 param(
   [string]$RepoRoot = (Split-Path -Parent $PSScriptRoot),
   [switch]$Index,
-  [string]$CcgUpdateTargetVersion
+  [string]$CcgUpdateTargetVersion,
+  [string]$CcgSetupPreviousPluginVersion,
+  [string]$AuthoritativeCheckout
 )
 
 $ErrorActionPreference = "Stop"
@@ -79,6 +81,25 @@ function Test-CcgUpdateTargetPluginCache($Finding) {
       [StringComparison]::OrdinalIgnoreCase
     )
   } | Select-Object -First 1
+}
+
+function Test-CcgSetupPluginTransition($Finding) {
+  if (
+    -not $CcgUpdateTargetVersion -or
+    -not $CcgSetupPreviousPluginVersion -or
+    [string]$Finding.id -ne "ccg-plugin-cache"
+  ) {
+    return $false
+  }
+  $actual = [string]$Finding.evidence.actual
+  $available = @($Finding.evidence.available)
+  if ($CcgSetupPreviousPluginVersion -eq "missing") {
+    return $actual -eq "missing" -and $available.Count -eq 0
+  }
+  return (
+    $actual -eq $CcgSetupPreviousPluginVersion -and
+    $available -contains $CcgSetupPreviousPluginVersion
+  )
 }
 
 function Write-AdapterFinding($Finding) {
@@ -203,6 +224,9 @@ try {
     RepoRoot = $RepoRoot
     Index = $Index
   }
+  if ($AuthoritativeCheckout) {
+    $verifySourceArguments.AuthoritativeCheckout = $AuthoritativeCheckout
+  }
   & (Join-Path $PSScriptRoot "verify-sources.ps1") @verifySourceArguments
   Add-Pass "Personal source provenance and Git tree"
 }
@@ -273,6 +297,13 @@ else {
         }
       }
       if ([string]$finding.id -eq "ccg-plugin-cache") {
+        if (Test-CcgSetupPluginTransition $finding) {
+          Add-Warning (
+            "CCG setup preflight permits the exact previous plugin identity " +
+            "$CcgSetupPreviousPluginVersion before installation."
+          )
+          continue
+        }
         if (-not (Test-CcgUpdateTargetPluginCache $finding)) {
           Add-Failure (
             "CCG plugin cache must include update target " +

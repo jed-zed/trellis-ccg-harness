@@ -139,6 +139,12 @@ minimal environment rooted in the plan's home/config paths; they strip
 unrelated variables. Harness never probes or invokes Claude and never creates
 or mutates `.claude`.
 
+Global Setup accepts `-CcgSourceCheckout <absolute-path>` when the immutable
+manifest commit is not yet reachable from the recorded remote. Bootstrap uses
+that clean checkout for provenance only, permits exactly the preflight-observed
+plugin identity during the install transition, and runs strict doctor again
+after the target plugin and Codex mode are installed.
+
 CCG package and marketplace identity use the release base version, while the
 plugin manifest and Harness ownership record use the exact `+codex.<build>`
 version from that same snapshot. Codex inspection may expose either the exact
