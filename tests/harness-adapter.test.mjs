@@ -548,6 +548,45 @@ test("Codex plugin cache accepts an owned base-version cachebuster", () => {
   }
 });
 
+test("Codex plugin cache reports valid mismatched versions for update preflight", () => {
+  const fixture = createFixture();
+  try {
+    const cacheRoot = path.join(
+      fixture.homeDir,
+      ".codex",
+      "plugins",
+      "cache",
+      "ccg-gptpro-worflow",
+      "ccg",
+    );
+    rmSync(path.join(cacheRoot, "3.3.0"), {
+      recursive: true,
+      force: true,
+    });
+    writeJson(
+      path.join(
+        cacheRoot,
+        "3.4.1+codex.1",
+        ".codex-plugin",
+        "plugin.json",
+      ),
+      { name: "ccg", version: "3.4.1+codex.1" },
+    );
+    const report = auditConflicts(fixture.repoRoot, {
+      runner: fixture.runner,
+      homeDir: fixture.homeDir,
+    });
+    const finding = report.findings.find(
+      (item) => item.id === "ccg-plugin-cache",
+    );
+    assert.equal(finding.status, "conflict");
+    assert.equal(finding.evidence.actual, "3.4.1+codex.1");
+    assert.deepEqual(finding.evidence.available, ["3.4.1+codex.1"]);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test("missing CCG CLI and plugin cache are blocking runtime drift", () => {
   const fixture = createFixture();
   try {

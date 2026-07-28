@@ -48,7 +48,7 @@ function Test-CcgUpdateTargetDrift($Finding) {
   if (
     -not $CcgUpdateTargetVersion -or
     [string]$Finding.status -ne "conflict" -or
-    [string]$Finding.id -notin @("ccg-runtime-cli", "ccg-plugin-cache")
+    [string]$Finding.id -ne "ccg-runtime-cli"
   ) {
     return $false
   }
@@ -61,16 +61,24 @@ function Test-CcgUpdateTargetDrift($Finding) {
   ) {
     return $false
   }
-  if ([string]$Finding.id -eq "ccg-runtime-cli") {
-    return $actual -eq $CcgUpdateTargetVersion
+  return $actual -eq $CcgUpdateTargetVersion
+}
+
+function Test-CcgUpdateTargetPluginCache($Finding) {
+  if (
+    -not $CcgUpdateTargetVersion -or
+    [string]$Finding.id -ne "ccg-plugin-cache" -or
+    [string]$Finding.evidence.expected -ne [string]$manifest.ccg.version
+  ) {
+    return $false
   }
-  return (
-    $actual -eq $CcgUpdateTargetVersion -or
-    $actual.StartsWith(
+  return @($Finding.evidence.available) | Where-Object {
+    [string]$_ -eq $CcgUpdateTargetVersion -or
+    ([string]$_).StartsWith(
       "$CcgUpdateTargetVersion+",
       [StringComparison]::OrdinalIgnoreCase
     )
-  )
+  } | Select-Object -First 1
 }
 
 function Write-AdapterFinding($Finding) {
@@ -263,6 +271,29 @@ else {
           $runtimeTargetRejected = $true
           continue
         }
+      }
+      if ([string]$finding.id -eq "ccg-plugin-cache") {
+        if (-not (Test-CcgUpdateTargetPluginCache $finding)) {
+          Add-Failure (
+            "CCG plugin cache must include update target " +
+            "$CcgUpdateTargetVersion; found " +
+            "$(@($finding.evidence.available) -join ', ')."
+          )
+          $runtimeTargetRejected = $true
+          continue
+        }
+        if ([string]$finding.status -eq "conflict") {
+          Add-Warning (
+            "CCG update preflight permits ccg-plugin-cache target drift: " +
+            "$($finding.evidence.expected) -> $CcgUpdateTargetVersion."
+          )
+        }
+        else {
+          Add-Pass (
+            "CCG plugin cache includes update target $CcgUpdateTargetVersion"
+          )
+        }
+        continue
       }
       if (Test-CcgUpdateTargetDrift $finding) {
         Add-Warning (

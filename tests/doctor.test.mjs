@@ -40,6 +40,12 @@ function adapterReport(
     actual: TARGET_VERSION,
     summary: "Installed CCG CLI version drift was detected.",
   },
+  plugin = {
+    status: "conflict",
+    actual: `${TARGET_VERSION}+codex.1`,
+    available: [`${TARGET_VERSION}+codex.1`],
+    summary: "Installed CCG plugin cache version drift was detected.",
+  },
 ) {
   const findings = [
     {
@@ -81,10 +87,14 @@ function adapterReport(
     },
     {
       id: "ccg-plugin-cache",
-      severity: "warning",
-      status: "conflict",
-      summary: "Installed CCG plugin cache is missing.",
-      evidence: { expected: CURRENT_VERSION, actual: "missing" },
+      severity: "blocking",
+      status: plugin.status,
+      summary: plugin.summary,
+      evidence: {
+        expected: CURRENT_VERSION,
+        actual: plugin.actual,
+        available: plugin.available,
+      },
     },
   ];
   if (extraFinding) findings.push(extraFinding);
@@ -227,6 +237,7 @@ test("CCG update doctor permits only target-bound runtime drift", () => {
     const result = runDoctor(value, reportPath);
     assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
     assert.match(result.stdout, /permits ccg-runtime-cli target drift/i);
+    assert.match(result.stdout, /permits ccg-plugin-cache target drift/i);
     assert.match(result.stdout, /local CLI smoke.*post-replacement/i);
 
     const strict = runDoctor(value, reportPath, null);
@@ -256,6 +267,22 @@ test("CCG update doctor permits only target-bound runtime drift", () => {
     assert.match(
       `${staleRuntime.stdout}\n${staleRuntime.stderr}`,
       /global CCG runtime.*target 3\.3\.1|target.*runtime/i,
+    );
+
+    const missingPluginReport = value.writeReport(
+      "missing-plugin.json",
+      adapterReport(null, undefined, {
+        status: "conflict",
+        actual: "missing",
+        available: [],
+        summary: "Installed CCG plugin cache is missing.",
+      }),
+    );
+    const missingPlugin = runDoctor(value, missingPluginReport);
+    assert.notEqual(missingPlugin.status, 0);
+    assert.match(
+      `${missingPlugin.stdout}\n${missingPlugin.stderr}`,
+      /plugin cache must include update target 3\.3\.1/i,
     );
   } finally {
     value.cleanup();

@@ -109,38 +109,44 @@ function checkPluginCache({
     "ccg",
   );
   let pluginVersion = null;
+  let availableVersions = [];
   try {
     const candidates = readdirSync(pluginCacheRoot, {
       withFileTypes: true,
     })
       .filter((entry) => entry.isDirectory())
       .map((entry) => entry.name)
-      .filter(
+      .sort((left, right) =>
+        right.localeCompare(left, undefined, {
+          numeric: true,
+          sensitivity: "base",
+        }),
+      );
+    for (const candidate of candidates) {
+      try {
+        const manifest = readJson(
+          path.join(
+            pluginCacheRoot,
+            candidate,
+            ".codex-plugin",
+            "plugin.json",
+          ),
+        );
+        if (manifest.name === "ccg" && manifest.version === candidate) {
+          availableVersions.push(candidate);
+        }
+      } catch {
+        // Ignore malformed cache entries; only exact plugin manifests count.
+      }
+    }
+    pluginVersion =
+      availableVersions.find(
         (version) =>
           version === sources.ccg.version ||
           version.startsWith(`${sources.ccg.version}+`),
-      )
-      .sort((left, right) => right.localeCompare(left));
-    for (const candidate of candidates) {
-      const manifest = readJson(
-        path.join(
-          pluginCacheRoot,
-          candidate,
-          ".codex-plugin",
-          "plugin.json",
-        ),
-      );
-      if (
-        manifest.version === candidate &&
-        (
-          manifest.version === sources.ccg.version ||
-          manifest.version.startsWith(`${sources.ccg.version}+`)
-        )
-      ) {
-        pluginVersion = manifest.version;
-        break;
-      }
-    }
+      ) ??
+      availableVersions[0] ??
+      null;
   } catch {
     // A missing user cache is runtime drift and must fail closed.
   }
@@ -154,7 +160,11 @@ function checkPluginCache({
     matches
       ? "Installed CCG Codex plugin cache matches the source manifest."
       : "Installed CCG Codex plugin cache is missing or mismatched.",
-    { expected: sources.ccg.version, actual: pluginVersion ?? "missing" },
+    {
+      expected: sources.ccg.version,
+      actual: pluginVersion ?? "missing",
+      available: availableVersions,
+    },
     "Sync the personal CCG Codex plugin cache.",
   );
 }
