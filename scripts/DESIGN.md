@@ -133,6 +133,11 @@ unclaimed path merely because an earlier observation matched.
 - Executable helpers use canonical absolute command bindings whose file and,
   for Node launchers, package-tree identities are revalidated before use.
 - Commands are executed with argument arrays and `shell: false`.
+- The Windows installed-CCG version probe still executes the packaged CLI but
+  captures stdout and stderr through two mode-restricted files in a fresh
+  temporary directory. This avoids hosted-runner nested-pipe failures without
+  trusting package metadata as runtime evidence; the exact files and directory
+  are removed immediately after the synchronous probe.
 - Global Init records provider install/login intent but never executes it.
   Every Provider installation and login is documentation/manual-only; Harness
   never probes or starts `claude`. A later provider guidance request needs an
@@ -174,6 +179,19 @@ is not exposed to untrusted task input.
   the Harness adapter.
 
 ## Change History
+
+### 2026-07-28 - Cross-platform conflict resolution
+
+**Change:** Restored cross-platform lock-claim cleanup retries, canonicalized
+Windows test paths before comparison, and made the Windows installed-CCG
+runtime probe use short-lived file-backed output capture.
+
+**Reason:** The product-manager branch merge exposed Linux transient-directory
+cleanup drift, Windows 8.3 versus long-path aliases, and a pre-existing hosted
+runner `ERROR_BROKEN_PIPE` that had previously been warning-only.
+
+**Impact:** Harness approval locks, plugin/command resolver tests, adapter
+subprocess capture, doctor, and cross-platform CI.
 
 ### 2026-07-25 - Secondary adversarial review closure
 

@@ -6,6 +6,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -41,6 +42,10 @@ const PLATFORM_SKILLS = [
 function writeJson(target, value) {
   mkdirSync(path.dirname(target), { recursive: true });
   writeFileSync(target, `${JSON.stringify(value, null, 2)}\n`);
+}
+
+function canonicalPath(target) {
+  return path.resolve(realpathSync.native(target));
 }
 
 function commandShimSource() {
@@ -799,21 +804,21 @@ test("Global Setup transactionally upgrades an exact Harness-owned Codex plugin"
     );
     assert.equal(ownership.plugin.version, CCG_PLUGIN_VERSION);
     assert.equal(
-      path.resolve(ownership.marketplace.sourceRoot),
-      path.resolve(value.repoRoot, "components", "ccg-workflow"),
+      canonicalPath(ownership.marketplace.sourceRoot),
+      canonicalPath(path.join(value.repoRoot, "components", "ccg-workflow")),
     );
     const state = JSON.parse(readFileSync(value.statePath, "utf8"));
     assert.equal(state.installed.length, 1);
     assert.equal(state.installed[0].version, CCG_PLUGIN_VERSION);
     assert.equal(
-      path.resolve(state.installed[0].source.path),
-      path.resolve(
+      canonicalPath(state.installed[0].source.path),
+      canonicalPath(path.join(
         value.repoRoot,
         "components",
         "ccg-workflow",
         "plugins",
         "ccg",
-      ),
+      )),
     );
     const calls = commandLog(value);
     const removePlugin = calls.findIndex(
@@ -866,15 +871,17 @@ test("a failed owned Codex plugin upgrade restores the previous registration", (
       beforeOwnership,
     );
     const restored = JSON.parse(readFileSync(value.statePath, "utf8"));
-    assert.deepEqual(restored.marketplaces, [{
-      name: "ccg-gptpro-worflow",
-      root: previous.marketplaceRoot,
-    }]);
+    assert.equal(restored.marketplaces.length, 1);
+    assert.equal(restored.marketplaces[0].name, "ccg-gptpro-worflow");
+    assert.equal(
+      canonicalPath(restored.marketplaces[0].root),
+      canonicalPath(previous.marketplaceRoot),
+    );
     assert.equal(restored.installed.length, 1);
     assert.equal(restored.installed[0].version, previous.pluginVersion);
     assert.equal(
-      path.resolve(restored.installed[0].source.path),
-      path.resolve(previous.pluginSource),
+      canonicalPath(restored.installed[0].source.path),
+      canonicalPath(previous.pluginSource),
     );
     assert.equal(
       commandLog(value).some(({ command }) => command === "global-init"),

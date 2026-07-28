@@ -1,5 +1,12 @@
 import assert from "node:assert/strict";
-import { link, mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import {
+  link,
+  mkdtemp,
+  mkdir,
+  realpath,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -40,7 +47,10 @@ test("trusted command resolver binds CCG to an exact Node package entrypoint", a
 
     assert.equal(binding.logicalName, "ccg");
     assert.equal(path.isAbsolute(binding.command), true);
-    assert.deepEqual(binding.argsPrefix, [entrypoint]);
+    assert.deepEqual(
+      binding.argsPrefix,
+      [path.resolve(await realpath(entrypoint))],
+    );
     assert.equal(binding.identity.kind, "node-package-bin");
     assert.equal(
       binding.identity.packageVersion,
@@ -48,7 +58,7 @@ test("trusted command resolver binds CCG to an exact Node package entrypoint", a
     );
     assert.equal(
       binding.identity.packageTree.realRoot,
-      ccgRoot,
+      path.resolve(await realpath(ccgRoot)),
     );
   } finally {
     await rm(packageRoot, { recursive: true, force: true });

@@ -52,7 +52,12 @@ export function runCcgRuntimeCheck({
     const attempt = runCommand(
       invocation.command,
       invocation.args,
-      { repoRoot, runner, env },
+      {
+        repoRoot,
+        runner,
+        env,
+        fileBackedStdio: process.platform === "win32",
+      },
     );
     selectedInvocation = invocation;
     result = attempt;

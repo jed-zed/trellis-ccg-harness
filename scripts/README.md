@@ -12,7 +12,10 @@ runtime model policy, and provider boundaries deterministic.
   OpenAI-compatible Grok probes, and the Trellis-attached product-manager
   status/review/presentation/response boundary.
 - `lib/harness-adapter/`: implements redaction, safe subprocess execution,
-  Trellis context resolution, conflict checks, and provider probing.
+  Trellis context resolution, conflict checks, and provider probing. On
+  Windows, the installed CCG version probe uses short-lived file-backed output
+  capture so nested process pipes cannot turn a working CLI into a false
+  `ERROR_BROKEN_PIPE` conflict.
 - `doctor.ps1`: combines machine prerequisites, personal source provenance,
   adapter conflict checks, remote identity, and repository privacy.
 - `verify-sources.ps1`: verifies Trellis/CCG versions and the exact personal CCG

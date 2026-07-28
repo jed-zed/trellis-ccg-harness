@@ -1,6 +1,15 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import {
+  closeSync,
+  existsSync,
+  mkdtempSync,
+  openSync,
+  readFileSync,
+  rmSync,
+  rmdirSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 
 import {
@@ -37,14 +46,54 @@ export function assertInside(rootPath, targetPath, label) {
   throw new Error(`${label} resolves outside its allowed root.`);
 }
 
-export function defaultRunner(command, args, options) {
-  return spawnSync(command, args, {
+function spawnOptions(options) {
+  return {
     cwd: options.cwd,
     encoding: "utf8",
     env: options.env,
     shell: false,
     windowsHide: true,
-  });
+  };
+}
+
+function runWithFileBackedOutput(command, args, options) {
+  const captureDirectory = mkdtempSync(
+    path.join(tmpdir(), "harness-command-output-"),
+  );
+  const stdoutPath = path.join(captureDirectory, "stdout");
+  const stderrPath = path.join(captureDirectory, "stderr");
+  let stdoutDescriptor;
+  let stderrDescriptor;
+  try {
+    stdoutDescriptor = openSync(stdoutPath, "wx", 0o600);
+    stderrDescriptor = openSync(stderrPath, "wx", 0o600);
+    const result = spawnSync(command, args, {
+      ...spawnOptions(options),
+      stdio: ["ignore", stdoutDescriptor, stderrDescriptor],
+    });
+    closeSync(stdoutDescriptor);
+    stdoutDescriptor = undefined;
+    closeSync(stderrDescriptor);
+    stderrDescriptor = undefined;
+    return {
+      ...result,
+      stdout: readFileSync(stdoutPath, "utf8"),
+      stderr: readFileSync(stderrPath, "utf8"),
+    };
+  } finally {
+    if (stdoutDescriptor !== undefined) closeSync(stdoutDescriptor);
+    if (stderrDescriptor !== undefined) closeSync(stderrDescriptor);
+    rmSync(stdoutPath, { force: true });
+    rmSync(stderrPath, { force: true });
+    rmdirSync(captureDirectory);
+  }
+}
+
+export function defaultRunner(command, args, options) {
+  if (options.fileBackedStdio) {
+    return runWithFileBackedOutput(command, args, options);
+  }
+  return spawnSync(command, args, spawnOptions(options));
 }
 
 function normalizeCommandResult(result) {
@@ -68,12 +117,14 @@ export function runCommand(
     repoRoot,
     runner = defaultRunner,
     env = process.env,
+    fileBackedStdio = false,
   },
 ) {
   return normalizeCommandResult(
     runner(command, args, {
       cwd: repoRoot,
       env: createSafeSubprocessEnv(env),
+      fileBackedStdio,
     }),
   );
 }

@@ -20,6 +20,7 @@ import {
   probeOpenAICompatibleGrok,
   redactValue,
 } from "../scripts/lib/harness-adapter.mjs";
+import { runCommand } from "../scripts/lib/harness-adapter/process.mjs";
 import { resolvePython } from "../scripts/lib/python-resolver.mjs";
 
 function writeJson(filePath, value) {
@@ -35,6 +36,23 @@ function writeText(filePath, value) {
 function sha256(value) {
   return createHash("sha256").update(value).digest("hex");
 }
+
+test("file-backed command capture returns stdout and stderr without a pipe", () => {
+  const result = runCommand(
+    process.execPath,
+    [
+      "-e",
+      "process.stdout.write('runtime-ok\\n'); process.stderr.write('note\\n')",
+    ],
+    {
+      repoRoot: path.resolve("."),
+      fileBackedStdio: true,
+    },
+  );
+  assert.equal(result.status, 0);
+  assert.equal(result.stdout, "runtime-ok");
+  assert.equal(result.stderr, "note");
+});
 
 function adapterContract() {
   return {

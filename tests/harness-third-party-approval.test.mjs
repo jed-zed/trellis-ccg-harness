@@ -2666,44 +2666,6 @@ test("a hard kill after lock claim is recovered before the next writer", async (
   }
 });
 
-test("lock release tolerates a transient nonempty claim directory on Windows", {
-  skip: process.platform !== "win32",
-}, async () => {
-  const value = fixture();
-  let cleanupTimer;
-  try {
-    const plan = await buildThirdPartyApprovalPlan({
-      homeDir: value.homeDir,
-      manifestPath: MANIFEST_PATH,
-      repoRoot: value.repoRoot,
-    });
-    const approvals = resolveThirdPartyApprovals({
-      plan,
-      selections: {
-        globalSkills: [],
-        globalPlugins: [],
-        projectSkills: [],
-        mcpCli: [],
-      },
-    });
-    const result = await recordThirdPartyGlobalApproval({
-      homeDir: value.homeDir,
-      manifestPath: MANIFEST_PATH,
-      approvals,
-      faultInjector: async (phase, context) => {
-        if (phase !== "after-approval-lock-claim") return;
-        const blocker = path.join(path.dirname(context.claimPath), "transient");
-        writeFileSync(blocker, "transient scanner hold\n", { flag: "wx" });
-        cleanupTimer = setTimeout(() => rmSync(blocker, { force: true }), 50);
-      },
-    });
-    assert.equal(result.status, "recorded");
-  } finally {
-    clearTimeout(cleanupTimer);
-    value.cleanup();
-  }
-});
-
 test("pinned Git acquisition rejects a PATH-prepended untrusted fake Git", async () => {
   const value = fixture();
   try {

@@ -14,7 +14,6 @@ import {
   writeFile,
 } from "node:fs/promises";
 import path from "node:path";
-import { setTimeout as delay } from "node:timers/promises";
 import { promisify } from "node:util";
 import {
   assertTrustedCommandUnchanged,
@@ -40,6 +39,8 @@ const SOURCE_ID = /^[a-z0-9]+(?:[._-][a-z0-9]+)*$/i;
 const SAFE_IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const EXACT_RELEASE = /^v?\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
 const NPM_PACKAGE = /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/;
+const LOCK_CLAIM_DIRECTORY_REMOVE_RETRIES = 5;
+const LOCK_CLAIM_DIRECTORY_REMOVE_RETRY_DELAY_MS = 100;
 const TARGET_TRANSACTION_PHASES = new Set([
   "prepared",
   "claiming-previous",
@@ -1572,25 +1573,23 @@ async function restoreRegularFileClaimCreateOnly(claim, target, label) {
   }
 }
 
-async function removeEmptyDirectoryWithRetry(directory) {
-  const attempts = process.platform === "win32" ? 6 : 1;
-  let lastError;
-  for (let attempt = 0; attempt < attempts; attempt += 1) {
+async function removeEmptyLockClaimDirectory(claimDirectory) {
+  for (let attempt = 0; ; attempt += 1) {
     try {
-      await rmdir(directory);
+      await rmdir(claimDirectory);
       return;
     } catch (error) {
-      lastError = error;
       if (
         (error?.code !== "ENOTEMPTY" && error?.code !== "EEXIST") ||
-        attempt === attempts - 1
+        attempt >= LOCK_CLAIM_DIRECTORY_REMOVE_RETRIES
       ) {
         throw error;
       }
-      await delay(25 * (attempt + 1));
+      await new Promise((resolve) => {
+        setTimeout(resolve, LOCK_CLAIM_DIRECTORY_REMOVE_RETRY_DELAY_MS);
+      });
     }
   }
-  throw lastError;
 }
 
 async function recoverReleasedLockClaims(lockPath, key, kind, domain, label) {
@@ -1625,7 +1624,7 @@ async function recoverReleasedLockClaims(lockPath, key, kind, domain, label) {
     const claim = path.join(claimDirectory, "lock");
     await readOwnedLock(claim, `${label} release claim`, key, kind, domain);
     await rm(claim);
-    await removeEmptyDirectoryWithRetry(claimDirectory);
+    await removeEmptyLockClaimDirectory(claimDirectory);
     recovered = true;
   }
   return recovered;
@@ -1662,7 +1661,7 @@ async function releaseLock(
       claimPath: claim,
     });
     await rm(claim);
-    await removeEmptyDirectoryWithRetry(claimDirectory);
+    await removeEmptyLockClaimDirectory(claimDirectory);
   } catch (error) {
     if (error?.leaveLockClaimForRecovery === true) throw error;
     if (await exists(claim)) {
