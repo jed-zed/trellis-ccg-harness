@@ -253,8 +253,9 @@ function fixture({
   mutateClaudeDuringBootstrap = false,
   codexModeBehavior = "normal",
   pluginBehavior = "normal",
-  pluginManifestVersion = CCG_PLUGIN_VERSION,
-  reportedPluginVersion = CCG_PLUGIN_VERSION,
+  ccgVersion = CCG_VERSION,
+  pluginManifestVersion = `${ccgVersion}+codex.1`,
+  reportedPluginVersion = pluginManifestVersion,
 } = {}) {
   const root = mkdtempSync(path.join(os.tmpdir(), "harness-setup-"));
   const repoRoot = path.join(root, "repo");
@@ -291,20 +292,20 @@ function fixture({
     },
     ccg: {
       package: "ccg-workflow",
-      version: CCG_VERSION,
+      version: ccgVersion,
       snapshotPath: "components/ccg-workflow",
     },
   });
   writeJson(path.join(ccgRoot, "package.json"), {
     name: "ccg-workflow",
-    version: CCG_VERSION,
+    version: ccgVersion,
   });
   writeJson(path.join(ccgRoot, ".codex-plugin", "marketplace.json"), {
     name: "ccg-gptpro-worflow",
     plugins: [
       {
         name: "ccg",
-        version: CCG_VERSION,
+        version: ccgVersion,
         source: "./plugins/ccg",
       },
     ],
@@ -389,6 +390,37 @@ function runSetup(value, extra = []) {
       MOCK_COMMAND_LOG: value.logPath,
     },
   });
+}
+
+function runPluginOnlySetup(value, extra = []) {
+  return spawnSync(
+    "pwsh",
+    [
+      "-NoProfile",
+      "-File",
+      INSTALL_SCRIPT,
+      "-RepoRoot",
+      value.repoRoot,
+      "-HomeDir",
+      value.homeDir,
+      "-NonInteractive",
+      "-Approved",
+      "-ApproveCcgPlugin",
+      "-ApproveCodexMode",
+      "-PluginOnly",
+      ...extra,
+    ],
+    {
+      cwd: REPO_ROOT,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        PATH: `${value.binDir}${path.delimiter}${process.env.PATH ?? ""}`,
+        MOCK_CODEX_STATE: value.statePath,
+        MOCK_COMMAND_LOG: value.logPath,
+      },
+    },
+  );
 }
 
 function setupDiagnostic(result) {
@@ -715,6 +747,81 @@ test("the Codex plugin manifest must be the matching +codex build", () => {
     } finally {
       value.cleanup();
     }
+  }
+});
+
+test("the installer accepts a newer internally consistent CCG source version", () => {
+  const value = fixture({ ccgVersion: "9.9.9" });
+  try {
+    const result = runSetup(value, ["-PreviewOnly"]);
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+    assert.match(result.stdout, /CCG CLI: build\/link exact 9\.9\.9/);
+    assert.match(
+      result.stdout,
+      /Codex plugin: ccg@ccg-gptpro-worflow@9\.9\.9\+codex\.1/,
+    );
+    assert.equal(
+      commandLog(value).some(
+        ({ command, args = [] }) =>
+          ["bootstrap", "global-init"].includes(command) ||
+          (command === "codex" && args.includes("add")),
+      ),
+      false,
+    );
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("plugin-only setup registers CCG without running global initialization", () => {
+  const value = fixture();
+  try {
+    const result = runPluginOnlySetup(value);
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+    assert.match(result.stdout, /Scope: Codex CCG plugin only/);
+    assert.match(result.stdout, /Plugin-only setup complete/);
+    const calls = commandLog(value);
+    assert.equal(
+      calls.some(
+        ({ command }) => ["bootstrap", "global-init"].includes(command),
+      ),
+      false,
+    );
+    assert.equal(
+      calls.some(
+        ({ command, args = [] }) =>
+          command === "ccg" &&
+          args.slice(0, 2).join(" ") === "codex-mode install",
+      ),
+      true,
+    );
+    assert.equal(
+      calls.some(
+        ({ command, args = [] }) =>
+          command === "codex" &&
+          args.slice(0, 3).join(" ") === "plugin marketplace add",
+      ),
+      true,
+    );
+    assert.equal(
+      calls.some(
+        ({ command, args = [] }) =>
+          command === "codex" &&
+          args.slice(0, 2).join(" ") === "plugin add",
+      ),
+      true,
+    );
+    assert.equal(
+      JSON.parse(
+        readFileSync(
+          path.join(value.homeDir, ".agents", "harness", "codex-plugin.json"),
+          "utf8",
+        ),
+      ).plugin.version,
+      CCG_PLUGIN_VERSION,
+    );
+  } finally {
+    value.cleanup();
   }
 });
 
