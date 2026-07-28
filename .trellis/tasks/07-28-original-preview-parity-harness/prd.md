@@ -11,7 +11,7 @@ without changing Harness authority boundaries or runtime policy.
 - Import only tracked files from the clean personal CCG checkout at
   `I:\ai\ccg-workflow-original-preview-parity-3.4`.
 - Pin the exact reviewed CCG commit
-  `de277c646728f23a4b7ebc91d3876e65c75c6929`, version `3.4.0`, and its Git
+  `b9e88303fef30aa6193bf90036c29f763e824784`, version `3.4.0`, and its Git
   tree in `harness.sources.json`.
 - Refresh `components/ccg-workflow/` only through the repository-owned
   `pnpm harness:update` transaction.
@@ -25,7 +25,7 @@ without changing Harness authority boundaries or runtime policy.
 ## Acceptance Criteria
 
 - [ ] `components/ccg-workflow/` is byte-identical to the tracked Git tree of
-      CCG commit `de277c646728f23a4b7ebc91d3876e65c75c6929`.
+      CCG commit `b9e88303fef30aa6193bf90036c29f763e824784`.
 - [ ] `harness.sources.json` records CCG version `3.4.0`, the exact commit, and
       the matching Git tree.
 - [ ] Harness context and conflict checks report no blocking conflict.
