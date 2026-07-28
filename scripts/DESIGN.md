@@ -3,9 +3,9 @@
 ## Design Goals
 
 - Preserve Trellis as the only lifecycle and plan authority.
-- Preserve the exact personal CCG Git tree while using the installed matching
-  CLI/plugin as the runtime.
-- Make blocking drift deterministic and testable offline.
+- Preserve the exact personal CCG Git tree while using an installed personal
+  CLI/plugin as the runtime without an exact-version compatibility lock.
+- Make blocking source and policy drift deterministic and testable offline.
 - Keep model credentials and mutable evidence outside Git and task artifacts.
 - Work on Windows, macOS, and Linux without shell interpolation.
 

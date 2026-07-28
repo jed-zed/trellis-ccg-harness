@@ -447,7 +447,27 @@ test("clean fixture has no blocking conflicts", () => {
   }
 });
 
-test("Codex plugin cache accepts an owned base-version cachebuster", () => {
+test("CCG runtime accepts an owner-compatible version newer than the source snapshot", () => {
+  const fixture = createFixture();
+  try {
+    fixture.state.ccgVersion = "ccg/9.9.9 win32-x64 node-v24.0.0";
+    const report = auditConflicts(fixture.repoRoot, {
+      runner: fixture.runner,
+      homeDir: fixture.homeDir,
+    });
+    const finding = report.findings.find(
+      (item) => item.id === "ccg-runtime-cli",
+    );
+    assert.equal(finding.status, "ok");
+    assert.equal(finding.evidence.actual, "9.9.9");
+    assert.equal(Object.hasOwn(finding.evidence, "expected"), false);
+    assert.equal(report.summary.blocking, 0);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("Codex plugin cache accepts any structurally valid owned version", () => {
   const fixture = createFixture();
   try {
     const cacheRoot = path.join(
@@ -462,14 +482,15 @@ test("Codex plugin cache accepts an owned base-version cachebuster", () => {
       recursive: true,
       force: true,
     });
+    mkdirSync(path.join(cacheRoot, "zz-broken"));
     writeJson(
       path.join(
         cacheRoot,
-        "3.3.0+codex.20260726153650",
+        "9.9.9+codex.20260728190000",
         ".codex-plugin",
         "plugin.json",
       ),
-      { name: "ccg", version: "3.3.0+codex.20260726153650" },
+      { name: "ccg", version: "9.9.9+codex.20260728190000" },
     );
     const report = auditConflicts(fixture.repoRoot, {
       runner: fixture.runner,
@@ -481,8 +502,9 @@ test("Codex plugin cache accepts an owned base-version cachebuster", () => {
     assert.equal(finding.status, "ok");
     assert.equal(
       finding.evidence.actual,
-      "3.3.0+codex.20260726153650",
+      "9.9.9+codex.20260728190000",
     );
+    assert.equal(Object.hasOwn(finding.evidence, "expected"), false);
   } finally {
     fixture.cleanup();
   }
