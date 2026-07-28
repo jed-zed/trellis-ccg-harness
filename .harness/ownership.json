@@ -1,21 +1,22 @@
 {
   "schemaVersion": 2,
   "owner": "trellis-ccg-harness",
-  "contractSha256": "597bb7e540b525cccf19d2486d4874f15caad449d04abfa3c40128a0ea434586",
-  "schemaSha256": "7617895acca6881f73075dd993a31646cdc5f4f1acd891a6edff49d33b7f92b1",
-  "thirdPartySourceManifestSha256": "7d4bbe9812e2400f86fed2fcdcf28f47a0cae476e1e849d944ce624013080085",
+  "contractSha256": "dccfa5f283494c9a413bbda670238466e17898d1e3c3771d5e7059d454348154",
+  "schemaSha256": "60f1b8d9bd6388b8a97e86815826baf047215f19b3d4e2d839f8c3ab8253bbe0",
+  "productManagerSchemaSha256": "8358dbcf8e9875a5feb3b29bb83117c0ca5848bf7d678b67fbbd7ee883ba4586",
   "policy": {
-    "policyVersion": 2,
+    "policyVersion": 3,
     "markerFormatVersion": 1,
     "sourcePath": ".harness/policies/collaboration-policy.md",
-    "sourceSha256": "364a44df641fbb5ed8417c689b51e196677dfca9024bc65e99b99e95b1c54843",
-    "renderedBlockSha256": "d34b1f31735817b2707b6ff7848c83db9ceb364022456992ef9c1b1e13676d5c"
+    "sourceSha256": "9d43e7b4cbfbf54c4013da7cd7d4580c9c9315743bc490a2a65a14b2d923690b",
+    "renderedBlockSha256": "9bbc34a7ad034b1439b15a9837e94eab213fb827734d4ed3eaff6e355dd7d911"
   },
   "managedPaths": [
     ".harness/ownership.json",
     ".harness/policies/collaboration-policy.md",
     ".harness/project.json",
     ".harness/project.schema.json",
+    ".harness/product-manager.schema.json",
     ".harness/third-party-sources.json"
   ],
   "managedBlocks": [
@@ -24,7 +25,8 @@
       "startMarker": "<!-- HARNESS-COLLABORATION:START -->",
       "endMarker": "<!-- HARNESS-COLLABORATION:END -->",
       "markerFormatVersion": 1,
-      "renderedBlockSha256": "d34b1f31735817b2707b6ff7848c83db9ceb364022456992ef9c1b1e13676d5c"
+      "renderedBlockSha256": "9bbc34a7ad034b1439b15a9837e94eab213fb827734d4ed3eaff6e355dd7d911"
     }
-  ]
+  ],
+  "thirdPartySourceManifestSha256": "7d4bbe9812e2400f86fed2fcdcf28f47a0cae476e1e849d944ce624013080085"
 }

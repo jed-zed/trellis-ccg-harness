@@ -18,6 +18,50 @@
       "sourceSnapshotExecutable": false
     }
   },
+  "productManager": {
+    "stateAuthority": "trellis-task-projection",
+    "stateFile": "product-manager.json",
+    "evidenceRoot": ".ccg-evidence/product-manager",
+    "selectedProviderAuthority": "installed-ccg-config",
+    "allowedProviders": [
+      "codex",
+      "gemini"
+    ],
+    "providerCapabilities": {
+      "codex": {
+        "readOnly": true,
+        "workspaceWrite": false,
+        "terminal": false,
+        "subagents": false,
+        "network": "explicit-per-call",
+        "paid": "explicit-per-call"
+      },
+      "gemini": {
+        "readOnly": true,
+        "workspaceWrite": false,
+        "terminal": false,
+        "subagents": false,
+        "network": "explicit-per-call",
+        "paid": "explicit-per-call"
+      },
+      "claude": {
+        "readOnly": false,
+        "workspaceWrite": false,
+        "terminal": false,
+        "subagents": false,
+        "network": "forbidden",
+        "paid": "forbidden"
+      },
+      "grok": {
+        "readOnly": false,
+        "workspaceWrite": false,
+        "terminal": false,
+        "subagents": false,
+        "network": "forbidden",
+        "paid": "forbidden"
+      }
+    }
+  },
   "state": {
     "ignoredRuntimePaths": [
       ".ccg",

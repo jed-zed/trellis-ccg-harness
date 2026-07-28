@@ -207,6 +207,10 @@ Load `trellis-brainstorm`; stay in planning.
 Lightweight: `prd.md` can be enough. Complex: finish `prd.md`, `design.md`, and `implement.md`; ask for review before `task.py start`.
 Multi-deliverable scope: consider a parent task plus independently verifiable child tasks; dependencies must be written in child artifacts, not implied by tree position.
 Inline mode: skip jsonl curation; Phase 2 reads artifacts/specs via `trellis-before-dev`.
+Product-manager gate: if the active task's tracked `product-manager.json` has
+`currentGate.status=awaiting_user_acceptance`, show `pm status` and its
+acceptance card, then stop. Only `pm respond` may clear that gate; resume this
+same task from `nextAction` after a valid user response.
 [/workflow-state:planning-inline]
 
 ### Phase 2: Execute
@@ -238,6 +242,10 @@ Dispatch prompt starts with `Active task: <task path from task.py current>`. Rea
 Flow: `trellis-before-dev` -> edit -> `trellis-check` -> validation -> `trellis-update-spec` -> commit (Phase 3.4) -> `/trellis:finish-work`.
 Do not dispatch implement/check sub-agents in inline mode.
 Read context: `prd.md` -> `design.md if present` -> `implement.md if present`, plus relevant spec/research loaded by skills.
+Product-manager gate: if the active task's tracked `product-manager.json` has
+`currentGate.status=awaiting_user_acceptance`, show `pm status` and its
+acceptance card, then stop. Only `pm respond` may clear that gate; resume this
+same task from `nextAction` after a valid user response.
 [/workflow-state:in_progress-inline]
 
 ### Phase 3: Finish

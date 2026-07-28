@@ -15,6 +15,7 @@
     "thirdParty",
     "security",
     "providers",
+    "productManager",
     "hooks",
     "source",
     "ci",
@@ -305,6 +306,58 @@
     "providers": {
       "type": "object"
     },
+    "productManager": {
+      "type": "object",
+      "required": [
+        "stateAuthority",
+        "stateFile",
+        "evidenceRoot",
+        "selectedProviderAuthority",
+        "allowedProviders",
+        "providerCapabilities"
+      ],
+      "properties": {
+        "stateAuthority": {
+          "const": "trellis-task-projection"
+        },
+        "stateFile": {
+          "const": ".trellis/tasks/<task>/product-manager.json"
+        },
+        "evidenceRoot": {
+          "const": ".trellis/tasks/<task>/.ccg-evidence/product-manager"
+        },
+        "selectedProviderAuthority": {
+          "const": "installed-ccg-config"
+        },
+        "allowedProviders": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "codex",
+              "gemini"
+            ]
+          },
+          "uniqueItems": true
+        },
+        "providerCapabilities": {
+          "type": "object",
+          "required": [
+            "codex",
+            "gemini"
+          ],
+          "properties": {
+            "codex": {
+              "$ref": "#/$defs/readOnlyProductManagerProvider"
+            },
+            "gemini": {
+              "$ref": "#/$defs/readOnlyProductManagerProvider"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
     "hooks": {
       "type": "object",
       "properties": {
@@ -335,5 +388,39 @@
       ]
     }
   },
-  "additionalProperties": false
+  "additionalProperties": false,
+  "$defs": {
+    "readOnlyProductManagerProvider": {
+      "type": "object",
+      "required": [
+        "readOnly",
+        "workspaceWrite",
+        "terminal",
+        "subagents",
+        "network",
+        "paid"
+      ],
+      "properties": {
+        "readOnly": {
+          "const": true
+        },
+        "workspaceWrite": {
+          "const": false
+        },
+        "terminal": {
+          "const": false
+        },
+        "subagents": {
+          "const": false
+        },
+        "network": {
+          "const": "explicit-per-call"
+        },
+        "paid": {
+          "const": "explicit-per-call"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
 }

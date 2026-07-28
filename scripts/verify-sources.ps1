@@ -22,7 +22,7 @@ $expectedThirdPartyManifestSha256 = "7d4bbe9812e2400f86fed2fcdcf28f47a0cae476e1e
 # `-Index` must execute this exact staged source, never a mutable worktree copy.
 $expectedThirdPartyValidatorSha256 = "2ec7e0b7a7d7d3f2a6ebe66226eb8a91e25d60e379034d9a25ddd55507e48b95"
 # Canonical UTF-8 SHA-256 of the validator's trusted command dependency.
-$expectedTrustedCommandResolverSha256 = "70981d2163e0714d1095e7def5ed54dda88888ccc16c375bb0f197460cdb4329"
+$expectedTrustedCommandResolverSha256 = "785f9c59287687ed786bf40531d3f7b0fe514d425d8f7685185e80f1f9eafb1d"
 
 function Assert-Equal {
   param(

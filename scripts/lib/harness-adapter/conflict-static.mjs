@@ -8,6 +8,7 @@ import {
   readJson,
   readTextIfPresent,
   runCommand,
+  sha256,
 } from "./process.mjs";
 import { redactString } from "./redaction.mjs";
 
@@ -171,6 +172,7 @@ function checkTrackedRuntime({ repoRoot, contract, add, runner, env }) {
 
 function checkTaskAuthority({
   repoRoot,
+  contract,
   add,
   runner,
   env,
@@ -188,6 +190,58 @@ function checkTaskAuthority({
         status: task.metadata.status,
         path: task.relativeDirectory,
       },
+    );
+    const statePath = path
+      .relative(repoRoot, path.join(task.directory, contract.productManager.stateFile))
+      .replaceAll("\\", "/");
+    const evidencePath = path
+      .relative(
+        repoRoot,
+        path.join(task.directory, contract.productManager.evidenceRoot),
+      )
+      .replaceAll("\\", "/");
+    const stateIgnoreArgs = [
+      "-C",
+      repoRoot,
+      "check-ignore",
+      "--quiet",
+      "--",
+      statePath,
+    ];
+    const evidenceIgnoreArgs = [
+      "-C",
+      repoRoot,
+      "check-ignore",
+      "--quiet",
+      "--",
+      evidencePath,
+    ];
+    const stateIgnore = runCommand("git", stateIgnoreArgs, {
+      repoRoot,
+      runner,
+      env,
+    });
+    const evidenceIgnore = runCommand("git", evidenceIgnoreArgs, {
+      repoRoot,
+      runner,
+      env,
+    });
+    const routingValid =
+      stateIgnore.status === 1 && evidenceIgnore.status === 0;
+    add(
+      "product-manager-state-routing",
+      "blocking",
+      routingValid ? "ok" : "conflict",
+      routingValid
+        ? "Canonical product-manager state is committable while task-local evidence is ignored."
+        : "Product-manager state or evidence ignore routing is unsafe.",
+      {
+        statePath,
+        stateIgnored: stateIgnore.status === 0,
+        evidencePath,
+        evidenceIgnored: evidenceIgnore.status === 0,
+      },
+      "Keep product-manager.json under the Trellis task and ignore only its .ccg-evidence/product-manager runtime evidence.",
     );
   } catch (error) {
     const noActiveTask = error.code === "NO_ACTIVE_TASK";
@@ -273,8 +327,132 @@ function checkCommandNamespaces({ contract, add }) {
   );
 }
 
+function checkProductManagerPolicy({ contract, add }) {
+  const policy = contract.productManager;
+  const allowed = policy?.allowedProviders;
+  const capabilities = policy?.providerCapabilities;
+  const validAllowed =
+    Array.isArray(allowed) &&
+    allowed.length > 0 &&
+    allowed.every((provider) => ["codex", "gemini"].includes(provider)) &&
+    new Set(allowed).size === allowed.length;
+  const validCapabilities =
+    validAllowed &&
+    allowed.every((provider) => {
+      const capability = capabilities?.[provider];
+      return (
+        capability?.readOnly === true &&
+        capability?.workspaceWrite === false &&
+        capability?.terminal === false &&
+        capability?.subagents === false &&
+        capability?.network === "explicit-per-call" &&
+        capability?.paid === "explicit-per-call"
+      );
+    }) &&
+    capabilities?.claude?.readOnly === false &&
+    capabilities?.grok?.readOnly === false;
+  const validAuthority =
+    policy?.stateAuthority === "trellis-task-projection" &&
+    policy?.stateFile === "product-manager.json" &&
+    policy?.evidenceRoot === ".ccg-evidence/product-manager" &&
+    policy?.selectedProviderAuthority === "installed-ccg-config";
+  const valid = validAllowed && validCapabilities && validAuthority;
+  add(
+    "product-manager-policy",
+    "blocking",
+    valid ? "ok" : "conflict",
+    valid
+      ? "Product-manager authority and provider capability policy are fail-closed."
+      : "Product-manager authority or provider capability policy is unsafe.",
+    {
+      stateAuthority: policy?.stateAuthority,
+      selectedProviderAuthority: policy?.selectedProviderAuthority,
+      allowedProviders: allowed,
+    },
+    "Restore Trellis task projection authority and independently no-tool provider capabilities.",
+  );
+}
+
+function checkProductManagerManagedAssets({ repoRoot, contract, add }) {
+  try {
+    const projectPath = path.join(repoRoot, ".harness", "project.json");
+    const projectSchemaPath = path.join(
+      repoRoot,
+      ".harness",
+      "project.schema.json",
+    );
+    const productManagerSchemaPath = path.join(
+      repoRoot,
+      ".harness",
+      "product-manager.schema.json",
+    );
+    const ownership = readJson(
+      path.join(repoRoot, ".harness", "ownership.json"),
+    );
+    const project = readJson(projectPath);
+    const projectBytes = readTextIfPresent(projectPath);
+    const projectSchemaBytes = readTextIfPresent(projectSchemaPath);
+    const productManagerSchemaBytes = readTextIfPresent(
+      productManagerSchemaPath,
+    );
+    const managedPaths = new Set(ownership.managedPaths ?? []);
+    const policy = project.productManager;
+    const matches =
+      typeof projectBytes === "string" &&
+      typeof projectSchemaBytes === "string" &&
+      typeof productManagerSchemaBytes === "string" &&
+      ownership.contractSha256 === sha256(projectBytes) &&
+      ownership.schemaSha256 === sha256(projectSchemaBytes) &&
+      ownership.productManagerSchemaSha256 ===
+        sha256(productManagerSchemaBytes) &&
+      managedPaths.has(".harness/project.json") &&
+      managedPaths.has(".harness/project.schema.json") &&
+      managedPaths.has(".harness/product-manager.schema.json") &&
+      policy?.stateAuthority === contract.productManager.stateAuthority &&
+      policy?.stateFile ===
+        `.trellis/tasks/<task>/${contract.productManager.stateFile}` &&
+      policy?.evidenceRoot ===
+        `.trellis/tasks/<task>/${contract.productManager.evidenceRoot}` &&
+      policy?.selectedProviderAuthority ===
+        contract.productManager.selectedProviderAuthority &&
+      JSON.stringify(policy?.allowedProviders) ===
+        JSON.stringify(contract.productManager.allowedProviders);
+    add(
+      "product-manager-managed-assets",
+      "blocking",
+      matches ? "ok" : "conflict",
+      matches
+        ? "Harness-owned product-manager contract and schemas match their ownership digests."
+        : "Harness-owned product-manager contract, schema, or ownership digest drift was detected.",
+      {
+        managedProject: managedPaths.has(".harness/project.json"),
+        managedProjectSchema: managedPaths.has(
+          ".harness/project.schema.json",
+        ),
+        managedProductManagerSchema: managedPaths.has(
+          ".harness/product-manager.schema.json",
+        ),
+        stateAuthority: policy?.stateAuthority,
+        selectedProviderAuthority: policy?.selectedProviderAuthority,
+      },
+      "Run the approved harness-init product-manager migration instead of editing managed assets by hand.",
+    );
+  } catch (error) {
+    add(
+      "product-manager-managed-assets",
+      "blocking",
+      "conflict",
+      "Harness-owned product-manager contract or schema is missing or invalid.",
+      redactString(error.message),
+      "Run the approved harness-init product-manager migration.",
+    );
+  }
+}
+
 export function runPolicyChecks(context) {
   checkModelPolicy(context);
   checkProviderSeparation(context);
   checkCommandNamespaces(context);
+  checkProductManagerPolicy(context);
+  checkProductManagerManagedAssets(context);
 }

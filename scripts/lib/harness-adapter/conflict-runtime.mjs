@@ -67,7 +67,7 @@ export function runCcgRuntimeCheck({
   if (installedVersion === null) {
     add(
       "ccg-runtime-cli",
-      "warning",
+      "blocking",
       "conflict",
       "Installed CCG CLI could not be verified.",
       result?.status === 0
@@ -142,14 +142,14 @@ function checkPluginCache({
       }
     }
   } catch {
-    // A missing user cache is setup drift, not source drift.
+    // A missing user cache is runtime drift and must fail closed.
   }
   const matches =
     pluginVersion === sources.ccg.version ||
     pluginVersion?.startsWith(`${sources.ccg.version}+`);
   add(
     "ccg-plugin-cache",
-    pluginVersion && !matches ? "blocking" : "warning",
+    "blocking",
     matches ? "ok" : "conflict",
     matches
       ? "Installed CCG Codex plugin cache matches the source manifest."

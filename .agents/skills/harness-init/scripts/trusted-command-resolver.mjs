@@ -430,6 +430,7 @@ function executableNamesFor(logicalName, platform) {
 
 const NODE_PACKAGE_COMMANDS = Object.freeze({
   npm: { packageName: "npm" },
+  ccg: { packageName: "ccg-workflow" },
   codex: { packageName: "@openai/codex" },
   gemini: { packageName: "@google/gemini-cli" },
 });
@@ -593,6 +594,25 @@ async function resolveCodex({
   });
 }
 
+async function resolveCcg({
+  nodePath,
+  env,
+  platform,
+  approvedPackageRoots,
+}) {
+  const resolved = await resolveNodePackage({
+    nodePath,
+    env,
+    platform,
+    approvedPackageRoots,
+    packageName: "ccg-workflow",
+    binName: "ccg",
+    label: "CCG CLI",
+  });
+  if (resolved) return resolved;
+  throw new Error("Cannot resolve CCG from a trusted Node package root.");
+}
+
 async function resolveGemini({ nodePath, env, platform, approvedPackageRoots }) {
   const resolved = await resolveNodePackage({
     nodePath,
@@ -647,6 +667,14 @@ export async function resolveTrustedCommand(logicalName, {
       platform,
       approvedPackageRoots,
       approvedCommandRoots,
+    });
+  }
+  if (logicalName === "ccg") {
+    return resolveCcg({
+      nodePath,
+      env,
+      platform,
+      approvedPackageRoots,
     });
   }
   if (logicalName === "gemini") {

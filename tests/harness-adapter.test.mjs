@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import {
   mkdirSync,
   mkdtempSync,
@@ -31,6 +32,10 @@ function writeText(filePath, value) {
   writeFileSync(filePath, value);
 }
 
+function sha256(value) {
+  return createHash("sha256").update(value).digest("hex");
+}
+
 function adapterContract() {
   return {
     schemaVersion: 1,
@@ -49,6 +54,47 @@ function adapterContract() {
         mode: "installed-cli-plugin",
         command: "ccg",
         sourceSnapshotExecutable: false,
+      },
+    },
+    productManager: {
+      stateAuthority: "trellis-task-projection",
+      stateFile: "product-manager.json",
+      evidenceRoot: ".ccg-evidence/product-manager",
+      selectedProviderAuthority: "installed-ccg-config",
+      allowedProviders: ["codex", "gemini"],
+      providerCapabilities: {
+        codex: {
+          readOnly: true,
+          workspaceWrite: false,
+          terminal: false,
+          subagents: false,
+          network: "explicit-per-call",
+          paid: "explicit-per-call",
+        },
+        gemini: {
+          readOnly: true,
+          workspaceWrite: false,
+          terminal: false,
+          subagents: false,
+          network: "explicit-per-call",
+          paid: "explicit-per-call",
+        },
+        claude: {
+          readOnly: false,
+          workspaceWrite: false,
+          terminal: false,
+          subagents: false,
+          network: "forbidden",
+          paid: "forbidden",
+        },
+        grok: {
+          readOnly: false,
+          workspaceWrite: false,
+          terminal: false,
+          subagents: false,
+          network: "forbidden",
+          paid: "forbidden",
+        },
       },
     },
     state: {
@@ -144,6 +190,40 @@ function createFixture() {
     path.join(repoRoot, ".harness", "adapter.json"),
     adapterContract(),
   );
+  const project = {
+    productManager: {
+      ...adapterContract().productManager,
+      stateFile: ".trellis/tasks/<task>/product-manager.json",
+      evidenceRoot:
+        ".trellis/tasks/<task>/.ccg-evidence/product-manager",
+    },
+  };
+  const projectBytes = `${JSON.stringify(project, null, 2)}\n`;
+  const projectSchemaBytes = `${JSON.stringify({ type: "object" }, null, 2)}\n`;
+  const productManagerSchemaBytes = `${JSON.stringify(
+    { type: "object" },
+    null,
+    2,
+  )}\n`;
+  writeText(path.join(repoRoot, ".harness", "project.json"), projectBytes);
+  writeText(
+    path.join(repoRoot, ".harness", "project.schema.json"),
+    projectSchemaBytes,
+  );
+  writeText(
+    path.join(repoRoot, ".harness", "product-manager.schema.json"),
+    productManagerSchemaBytes,
+  );
+  writeJson(path.join(repoRoot, ".harness", "ownership.json"), {
+    contractSha256: sha256(projectBytes),
+    schemaSha256: sha256(projectSchemaBytes),
+    productManagerSchemaSha256: sha256(productManagerSchemaBytes),
+    managedPaths: [
+      ".harness/project.json",
+      ".harness/project.schema.json",
+      ".harness/product-manager.schema.json",
+    ],
+  });
   writeJson(path.join(repoRoot, "harness.sources.json"), sourceManifest());
   writeJson(path.join(repoRoot, "package.json"), {
     name: "fixture",
@@ -224,6 +304,13 @@ function createFixture() {
     }
     if (command === "git" && args.includes("ls-files")) {
       return { status: 0, stdout: state.tracked, stderr: "" };
+    }
+    if (command === "git" && args.includes("check-ignore")) {
+      return {
+        status: args.at(-1).includes(".ccg-evidence/product-manager") ? 0 : 1,
+        stdout: "",
+        stderr: "",
+      };
     }
     if (command === "ccg" || command === "ccg.cmd") {
       return { status: 0, stdout: state.ccgVersion, stderr: "" };
@@ -456,6 +543,35 @@ test("Codex plugin cache accepts an owned base-version cachebuster", () => {
       finding.evidence.actual,
       "3.3.0+codex.20260726153650",
     );
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("missing CCG CLI and plugin cache are blocking runtime drift", () => {
+  const fixture = createFixture();
+  try {
+    fixture.state.ccgVersion = "";
+    rmSync(
+      path.join(
+        fixture.homeDir,
+        ".codex",
+        "plugins",
+        "cache",
+        "ccg-gptpro-worflow",
+      ),
+      { recursive: true, force: true },
+    );
+    const report = auditConflicts(fixture.repoRoot, {
+      runner: fixture.runner,
+      homeDir: fixture.homeDir,
+    });
+    for (const id of ["ccg-runtime-cli", "ccg-plugin-cache"]) {
+      const finding = report.findings.find((item) => item.id === id);
+      assert.equal(finding.status, "conflict");
+      assert.equal(finding.severity, "blocking");
+    }
+    assert.ok(report.summary.blocking >= 2);
   } finally {
     fixture.cleanup();
   }

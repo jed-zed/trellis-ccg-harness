@@ -171,6 +171,32 @@ Then fill only explicit gaps:
   explicitly mandates another tool, report the conflict and follow that
   higher-priority artifact.
 
+## Product-manager review boundary
+
+The optional product-manager role is a read-only CCG evidence provider inside
+the existing Trellis lifecycle. It never owns task identity, requirements,
+plans, milestones, status, completion, or workspace writes.
+
+- The installed CCG config is the only selected-provider authority. Project and
+  task state may narrow the allowed provider set but must not select or fall
+  back to another provider.
+- Canonical product state is the tracked
+  `.trellis/tasks/<task>/product-manager.json` projection. Raw requests,
+  responses, locks, and journals stay under the ignored task-local
+  `.ccg-evidence/product-manager/` path.
+- The current Codex task is the sole orchestrator. It prepares review input,
+  explicitly authorizes any network or paid provider call, validates the
+  response, and applies it through the Harness adapter.
+- Provider executions must be independently read-only with workspace writes,
+  terminal tools, subagents, and provider fallback disabled. A provider failure
+  records `unavailable`; it never fabricates acceptance.
+- Existing prompt hooks may inject only pending-gate and resume breadcrumbs.
+  They must not call a provider, acquire a product-manager lock, write product
+  state, create another hook, or become a second orchestrator.
+- Milestone and final acceptance remain hard user gates. A product-manager
+  verdict does not mutate Trellis lifecycle status or authorize finish/archive
+  by itself.
+
 ## Protected sources
 
 Do not modify Ponytail or Caveman `SKILL.md`, CodeGraph or fast-context MCP

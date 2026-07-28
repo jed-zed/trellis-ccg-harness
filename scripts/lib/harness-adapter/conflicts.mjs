@@ -124,7 +124,7 @@ export function auditConflicts(
 
   runVersionAndSourceChecks({ ...shared, treeish });
   runStateAndTaskChecks({ ...shared, taskResolver });
-  runPolicyChecks({ contract, add, env });
+  runPolicyChecks(shared);
   runCcgRuntimeCheck(shared);
   runUserStateChecks({
     ...shared,

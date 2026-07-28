@@ -6,11 +6,16 @@ import { fileURLToPath } from "node:url";
 
 import {
   auditConflicts,
+  buildProductManagerStatus,
   buildCanonicalContext,
   conflictExitCode,
+  resolveCurrentTask,
   probeOpenAICompatibleGrok,
   redactString,
   redactValue,
+  respondToProductManagerGate,
+  runInstalledProductManagerReview,
+  syncProductManagerPlan,
 } from "./lib/harness-adapter.mjs";
 
 const repoRoot = path.resolve(
@@ -61,6 +66,7 @@ function usage() {
 Usage:
   node scripts/harness-adapter.mjs context [--json]
   node scripts/harness-adapter.mjs conflicts [--json] [--ci] [--index]
+  node scripts/harness-adapter.mjs pm <status|sync-plan|review|respond|final-eligibility>
   node scripts/harness-adapter.mjs grok-probe [--json] [--chat] [--search] [--live]
 
 Notes:
@@ -69,6 +75,13 @@ Notes:
   - grok-probe is explicit and may call a paid provider. It reads only
     HARNESS_GROK_BASE_URL, HARNESS_GROK_API_KEY, and HARNESS_GROK_MODEL.
 `);
+}
+
+function optionValue(args, name) {
+  const direct = args.find((value) => value.startsWith(`${name}=`));
+  if (direct) return direct.slice(name.length + 1);
+  const index = args.indexOf(name);
+  return index >= 0 ? args[index + 1] : undefined;
 }
 
 function handleContext() {
@@ -111,9 +124,98 @@ async function handleGrokProbe(args) {
   }
 }
 
+async function handleProductManager(args) {
+  const [action, ...options] = args;
+  if (!action) {
+    throw new Error(
+      "pm requires status, sync-plan, review, respond, or final-eligibility.",
+    );
+  }
+  const task = resolveCurrentTask(repoRoot);
+  if (action === "sync-plan") {
+    printJson(syncProductManagerPlan(task.directory));
+    return;
+  }
+  if (action === "status") {
+    printJson(buildProductManagerStatus(task.directory));
+    return;
+  }
+  if (action === "final-eligibility") {
+    printJson(buildProductManagerStatus(task.directory).finalEligibility);
+    return;
+  }
+  if (action === "respond") {
+    const response = optionValue(options, "--response");
+    const revision = Number(optionValue(options, "--state-revision"));
+    if (!response || !Number.isSafeInteger(revision)) {
+      throw new Error(
+        "pm respond requires --response and --state-revision.",
+      );
+    }
+    printJson(
+      respondToProductManagerGate(task.directory, {
+        response,
+        expectedRevision: revision,
+      }),
+    );
+    return;
+  }
+  if (action === "review") {
+    const triggerType = optionValue(options, "--trigger");
+    const checkpointId = optionValue(options, "--checkpoint");
+    if (!triggerType || !checkpointId) {
+      throw new Error(
+        "pm review requires --trigger and --checkpoint.",
+      );
+    }
+    const evidenceRefs = options
+      .flatMap((value, index) =>
+        value === "--evidence" ? [options[index + 1]] : [],
+      )
+      .filter(Boolean);
+    const grillHandoffPath = optionValue(
+      options,
+      "--grill-handoff",
+    );
+    let grillHandoff = null;
+    if (grillHandoffPath) {
+      const absoluteHandoff = path.resolve(grillHandoffPath);
+      const relativeHandoff = path.relative(
+        task.directory,
+        absoluteHandoff,
+      );
+      if (
+        !relativeHandoff ||
+        relativeHandoff.startsWith("..") ||
+        path.isAbsolute(relativeHandoff)
+      ) {
+        throw new Error(
+          "GRILL_HANDOFF must be a file inside the active Trellis task.",
+        );
+      }
+      grillHandoff = JSON.parse(
+        readFileSync(absoluteHandoff, "utf8"),
+      );
+    }
+    printJson(
+      await runInstalledProductManagerReview(repoRoot, task.directory, {
+        triggerType,
+        checkpointId,
+        evidenceRefs,
+        grillHandoff,
+        responseFile: optionValue(options, "--provider-response"),
+        allowProviderCall: hasFlag(options, "--allow-provider-call"),
+      }),
+    );
+    return;
+  }
+  throw new Error(`Unknown pm action: ${action}`);
+}
+
 const COMMAND_HANDLERS = new Map([
   ["context", handleContext],
   ["conflicts", handleConflicts],
+  ["pm", handleProductManager],
   ["grok-probe", handleGrokProbe],
 ]);
 
