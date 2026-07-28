@@ -10,15 +10,31 @@
 - [x] 同步根 `AGENTS.md`、Layered Harness Adapter 规范、
   `docs/trellis-ccg-conflicts.md` 和必要的设计说明。
 - [x] 运行聚焦 adapter 测试与 `git diff --check`。
-- [ ] 将持久 Harness checkout 安全对齐远端 `main`，通过
+- [x] 将持久 Harness checkout 安全对齐远端 `main`，通过
   `scripts/install.ps1 -PluginOnly` 的受支持路径更新 marketplace、CCG
-  插件登记与 Codex Mode。专用非 sparse worktree 已建立；最终缓存收敛
-  尚待当前旧插件会话退出前的最后重装验证。
-- [ ] 验证 `ccg --version`、`ccg routing list`、`codex plugin list`、
+  插件登记与 Codex Mode。专用非 sparse worktree 已建立，旧缓存已移动
+  到可恢复备份目录，当前登记稳定为 `3.4.0+codex.1`。
+- [x] 验证 `ccg --version`、`ccg routing list`、`codex plugin list`、
   插件 doctor 与 Grok runtime 文件完整性。
-- [ ] 运行全部 Harness、来源与 CCG 门禁。
-- [ ] 运行 Gemini 只读 review；Claude 本次按用户限定和现行项目规则禁用。
+- [x] 运行全部 Harness、来源与 CCG 门禁。
+- [x] 运行 Gemini 只读 review；Claude 本次按用户限定和现行项目规则禁用。
 - [ ] 提交、推送、创建 PR，等待 CI 后合并。
+
+## Completion Evidence
+
+- Harness focused tests: `22/22` passed.
+- Harness full suite: `369` passed, `3` platform skips, `0` failed.
+- CCG checks: lint and typecheck passed; `488` tests passed with `1` skip;
+  build passed.
+- `pnpm doctor`, `pnpm harness:conflicts`, `pnpm verify:sources`, and
+  `git diff --check` passed.
+- Persistent marketplace source:
+  `I:\ai\trellis-ccg-harness-runtime\components\ccg-workflow`.
+- Installed plugin: `ccg@ccg-gptpro-worflow 3.4.0+codex.1`, enabled.
+- Gemini final review found no blocking or high-confidence defect. Bounded
+  residuals are rerun-based recovery if Codex Mode sync fails after plugin
+  registration, and an intentional blocking drift if CCG adds a fourth role.
+- Grok external intelligence remained disabled and no paid Grok request ran.
 
 ## Validation Commands
 

@@ -36,19 +36,19 @@ Provider 可由 `frontend`、`backend`、`search` 路由选择，不再被 Harne
 
 ## Acceptance Criteria
 
-- [ ] `codex plugin list --marketplace ccg-gptpro-worflow` 显示 CCG 已安装、
+- [x] `codex plugin list --marketplace ccg-gptpro-worflow` 显示 CCG 已安装、
   已启用，版本为 `3.4.0` 或精确插件构建 `3.4.0+codex.1`，来源为持久的
   Harness CCG `3.4.0` 快照。
-- [ ] 新插件缓存包含完整 Grok runtime，`ccg:doctor -Grok` 不再因缺少
+- [x] 新插件缓存包含完整 Grok runtime，`ccg:doctor -Grok` 不再因缺少
   `manage.mjs` 失败；不要求真实 Grok 调用成功。
-- [ ] 根 `AGENTS.md` 和当前规范不再声明 “Claude is disabled” 或
+- [x] 根 `AGENTS.md` 和当前规范不再声明 “Claude is disabled” 或
   “Grok is disabled by default” 作为通用角色策略。
-- [ ] Harness 冲突检查只阻止外部 Provider 获得工作区写权限，不再因为
+- [x] Harness 冲突检查只阻止外部 Provider 获得工作区写权限，不再因为
   Claude/Grok 被角色路由选中而报 blocking。
-- [ ] Harness context/契约能表达 Provider 可路由、只读和运行时可用性边界，
+- [x] Harness context/契约能表达 Provider 可路由、只读和运行时可用性边界，
   不把本机未安装 CLI 误写成永久策略。
-- [ ] `ccg routing list` 的三个角色保持独立设置；本任务不改写用户选择。
-- [ ] 聚焦测试、`pnpm harness:test`、`pnpm doctor`、
+- [x] `ccg routing list` 的三个角色保持独立设置；本任务不改写用户选择。
+- [x] 聚焦测试、`pnpm harness:test`、`pnpm doctor`、
   `pnpm harness:conflicts`、`pnpm verify:sources` 和 CCG 完整质量门禁通过。
 - [ ] 变更通过干净分支提交、推送和 PR 交付。
 
