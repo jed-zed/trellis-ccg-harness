@@ -3,6 +3,7 @@ import { homedir } from 'node:os'
 import { isAbsolute, relative, resolve } from 'node:path'
 import fs from 'fs-extra'
 import { join } from 'pathe'
+import { parse, stringify } from 'smol-toml'
 import { version as packageVersion } from '../../package.json'
 import { readCcgConfigAt } from './config'
 import { PACKAGE_ROOT, injectConfigVariables } from './installer-template'
@@ -55,6 +56,7 @@ export interface InstallCodexModeOptions {
   codexHome?: string
   templateDir?: string
   pythonCommand?: string
+  productManagerProvider?: 'disabled' | 'codex' | 'gemini'
 }
 
 export interface UninstallCodexModeOptions {
@@ -828,7 +830,26 @@ export async function installCodexModeAt(
       }
       planned.set(normalizedRelative(join('hooks', name)), bytes)
     }
-    planned.set('ccg/config.toml', await fs.readFile(join(templateDir, 'ccg-config.toml')))
+    const configTemplate = await fs.readFile(join(templateDir, 'ccg-config.toml'))
+    if (options.productManagerProvider) {
+      const parsed = parse(configTemplate.toString('utf8')) as Record<string, any>
+      parsed.product_manager = {
+        ...parsed.product_manager,
+        enabled: options.productManagerProvider !== 'disabled',
+        provider: options.productManagerProvider === 'disabled'
+          ? ''
+          : options.productManagerProvider,
+      }
+      planned.set('ccg/config.toml', Buffer.from(stringify(parsed), 'utf8'))
+    }
+    else if (config?.product_manager) {
+      const parsed = parse(configTemplate.toString('utf8')) as Record<string, any>
+      parsed.product_manager = config.product_manager
+      planned.set('ccg/config.toml', Buffer.from(stringify(parsed), 'utf8'))
+    }
+    else {
+      planned.set('ccg/config.toml', configTemplate)
+    }
     planned.set('.ccg-version', Buffer.from(packageVersion, 'utf8'))
 
     const configPath = join(codexHome, 'config.toml')

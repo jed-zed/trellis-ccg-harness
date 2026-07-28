@@ -1,4 +1,4 @@
-import type { CcgConfig, IntelligenceConfig, ModelRouting, SupportedLang } from '../types'
+import type { CcgConfig, IntelligenceConfig, ModelRouting, ProductManagerConfig, SupportedLang } from '../types'
 import fs from 'fs-extra'
 import { homedir } from 'node:os'
 import { join } from 'pathe'
@@ -33,6 +33,7 @@ export async function readCcgConfigAt(configFile: string): Promise<CcgConfig | n
   return {
     ...parsed,
     intelligence: normalizeIntelligenceConfig(parsed.intelligence, { existingInstall: true }),
+    product_manager: normalizeProductManagerConfig(parsed.product_manager, { existingInstall: true }),
   }
 }
 
@@ -62,6 +63,52 @@ const DEFAULT_INTELLIGENCE_CONFIG: IntelligenceConfig = {
   cleanup_credential_artifacts: true,
   require_web_search: true,
   x_search_policy: 'preferred',
+}
+
+const DEFAULT_PRODUCT_MANAGER_CONFIG: ProductManagerConfig = {
+  enabled: false,
+  provider: '',
+  contract_version: '1',
+  max_retries: 1,
+  timeout_ms: 180_000,
+  max_output_bytes: 1024 * 1024,
+}
+
+export function normalizeProductManagerConfig(
+  value: Partial<ProductManagerConfig> | undefined,
+  options: { existingInstall: boolean, explicitConsent?: boolean },
+): ProductManagerConfig {
+  const provider = value?.provider ?? ''
+  if (!['', 'codex', 'gemini'].includes(provider))
+    throw new TypeError('product_manager.provider must be codex, gemini, or empty')
+  if (value?.contract_version != null && value.contract_version !== '1')
+    throw new TypeError('product_manager.contract_version must remain "1"')
+  const integerField = (
+    key: 'max_retries' | 'timeout_ms' | 'max_output_bytes',
+    fallback: number,
+    minimum: number,
+    maximum: number,
+  ) => {
+    const candidate = value?.[key]
+    if (candidate == null)
+      return fallback
+    if (!Number.isSafeInteger(candidate) || candidate < minimum || candidate > maximum)
+      throw new RangeError(`product_manager.${key} must be an integer between ${minimum} and ${maximum}`)
+    return candidate
+  }
+  const configuredEnabled = options.existingInstall
+    && value?.enabled === true
+    && provider !== ''
+  const enabled = (options.explicitConsent ?? configuredEnabled) && provider !== ''
+  return {
+    ...value,
+    enabled,
+    provider,
+    contract_version: '1',
+    max_retries: integerField('max_retries', DEFAULT_PRODUCT_MANAGER_CONFIG.max_retries, 0, 2),
+    timeout_ms: integerField('timeout_ms', DEFAULT_PRODUCT_MANAGER_CONFIG.timeout_ms, 1_000, 600_000),
+    max_output_bytes: integerField('max_output_bytes', DEFAULT_PRODUCT_MANAGER_CONFIG.max_output_bytes, 1_024, 8 * 1024 * 1024),
+  }
 }
 
 export function normalizeIntelligenceConfig(
@@ -169,6 +216,9 @@ export function createDefaultConfig(options: {
   intelligenceConsent?: boolean
   intelligence?: Partial<IntelligenceConfig>
   existingInstall?: boolean
+  productManagerProvider?: ProductManagerConfig['provider']
+  productManagerConsent?: boolean
+  productManager?: Partial<ProductManagerConfig>
 }): CcgConfig {
   return {
     general: {
@@ -192,6 +242,13 @@ export function createDefaultConfig(options: {
     intelligence: normalizeIntelligenceConfig(options.intelligence, {
       existingInstall: options.existingInstall ?? false,
       explicitConsent: options.intelligenceConsent,
+    }),
+    product_manager: normalizeProductManagerConfig({
+      ...options.productManager,
+      provider: options.productManagerProvider ?? options.productManager?.provider ?? '',
+    }, {
+      existingInstall: options.existingInstall ?? false,
+      explicitConsent: options.productManagerConsent,
     }),
     performance: {
       liteMode: options.liteMode || false,

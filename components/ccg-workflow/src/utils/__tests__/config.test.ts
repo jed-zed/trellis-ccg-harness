@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createDefaultConfig, createDefaultRouting, normalizeIntelligenceConfig, resolveCliIntelligenceFlag, resolveNonInteractiveIntelligenceConsent } from '../config'
+import { createDefaultConfig, createDefaultRouting, normalizeIntelligenceConfig, normalizeProductManagerConfig, resolveCliIntelligenceFlag, resolveNonInteractiveIntelligenceConsent } from '../config'
 
 describe('createDefaultRouting', () => {
   it('returns gemini as frontend primary', () => {
@@ -230,5 +230,47 @@ describe('resolveCliIntelligenceFlag', () => {
     expect(resolveCliIntelligenceFlag(['init', '--intelligence'])).toBe(true)
     expect(resolveCliIntelligenceFlag(['init', '--no-intelligence'])).toBe(false)
     expect(resolveCliIntelligenceFlag(['init', '--intelligence', '--no-intelligence'])).toBe(false)
+  })
+})
+
+describe('product-manager configuration', () => {
+  it('keeps existing installs disabled when the section is absent', () => {
+    expect(normalizeProductManagerConfig(undefined, { existingInstall: true })).toEqual({
+      enabled: false,
+      provider: '',
+      contract_version: '1',
+      max_retries: 1,
+      timeout_ms: 180000,
+      max_output_bytes: 1048576,
+    })
+  })
+
+  it('requires explicit consent for a fresh enabled selection', () => {
+    expect(normalizeProductManagerConfig(
+      { provider: 'codex' },
+      { existingInstall: false, explicitConsent: true },
+    ).enabled).toBe(true)
+  })
+
+  it('preserves unknown product-manager fields during migration', () => {
+    expect(normalizeProductManagerConfig(
+      {
+        enabled: true,
+        provider: 'codex',
+        future_asset: { keep: true },
+      } as any,
+      { existingInstall: true },
+    )).toMatchObject({
+      enabled: true,
+      provider: 'codex',
+      future_asset: { keep: true },
+    })
+  })
+
+  it('rejects unsupported providers and never selects Claude or Grok', () => {
+    expect(() => normalizeProductManagerConfig(
+      { enabled: true, provider: 'claude' as never },
+      { existingInstall: true },
+    )).toThrow(/provider/)
   })
 })

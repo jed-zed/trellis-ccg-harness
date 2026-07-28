@@ -12,6 +12,16 @@ export {
   getCcgDir,
   getConfigPath,
 } from './utils/config'
+export * from './product-manager/canonical-json'
+export * from './product-manager/contracts'
+export * from './product-manager/evidence-store'
+export * from './product-manager/event-mapping'
+export * from './product-manager/invocation'
+export * from './product-manager/progress'
+export * from './product-manager/provider-registry'
+export * from './product-manager/provider-runner'
+export * from './product-manager/providers/codex'
+export * from './product-manager/providers/gemini'
 export {
   getWorkflowConfigs,
   getWorkflowById,

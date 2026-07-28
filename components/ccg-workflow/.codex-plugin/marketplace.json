@@ -9,7 +9,7 @@
     {
       "name": "ccg",
       "description": "Codex-native CCG workflow with opt-in external intelligence, Gemini review, spec, team, and quality gates; Claude is disabled.",
-      "version": "3.3.3",
+      "version": "3.4.1",
       "source": "./plugins/ccg",
       "author": {
         "name": "jed-zed",

@@ -89,6 +89,26 @@ describe('Codex plugin release parity', () => {
     expect(offenders).toEqual([])
   })
 
+  it('ships the Trellis-first product-manager event boundary and all 44 command mappings', async () => {
+    const rule = fs.readFileSync(
+      join(root, 'plugins', 'ccg', 'rules', 'ccg-product-manager.md'),
+      'utf8',
+    )
+    const phaseGuide = fs.readFileSync(
+      join(root, 'templates', 'engine', 'phase-guide.md'),
+      'utf8',
+    )
+    const { PRODUCT_MANAGER_COMMAND_GROUPS } = await import('../../product-manager/event-mapping')
+    const commands = Object.values(PRODUCT_MANAGER_COMMAND_GROUPS).flat()
+
+    expect(commands).toHaveLength(44)
+    expect(new Set(commands).size).toBe(44)
+    expect(rule).toContain('Trellis remains the task')
+    expect(rule).toContain('Never create `.ccg/tasks`')
+    expect(phaseGuide).toContain('Product-manager event boundary')
+    expect(phaseGuide).toContain('Trellis remains the only task')
+  })
+
   it('ships no pre-approved executable MCP or automatic semantic-search route', () => {
     const pluginRoot = join(root, 'plugins', 'ccg')
     const mcpManifest = readJson(join(pluginRoot, '.mcp.json'))

@@ -1,5 +1,5 @@
 [general]
-version = "3.3.3"
+version = "3.4.1"
 language = "zh-CN"
 
 [intelligence]
@@ -22,3 +22,11 @@ exported_retention_days = 30
 cleanup_credential_artifacts = true
 require_web_search = true
 x_search_policy = "preferred"
+
+[product_manager]
+enabled = false
+provider = ""
+contract_version = "1"
+max_retries = 1
+timeout_ms = 180000
+max_output_bytes = 1048576

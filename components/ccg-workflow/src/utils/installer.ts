@@ -619,8 +619,10 @@ async function installSkillGeneratedCommands(ctx: InstallContext): Promise<void>
  * These enable Codex CLI as an alternative lead orchestrator (Codex-led multi-model mode).
  * Files are installed to ~/.codex/ (global) and user copies AGENTS.md to project root.
  */
-export async function installCodexMode(): Promise<{ success: boolean, message: string }> {
-  return installCodexModeAt()
+export async function installCodexMode(options: {
+  productManagerProvider?: 'disabled' | 'codex' | 'gemini'
+} = {}): Promise<{ success: boolean, message: string }> {
+  return installCodexModeAt(options)
 }
 
 /**
