@@ -1198,7 +1198,10 @@ if (-not $NonInteractive) {
   if ($PluginOnly) {
     $pluginFailure = $null
     try {
-      Install-CodexPlugin -Identity $pluginIdentity -InitialState $pluginState
+      Install-CodexPlugin `
+        -Identity $pluginIdentity `
+        -InitialState $pluginState `
+        -OwnershipState $ownership
     }
     catch {
       $pluginFailure = $_

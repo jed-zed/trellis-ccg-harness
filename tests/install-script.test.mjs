@@ -1111,6 +1111,44 @@ test("plugin-only setup registers CCG without running global initialization", ()
   }
 });
 
+test("plugin-only setup upgrades an exact Harness-owned Codex plugin", () => {
+  const value = fixture();
+  try {
+    installOwnedPreviousPlugin(value);
+    const result = runPluginOnlySetup(value);
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+    assert.match(result.stdout, /Plugin-only setup complete/);
+
+    const ownership = JSON.parse(
+      readFileSync(
+        path.join(value.homeDir, ".agents", "harness", "codex-plugin.json"),
+        "utf8",
+      ),
+    );
+    assert.equal(ownership.plugin.version, CCG_PLUGIN_VERSION);
+    assert.equal(
+      canonicalPath(ownership.marketplace.sourceRoot),
+      canonicalPath(path.join(value.repoRoot, "components", "ccg-workflow")),
+    );
+
+    const state = JSON.parse(readFileSync(value.statePath, "utf8"));
+    assert.equal(state.installed.length, 1);
+    assert.equal(state.installed[0].version, CCG_PLUGIN_VERSION);
+    assert.equal(
+      canonicalPath(state.installed[0].source.path),
+      canonicalPath(path.join(
+        value.repoRoot,
+        "components",
+        "ccg-workflow",
+        "plugins",
+        "ccg",
+      )),
+    );
+  } finally {
+    value.cleanup();
+  }
+});
+
 test("a recorded CCG snapshot outside RepoRoot is rejected before mutation", () => {
   const value = fixture();
   try {
