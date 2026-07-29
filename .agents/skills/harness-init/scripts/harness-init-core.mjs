@@ -1338,6 +1338,7 @@ export async function reviseReadyProjectSkills({
   isProcessAlive,
   readProcessIdentity,
   provenanceKeyPath,
+  replaceExisting = false,
 }) {
   if (approved !== true) {
     throw new Error("Ready project Skill revision requires explicit approval.");
@@ -1585,6 +1586,42 @@ export async function reviseReadyProjectSkills({
     canonicalJson(candidateContract),
   );
   const manifestBytes = Buffer.from(canonicalJson(readyManifest));
+  const existingManifestFingerprint = await readFileFingerprint(
+    manifestPath,
+    "Project Skill manifest",
+  );
+  let existingManifest = null;
+  if (
+    currentOwnership.schemaVersion ===
+      PROJECT_SKILL_OWNERSHIP_SCHEMA_VERSION ||
+    existingManifestFingerprint.exists
+  ) {
+    if (
+      currentOwnership.schemaVersion !==
+        PROJECT_SKILL_OWNERSHIP_SCHEMA_VERSION ||
+      !existingManifestFingerprint.exists ||
+      existingManifestFingerprint.sha256 !==
+        currentOwnership.projectSkillsManifestSha256
+    ) {
+      throw new Error("Owned Project Skill manifest is missing or modified.");
+    }
+    existingManifest = validateProjectSkillManifest(
+      JSON.parse(existingManifestFingerprint.bytes.toString("utf8")),
+    );
+    for (const skill of existingManifest.skills) {
+      if (!currentOwnership.managedPaths.includes(skill.targetPath)) {
+        throw new Error(`Managed Project Skill ownership is missing: ${skill.name}`);
+      }
+      const target = path.join(root, ...skill.targetPath.split("/"));
+      const snapshot = await snapshotSkillTree(target);
+      if (snapshot.treeSha256 !== skill.treeSha256) {
+        throw new Error(`Managed Project Skill drifted: ${skill.name}`);
+      }
+    }
+  }
+  const previousSkillPaths = new Set(
+    existingManifest?.skills.map((entry) => entry.targetPath) ?? [],
+  );
   const nextOwnership = {
     ...currentOwnership,
     schemaVersion: PROJECT_SKILL_OWNERSHIP_SCHEMA_VERSION,
@@ -1595,7 +1632,9 @@ export async function reviseReadyProjectSkills({
     projectSkillsManifestSha256: sha256(manifestBytes),
     managedPaths: [
       ...new Set([
-        ...currentOwnership.managedPaths,
+        ...currentOwnership.managedPaths.filter(
+          (entry) => !previousSkillPaths.has(entry),
+        ),
         ".harness/product-manager.schema.json",
         ...managedSkillPaths,
       ]),
@@ -1603,55 +1642,27 @@ export async function reviseReadyProjectSkills({
   };
   const nextOwnershipBytes = Buffer.from(canonicalJson(nextOwnership));
 
-  if (
+  const sameContractAndSchema =
     projectFingerprint.sha256 === sha256(candidateContractBytes) &&
     schemaFingerprint.sha256 === sourceSchemaSha256 &&
     currentOwnership.schemaVersion ===
-      PROJECT_SKILL_OWNERSHIP_SCHEMA_VERSION
-  ) {
-    const existingManifestFingerprint = await readFileFingerprint(
-      manifestPath,
-      "Project Skill manifest",
-    );
+      PROJECT_SKILL_OWNERSHIP_SCHEMA_VERSION;
+  if (sameContractAndSchema && existingManifest !== null) {
     if (
-      !existingManifestFingerprint.exists ||
-      existingManifestFingerprint.sha256 !==
-        currentOwnership.projectSkillsManifestSha256
-    ) {
-      throw new Error("Owned Project Skill manifest is missing or modified.");
-    }
-    const existingManifest = validateProjectSkillManifest(
-      JSON.parse(existingManifestFingerprint.bytes.toString("utf8")),
-    );
-    if (
-      projectSkillManifestIdentity(existingManifest) !==
+      projectSkillManifestIdentity(existingManifest) ===
       projectSkillManifestIdentity(readyManifest)
     ) {
-      throw new Error(
-        "Existing Project Skill manifest differs from the approved revision.",
-      );
+      return {
+        status: "unchanged",
+        projectPath,
+        manifestPath,
+        installedSkills: skills.map((entry) => entry.name),
+      };
     }
-    for (const skill of skills) {
-      const target = path.join(root, ...skill.targetPath.split("/"));
-      const snapshot = await snapshotSkillTree(target);
-      if (snapshot.treeSha256 !== skill.treeSha256) {
-        throw new Error(`Managed Project Skill drifted: ${skill.name}`);
-      }
-    }
-    return {
-      status: "unchanged",
-      projectPath,
-      manifestPath,
-      installedSkills: skills.map((entry) => entry.name),
-    };
   }
-  if (
-    currentOwnership.schemaVersion ===
-      PROJECT_SKILL_OWNERSHIP_SCHEMA_VERSION ||
-    (await pathEntryExists(manifestPath))
-  ) {
+  if (existingManifest !== null && replaceExisting !== true) {
     throw new Error(
-      "Ready project already has a different owned Skill revision; explicit replacement is required.",
+      "Ready project already has a different owned Skill revision; rerun with explicit replacement approval.",
     );
   }
 
@@ -1671,6 +1682,7 @@ export async function reviseReadyProjectSkills({
     `.harness-skill-revision-${randomUUID()}`,
   );
   const installedTargets = [];
+  const replacedTargets = [];
   try {
     await recoverProjectTransactions(root, {
       isProcessAlive,
@@ -1714,9 +1726,16 @@ export async function reviseReadyProjectSkills({
       { create: true },
     );
     await mkdir(stage, { mode: 0o700 });
+    const stagedSkills = path.join(stage, "next");
+    const previousSkills = path.join(stage, "previous");
+    await mkdir(stagedSkills, { mode: 0o700 });
+    await mkdir(previousSkills, { mode: 0o700 });
     for (const skill of skills) {
       const target = path.join(root, ...skill.targetPath.split("/"));
-      if (await pathEntryExists(target)) {
+      if (
+        await pathEntryExists(target) &&
+        !previousSkillPaths.has(skill.targetPath)
+      ) {
         throw new Error(
           `Project Skill target is user-owned; refusing collision: ${skill.targetPath}`,
         );
@@ -1725,13 +1744,23 @@ export async function reviseReadyProjectSkills({
         profile.repositoryPath,
         ...skill.sourceRelativePath.split("/"),
       );
-      const staged = path.join(stage, skill.name);
+      const staged = path.join(stagedSkills, skill.name);
       const copied = await snapshotSkillTree(source, { copyTo: staged });
       if (copied.treeSha256 !== skill.treeSha256) {
         throw new Error(
           `Project Skill source changed while staging: ${skill.name}`,
         );
       }
+    }
+    for (const skill of existingManifest?.skills ?? []) {
+      const target = path.join(root, ...skill.targetPath.split("/"));
+      const backup = path.join(previousSkills, skill.name);
+      await rename(target, backup);
+      replacedTargets.push({ target, backup });
+    }
+    for (const skill of skills) {
+      const target = path.join(root, ...skill.targetPath.split("/"));
+      const staged = path.join(stagedSkills, skill.name);
       await rename(staged, target);
       installedTargets.push(target);
       if (faultInjector) {
@@ -1794,6 +1823,11 @@ export async function reviseReadyProjectSkills({
   } catch (error) {
     for (const target of installedTargets.reverse()) {
       await rm(target, { recursive: true, force: true });
+    }
+    for (const { target, backup } of replacedTargets.reverse()) {
+      if (await pathEntryExists(backup)) {
+        await rename(backup, target);
+      }
     }
     throw error;
   } finally {
@@ -1886,12 +1920,15 @@ function assertProviders(providers) {
     }
   }
   for (const provider of ["grok", "gptPro"]) {
-    if (
-      providers[provider].enabled &&
-      providers[provider].manualOnly !== true
-    ) {
-      throw new Error(`${provider} must remain manual-only when enabled.`);
+    if (typeof providers[provider].manualOnly !== "boolean") {
+      throw new Error(`providers.${provider}.manualOnly must be boolean.`);
     }
+  }
+  if (providers.grok.enabled && providers.grok.manualOnly !== true) {
+    throw new Error("grok must remain manual-only when enabled.");
+  }
+  if (providers.gptPro.manualOnly !== false) {
+    throw new Error("gptPro must use the automated sidebar transport.");
   }
 }
 
@@ -5813,6 +5850,7 @@ function parseCliArgs(argv) {
     allowThirdPartyNetwork: false,
     nonInteractive: false,
     noProjectSkills: false,
+    replaceExistingProjectSkills: false,
     selectedSkillsExplicit: false,
     approved: false,
   };
@@ -5869,6 +5907,8 @@ function parseCliArgs(argv) {
     } else if (option === "--no-project-skills") {
       result.noProjectSkills = true;
       result.selectedSkillsExplicit = true;
+    } else if (option === "--replace-existing") {
+      result.replaceExistingProjectSkills = true;
     } else if (option === "--catalog-mode") {
       result.catalogMode = requireOption(args, index, option);
       index++;
@@ -5989,6 +6029,12 @@ function parseCliArgs(argv) {
     !result.approved
   ) {
     throw new Error(`${command} requires --approved.`);
+  }
+  if (
+    result.replaceExistingProjectSkills &&
+    command !== "revise-project-skills"
+  ) {
+    throw new Error("--replace-existing is only valid for revise-project-skills.");
   }
   if (
     command === "skill-migration-apply" &&
@@ -6925,6 +6971,7 @@ export async function runHarnessInitCli(
       now,
       skillRoot,
       selectedSkills: args.selectedSkills,
+      replaceExisting: args.replaceExistingProjectSkills,
       globalEssentialSkills:
         args.globalEssentialSkills.length > 0
           ? args.globalEssentialSkills

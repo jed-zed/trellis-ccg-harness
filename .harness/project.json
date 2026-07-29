@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "status": "approved",
+  "status": "ready",
   "project": {
     "name": "trellis-ccg-harness",
     "purpose": "Provide a reproducible personal AI development Harness combining Trellis lifecycle authority with the reviewed personal CCG intelligence and quality layer.",
@@ -30,7 +30,9 @@
       ".harness/project.schema.json",
       ".harness/ownership.json",
       ".harness/policies/collaboration-policy.md",
-      ".harness/third-party-sources.json"
+      ".harness/third-party-sources.json",
+      ".harness/project-skills.json",
+      ".agents/skills/chatgpt-pro-sidebar"
     ],
     "ignoredRuntimePaths": [
       ".ccg",
@@ -128,6 +130,7 @@
   "skills": {
     "globalPolicy": "minimal-essential-only",
     "globalEssential": [
+      "grill-me",
       "harness-init",
       "trellis-before-dev",
       "trellis-brainstorm",
@@ -145,7 +148,12 @@
     "repositoryProfile": "user-saved",
     "selectionMode": "recommend-and-approve",
     "installMode": "copy",
-    "projectSelection": []
+    "projectSelection": [
+      {
+        "name": "chatgpt-pro-sidebar",
+        "reason": "Approved as a project-specific Skill for this repository."
+      }
+    ]
   },
   "thirdParty": {
     "sourceManifestSha256": "7d4bbe9812e2400f86fed2fcdcf28f47a0cae476e1e849d944ce624013080085",
@@ -188,7 +196,7 @@
     },
     "gptPro": {
       "enabled": true,
-      "manualOnly": true,
+      "manualOnly": false,
       "workspaceWrite": false
     }
   },

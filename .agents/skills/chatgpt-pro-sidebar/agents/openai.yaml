@@ -1,0 +1,6 @@
+interface:
+  display_name: "ChatGPT Pro Sidebar"
+  short_description: "Delegate to Pro without model polling"
+  default_prompt: "Use $chatgpt-pro-sidebar to delegate this bounded task and monitor it in the background without spending model turns."
+policy:
+  allow_implicit_invocation: true

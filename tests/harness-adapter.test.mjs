@@ -207,7 +207,7 @@ function adapterContract() {
       },
       gptpro: {
         enabled: true,
-        manualOnly: true,
+        manualOnly: false,
         workspaceWrite: false,
       },
     },
@@ -242,8 +242,10 @@ function adapterContract() {
       },
       gptPro: {
         enabled: true,
-        manualOnly: true,
-        apiKeyEnv: "HARNESS_GPTPRO_API_KEY",
+        manualOnly: false,
+        protocol: "chatgpt-pro-sidebar",
+        skill: "chatgpt-pro-sidebar",
+        continuation: "codex-stop-hook",
       },
     },
     conflicts: {

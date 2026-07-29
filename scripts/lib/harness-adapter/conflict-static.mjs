@@ -297,7 +297,6 @@ function checkProviderSeparation({ contract, add }) {
   const names = [
     contract.providers.officialGrokCliAcp?.credentialEnv,
     contract.providers.openAICompatibleGrok?.apiKeyEnv,
-    contract.providers.gptPro?.apiKeyEnv,
   ].filter(Boolean);
   const distinct = new Set(names).size === names.length;
   add(
@@ -305,7 +304,7 @@ function checkProviderSeparation({ contract, add }) {
     "blocking",
     distinct ? "ok" : "conflict",
     distinct
-      ? "Official Grok, compatible Grok, and GPT Pro credentials are separate."
+      ? "Official and compatible Grok credentials are separate; GPT Pro uses the credential-free sidebar Skill boundary."
       : "Provider credential namespaces overlap.",
     { credentialEnvNames: names },
     "Assign a unique environment variable to every provider boundary.",

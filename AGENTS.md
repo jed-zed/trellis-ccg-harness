@@ -35,7 +35,9 @@ integration boundary, not a third framework.
   integration runtime.
 - Codex is the only workspace writer and uses Trellis inline mode. Gemini is a
   bounded read-only helper. Claude may act only as the explicitly selected,
-  tool-less product-manager Provider. GPT Pro is manual-only.
+  tool-less product-manager Provider. GPT Pro uses the approved
+  `chatgpt-pro-sidebar` Skill for automated side-browser handoff and remains
+  read-only evidence.
 - Grok is optional and disabled by default. Its absence must not block ordinary
   work. A manual compatible-provider probe requires environment-only
   `HARNESS_GROK_*` variables and may never claim search capability without

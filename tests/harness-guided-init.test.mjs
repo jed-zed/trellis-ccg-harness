@@ -983,6 +983,62 @@ test("ready Project Skill revision accepts a credential-free saved catalog remot
       },
     ]);
     assert.equal(JSON.stringify(contract).includes("Caveman"), false);
+
+    writeCatalogSkill(
+      repository,
+      "docs-helper",
+      "Use when revised project documentation must stay current.",
+    );
+    execFileSync("git", ["-C", repository, "add", "."], { stdio: "ignore" });
+    execFileSync(
+      "git",
+      [
+        "-C",
+        repository,
+        "-c",
+        "user.name=Harness Tests",
+        "-c",
+        "user.email=harness-tests@example.invalid",
+        "commit",
+        "-m",
+        "revise docs helper",
+      ],
+      { stdio: "ignore" },
+    );
+    await assert.rejects(
+      reviseReadyProjectSkills({
+        approved: true,
+        repoRoot: value.repoRoot,
+        homeDir: value.homeDir,
+        selectedSkills: ["test-first", "docs-helper"],
+        globalEssentialSkills: GLOBAL_PLATFORM_SKILLS,
+        skillRoot: SKILL_ROOT,
+      }),
+      /explicit replacement approval/i,
+    );
+    const replacement = await reviseReadyProjectSkills({
+      approved: true,
+      replaceExisting: true,
+      repoRoot: value.repoRoot,
+      homeDir: value.homeDir,
+      selectedSkills: ["test-first", "docs-helper"],
+      globalEssentialSkills: GLOBAL_PLATFORM_SKILLS,
+      skillRoot: SKILL_ROOT,
+    });
+    assert.equal(replacement.status, "revised");
+    assert.match(
+      readFileSync(
+        path.join(
+          value.repoRoot,
+          ".agents",
+          "skills",
+          "docs-helper",
+          "SKILL.md",
+        ),
+        "utf8",
+      ),
+      /revised project documentation/,
+    );
   } finally {
     value.cleanup();
   }
