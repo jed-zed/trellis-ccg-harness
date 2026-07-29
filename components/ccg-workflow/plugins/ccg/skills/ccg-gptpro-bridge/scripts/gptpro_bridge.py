@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Manual ChatGPT Pro bridge for Codex-native CCG workflows.
+"""ChatGPT Pro sidebar bridge for Codex-native CCG workflows.
 
-This helper creates local prompt/response artifacts and, when requested, a
-localhost page where the user manually copies a prompt into ChatGPT Pro and
-manually pastes the response back. It intentionally does not automate ChatGPT
-web login, prompt submission, DOM reading, or output extraction.
+This helper creates local prompt/response artifacts and imports bounded output
+produced by the separately installed ``chatgpt-pro-sidebar`` Skill. The Skill
+uses Windows UI Automation against the user's already logged-in Codex Desktop
+side panel; this helper never handles authentication, browser internals, or
+workspace writes from ChatGPT Pro.
 """
 
 from __future__ import annotations
@@ -13,6 +14,7 @@ import argparse
 import hashlib
 import html
 import json
+import os
 import re
 import secrets
 import socket
@@ -27,16 +29,22 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
-PROVIDER = "chatgpt-pro-manual"
+PROVIDER = "chatgpt-pro-sidebar"
+LEGACY_PROVIDERS = {"chatgpt-pro-manual", PROVIDER}
 MANUAL_QUESTIONS_EXPECTED = 1
 MANUAL_QUESTIONS_MAX = 2
 MAX_RESPONSE_BYTES = 2 * 1024 * 1024
-TEMPLATE_DIR = Path(__file__).resolve().parent / "templates"
+_SCRIPT_DIRECTORY = Path(__file__).resolve().parent
+TEMPLATE_DIR = (
+    _SCRIPT_DIRECTORY / "templates"
+    if (_SCRIPT_DIRECTORY / "templates").is_dir()
+    else _SCRIPT_DIRECTORY.parent / "templates" / "gptpro"
+)
 ENDPOINTS = ("GET /", "GET /state", "POST /save-response", "POST /mark-copied")
 BOUNDARIES = (
     "Do not automate ChatGPT web login",
     "Do not read ChatGPT web DOM",
-    "Do not extract ChatGPT Output programmatically",
+    "Use only the installed chatgpt-pro-sidebar Skill for UI transport",
 )
 GEMINI_POLICIES = ("required", "optional", "none")
 GEMINI_EVIDENCE_ROLES = ("gate", "frontend-prototype", "frontend-review")
@@ -806,7 +814,7 @@ def read_template(name: str) -> str:
 
 
 def default_gemini_policy(mode: str) -> str:
-    return "optional"
+    return "optional" if mode == "exc" else "required"
 
 
 def default_gemini_evidence_role(mode: str) -> str:
@@ -814,7 +822,7 @@ def default_gemini_evidence_role(mode: str) -> str:
 
 
 def normalize_gemini_policy(policy: str) -> str:
-    normalized = (policy or "").strip() or "optional"
+    normalized = (policy or "").strip() or "required"
     if normalized not in GEMINI_POLICIES:
         raise ValueError(f"Invalid Gemini evidence policy: {normalized}")
     return normalized
@@ -830,7 +838,7 @@ def normalize_gemini_evidence_role(role: str) -> str:
 def validate_mode_gemini_policy(mode: str, policy: str, role: str) -> None:
     if mode in {"plan", "review"} and role != "gate":
         raise ValueError(
-            "Plan/review sessions use the optional Gemini gate evidence role; "
+            "Plan/review Gemini evidence must use the gate role when it is present; "
             "use --gemini-evidence-role gate."
         )
 
@@ -1107,7 +1115,7 @@ def read_prompt(prompt: str, prompt_file: str) -> str:
         parts.append(prompt)
     combined = "\n\n".join(part.strip() for part in parts if part.strip())
     if not combined:
-        raise ValueError("A prompt or --prompt-file is required for the manual bridge.")
+        raise ValueError("A prompt or --prompt-file is required for the GPT Pro bridge.")
     return combined
 
 
@@ -1237,7 +1245,8 @@ class BridgeSession:
             "manual_questions_max": MANUAL_QUESTIONS_MAX,
             "web_automation": False,
             "dom_extraction": False,
-            "manual_copy_required": True,
+            "manual_copy_required": False,
+            "sidebar_transport_required": True,
         }
 
 
@@ -1298,7 +1307,7 @@ def create_session(
             inherited_evidence = status.get("gemini_evidence") or status.get("gemini_gate")
             if not inherited_evidence:
                 if policy == "required":
-                    raise ValueError("Required Gemini evidence is missing for the follow-up session.")
+                    raise ValueError("Gemini Gate Before GPT Pro is required for follow-up sessions.")
                 inherited_evidence = empty_gemini_evidence(policy, role)
             gemini_evidence = dict(inherited_evidence)
             gemini_evidence["inherited_from_round"] = 1
@@ -1325,7 +1334,7 @@ def create_session(
     gemini_evidence = normalize_gemini_evidence(gemini_evidence, policy, role)
     if policy == "required" and not gemini_evidence.get("available"):
         raise ValueError("CCG_GEMINI_RESPONSE_FILE is required before GPT Pro bridge session creation.")
-    if role == "gate" and gemini_evidence.get("available"):
+    if policy == "required" and role == "gate":
         if task_dir_path is None:
             raise ValueError("Canonical Gemini gate validation requires an active supported task directory.")
         response_value = str(gemini_evidence.get("response_file") or "")
@@ -1395,7 +1404,8 @@ def create_session(
         "followup_reason": followup_reason,
         "rounds": rounds,
         "workdir": str(workdir_path),
-        "manual_copy_required": True,
+        "manual_copy_required": False,
+        "sidebar_transport_required": True,
         "preview_token": str(status.get("preview_token") or secrets.token_urlsafe(32)),
         "web_automation": False,
         "dom_extraction": False,
@@ -1451,8 +1461,8 @@ def resolve_existing_session_dir(session_value: str | Path) -> Path:
     if not status_file.exists():
         raise ValueError(f"Session status file not found: {status_file}")
     status = json.loads(status_file.read_text(encoding="utf-8"))
-    if status.get("provider") != PROVIDER:
-        raise ValueError("Session is not a GPT Pro manual bridge session.")
+    if status.get("provider") not in LEGACY_PROVIDERS:
+        raise ValueError("Session is not a supported GPT Pro bridge session.")
     return session_dir
 
 
@@ -1472,7 +1482,242 @@ def relative_artifact_path(path_value: Path, base_dir: Path) -> str:
         return str(path_value.resolve())
 
 
-def append_gptpro_evidence(session: BridgeSession, status: dict[str, Any], response_text: str) -> None:
+def read_sidebar_json(path: Path, label: str) -> dict[str, Any]:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise ValueError(f"ChatGPT Pro sidebar {label} is missing or invalid: {path}") from error
+    if not isinstance(value, dict):
+        raise ValueError(f"ChatGPT Pro sidebar {label} must be a JSON object: {path}")
+    return value
+
+
+def sha256_path(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def sha256_sidebar_prompt_path(path: Path) -> str:
+    try:
+        prompt_text = path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as error:
+        raise ValueError("The current bridge prompt must be UTF-8.") from error
+    normalized = prompt_text.replace("\r\n", "\n").replace("\r", "\n").rstrip("\r\n")
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
+def sidebar_artifact_path(root: Path, value: Any, expected_name: str) -> Path:
+    if value != expected_name:
+        raise ValueError(f"ChatGPT Pro sidebar evidence must reference {expected_name}.")
+    candidate = (root / expected_name).resolve()
+    if candidate.parent != root or not candidate.is_file():
+        raise ValueError(f"ChatGPT Pro sidebar evidence file is missing: {candidate}")
+    return candidate
+
+
+def write_sidebar_import_ack(
+    evidence_dir: Path,
+    *,
+    codex_thread_id: str,
+    watcher_id: str,
+    response_sha256: str,
+    evidence_sha256: str,
+    conversation_url: str,
+) -> Path:
+    ack_path = evidence_dir / "watch-continuation-ack.json"
+    stable_fields = {
+        "schemaVersion": 1,
+        "transport": "ccg-gptpro-bridge",
+        "acknowledged": True,
+        "acknowledgementType": "ccg-imported",
+        "codexThreadId": codex_thread_id,
+        "watcherId": watcher_id,
+        "responseSha256": response_sha256,
+        "sidebarEvidenceSha256": evidence_sha256,
+        "conversationUrl": conversation_url,
+    }
+    existing = read_sidebar_json(ack_path, "continuation acknowledgement") if ack_path.exists() else None
+    if existing is not None:
+        if any(existing.get(key) != value for key, value in stable_fields.items()):
+            raise ValueError("ChatGPT Pro sidebar continuation acknowledgement conflicts with this import.")
+        return ack_path
+    acknowledgement = {**stable_fields, "acknowledgedAtUtc": utc_now()}
+    temporary = ack_path.with_name(f"{ack_path.name}.{os.getpid()}.tmp")
+    try:
+        temporary.write_text(
+            json.dumps(acknowledgement, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+        os.replace(temporary, ack_path)
+    finally:
+        temporary.unlink(missing_ok=True)
+    return ack_path
+
+
+def import_sidebar_evidence(
+    session: BridgeSession,
+    evidence_directory: str | Path,
+    expected_codex_thread_id: str,
+) -> dict[str, Any]:
+    if not expected_codex_thread_id.strip():
+        raise ValueError("--expected-codex-thread-id is required for sidebar evidence import.")
+    try:
+        evidence_dir = Path(evidence_directory).expanduser().resolve(strict=True)
+    except OSError as error:
+        raise ValueError("ChatGPT Pro sidebar evidence directory is missing.") from error
+    if not evidence_dir.is_dir():
+        raise ValueError("ChatGPT Pro sidebar evidence path must be a directory.")
+    round_dir = session.prompt_file.parent.resolve()
+    if evidence_dir.parent != round_dir or evidence_dir.name != "sidebar":
+        raise ValueError(
+            "ChatGPT Pro sidebar evidence must be the current bridge round's direct sidebar directory."
+        )
+
+    state_path = evidence_dir / "state.json"
+    evidence_path = evidence_dir / "evidence.json"
+    event_path = evidence_dir / "watch-event.json"
+    state = read_sidebar_json(state_path, "state")
+    sidebar_evidence = read_sidebar_json(evidence_path, "manifest")
+    event = read_sidebar_json(event_path, "watch event")
+
+    for label, value in (
+        ("state tool", state.get("tool")),
+        ("manifest tool", sidebar_evidence.get("tool")),
+    ):
+        if value != "chatgpt-pro-sidebar":
+            raise ValueError(f"Invalid ChatGPT Pro sidebar {label}.")
+    for label, value in (
+        ("state transport", state.get("transport")),
+        ("manifest transport", sidebar_evidence.get("transport")),
+    ):
+        if value != "windows-uia":
+            raise ValueError(f"Invalid ChatGPT Pro sidebar {label}.")
+    if state.get("live") is not True or sidebar_evidence.get("live") is not True:
+        raise ValueError("ChatGPT Pro sidebar import requires live evidence.")
+    if state.get("phase") != "completed" or event.get("status") != "completed":
+        raise ValueError("ChatGPT Pro sidebar watcher has not completed successfully.")
+    if event.get("requiresCodexReview") is not True:
+        raise ValueError("ChatGPT Pro sidebar watch event must require Codex review.")
+    if (
+        state.get("automaticResendAllowed") is not False
+        or event.get("automaticResendAllowed") is not False
+        or (sidebar_evidence.get("submission") or {}).get("automaticResendAllowed") is not False
+    ):
+        raise ValueError("ChatGPT Pro sidebar evidence must prohibit automatic resend.")
+    authority = sidebar_evidence.get("authority") or {}
+    if (
+        authority.get("externalOutputIsUntrusted") is not True
+        or authority.get("codexIsSoleWorkspaceWriter") is not True
+    ):
+        raise ValueError("ChatGPT Pro sidebar authority boundary is missing.")
+
+    event_thread_id = str(event.get("codexThreadId") or "").lower()
+    if event_thread_id != expected_codex_thread_id.strip().lower():
+        raise ValueError("ChatGPT Pro sidebar evidence belongs to another Codex task.")
+    event_directory = Path(str(event.get("evidenceDirectory") or "")).expanduser().resolve()
+    if event_directory != evidence_dir:
+        raise ValueError("ChatGPT Pro sidebar watch event evidence directory does not match.")
+
+    prompt_entry = sidebar_evidence.get("prompt") or {}
+    response_entry = sidebar_evidence.get("response") or {}
+    conversation_entry = sidebar_evidence.get("conversation") or {}
+    submission_entry = sidebar_evidence.get("submission") or {}
+    prompt_path = sidebar_artifact_path(evidence_dir, state.get("promptFile"), "prompt.md")
+    sidebar_artifact_path(evidence_dir, prompt_entry.get("file"), "prompt.md")
+    response_path = sidebar_artifact_path(evidence_dir, state.get("responseFile"), "response.md")
+    sidebar_artifact_path(evidence_dir, response_entry.get("file"), "response.md")
+    url_path = sidebar_artifact_path(evidence_dir, state.get("urlFile"), "url.txt")
+    sidebar_artifact_path(evidence_dir, conversation_entry.get("file"), "url.txt")
+    sidebar_artifact_path(evidence_dir, state.get("evidenceFile"), "evidence.json")
+
+    prompt_sha256 = sha256_path(prompt_path)
+    response_sha256 = sha256_path(response_path)
+    url_sha256 = sha256_path(url_path)
+    evidence_sha256 = sha256_path(evidence_path)
+    if (
+        prompt_sha256 != state.get("promptSha256")
+        or prompt_sha256 != prompt_entry.get("sha256")
+        or prompt_sha256 != sha256_sidebar_prompt_path(session.prompt_file)
+    ):
+        raise ValueError("ChatGPT Pro sidebar prompt hash does not bind the current bridge round.")
+    if response_sha256 != state.get("responseSha256") or response_sha256 != response_entry.get("sha256"):
+        raise ValueError("ChatGPT Pro sidebar response hash mismatch.")
+    if url_sha256 != state.get("urlSha256") or url_sha256 != conversation_entry.get("sha256"):
+        raise ValueError("ChatGPT Pro sidebar conversation URL hash mismatch.")
+    if evidence_sha256 != state.get("evidenceSha256"):
+        raise ValueError("ChatGPT Pro sidebar manifest hash mismatch.")
+
+    response_bytes = response_path.read_bytes()
+    if not response_bytes or len(response_bytes) > MAX_RESPONSE_BYTES:
+        raise ValueError("ChatGPT Pro sidebar response is empty or exceeds the bridge limit.")
+    try:
+        response_text = response_bytes.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise ValueError("ChatGPT Pro sidebar response must be UTF-8.") from error
+    if not response_text.strip():
+        raise ValueError("ChatGPT Pro sidebar response cannot be empty.")
+
+    conversation_url = url_path.read_text(encoding="utf-8").strip()
+    if not re.fullmatch(
+        r"https://chatgpt\.com/c/[0-9a-fA-F-]{36}",
+        conversation_url,
+    ):
+        raise ValueError("ChatGPT Pro sidebar evidence lacks one exact conversation URL.")
+    if (
+        conversation_entry.get("url") != conversation_url
+        or conversation_entry.get("boundAtSend") != conversation_url
+        or conversation_entry.get("exact") is not True
+        or conversation_entry.get("matchedBoundUrl") is not True
+        or state.get("conversationUrl") != conversation_url
+        or state.get("conversationUrlBound") != conversation_url
+        or event.get("conversationUrl") != conversation_url
+    ):
+        raise ValueError("ChatGPT Pro sidebar conversation binding mismatch.")
+    acknowledged = submission_entry.get("acknowledged") is True
+    observational_recovery = submission_entry.get("observationalRecovery") is True
+    if not acknowledged and not observational_recovery:
+        raise ValueError("ChatGPT Pro sidebar submission was neither acknowledged nor recovered observationally.")
+    watcher_id = str(event.get("watcherId") or "").lower()
+    if not re.fullmatch(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", watcher_id):
+        raise ValueError("ChatGPT Pro sidebar watch event lacks one exact watcher ID.")
+
+    transport_metadata = {
+        "transport": "chatgpt-pro-sidebar",
+        "sidebarEvidenceDirectory": display_path(evidence_dir, session.workdir),
+        "sidebarEvidenceFile": display_path(evidence_path, session.workdir),
+        "sidebarEvidenceSha256": evidence_sha256,
+        "sidebarWatchEventFile": display_path(event_path, session.workdir),
+        "sidebarWatchEventSha256": sha256_path(event_path),
+        "conversationUrl": conversation_url,
+        "codexThreadId": event_thread_id,
+        "watcherId": watcher_id,
+        "submissionAcknowledged": acknowledged,
+        "observationalRecovery": observational_recovery,
+        "automaticResendAllowed": False,
+        "externalOutputIsUntrusted": True,
+        "codexIsSoleWorkspaceWriter": True,
+    }
+    save_response(session, response_text, transport_metadata=transport_metadata)
+    acknowledgement_path = write_sidebar_import_ack(
+        evidence_dir,
+        codex_thread_id=event_thread_id,
+        watcher_id=watcher_id,
+        response_sha256=response_sha256,
+        evidence_sha256=evidence_sha256,
+        conversation_url=conversation_url,
+    )
+    transport_metadata["continuationAcknowledgementFile"] = display_path(
+        acknowledgement_path,
+        session.workdir,
+    )
+    return transport_metadata
+
+
+def append_gptpro_evidence(
+    session: BridgeSession,
+    status: dict[str, Any],
+    response_text: str,
+    transport_metadata: dict[str, Any] | None = None,
+) -> None:
     evidence_file = resolve_status_path(session.workdir, str(status.get("evidence_file") or ""))
     task_dir = resolve_status_path(session.workdir, str(status.get("task_dir") or ""))
     if evidence_file is None or task_dir is None:
@@ -1490,12 +1735,16 @@ def append_gptpro_evidence(session: BridgeSession, status: dict[str, Any], respo
         "id": item_id,
         "provider": "gptpro",
         "role": "execution-companion" if session.mode == "exc" else session.mode,
-        "policy": "manual",
+        "policy": "automated-sidebar" if transport_metadata else "legacy-manual-preview",
         "available": True,
         "artifactFile": relative_artifact_path(session.response_file, task_dir),
         "artifactSha256": hashlib.sha256(response_bytes).hexdigest(),
         "artifactChars": len(response_text),
-        "summary": f"Manual GPT Pro {session.mode} response saved for {session.round_name}.",
+        "summary": (
+            f"ChatGPT Pro sidebar {session.mode} response imported for {session.round_name}."
+            if transport_metadata
+            else f"Legacy manual GPT Pro {session.mode} response saved for {session.round_name}."
+        ),
         "sessionId": session_id,
         "round": int(status.get("current_round", 1)),
         "createdAt": utc_now(),
@@ -1506,7 +1755,33 @@ def append_gptpro_evidence(session: BridgeSession, status: dict[str, Any], respo
                 "displayRole": "execution-route-review",
                 "semanticRole": "route-review",
                 "implementationOwner": False,
-                "summary": f"Manual GPT Pro execution route review response saved for {session.round_name}.",
+                "summary": (
+                    f"ChatGPT Pro sidebar execution route review response imported for {session.round_name}."
+                    if transport_metadata
+                    else f"Legacy manual GPT Pro execution route review response saved for {session.round_name}."
+                ),
+            }
+        )
+    if transport_metadata:
+        item.update(
+            {
+                "transport": transport_metadata["transport"],
+                "conversationUrl": transport_metadata["conversationUrl"],
+                "codexThreadId": transport_metadata["codexThreadId"],
+                "submissionAcknowledged": transport_metadata["submissionAcknowledged"],
+                "observationalRecovery": transport_metadata["observationalRecovery"],
+                "automaticResendAllowed": False,
+                "externalOutputIsUntrusted": True,
+                "codexIsSoleWorkspaceWriter": True,
+                "sidebarEvidenceFile": relative_artifact_path(
+                    resolve_status_path(
+                        session.workdir,
+                        str(transport_metadata["sidebarEvidenceFile"]),
+                    )
+                    or session.status_file,
+                    task_dir,
+                ),
+                "sidebarEvidenceSha256": transport_metadata["sidebarEvidenceSha256"],
             }
         )
     dedupe_key = (item["provider"], item["sessionId"], item["round"])
@@ -1525,16 +1800,34 @@ def append_gptpro_evidence(session: BridgeSession, status: dict[str, Any], respo
     )
 
 
-def save_response(session: BridgeSession, response_text: str) -> None:
+def save_response(
+    session: BridgeSession,
+    response_text: str,
+    *,
+    transport_metadata: dict[str, Any] | None = None,
+) -> None:
     if not response_text.strip():
-        raise ValueError("Manual GPT Pro response cannot be empty.")
+        raise ValueError("GPT Pro response cannot be empty.")
     response_bytes = response_text.encode("utf-8")
-    session.response_file.write_bytes(response_bytes)
+    if len(response_bytes) > MAX_RESPONSE_BYTES:
+        raise ValueError("GPT Pro response exceeds the bridge limit.")
+    existing_bytes = session.response_file.read_bytes() if session.response_file.exists() else b""
+    if existing_bytes and existing_bytes != response_bytes:
+        raise ValueError("GPT Pro response is already saved with different content.")
+    if not existing_bytes:
+        session.response_file.write_bytes(response_bytes)
     status = session.status()
-    status["rounds"][session.round_name]["response_saved"] = True
-    status["rounds"][session.round_name]["response_chars"] = len(response_text)
-    status["rounds"][session.round_name]["response_sha256"] = hashlib.sha256(response_bytes).hexdigest()
-    append_gptpro_evidence(session, status, response_text)
+    round_status = status["rounds"][session.round_name]
+    round_status["response_saved"] = True
+    round_status["response_chars"] = len(response_text)
+    round_status["response_sha256"] = hashlib.sha256(response_bytes).hexdigest()
+    if transport_metadata:
+        round_status["transport"] = transport_metadata["transport"]
+        round_status["sidebar_evidence"] = transport_metadata
+        status["manual_copy_required"] = False
+        status["sidebar_transport_required"] = True
+        status["sidebar_response_imported"] = True
+    append_gptpro_evidence(session, status, response_text, transport_metadata)
     session.write_status(status)
 
 
@@ -1759,7 +2052,7 @@ def start_server(session: BridgeSession, open_browser: bool = False, port: int =
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Create a manual ChatGPT Pro bridge session")
+    parser = argparse.ArgumentParser(description="Create or import a ChatGPT Pro sidebar bridge session")
     parser.add_argument("--mode", choices=["plan", "review", "exc"])
     parser.add_argument("--workdir", default=".")
     parser.add_argument("--prompt", default="")
@@ -1793,6 +2086,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--wait-response", action="store_true")
     parser.add_argument("--hold-seconds", type=int, default=0)
     parser.add_argument("--serve-session", help=argparse.SUPPRESS)
+    parser.add_argument("--import-session", default="")
+    parser.add_argument("--import-sidebar-evidence", default="")
+    parser.add_argument("--expected-codex-thread-id", default="")
     parser.add_argument("--preview-port", type=int, default=0, help=argparse.SUPPRESS)
     parser.add_argument("--serve-timeout-seconds", type=int, default=14400, help=argparse.SUPPRESS)
     return parser.parse_args(argv)
@@ -1812,7 +2108,8 @@ def print_outputs(session: BridgeSession, preview_url: str) -> None:
         print(f"CCG_GPTPRO_PREVIEW_PID={status['preview_pid']}", flush=True)
     if status.get("preview_log"):
         print(f"CCG_GPTPRO_PREVIEW_LOG={status['preview_log']}", flush=True)
-    print("CCG_GPTPRO_MANUAL_BRIDGE=1", flush=True)
+    print("CCG_GPTPRO_MANUAL_BRIDGE=0", flush=True)
+    print("CCG_GPTPRO_SIDEBAR_TRANSPORT=1", flush=True)
     print("CCG_GPTPRO_WEB_AUTOMATION=0", flush=True)
     print("CCG_GPTPRO_DOM_EXTRACTION=0", flush=True)
     print(f"CCG_GPTPRO_MANUAL_QUESTIONS_EXPECTED={MANUAL_QUESTIONS_EXPECTED}", flush=True)
@@ -1897,6 +2194,31 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     if args.serve_session:
         return serve_existing_session(args)
+    if args.import_sidebar_evidence:
+        if not args.import_session:
+            print("--import-session is required with --import-sidebar-evidence", file=sys.stderr)
+            return 2
+        try:
+            session = load_session(Path(args.import_session))
+            imported = import_sidebar_evidence(
+                session,
+                args.import_sidebar_evidence,
+                args.expected_codex_thread_id,
+            )
+        except Exception as error:
+            print(str(error), file=sys.stderr)
+            return 2
+        print_outputs(session, "")
+        print("CCG_GPTPRO_SIDEBAR_IMPORTED=1", flush=True)
+        print(f"CCG_GPTPRO_CONVERSATION_URL={imported['conversationUrl']}", flush=True)
+        print(
+            f"CCG_GPTPRO_SIDEBAR_EVIDENCE_SHA256={imported['sidebarEvidenceSha256']}",
+            flush=True,
+        )
+        return 0
+    if args.import_session:
+        print("--import-sidebar-evidence is required with --import-session", file=sys.stderr)
+        return 2
     if not args.mode:
         print("--mode is required unless --serve-session is used", file=sys.stderr)
         return 2
@@ -1918,7 +2240,11 @@ def main(argv: list[str] | None = None) -> int:
         task_dir = resolve_task_dir(workdir_path, args.task_dir, args.task_id)
         evidence_file = default_evidence_file(task_dir, args.evidence_file)
         output_root = default_output_root(workdir_path, task_dir, args.output_root)
-        gemini_policy = args.gemini_policy or default_gemini_policy(args.mode)
+        gemini_policy = args.gemini_policy or (
+            "optional"
+            if args.routing_evidence_file
+            else default_gemini_policy(args.mode)
+        )
         gemini_evidence_role = args.gemini_evidence_role or default_gemini_evidence_role(args.mode)
         gemini_policy = normalize_gemini_policy(gemini_policy)
         gemini_evidence_role = normalize_gemini_evidence_role(gemini_evidence_role)

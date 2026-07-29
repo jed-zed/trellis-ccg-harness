@@ -1,10 +1,12 @@
-# GPT Pro Manual Bridge
+# GPT Pro Sidebar Bridge
 
-The GPT Pro bridge adds a user-mediated ChatGPT Pro layer to CCG without automating the ChatGPT
-website. It does not create a separate Codex/Gemini/GPT Pro workflow. Instead, `gptpro-plan`,
-`gptpro-review`, and `gptpro-exc` run the matching ordinary plan/review/execute semantics first,
-preserve the current orchestrator and routed model evidence, then append GPT Pro as manual
-task-local evidence.
+The filename is retained for link compatibility. The bridge is no longer a normal manual
+copy/paste handoff. `/ccg:gptpro-plan`, `/ccg:gptpro-review`, and `/ccg:gptpro-exc` use the installed
+`chatgpt-pro-sidebar` Skill to communicate with the user's already logged-in ChatGPT Pro session in
+the Codex Desktop side panel.
+
+Ordinary CCG routing runs first. ChatGPT Pro is appended as untrusted, read-only task evidence;
+Codex remains the sole workspace writer and final verification owner.
 
 ## Layout
 
@@ -14,13 +16,19 @@ Runtime source is packaged under:
 templates/engine/tools/gptpro/
 ```
 
-Installed location:
+The Codex plugin copy is:
 
 ```text
-~/.claude/.ccg/engine/tools/gptpro/
+plugins/ccg/skills/ccg-gptpro-bridge/
 ```
 
-Task artifacts are written under:
+The required personal Skill is installed at:
+
+```text
+~/.codex/skills/chatgpt-pro-sidebar/
+```
+
+Native CCG task evidence:
 
 ```text
 .ccg/tasks/<task-id>/gptpro/<session-id>/
@@ -28,16 +36,15 @@ Task artifacts are written under:
   round-1/
     prompt.md
     response.md
+    sidebar/
+      state.json
+      evidence.json
+      watch-event.json
+      response.md
 ```
 
-Canonical evidence is:
-
-```text
-.ccg/tasks/<task-id>/evidence.json
-```
-
-When Trellis owns task lifecycle, pass `.trellis/tasks/<task-id>` through `--task-dir`. The bridge
-keeps adapter evidence isolated from Trellis lifecycle metadata:
+For Trellis-owned tasks, pass `.trellis/tasks/<task-id>` through `--task-dir`. All adapter evidence
+stays under:
 
 ```text
 .trellis/tasks/<task-id>/.ccg-evidence/gptpro/<session-id>/
@@ -45,98 +52,79 @@ keeps adapter evidence isolated from Trellis lifecycle metadata:
 ```
 
 The bridge never creates a parallel `.ccg/tasks/<task-id>` for a Trellis task and never writes CCG
-gate fields into the Trellis `task.json`.
+gate fields into Trellis `task.json`.
 
-## Command Contract
+## Automated Contract
 
-- `/ccg:gptpro-plan` = ordinary `/ccg:plan` first, then manual GPT Pro planning second opinion.
-- `/ccg:gptpro-review` = ordinary `/ccg:review` first, then manual GPT Pro review second opinion.
-- `/ccg:gptpro-exc` = ordinary `/ccg:execute` preflight/routing/prototype or analysis evidence
-  first, then manual GPT Pro second opinion before real code landing.
+1. Create the CCG bridge session and its bounded `prompt.md`.
+2. Use only the installed `chatgpt-pro-sidebar` Skill for side-panel status, new conversation,
+   prompt submission, response capture, and detached monitoring.
+3. Register the watcher with the exact current `CODEX_THREAD_ID`; model-driven polling is forbidden.
+4. The official Stop Hook continues the same Codex Desktop task after completion or interruption.
+5. Import only a completed watcher result:
 
-GPT Pro is fourth evidence. It is not a `codeagent-wrapper` backend, is not added to
-`model-router.md`, and must not replace routed Codex, Claude, Gemini, or other configured helper
-evidence.
+```text
+python gptpro_bridge.py \
+  --import-session <session-dir> \
+  --import-sidebar-evidence <session-dir>/<round>/sidebar \
+  --expected-codex-thread-id <CODEX_THREAD_ID>
+```
 
-## Manual Handoff
+6. Continue only when `CCG_GPTPRO_SIDEBAR_IMPORTED=1`.
 
-Plan/review modes still require valid Gemini gate evidence before creating the GPT Pro prompt.
-Execution mode follows ordinary execute routing: backend-only work usually has no Gemini step, while
-frontend/full-stack work may include real Gemini frontend evidence. Every GPT Pro mode now also
-requires Base CCG Routing Evidence so the manual prompt can see what the ordinary command already
-decided.
+The importer validates:
 
-After the response is saved, the bridge:
+- the current bridge round and exact prompt hash;
+- live Windows UIA evidence and a completed watcher;
+- the exact ChatGPT conversation URL;
+- response, URL, and evidence SHA-256 values;
+- the exact Codex task ID;
+- `automaticResendAllowed=false`;
+- `externalOutputIsUntrusted=true`;
+- `codexIsSoleWorkspaceWriter=true`.
 
-- rejects empty responses;
-- rejects preview writes without the per-session token;
-- rejects responses larger than 2 MiB;
-- writes the exact response bytes to `response.md`;
-- records character count and SHA-256 in `status.json`;
-- appends a GPT Pro item to `evidence.json`.
+Re-importing identical evidence is idempotent. Different response content cannot overwrite an
+already imported round.
+
+## Multiple Conversations
+
+Independent complex workstreams use separate CCG sessions and ChatGPT Pro conversations. If multiple
+existing Codex Desktop windows are available, bind one conversation per selected `windowRuntimeId`,
+submit each prompt through serialized UIA operations, and let the generations and detached watchers
+run concurrently. With one window, queue conversations sequentially.
+
+The Stop Hook stores one registration per watcher and fans all terminal registrations from the same
+pass into one same-task continuation. Pending registrations remain for later continuation turns.
 
 ## Boundaries
 
-- No ChatGPT login automation.
-- No DOM scraping.
-- No automatic prompt submission.
-- No automatic output extraction.
-- No browser cookies, sessions, or account tokens are stored.
-- GPT Pro is not a `codeagent-wrapper` backend and must not be added to normal model routing.
-- GPT Pro must not replace ordinary routed models or claim missing model participation.
+- Login, account selection, CAPTCHA, password, passkey, MFA, recovery, billing, and entitlement are
+  always manual user actions.
+- No DOM scraping, browser-internal API, external browser, cookies, tokens, or profile data.
+- No automatic resend after an uncertain submission.
+- GPT Pro never writes workspace files, runs Git, or owns delivery.
+- Fixture tests do not prove a live ChatGPT Pro interaction.
+- The legacy localhost preview remains only for backward-compatible diagnostics; CCG GPT Pro Skills
+  do not use it for normal handoffs.
 
-## Evidence Contract
+## Evidence Item
 
-See `templates/engine/evidence-schema.md` for the canonical evidence shape.
-
-For review mode, required Gemini evidence is:
-
-```text
-provider=gemini
-role=gate
-policy=required
-available=true
-artifactFile exists and is non-empty
-artifactSha256 matches the exact artifact bytes
-```
-
-For GPT Pro responses, the bridge writes:
+Successful import appends:
 
 ```text
 provider=gptpro
-role=review
-policy=manual
+role=<plan|review|execution-companion>
+policy=automated-sidebar
+transport=chatgpt-pro-sidebar
 available=true
-artifactFile=gptpro/<session-id>/round-1/response.md
+artifactFile=gptpro/<session-id>/<round>/response.md
 artifactSha256=<sha256>
+conversationUrl=<exact ChatGPT conversation URL>
+codexThreadId=<exact Codex task UUID>
+automaticResendAllowed=false
+externalOutputIsUntrusted=true
+codexIsSoleWorkspaceWriter=true
 ```
 
-For the ordinary routing evidence passed into GPT Pro prompts, use:
-
-```text
---routing-evidence-file <routing-evidence-file>
---routing-summary-file <routing-summary-file>
---require-routing-evidence
---require-claude-evidence
-```
-
-`status.json` records:
-
-```text
-routing_evidence.available=true
-routing_evidence.evidence_file=<path>
-routing_evidence.evidence_sha256=<sha256>
-routing_evidence.evidence_chars=<character-count>
-routing_evidence.summary_file=<path>
-routing_evidence.summary=<concise-summary>
-routing_evidence.claudeEvidenceStatus=automatic|manual_handoff
-```
-
-Use `claudeEvidenceStatus=skipped_by_user` only when the user explicitly disabled Claude, and omit
-`--require-claude-evidence` in that case. `blocked` or a missing status must stop bridge creation.
-
-## Packaging Check
-
-`package.json.files` already includes `templates/engine/`, so `templates/engine/tools/gptpro/**`
-is included by the existing package allowlist. Release validation should still inspect `npm pack`
-output before publishing.
+`package.json.files` already includes `templates/engine/`; release validation must still inspect the
+packed file list before publishing.

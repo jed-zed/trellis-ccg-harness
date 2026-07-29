@@ -2,15 +2,21 @@
 
 > [根目录](../CLAUDE.md) > **skills-v2**
 
-**Last Updated**: 2026-07-28 (v3.4.1)
+**Last Updated**: 2026-07-29 (v3.4.3)
 
-> 本文档已同步 v3.4.1 的 product-manager、v3.4.0 的独立职责路由、Codex 原生分发边界和显式 Codex doctor；较早章节仍保留历史架构背景，完整历史见 [CHANGELOG.md](./CHANGELOG.md)。
+> 本文档已同步 v3.4.3 的 ChatGPT Pro 侧边栏自动桥接、v3.4.2 的 product-manager、v3.4.0 的独立职责路由、Codex 原生分发边界和显式 Codex doctor；较早章节仍保留历史架构背景，完整历史见 [CHANGELOG.md](./CHANGELOG.md)。
 
 ---
 
 ## 变更记录 (Changelog)
 
 > 完整变更历史请查看 [CHANGELOG.md](./CHANGELOG.md)
+
+### 2026-07-29 (v3.4.3)
+
+- CCG 三个 GPT Pro 工作流统一调用已安装的 `chatgpt-pro-sidebar` Skill，自动提交提示、
+  后台监控、同任务 Hook 唤醒和证据导入。
+- GPT Pro 仍是只读外部证据；Codex 保持唯一工作区写入者和最终验收者。
 
 ### 2026-07-28 (v3.4.1)
 

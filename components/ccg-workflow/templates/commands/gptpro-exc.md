@@ -1,5 +1,5 @@
 ---
-description: "Manual ChatGPT Pro execution route review bridge"
+description: "Automated ChatGPT Pro sidebar execution route review bridge"
 argument-hint: "<task-or-plan> [--task <task-id>] [--followup <session-dir>]"
 allowed-tools: [Read, Glob, Grep, Bash, Edit, Write]
 ---
@@ -8,7 +8,7 @@ allowed-tools: [Read, Glob, Grep, Bash, Edit, Write]
 
 $ARGUMENTS
 
-Use this command when a CCG task needs one manual GPT Pro execution route review after the
+Use this command when a CCG task needs one automated GPT Pro execution route review after the
 ordinary `/ccg:execute` semantics have completed preflight and routing evidence, but before real
 code landing begins.
 
@@ -24,7 +24,7 @@ stops before ordinary work. Add `--require-external-intelligence` together with 
 `/ccg:execute` through the preflight, plan load, model routing, prototype, or
 analysis-evidence phase. Preserve the current CCG orchestrator semantics and the normal execution
 routing for this installation, including Codex, Claude, Gemini, or any configured helper that
-ordinary execute would use. GPT Pro is fourth evidence: it is appended as a manual second opinion
+ordinary execute would use. GPT Pro is fourth evidence: it is appended as a sidebar second opinion
 after ordinary routing evidence exists and before the ordinary execute owner applies final code.
 In this command GPT Pro decides whether the route is worth local implementation by Codex or Claude;
 it is not a fourth implementation owner.
@@ -35,7 +35,7 @@ route fails or returns empty output, stop before creating the GPT Pro bridge, te
 evidence is missing, and offer a manual Claude Code handoff: write the Claude prompt to a file, ask
 the user to paste it into Claude Code, then paste/save Claude's response back before continuing.
 
-GPT Pro provides manual helper evidence only. It must not write files, own delivery, replace routed
+GPT Pro provides automated read-only helper evidence only. It must not write files, own delivery, replace routed
 models, or decide that missing Codex, Claude, or Gemini evidence exists.
 Any code sketch, localized pseudo patch, key function draft, test sample, or verification command
 from GPT Pro is advisory / illustrative only and must be reimplemented and verified locally by the
@@ -50,7 +50,8 @@ Gemini behavior still follows ordinary `/ccg:execute` routing:
 
 Hard boundaries:
 
-- Do not automate ChatGPT login, prompt submission, DOM reading, output extraction, cookies, or tokens.
+- Do not automate ChatGPT login, DOM reading, cookies, or tokens. Only the installed
+  `chatgpt-pro-sidebar` Skill may submit prompts and capture bounded UIA output.
 - Do not paste the full generated prompt into the chat unless the user explicitly asks.
 - Do not continue implementation based on GPT Pro until the user saves a non-empty response.
 - Do not store full GPT Pro evidence in `task.json`; use task-local `evidence.json`.
@@ -123,9 +124,7 @@ python ~/.claude/.ccg/engine/tools/gptpro/gptpro_bridge.py \
   --routing-summary-file "<routing-summary-file>" \
   --require-routing-evidence \
   --require-claude-evidence \
-  [--require-external-intelligence --expected-intelligence-mode <route investigation_mode> --expected-intelligence-depth <route depth> when route status=valid and requirement=required] \
-  --detach-preview \
-  --open-preview
+  [--require-external-intelligence --expected-intelligence-mode <route investigation_mode> --expected-intelligence-depth <route depth> when route status=valid and requirement=required]
 ```
 
 If the user explicitly disabled Claude and routing evidence records
@@ -148,32 +147,35 @@ Expected artifacts:
 <evidence-root>/evidence.json
 ```
 
-## Manual Wait State
+## Sidebar Watch State
 
 After bridge creation, update the active task only when native CCG owns lifecycle:
 
 ```json
 {
   "status": "in_progress",
-  "gate": "manual_gptpro_waiting",
-  "nextAction": "Open the GPT Pro preview, manually submit the execution route review prompt, save the response, then continue."
+  "gate": "gptpro_sidebar_running",
+  "nextAction": "The sidebar watcher is registered; continue in this task when the Stop Hook fires."
 }
 ```
 
 For a Trellis task, do not write those CCG gate fields into `task.json`; preserve Trellis lifecycle
-state and use bridge `status.json` for the manual wait state.
+state and use bridge `status.json` plus the sidebar watcher evidence for the wait state.
 
-Report only the preview URL and artifact paths, then stop the current turn.
+Use the installed `chatgpt-pro-sidebar` Skill to create a fresh conversation, submit `prompt.md`,
+start the detached watcher, and then stop the current turn. Never ask the user to copy the prompt or
+response.
 
 Continue only after:
 
-- `status.json` shows the current round response saved;
+- `CCG_GPTPRO_SIDEBAR_IMPORTED=1`;
+- `status.json` shows the current round response saved with transport `chatgpt-pro-sidebar`;
 - `response.md` is non-empty;
 - `response_sha256` is present for the saved round;
 - `<evidence-root>/evidence.json` contains the GPT Pro item.
 
 ## Round Budget
 
-Default one manual GPT Pro question. A second round should normally become `/ccg:gptpro-review`
+Default one GPT Pro question. A second round should normally become `/ccg:gptpro-review`
 after Codex applies changes. Use round 2 only for blocker re-check, applied diff review, or another
 high-risk follow-up.

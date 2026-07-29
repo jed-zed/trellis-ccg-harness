@@ -1,5 +1,5 @@
 ---
-description: "Manual ChatGPT Pro bridge for CCG planning evidence"
+description: "Automated ChatGPT Pro sidebar bridge for CCG planning evidence"
 argument-hint: "<task-or-plan> [--task <task-id>] [--followup <session-dir>]"
 allowed-tools: [Read, Glob, Grep, Bash, Edit, Write]
 ---
@@ -8,7 +8,7 @@ allowed-tools: [Read, Glob, Grep, Bash, Edit, Write]
 
 $ARGUMENTS
 
-Use this command when a CCG task needs a manual ChatGPT Pro adversarial plan review after the
+Use this command when a CCG task needs an automated ChatGPT Pro adversarial plan review after the
 ordinary `/ccg:plan` semantics have already run.
 
 ## Contract
@@ -23,7 +23,7 @@ user supplies an explicit route-state waiver with `ccg route waive --state-file 
 Add `--require-external-intelligence` together with `--expected-intelligence-mode <route investigation_mode>` and `--expected-intelligence-depth <route depth>` only when the route state says `status=valid` and `requirement=required`.
 Then run ordinary `/ccg:plan`. Preserve the current CCG orchestrator semantics and the normal
 model routing for this installation, including Codex, Claude, Gemini, or any configured helper that
-ordinary planning would use. GPT Pro is fourth evidence: it is appended as a manual planning second
+ordinary planning would use. GPT Pro is fourth evidence: it is appended as a sidebar planning second
 opinion after ordinary routing evidence exists. In this command GPT Pro is a risk-triggered
 external reviewer: it challenges the existing plan, but must not rewrite the whole plan or replace
 the current orchestrator's planning authority.
@@ -49,7 +49,8 @@ Plan-only boundary:
 
 Hard boundaries:
 
-- Do not automate ChatGPT login, prompt submission, DOM reading, output extraction, cookies, or tokens.
+- Do not automate ChatGPT login, DOM reading, cookies, or tokens. Only the installed
+  `chatgpt-pro-sidebar` Skill may submit prompts and capture bounded UIA output.
 - Do not paste the full generated prompt into the chat unless the user explicitly asks.
 - Do not continue planning synthesis after creating the bridge until the user saves a non-empty response.
 - Do not store full GPT Pro evidence in `task.json`; use task-local `evidence.json`.
@@ -127,9 +128,7 @@ python ~/.claude/.ccg/engine/tools/gptpro/gptpro_bridge.py \
   --routing-summary-file "<routing-summary-file>" \
   --require-routing-evidence \
   --require-claude-evidence \
-  [--require-external-intelligence --expected-intelligence-mode <route investigation_mode> --expected-intelligence-depth <route depth> when route status=valid and requirement=required] \
-  --detach-preview \
-  --open-preview
+  [--require-external-intelligence --expected-intelligence-mode <route investigation_mode> --expected-intelligence-depth <route depth> when route status=valid and requirement=required]
 ```
 
 If the user explicitly disabled Claude and routing evidence records
@@ -145,31 +144,34 @@ Expected artifacts:
 <evidence-root>/evidence.json
 ```
 
-## Manual Wait State
+## Sidebar Watch State
 
 After bridge creation, update the active task only when native CCG owns lifecycle:
 
 ```json
 {
   "status": "in_progress",
-  "gate": "manual_gptpro_waiting",
-  "nextAction": "Open the GPT Pro preview, manually submit the planning prompt, save the response, then continue."
+  "gate": "gptpro_sidebar_running",
+  "nextAction": "The sidebar watcher is registered; continue in this task when the Stop Hook fires."
 }
 ```
 
 For a Trellis task, do not write those CCG gate fields into `task.json`; preserve Trellis lifecycle
-state and use bridge `status.json` for the manual wait state.
+state and use bridge `status.json` plus the sidebar watcher evidence for the wait state.
 
-Report only the preview URL and artifact paths, then stop the current turn.
+Use the installed `chatgpt-pro-sidebar` Skill to create a fresh conversation, submit `prompt.md`,
+start the detached watcher, and then stop the current turn. Never ask the user to copy the prompt or
+response.
 
 Continue only after:
 
-- `status.json` shows the current round response saved;
+- `CCG_GPTPRO_SIDEBAR_IMPORTED=1`;
+- `status.json` shows the current round response saved with transport `chatgpt-pro-sidebar`;
 - `response.md` is non-empty;
 - `response_sha256` is present for the saved round;
 - `<evidence-root>/evidence.json` contains the GPT Pro item.
 
 ## Round Budget
 
-Default one manual GPT Pro question. A second round is only for blocker re-check or revised plan
+Default one GPT Pro question. A second round is only for blocker re-check or revised plan
 comparison. If more is needed, split the task or return to native CCG planning.

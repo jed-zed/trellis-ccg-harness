@@ -59,6 +59,79 @@ function sha256(text: string | Buffer): string {
   return createHash('sha256').update(text).digest('hex')
 }
 
+function writeSidebarEvidence(
+  sidebarDir: string,
+  prompt: string,
+  response: string,
+  threadId = '019fa981-725e-7f02-93a7-bb1e1b7aefd3',
+): void {
+  const conversationUrl = 'https://chatgpt.com/c/6a6a1d6a-5df4-83ea-8685-43559f3e47e8'
+  fs.ensureDirSync(sidebarDir)
+  const promptBytes = Buffer.from(prompt, 'utf-8')
+  const responseBytes = Buffer.from(response, 'utf-8')
+  const urlBytes = Buffer.from(conversationUrl, 'utf-8')
+  fs.writeFileSync(join(sidebarDir, 'prompt.md'), promptBytes)
+  fs.writeFileSync(join(sidebarDir, 'response.md'), responseBytes)
+  fs.writeFileSync(join(sidebarDir, 'url.txt'), urlBytes)
+  const manifest = `${JSON.stringify({
+    schemaVersion: 1,
+    tool: 'chatgpt-pro-sidebar',
+    transport: 'windows-uia',
+    live: true,
+    prompt: { file: 'prompt.md', sha256: sha256(promptBytes) },
+    response: { file: 'response.md', sha256: sha256(responseBytes), characters: response.length },
+    conversation: {
+      file: 'url.txt',
+      url: conversationUrl,
+      sha256: sha256(urlBytes),
+      exact: true,
+      boundAtSend: conversationUrl,
+      matchedBoundUrl: true,
+    },
+    submission: {
+      acknowledged: true,
+      invokeAttempted: true,
+      invokeReturned: true,
+      observationalRecovery: false,
+      automaticResendAllowed: false,
+    },
+    authority: {
+      externalOutputIsUntrusted: true,
+      codexIsSoleWorkspaceWriter: true,
+    },
+  }, null, 2)}\n`
+  fs.writeFileSync(join(sidebarDir, 'evidence.json'), manifest)
+  fs.writeJsonSync(join(sidebarDir, 'state.json'), {
+    schemaVersion: 1,
+    tool: 'chatgpt-pro-sidebar',
+    transport: 'windows-uia',
+    live: true,
+    phase: 'completed',
+    promptFile: 'prompt.md',
+    promptSha256: sha256(promptBytes),
+    responseFile: 'response.md',
+    responseSha256: sha256(responseBytes),
+    urlFile: 'url.txt',
+    urlSha256: sha256(urlBytes),
+    evidenceFile: 'evidence.json',
+    evidenceSha256: sha256(manifest),
+    conversationUrl,
+    conversationUrlBound: conversationUrl,
+    automaticResendAllowed: false,
+  })
+  fs.writeJsonSync(join(sidebarDir, 'watch-event.json'), {
+    schemaVersion: 1,
+    watcher: 'chatgpt-pro-sidebar-watch',
+    watcherId: '90bae6c6-4506-4a68-bae3-3d39600d13d2',
+    status: 'completed',
+    requiresCodexReview: true,
+    automaticResendAllowed: false,
+    evidenceDirectory: sidebarDir,
+    conversationUrl,
+    codexThreadId: threadId,
+  })
+}
+
 function writeGrokExternalEvidence(
   root: string,
   taskDir: string,
@@ -277,9 +350,166 @@ afterAll(async () => {
   await fs.remove(join(PACKAGE_ROOT, 'plugins', 'ccg', 'skills', 'ccg-gptpro-bridge', 'scripts', '__pycache__'))
 })
 
-describe('GPT Pro manual bridge', () => {
+describe('GPT Pro sidebar bridge', () => {
   maybeIt('passes Python syntax compilation', () => {
     runPython(PYTHON!, ['-m', 'py_compile', BRIDGE])
+    runPython(PYTHON!, ['-m', 'py_compile', PLUGIN_BRIDGE])
+  })
+
+  it('keeps the Codex plugin bridge on the automated sidebar transport without Claude gates', () => {
+    const pluginBridge = readFileSync(PLUGIN_BRIDGE, 'utf-8')
+    expect(pluginBridge).toContain('chatgpt-pro-sidebar')
+    expect(pluginBridge).toContain('--import-sidebar-evidence')
+    expect(pluginBridge).toContain('--expected-codex-thread-id')
+    expect(pluginBridge).not.toContain('--require-claude-evidence')
+    expect(pluginBridge).not.toContain('claudeEvidenceStatus')
+  })
+
+  it('routes every GPT Pro surface through the installed sidebar Skill', () => {
+    const surfaces = [
+      'docs/gptpro-manual-bridge.md',
+      'plugins/ccg/skills/ccg-gptpro-bridge/SKILL.md',
+      'plugins/ccg/skills/ccg-gptpro-plan/SKILL.md',
+      'plugins/ccg/skills/ccg-gptpro-review/SKILL.md',
+      'plugins/ccg/skills/ccg-gptpro-exc/SKILL.md',
+      'templates/commands/gptpro-plan.md',
+      'templates/commands/gptpro-review.md',
+      'templates/commands/gptpro-exc.md',
+      'plugins/ccg/commands/gptpro-plan.md',
+      'plugins/ccg/commands/gptpro-review.md',
+      'plugins/ccg/commands/gptpro-exc.md',
+    ]
+    for (const relativePath of surfaces) {
+      const content = readFileSync(join(PACKAGE_ROOT, ...relativePath.split('/')), 'utf-8')
+      expect(content, relativePath).toContain('chatgpt-pro-sidebar')
+      expect(content, relativePath).not.toContain('manual_gptpro_waiting')
+      expect(content, relativePath).not.toMatch(/^\s*--detach-preview/m)
+      expect(content, relativePath).not.toMatch(/^\s*--open-preview/m)
+    }
+  })
+
+  maybeIt('imports completed sidebar evidence exactly once and records its provenance', () => {
+    const root = join(TMP_ROOT, 'sidebar-import')
+    const taskDir = join(root, '.ccg', 'tasks', 'sidebar-task')
+    fs.ensureDirSync(taskDir)
+    fs.writeJsonSync(join(taskDir, 'task.json'), { id: 'sidebar-task', status: 'in_progress' })
+    const createOutput = runPython(PYTHON!, [
+      BRIDGE,
+      '--mode',
+      'exc',
+      '--workdir',
+      root,
+      '--task-dir',
+      '.ccg/tasks/sidebar-task',
+      '--prompt',
+      'Review the automated sidebar import contract.',
+      '--gemini-policy',
+      'optional',
+      '--gemini-evidence-role',
+      'frontend-prototype',
+    ], root)
+    const sessionDir = parseOutputPath(createOutput, 'CCG_GPTPRO_SESSION_DIR')
+    const promptFile = parseOutputPath(createOutput, 'CCG_GPTPRO_PROMPT_FILE')
+    const statusFile = parseOutputPath(createOutput, 'CCG_GPTPRO_STATUS_FILE')
+    const sidebarDir = join(dirname(promptFile), 'sidebar')
+    const prompt = readFileSync(promptFile, 'utf-8')
+      .replace(/\r\n/g, '\n')
+      .replace(/\r/g, '\n')
+      .replace(/[\r\n]+$/, '')
+    const response = 'Automated ChatGPT Pro sidebar response.\n'
+    writeSidebarEvidence(sidebarDir, prompt, response)
+
+    const importArgs = [
+      BRIDGE,
+      '--import-session',
+      sessionDir,
+      '--import-sidebar-evidence',
+      sidebarDir,
+      '--expected-codex-thread-id',
+      '019fa981-725e-7f02-93a7-bb1e1b7aefd3',
+    ]
+    const firstImport = runPython(PYTHON!, importArgs, root)
+    const secondImport = runPython(PYTHON!, importArgs, root)
+    expect(firstImport).toContain('CCG_GPTPRO_SIDEBAR_IMPORTED=1')
+    expect(secondImport).toContain('CCG_GPTPRO_SIDEBAR_IMPORTED=1')
+
+    const status = fs.readJsonSync(statusFile)
+    expect(status).toMatchObject({
+      provider: 'chatgpt-pro-sidebar',
+      manual_copy_required: false,
+      sidebar_transport_required: true,
+      sidebar_response_imported: true,
+    })
+    expect(status.rounds['round-1']).toMatchObject({
+      response_saved: true,
+      transport: 'chatgpt-pro-sidebar',
+    })
+    expect(readFileSync(join(dirname(promptFile), 'response.md'), 'utf-8')).toBe(response)
+    expect(fs.readJsonSync(join(sidebarDir, 'watch-continuation-ack.json'))).toMatchObject({
+      transport: 'ccg-gptpro-bridge',
+      acknowledged: true,
+      acknowledgementType: 'ccg-imported',
+      codexThreadId: '019fa981-725e-7f02-93a7-bb1e1b7aefd3',
+      watcherId: '90bae6c6-4506-4a68-bae3-3d39600d13d2',
+    })
+    const evidence = fs.readJsonSync(join(taskDir, 'evidence.json'))
+    const gptproItems = evidence.items.filter((item: any) => item.provider === 'gptpro')
+    expect(gptproItems).toHaveLength(1)
+    expect(gptproItems[0]).toMatchObject({
+      policy: 'automated-sidebar',
+      transport: 'chatgpt-pro-sidebar',
+      codexThreadId: '019fa981-725e-7f02-93a7-bb1e1b7aefd3',
+      automaticResendAllowed: false,
+      externalOutputIsUntrusted: true,
+      codexIsSoleWorkspaceWriter: true,
+    })
+
+    writeSidebarEvidence(sidebarDir, prompt, 'Different response must not overwrite.\n')
+    const overwriteError = runPythonFailure(PYTHON!, importArgs, root)
+    expect(overwriteError).toMatch(/already saved with different content/i)
+    expect(readFileSync(join(dirname(promptFile), 'response.md'), 'utf-8')).toBe(response)
+  })
+
+  maybeIt('rejects sidebar evidence from another Codex task', () => {
+    const root = join(TMP_ROOT, 'sidebar-wrong-thread')
+    const taskDir = join(root, '.ccg', 'tasks', 'sidebar-wrong-thread-task')
+    fs.ensureDirSync(taskDir)
+    fs.writeJsonSync(join(taskDir, 'task.json'), { id: 'sidebar-wrong-thread-task', status: 'in_progress' })
+    const createOutput = runPython(PYTHON!, [
+      BRIDGE,
+      '--mode',
+      'exc',
+      '--workdir',
+      root,
+      '--task-dir',
+      '.ccg/tasks/sidebar-wrong-thread-task',
+      '--prompt',
+      'Reject another Codex task.',
+      '--gemini-policy',
+      'optional',
+      '--gemini-evidence-role',
+      'frontend-prototype',
+    ], root)
+    const sessionDir = parseOutputPath(createOutput, 'CCG_GPTPRO_SESSION_DIR')
+    const promptFile = parseOutputPath(createOutput, 'CCG_GPTPRO_PROMPT_FILE')
+    const sidebarDir = join(dirname(promptFile), 'sidebar')
+    writeSidebarEvidence(
+      sidebarDir,
+      readFileSync(promptFile, 'utf-8'),
+      'Wrong task response.\n',
+      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+    )
+
+    const stderr = runPythonFailure(PYTHON!, [
+      BRIDGE,
+      '--import-session',
+      sessionDir,
+      '--import-sidebar-evidence',
+      sidebarDir,
+      '--expected-codex-thread-id',
+      '019fa981-725e-7f02-93a7-bb1e1b7aefd3',
+    ], root)
+    expect(stderr).toMatch(/another Codex task/i)
   })
 
   it('mode templates include explicit GPT Pro task directives', () => {

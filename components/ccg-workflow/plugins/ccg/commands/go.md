@@ -188,12 +188,12 @@ Use the installed `/ccg:gptpro-plan`, `/ccg:gptpro-review`, or
 ```
 
 GPT Pro shortcuts inherit the matching ordinary command first:
-`gptpro-plan` runs ordinary `/ccg:plan` semantics before manual GPT Pro planning evidence,
-`gptpro-review` runs ordinary `/ccg:review` semantics before manual GPT Pro review evidence, and
-`gptpro-exc` runs ordinary `/ccg:execute` preflight/routing evidence before manual GPT Pro second opinion.
+`gptpro-plan` runs ordinary `/ccg:plan` semantics before automated GPT Pro sidebar planning evidence,
+`gptpro-review` runs ordinary `/ccg:review` semantics before automated GPT Pro sidebar review evidence, and
+`gptpro-exc` runs ordinary `/ccg:execute` preflight/routing evidence before an automated GPT Pro sidebar second opinion.
 Do not replace routed models or skip the ordinary strategy; GPT Pro is fourth evidence only.
 Reading the GPT Pro wrapper template does not bypass ordinary strategy loading; the wrapper contract
-requires the matching ordinary strategy to run before the manual GPT Pro bridge.
+requires the matching ordinary strategy to run before the GPT Pro sidebar bridge.
 
 只读取被选中的那一个命令文件。GPT Pro 是手动证据流程，不是 `codeagent-wrapper` 后端。
 

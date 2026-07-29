@@ -1,13 +1,13 @@
 ---
 name: gptpro-exc
-description: Create a manual ChatGPT Pro execution route review bridge. Use when the user invokes /ccg:gptpro-exc.
+description: Create an automated ChatGPT Pro sidebar execution route review bridge. Use when the user invokes /ccg:gptpro-exc.
 ---
 
 # CCG GPT Pro Execution Route Review
 
 Load and follow `skills/ccg-gptpro-bridge/SKILL.md`.
 
-This is ordinary CCG execute semantics plus GPT Pro manual evidence. The current CCG orchestrator
+This is ordinary CCG execute semantics plus GPT Pro sidebar evidence. The current CCG orchestrator
 controls implementation and final decision after ordinary execute routing; GPT Pro reviews whether
 the execution route is worth local implementation before real code landing.
 
@@ -44,29 +44,30 @@ the execution route is worth local implementation before real code landing.
 - If Gemini frontend evidence is provided, it must come from a real, non-empty response file with a concise summary; do not invent Gemini findings.
 - Gemini is not a gate for `/ccg:gptpro-exc`, is not a general execution participant beyond ordinary
   execute routing, and must not apply workspace changes.
-- GPT Pro is a manual second opinion only; it does not write workspace files.
+- GPT Pro is an automated read-only second opinion; it does not write workspace files.
 - GPT Pro is not an implementation owner. Code-like output must be labeled advisory / illustrative
   and reimplemented locally by Codex.
-- Expected manual questions: 1.
-- Maximum manual questions: 2.
+- Expected questions: 1.
+- Maximum questions: 2.
 - Round 2 should be converted into `/ccg:gptpro-review` whenever possible; use Gemini `--prompt-template review` and `--gemini-evidence-role frontend-review` for frontend review evidence over the applied diff.
-- Use `scripts/gptpro_bridge.py --mode exc --detach-preview --open-preview --gemini-policy optional --gemini-evidence-role frontend-prototype --routing-evidence-file <routing-evidence-file> --routing-summary-file <routing-summary-file> --require-routing-evidence [--require-external-intelligence --expected-intelligence-mode <route investigation_mode> --expected-intelligence-depth <route depth> when route status=valid and requirement=required]`; omit those three external-intelligence flags for `status=waived`.
+- Use `scripts/gptpro_bridge.py --mode exc --gemini-policy optional --gemini-evidence-role frontend-prototype --routing-evidence-file <routing-evidence-file> --routing-summary-file <routing-summary-file> --require-routing-evidence [--require-external-intelligence --expected-intelligence-mode <route investigation_mode> --expected-intelligence-depth <route depth> when route status=valid and requirement=required]`; omit those three external-intelligence flags for `status=waived`.
 - When frontend/full-stack Gemini output is available, add `--gemini-response-file <CCG_GEMINI_RESPONSE_FILE> --gemini-summary-file <summary-file>`.
+- Delegate, monitor, wake, and import through the installed `chatgpt-pro-sidebar` Skill exactly as defined by the shared bridge Skill.
 - GPT Pro output must use sections: `Proceed`, `Revise Plan`, `Stop`, `Implementation Notes`,
   `Required Tests`, `Verification`.
 - Report in Chinese and synthesize validated Grok external intelligence, ordinary execute evidence,
-  Gemini frontend evidence when present, and GPT Pro manual second opinion. If Gemini frontend
+  Gemini frontend evidence when present, and GPT Pro sidebar second opinion. If Gemini frontend
   evidence was not used, say so from routing evidence rather than inventing a Gemini result.
 - The current CCG orchestrator remains final owner.
 - Do not automate ChatGPT web login.
 - Do not read ChatGPT web DOM.
-- Do not extract ChatGPT Output programmatically.
+- Do not use DOM extraction; only the installed sidebar Skill may capture bounded UIA output.
 
-## Manual Handoff Barrier
+## Sidebar Handoff
 
-- After creating the bridge artifacts, show only handoff metadata.
-- Do not paste the full generated prompt into chat.
-- Show the preview URL, session directory, prompt file path, response file path, and status file path.
-- Tell the user to open the preview page and use the preview page Copy Prompt button, then manually submit the prompt to ChatGPT Pro and manually save the response.
-- End the current assistant turn after the handoff. Do not continue the execution route review analysis in the same turn.
-- Continue only after `status.json` shows `response_saved=true` and `response.md is non-empty`.
+- Create the bridge artifacts without launching the legacy preview.
+- Use the installed sidebar Skill to create the ChatGPT conversation and submit `prompt.md`.
+- Start the detached watcher and end the turn only after the watcher registration is durable.
+- Continue automatically in the same Codex Desktop task when the Stop Hook fires.
+- Import completed sidebar evidence with the exact Codex task binding; never ask the user to copy or
+  save the response.

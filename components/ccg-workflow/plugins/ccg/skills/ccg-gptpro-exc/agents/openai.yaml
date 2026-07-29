@@ -1,4 +1,4 @@
 interface:
   display_name: "CCG GPT Pro Execution Route Review"
-  short_description: "Create a manual ChatGPT Pro execution route review bridge."
+  short_description: "Automate a ChatGPT Pro execution route review."
   default_prompt: "Use $ccg-gptpro-exc to run /ccg:gptpro-exc Implement the planned change."

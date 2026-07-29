@@ -200,9 +200,9 @@ When your message mentions security, caching, RAG, Kubernetes, etc., the relevan
 |---------|-------------|
 | `/ccg:grok-intel` | Collect validated current Web/X evidence through isolated Grok ACP |
 | `/ccg:grok-verify` | Verify a plan, diff, target, and dependencies against current facts |
-| `/ccg:gptpro-plan` | Manual GPT Pro planning evidence after required Grok routing |
-| `/ccg:gptpro-exc` | Manual GPT Pro execution-route review |
-| `/ccg:gptpro-review` | Manual GPT Pro final review with canonical Grok provenance |
+| `/ccg:gptpro-plan` | Automated GPT Pro sidebar planning evidence after required Grok routing |
+| `/ccg:gptpro-exc` | Automated GPT Pro sidebar execution-route review |
+| `/ccg:gptpro-review` | Automated GPT Pro sidebar final review with canonical Grok provenance |
 
 ### OpenSpec Integration
 
@@ -359,4 +359,4 @@ MIT
 
 ---
 
-v3.4.2 | [Issues](https://github.com/jed-zed/ccg-gptpro-worflow/issues) | [Contributing](./CONTRIBUTING.md)
+v3.4.3 | [Issues](https://github.com/jed-zed/ccg-gptpro-worflow/issues) | [Contributing](./CONTRIBUTING.md)
