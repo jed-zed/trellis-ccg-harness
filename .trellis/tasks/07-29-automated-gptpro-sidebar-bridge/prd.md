@@ -107,23 +107,23 @@ into canonical CCG evidence, and independently decide the next action.
 
 ## Acceptance Criteria
 
-- [ ] All four CCG GPT Pro Skills describe an automated side-panel handoff and
+- [x] All four CCG GPT Pro Skills describe an automated side-panel handoff and
       contain no manual copy/paste/save barrier.
-- [ ] The bridge can import a side-panel response exactly once, rejects empty,
+- [x] The bridge can import a side-panel response exactly once, rejects empty,
       oversized, outside-session, or hash-mismatched responses, and records
       canonical evidence.
-- [ ] A deterministic test proves two watcher registrations for the same Codex
+- [x] A deterministic test proves two watcher registrations for the same Codex
       task coexist and one cannot overwrite the other.
-- [ ] A deterministic test proves the Stop Hook wakes once for terminal
+- [x] A deterministic test proves the Stop Hook wakes once for terminal
       registrations, preserves pending registrations, and does not duplicate a
       claimed continuation.
-- [ ] A deterministic test proves send-uncertain and conversation-change states
+- [x] A deterministic test proves send-uncertain and conversation-change states
       never auto-resend.
-- [ ] A harmless live smoke proves one real Pro response is captured from the
+- [x] A harmless live smoke proves one real Pro response is captured from the
       Codex Desktop side panel and wakes this exact Codex task; multi-window
       live parallelism is reported separately unless two eligible windows are
       actually available.
-- [ ] CCG lint, typecheck, unit tests, build, Python parser/compile checks,
+- [x] CCG lint, typecheck, unit tests, build, Python parser/compile checks,
       PowerShell parser tests, Pester tests, Harness tests, source verification,
       doctor, and conflict audit pass.
 - [ ] CCG source, personal Skill, and Harness branches are committed and pushed
