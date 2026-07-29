@@ -21,8 +21,9 @@ resend were used.
 | `jed-zed/trellis-ccg-harness` | `codex/integrate-gptpro-sidebar-automation` | source snapshot through `2f3db6a` |
 
 The personal Skill and CCG branches were pushed before final Harness closeout.
-The Harness branch is pushed after this acceptance record and Trellis archive
-commits are created. No pull request, deployment, database migration, npm
+The Harness branch was first pushed through acceptance commit `91ba27c`; the
+subsequent delivery-state, Trellis archive, and journal commits are pushed in
+the final closeout. No pull request, deployment, database migration, npm
 publication, production configuration change, or real-user-data operation was
 performed.
 

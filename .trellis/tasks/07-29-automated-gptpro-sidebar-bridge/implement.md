@@ -65,7 +65,7 @@
 - [x] Review each isolated worktree diff and exclude all unrelated files.
 - [x] Commit and push the personal Skill branch.
 - [x] Commit and push the CCG branch.
-- [ ] Commit and push the Harness branch.
+- [x] Commit and push the Harness branch.
 - [x] Create pull requests only if the repositories' branch policy or current
       remote state requires review instead of direct branch delivery.
 - [x] Record branch, commit, remote URL, test evidence, remaining live limits,

@@ -126,7 +126,7 @@ into canonical CCG evidence, and independently decide the next action.
 - [x] CCG lint, typecheck, unit tests, build, Python parser/compile checks,
       PowerShell parser tests, Pester tests, Harness tests, source verification,
       doctor, and conflict audit pass.
-- [ ] CCG source, personal Skill, and Harness branches are committed and pushed
+- [x] CCG source, personal Skill, and Harness branches are committed and pushed
       to their GitHub remotes, with exact commit IDs and no unrelated files.
 
 ## Blocking Open Questions
