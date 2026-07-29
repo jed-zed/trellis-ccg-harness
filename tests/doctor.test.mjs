@@ -40,6 +40,12 @@ function adapterReport(
     actual: TARGET_VERSION,
     summary: "Installed personal CCG CLI is available.",
   },
+  plugin = {
+    status: "ok",
+    actual: `${TARGET_VERSION}+codex.1`,
+    available: [`${TARGET_VERSION}+codex.1`],
+    summary: "Installed personal CCG Codex plugin cache is available.",
+  },
 ) {
   const findings = [
     {
@@ -82,9 +88,12 @@ function adapterReport(
     {
       id: "ccg-plugin-cache",
       severity: "warning",
-      status: "conflict",
-      summary: "Installed CCG plugin cache is missing.",
-      evidence: { actual: "missing" },
+      status: plugin.status,
+      summary: plugin.summary,
+      evidence: {
+        actual: plugin.actual,
+        available: plugin.available,
+      },
     },
   ];
   if (extraFinding) findings.push(extraFinding);
@@ -163,6 +172,7 @@ function fixture() {
     ["trellis", "0.6.9"],
     ["pnpm", "10.17.1"],
     ["go", "go version go1.26.5 test/amd64"],
+    ["ccg", `ccg/${TARGET_VERSION} test-runtime`],
     ["git", "https://github.com/jed-zed/trellis-ccg-harness.git"],
     ["gh", "false"],
   ]) {
@@ -175,6 +185,9 @@ function fixture() {
       const reportPath = path.join(fixtureRoot, name);
       write(reportPath, `${JSON.stringify(report, null, 2)}\n`);
       return reportPath;
+    },
+    setCcgVersion(version) {
+      writeCommand(binRoot, "ccg", `ccg/${version} test-runtime`);
     },
     cleanup() {
       rmSync(fixtureRoot, { recursive: true, force: true });
@@ -210,6 +223,31 @@ function runDoctor(value, reportPath, targetVersion = TARGET_VERSION) {
   );
 }
 
+function runSetupDoctor(value, reportPath, previousPluginVersion) {
+  const args = [
+    "-NoProfile",
+    "-ExecutionPolicy",
+    "Bypass",
+    "-File",
+    path.join(value.fixtureRoot, "scripts", "doctor.ps1"),
+    "-RepoRoot",
+    value.fixtureRoot,
+    "-CcgUpdateTargetVersion",
+    TARGET_VERSION,
+    "-CcgSetupPreviousPluginVersion",
+    previousPluginVersion,
+  ];
+  return spawnSync("pwsh", args, {
+    encoding: "utf8",
+    shell: false,
+    env: {
+      ...process.env,
+      PATH: `${value.binRoot}${delimiter}${process.env.PATH}`,
+      TEST_ADAPTER_REPORT: reportPath,
+    },
+  });
+}
+
 test("CCG doctor accepts owner-compatible versions while updates remain target-bound", () => {
   const value = fixture();
   try {
@@ -217,6 +255,7 @@ test("CCG doctor accepts owner-compatible versions while updates remain target-b
     const result = runDoctor(value, reportPath);
     assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
     assert.match(result.stdout, /Installed personal CCG CLI is available/i);
+    assert.match(result.stdout, /plugin cache includes update target/i);
 
     const ownerCompatibleReport = value.writeReport(
       "owner-compatible-runtime.json",
@@ -226,6 +265,7 @@ test("CCG doctor accepts owner-compatible versions while updates remain target-b
         summary: "Installed personal CCG CLI is available.",
       }),
     );
+    value.setCcgVersion("9.9.9");
     const strict = runDoctor(value, ownerCompatibleReport, null);
     assert.equal(strict.status, 0, `${strict.stdout}\n${strict.stderr}`);
     assert.match(
@@ -233,6 +273,7 @@ test("CCG doctor accepts owner-compatible versions while updates remain target-b
       /Installed personal CCG CLI is available/i,
     );
 
+    value.setCcgVersion(TARGET_VERSION);
     const unrelatedTarget = runDoctor(value, reportPath, "3.4.0");
     assert.notEqual(unrelatedTarget.status, 0);
     assert.match(
@@ -240,6 +281,7 @@ test("CCG doctor accepts owner-compatible versions while updates remain target-b
       /Global CCG runtime must match update target 3\.4\.0/i,
     );
 
+    value.setCcgVersion(CURRENT_VERSION);
     const staleRuntimeReport = value.writeReport(
       "stale-runtime.json",
       adapterReport(null, {
@@ -253,6 +295,23 @@ test("CCG doctor accepts owner-compatible versions while updates remain target-b
     assert.match(
       `${staleRuntime.stdout}\n${staleRuntime.stderr}`,
       /global CCG runtime.*target 3\.3\.1|target.*runtime/i,
+    );
+
+    value.setCcgVersion(TARGET_VERSION);
+    const missingPluginReport = value.writeReport(
+      "missing-plugin.json",
+      adapterReport(null, undefined, {
+        status: "conflict",
+        actual: "missing",
+        available: [],
+        summary: "Installed CCG plugin cache is missing.",
+      }),
+    );
+    const missingPlugin = runDoctor(value, missingPluginReport);
+    assert.notEqual(missingPlugin.status, 0);
+    assert.match(
+      `${missingPlugin.stdout}\n${missingPlugin.stderr}`,
+      /plugin cache must include update target 3\.3\.1/i,
     );
   } finally {
     value.cleanup();
@@ -296,6 +355,65 @@ test("CCG update doctor still blocks interrupted transaction state", () => {
     assert.match(
       `${result.stdout}\n${result.stderr}`,
       /Transaction lock residue found/i,
+    );
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("CCG setup doctor permits only the exact preflight plugin transition", () => {
+  const value = fixture();
+  try {
+    const missing = value.writeReport(
+      "missing-plugin.json",
+      adapterReport(null, undefined, {
+        status: "conflict",
+        actual: "missing",
+        available: [],
+        summary: "Installed CCG plugin cache is missing.",
+      }),
+    );
+    const permittedMissing = runSetupDoctor(value, missing, "missing");
+    assert.equal(
+      permittedMissing.status,
+      0,
+      `${permittedMissing.stdout}\n${permittedMissing.stderr}`,
+    );
+    assert.match(
+      permittedMissing.stdout,
+      /permits the exact previous plugin identity missing/i,
+    );
+
+    const previousVersion = "3.3.0+codex.1";
+    const previous = value.writeReport(
+      "previous-plugin.json",
+      adapterReport(null, undefined, {
+        status: "conflict",
+        actual: previousVersion,
+        available: [previousVersion],
+        summary: "Installed CCG plugin cache is mismatched.",
+      }),
+    );
+    const permittedPrevious = runSetupDoctor(
+      value,
+      previous,
+      previousVersion,
+    );
+    assert.equal(
+      permittedPrevious.status,
+      0,
+      `${permittedPrevious.stdout}\n${permittedPrevious.stderr}`,
+    );
+
+    const wrongPrevious = runSetupDoctor(
+      value,
+      previous,
+      "3.2.9+codex.1",
+    );
+    assert.notEqual(wrongPrevious.status, 0);
+    assert.match(
+      `${wrongPrevious.stdout}\n${wrongPrevious.stderr}`,
+      /plugin cache must include update target/i,
     );
   } finally {
     value.cleanup();

@@ -20,9 +20,9 @@ $trustedCommandResolverPath = Join-Path $RepoRoot $trustedCommandResolverRelativ
 $expectedThirdPartyManifestSha256 = "7d4bbe9812e2400f86fed2fcdcf28f47a0cae476e1e849d944ce624013080085"
 # Canonical UTF-8 SHA-256 (CRLF normalized to LF) of the shared validator.
 # `-Index` must execute this exact staged source, never a mutable worktree copy.
-$expectedThirdPartyValidatorSha256 = "0ad601d9fe2f63327b6998c0a681f6a4260bf7eab0d656f698497db8ffc222c3"
+$expectedThirdPartyValidatorSha256 = "4bbb0a568d7102373d68036066ba3cace92f75be3edeb05faf8d85feac3807a1"
 # Canonical UTF-8 SHA-256 of the validator's trusted command dependency.
-$expectedTrustedCommandResolverSha256 = "70981d2163e0714d1095e7def5ed54dda88888ccc16c375bb0f197460cdb4329"
+$expectedTrustedCommandResolverSha256 = "febf8675ace4cf0ce353c8680aa4e3e606e424844704a85877efd7610f420d2e"
 
 function Assert-Equal {
   param(

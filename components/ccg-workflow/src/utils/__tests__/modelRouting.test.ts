@@ -7,7 +7,7 @@ import {
 } from '../model-routing'
 
 describe('model routing', () => {
-  it('defines all standard roles with registered defaults', () => {
+  it('defines all four formal roles with registered defaults', () => {
     const routing = createDefaultRoleRouting()
     expect(Object.keys(routing).filter(key => STANDARD_ROUTING_ROLES.includes(key as any))).toEqual(
       STANDARD_ROUTING_ROLES,
@@ -15,9 +15,10 @@ describe('model routing', () => {
     expect(routing.frontend.primary).toBe('gemini')
     expect(routing.backend.primary).toBe('codex')
     expect(routing.search.primary).toBe('grok')
+    expect(routing['product-manager'].primary).toBe('claude')
   })
 
-  it('normalizes legacy frontend/backend routing and supplies the search role', () => {
+  it('normalizes legacy routing and supplies search and product-manager roles', () => {
     const routing = normalizeModelRouting({
       frontend: { models: ['antigravity'], primary: 'antigravity', strategy: 'fallback' },
       backend: { models: ['grok'], primary: 'grok', strategy: 'fallback' },
@@ -28,6 +29,7 @@ describe('model routing', () => {
     expect(routing.frontend.primary).toBe('antigravity')
     expect(routing.backend.primary).toBe('grok')
     expect(routing.search.primary).toBe('grok')
+    expect(routing['product-manager'].primary).toBe('claude')
     expect(routing).not.toHaveProperty('analysis')
     expect(routing).not.toHaveProperty('planning')
     expect(routing).not.toHaveProperty('review')
@@ -35,11 +37,11 @@ describe('model routing', () => {
 
   it('changes only the requested role', () => {
     const before = createDefaultRoleRouting()
-    const after = setRoleProvider(before, 'frontend', 'grok')
+    const after = setRoleProvider(before, 'product-manager', 'gemini')
 
-    expect(after.frontend).toMatchObject({ primary: 'grok', models: ['grok'] })
+    expect(after['product-manager']).toMatchObject({ primary: 'gemini', models: ['gemini'] })
     for (const role of STANDARD_ROUTING_ROLES) {
-      if (role !== 'frontend')
+      if (role !== 'product-manager')
         expect(after[role]).toEqual(before[role])
     }
   })
@@ -60,7 +62,7 @@ describe('model routing', () => {
   })
 
   it('rejects providers that are not registered by the wrapper', () => {
-    expect(() => setRoleProvider(createDefaultRoleRouting(), 'backend', 'unknown' as any))
+    expect(() => setRoleProvider(createDefaultRoleRouting(), 'product-manager', 'unknown' as any))
       .toThrow('must be a registered provider')
   })
 })

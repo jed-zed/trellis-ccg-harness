@@ -26,6 +26,7 @@ import {
   exportHarnessInitSkill,
   inspectProject,
   markProjectReady,
+  migrateProjectProductManager,
   runHarnessInitCli,
   validateProjectContract,
 } from "../.agents/skills/harness-init/scripts/harness-init-core.mjs";
@@ -335,6 +336,7 @@ test("approved contracts atomically create the owned Harness contract", async ()
       ".harness/policies/collaboration-policy.md",
       ".harness/project.json",
       ".harness/project.schema.json",
+      ".harness/product-manager.schema.json",
       ".harness/third-party-sources.json",
     ]);
     assert.deepEqual(ownership.managedBlocks, [
@@ -351,7 +353,7 @@ test("approved contracts atomically create the owned Harness contract", async ()
       },
     ]);
     assert.deepEqual(ownership.policy, {
-      policyVersion: 2,
+      policyVersion: 6,
       markerFormatVersion: 1,
       sourcePath: ".harness/policies/collaboration-policy.md",
       sourceSha256: sha256(readFileSync(POLICY_PATH)),
@@ -364,9 +366,23 @@ test("approved contracts atomically create the owned Harness contract", async ()
     );
     assert.match(ownership.contractSha256, /^[a-f0-9]{64}$/);
     assert.match(ownership.schemaSha256, /^[a-f0-9]{64}$/);
+    assert.match(
+      ownership.productManagerSchemaSha256,
+      /^[a-f0-9]{64}$/,
+    );
     assert.equal(
       existsSync(
         path.join(value.repoRoot, ".harness", "project.schema.json"),
+      ),
+      true,
+    );
+    assert.equal(
+      existsSync(
+        path.join(
+          value.repoRoot,
+          ".harness",
+          "product-manager.schema.json",
+        ),
       ),
       true,
     );
@@ -526,6 +542,70 @@ test("legacy noncanonical schema bytes migrate when ownership is intact", async 
     assert.equal(
       JSON.parse(readFileSync(ownershipPath, "utf8")).schemaSha256,
       sha256(canonicalSchema),
+    );
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("approved product-manager migration updates owned files and preserves unknown assets", async () => {
+  const value = fixture();
+  try {
+    const contractPath = writeContract(value.repoRoot, approvedContract());
+    await applyProjectContract({
+      repoRoot: value.repoRoot,
+      contractPath,
+      skillRoot: SKILL_ROOT,
+    });
+    await markProjectReady({
+      repoRoot: value.repoRoot,
+      skillRoot: SKILL_ROOT,
+    });
+    const unknown = path.join(
+      value.repoRoot,
+      ".harness",
+      "user-owned-note.txt",
+    );
+    writeFileSync(unknown, "preserve me\n");
+
+    const result = await migrateProjectProductManager({
+      approved: true,
+      allowedProviders: ["codex", "gemini", "claude"],
+      coupledSourceUpdate: true,
+      repoRoot: value.repoRoot,
+      skillRoot: SKILL_ROOT,
+    });
+
+    assert.equal(result.status, "ready");
+    assert.equal(readFileSync(unknown, "utf8"), "preserve me\n");
+    const project = JSON.parse(
+      readFileSync(
+        path.join(value.repoRoot, ".harness", "project.json"),
+        "utf8",
+      ),
+    );
+    assert.equal(project.status, "ready");
+    assert.equal(
+      project.productManager.stateAuthority,
+      "trellis-task-projection",
+    );
+    assert.equal(
+      project.productManager.selectedProviderAuthority,
+      "unified-ccg-routing",
+    );
+    assert.deepEqual(
+      project.productManager.allowedProviders,
+      ["codex", "gemini", "claude"],
+    );
+    assert.equal(project.providers.claude.enabled, true);
+    assert.equal(project.providers.claude.workspaceWrite, false);
+    assert.equal(
+      project.source.updatePolicy,
+      "coupled-bundle-update-with-current-snapshot-source-fingerprint",
+    );
+    assert.equal(
+      project.source.dependencyPolicy,
+      "source-verified-current-snapshot",
     );
   } finally {
     value.cleanup();
@@ -1579,7 +1659,7 @@ test("policy content cannot change without a policy version bump", async () => {
       "# Harness Collaboration Policy",
       "# Harness Collaboration Policy without version bump",
     );
-    setOwnedPolicyProjection(value.repoRoot, differentPolicy, 2);
+    setOwnedPolicyProjection(value.repoRoot, differentPolicy, 6);
     const before = {
       agents: readFileSync(path.join(value.repoRoot, "AGENTS.md"), "utf8"),
       policy: readFileSync(

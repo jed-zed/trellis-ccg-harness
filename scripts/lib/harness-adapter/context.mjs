@@ -130,6 +130,52 @@ function collectArtifacts(repoRoot, taskDirectory) {
   return artifacts;
 }
 
+export function collectProductManagerSummary(
+  repoRoot,
+  taskDirectory,
+  taskId,
+) {
+  const statePath = path.join(taskDirectory, "product-manager.json");
+  const contents = readTextIfPresent(statePath);
+  if (contents === null) return null;
+  const state = JSON.parse(contents);
+  if (
+    state?.schemaVersion !== 1 ||
+    state.taskId !== taskId ||
+    !Number.isSafeInteger(state.stateRevision) ||
+    !Number.isSafeInteger(state.planRevision)
+  ) {
+    throw new Error(
+      "Canonical product-manager.json is malformed or belongs to another Trellis task.",
+    );
+  }
+  return {
+    path: relativePosix(repoRoot, statePath),
+    sha256: sha256(contents),
+    stateRevision: state.stateRevision,
+    planRevision: state.planRevision,
+    planDigest: state.planDigest,
+    progress: state.progress,
+    currentGate: state.currentGate
+      ? {
+          kind: state.currentGate.kind,
+          checkpointId: state.currentGate.checkpointId,
+          status: state.currentGate.status,
+          presentationRequired:
+            state.currentGate.presentationRequired === true,
+          presentedAt: state.currentGate.presentedAt ?? null,
+        }
+      : null,
+    nextAction: state.nextAction,
+    latestAdvice: state.latestAdvice
+      ? {
+          ...state.latestAdvice,
+          stale: state.latestAdvice.planRevision !== state.planRevision,
+        }
+      : null,
+  };
+}
+
 function summarizeProviders(providers) {
   return Object.fromEntries(
     Object.entries(providers).map(([name, provider]) => [
@@ -169,6 +215,11 @@ export function buildCanonicalContext(
       status: task.metadata.status,
       path: task.relativeDirectory,
       artifacts: collectArtifacts(repoRoot, task.directory),
+      productManager: collectProductManagerSummary(
+        repoRoot,
+        task.directory,
+        task.metadata.id,
+      ),
     },
     sources: {
       trellis: {

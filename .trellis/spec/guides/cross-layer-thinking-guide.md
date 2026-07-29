@@ -153,6 +153,62 @@ When a CLI auto-detects a mode by probing a remote resource (e.g., checking if `
 
 ---
 
+## Nested Process Lock Ownership
+
+When one layer launches another process for the same logical operation, map
+lock ownership before composing them. Sharing the same lock path can create a
+self-deadlock: the parent holds the lock while the child waits for it.
+
+### Checklist: Before Nesting Two Single-Flight Layers
+
+- [ ] Name the resource each lock protects, such as Provider execution versus
+  canonical projection.
+- [ ] Give different resources distinct lock namespaces.
+- [ ] Make the innermost owner authoritative for the external side effect.
+- [ ] Add an integration test where the child acquires its real lock while the
+  parent orchestration lock is held.
+- [ ] Confirm timeout and retry tests reach the child instead of only testing
+  parent cleanup.
+
+**Real-world example**: The Harness product-manager adapter held
+`locks/<invocation>.lock` while launching CCG. CCG used the same path for
+Provider single-flight and waited on its parent, so Claude never started.
+Separating Harness `projection-locks/` from CCG `locks/` preserved both CAS and
+Provider single-flight without a second Provider authority.
+
+---
+
+## Machine-Readable Child Process Boundaries
+
+When a parent parses a child process as JSON, stdout is protocol data rather
+than a human log stream. A dependency banner can invalidate an otherwise valid
+result, while a retry loop that swallows child errors removes the evidence
+needed to diagnose the real provider failure.
+
+### Checklist: Before Composing A JSON CLI Boundary
+
+- [ ] Define stdout as exactly one JSON document and keep diagnostics on stderr
+  or in an audit file.
+- [ ] Disable dependency support notices, update banners, color, and progress
+  output in both the machine CLI process and its child environment.
+- [ ] Keep the parent parser strict; do not recover by searching for a JSON
+  substring inside contaminated stdout.
+- [ ] Bound captured stderr independently from the provider output limit.
+- [ ] Redact the bounded diagnostic before persistence.
+- [ ] Record every failed retry attempt with attempt number and provider while
+  keeping provider fallback disabled.
+- [ ] Add a real child-process regression that runs outside test-mode notice
+  suppression.
+
+**Real-world example**: A Claude product-manager call returned a normalized
+`unavailable` JSON result, but an i18next/Locize support banner preceded it on
+stdout, so the Harness correctly rejected the command as malformed JSON. The
+same-provider retry loop also discarded both Claude failure reasons. The fix
+disabled the notice in the provider child environment, preserved strict JSON
+parsing, and added bounded, redacted `attempt_failed` audit entries.
+
+---
+
 ## When to Create Flow Documentation
 
 Create detailed flow docs when:

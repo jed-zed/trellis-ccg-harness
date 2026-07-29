@@ -18,6 +18,51 @@
       "sourceSnapshotExecutable": false
     }
   },
+  "productManager": {
+    "stateAuthority": "trellis-task-projection",
+    "stateFile": "product-manager.json",
+    "evidenceRoot": ".ccg-evidence/product-manager",
+    "selectedProviderAuthority": "unified-ccg-routing",
+    "allowedProviders": [
+      "codex",
+      "gemini",
+      "claude"
+    ],
+    "providerCapabilities": {
+      "codex": {
+        "readOnly": true,
+        "workspaceWrite": false,
+        "terminal": false,
+        "subagents": false,
+        "network": "explicit-per-call",
+        "paid": "explicit-per-call"
+      },
+      "gemini": {
+        "readOnly": true,
+        "workspaceWrite": false,
+        "terminal": false,
+        "subagents": false,
+        "network": "explicit-per-call",
+        "paid": "explicit-per-call"
+      },
+      "claude": {
+        "readOnly": true,
+        "workspaceWrite": false,
+        "terminal": false,
+        "subagents": false,
+        "network": "explicit-per-call",
+        "paid": "explicit-per-call"
+      },
+      "grok": {
+        "readOnly": false,
+        "workspaceWrite": false,
+        "terminal": false,
+        "subagents": false,
+        "network": "forbidden",
+        "paid": "forbidden"
+      }
+    }
+  },
   "state": {
     "ignoredRuntimePaths": [
       ".ccg",
@@ -35,46 +80,28 @@
   },
   "models": {
     "codex": {
-      "routable": true,
-      "runtimeAvailability": "built-in",
+      "enabled": true,
       "workspaceWrite": true
     },
     "gemini": {
-      "routable": true,
-      "runtimeAvailability": "provider-cli",
+      "enabled": true,
       "workspaceWrite": false
     },
     "claude": {
-      "routable": true,
-      "runtimeAvailability": "provider-cli",
-      "workspaceWrite": false
-    },
-    "antigravity": {
-      "routable": true,
-      "runtimeAvailability": "provider-cli",
+      "enabled": true,
       "workspaceWrite": false
     },
     "grok": {
-      "routable": true,
-      "runtimeAvailability": "provider-cli",
-      "externalIntelligence": "opt-in",
+      "enabled": false,
+      "optional": true,
+      "autoRoute": false,
       "workspaceWrite": false
     },
     "gptpro": {
-      "routable": false,
-      "runtimeAvailability": "manual-only",
+      "enabled": true,
       "manualOnly": true,
       "workspaceWrite": false
     }
-  },
-  "routing": {
-    "authority": "ccg",
-    "roles": [
-      "frontend",
-      "backend",
-      "search"
-    ],
-    "resolutionCommand": "ccg routing get <role> --json"
   },
   "dispatch": {
     "codex": "inline"

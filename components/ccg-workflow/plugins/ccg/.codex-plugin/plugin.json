@@ -1,7 +1,7 @@
 {
   "name": "ccg",
-  "version": "3.4.1+codex.2",
-  "description": "Codex-native CCG workflow with independent role-to-provider routing, a provider-neutral read-only product manager, opt-in external intelligence, spec, team, and quality gates. Codex remains the final implementation and verification owner.",
+  "version": "3.4.2+codex.1",
+  "description": "Codex-native CCG workflow with unified role-to-provider routing, bounded provider evidence, an optional isolated read-only Claude product-manager Provider, opt-in external intelligence, spec, team, and quality gates. Codex remains the final implementation and verification owner.",
   "author": {
     "name": "jed-zed",
     "email": "noreply@example.com",
@@ -23,7 +23,7 @@
   "interface": {
     "displayName": "CCG GPT Pro Workflow",
     "shortDescription": "Run Codex-native CCG with configurable role providers and local quality gates",
-    "longDescription": "A Codex-native CCG fork where frontend, backend, and search independently select existing registered providers while analysis, planning, and review run inside those roles. Codex owns orchestration, implementation, and verification. External intelligence remains opt-in and GPT Pro remains manual-only. Includes bounded provider evidence, Git/context helpers, spec and team workflows, and local quality/security gates.",
+    "longDescription": "A Codex-native CCG fork where frontend, backend, search, and product-manager independently select registered providers through unified routing. Codex owns orchestration, implementation, and verification. External intelligence remains opt-in, Claude may run only as an explicitly selected isolated read-only product-manager Provider, and GPT Pro remains manual-only. Includes bounded provider evidence, hardened snapshots, Git/context helpers, spec and team workflows, and local quality/security gates.",
     "developerName": "jed-zed",
     "category": "Coding",
     "capabilities": [

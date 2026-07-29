@@ -13,6 +13,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
+  assertManagedCcgRuntimePackage,
   buildBootstrapOwnership,
   buildOwnedUninstallPlan,
   buildRestoreAction,
@@ -267,14 +268,9 @@ function assertManagedCcg(pending, after) {
       + `${after.ccg?.version ?? "missing"}.`,
     );
   }
-  if (
-    !samePath(
-      after.ccg.sourcePath,
-      pending.ccgSourcePath,
-    )
-  ) {
+  if (after.ccg.sourcePath !== undefined) {
     throw new Error(
-      "Managed global CCG package is not linked to the Harness component.",
+      "Managed global CCG package must not link back to the Harness component.",
     );
   }
 }
@@ -405,7 +401,9 @@ async function abortBootstrap(args) {
         id: candidate.id,
         kind:
           candidate.id === "ccg-link"
-            ? "npm-global-link"
+            ? candidate.current?.sourcePath !== undefined
+              ? "npm-global-link"
+              : "npm-global-package"
             : "npm-global-package",
         package: candidate.package,
         originalBeforeFirstManagement: candidate.before,
@@ -553,15 +551,16 @@ function validateResolvedUpdateSource(resolved, args, manifest) {
   const commit = git(resolved.checkout, ["rev-parse", "HEAD"], {
     capture: true,
   }).toLowerCase();
+  const selectedCommit = args.ccgCommit ?? commit;
   const gitTree = git(
     resolved.checkout,
-    ["rev-parse", `${args.ccgCommit}^{tree}`],
+    ["rev-parse", `${selectedCommit}^{tree}`],
     { capture: true },
   ).toLowerCase();
   return validateUpdateSource({
     expected: {
       repository: String(manifest.ccg.authoritativeRepository),
-      commit: args.ccgCommit,
+      commit: selectedCommit,
       gitTree,
     },
     actual: { repository, commit, gitTree },
@@ -722,18 +721,7 @@ async function runActivatedCcgCliSmokes(repoRoot, componentRoot) {
   );
   if (ccgOwnership) {
     const globalPackages = await observeGlobalPackages();
-    if (
-      !globalPackages.ccg?.sourcePath ||
-      !samePath(globalPackages.ccg.sourcePath, componentRoot) ||
-      !globalPackageSnapshotsEqual(
-        globalPackages.ccg,
-        ccgOwnership.installedByHarness,
-      )
-    ) {
-      throw new Error(
-        "Harness-owned global CCG link no longer matches its ownership fingerprint.",
-      );
-    }
+    assertManagedCcgRuntimePackage(ccgOwnership, globalPackages.ccg);
     const globalVersion =
       process.platform === "win32"
         ? run(

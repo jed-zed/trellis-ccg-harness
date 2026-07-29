@@ -26,6 +26,9 @@ revised.
 - Read `../../rules/ccg-role-routing.md`, classify plan slices as frontend,
   backend, and/or search, then resolve those top-level roles before assigning
   planning analysis.
+- Claude is disabled for ordinary delegation. It may run only when unified CCG
+  routing selects Claude for the read-only `product-manager` role and the
+  project allows the explicit provider call.
 - Do not call `/ccg:execute` automatically and do not ask for a Y/N execution handoff.
 - If no user requirement is provided, answer in Chinese with usage examples and do not write files.
 - If the user explicitly asks to revise an existing plan file, update only that plan file. Otherwise create a new plan and never overwrite an existing plan; use `-v2`, `-v3`, and so on.
@@ -58,6 +61,9 @@ Before writing or presenting a final plan:
   file;
 - include Codex analysis, applicable role-provider analysis, and the final
   synthesis.
+- record whether unified `product-manager` routing selected Claude, whether the
+  project allowed the call, and, if invoked, the validated task-local evidence
+  identity.
 
 If a selected external provider cannot start or still has no usable response
 after two attempts, stop and report the failure in Chinese. Do not write or
@@ -125,6 +131,7 @@ Use this Chinese Markdown structure:
 **计划路径**：`.codex/ccg/plans/<file>.md`
 **职责 Providers**：`frontend=<provider>`、`backend=<provider>`、`search=<provider>`（仅列适用项）
 **外部证据**：`<role=response-file-or-inline-codex>`
+**Claude 产品经理**：<未选择 / 已选择但本次未调用 / 已调用；证据标识>
 
 ## 1. 增强需求
 
@@ -201,6 +208,7 @@ Use this Chinese Markdown structure:
 
 职责 Providers：`<applicable-role-provider-map>`
 外部证据：`<role=evidence-location>`
+Claude 产品经理：<未选择 / 已选择但本次未调用 / 已调用；证据标识>
 ```
 
 ## 交付消息
@@ -210,6 +218,7 @@ Use this Chinese Markdown structure:
 - 说明保存路径。
 - 概括选定的技术方案。
 - 说明适用的职责 Provider 以及证据位置。
+- 说明 Claude 产品经理是否由已安装配置选中，以及本次是否产生了已验证证据。
 - 提供准确的手动执行命令：
 
 ```text

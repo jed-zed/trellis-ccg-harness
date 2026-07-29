@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createDefaultConfig, createDefaultRouting, normalizeIntelligenceConfig, normalizeProductManagerConfig, resolveCliIntelligenceFlag, resolveNonInteractiveIntelligenceConsent } from '../config'
+import { createDefaultConfig, createDefaultRouting, migrateLegacyProductManagerProviderDocument, normalizeIntelligenceConfig, normalizeProductManagerConfig, resolveCliIntelligenceFlag, resolveNonInteractiveIntelligenceConsent } from '../config'
 
 describe('createDefaultRouting', () => {
   it('returns gemini as frontend primary', () => {
@@ -14,10 +14,11 @@ describe('createDefaultRouting', () => {
     expect(routing.backend.models).toEqual(['codex'])
   })
 
-  it('returns grok as search primary', () => {
+  it('returns grok for search and claude for product-manager', () => {
     const routing = createDefaultRouting()
     expect(routing.search.primary).toBe('grok')
     expect(routing.search.models).toEqual(['grok'])
+    expect(routing['product-manager'].primary).toBe('claude')
   })
 
   it('defaults to smart mode', () => {
@@ -237,7 +238,6 @@ describe('product-manager configuration', () => {
   it('keeps existing installs disabled when the section is absent', () => {
     expect(normalizeProductManagerConfig(undefined, { existingInstall: true })).toEqual({
       enabled: false,
-      provider: '',
       contract_version: '1',
       max_retries: 1,
       timeout_ms: 180000,
@@ -245,14 +245,14 @@ describe('product-manager configuration', () => {
     })
   })
 
-  it('requires explicit consent for a fresh enabled selection', () => {
+  it('requires explicit consent for fresh behavior enablement', () => {
     expect(normalizeProductManagerConfig(
-      { provider: 'codex' },
+      {},
       { existingInstall: false, explicitConsent: true },
     ).enabled).toBe(true)
   })
 
-  it('preserves unknown product-manager fields during migration', () => {
+  it('preserves unknown behavior fields but removes the legacy provider field', () => {
     expect(normalizeProductManagerConfig(
       {
         enabled: true,
@@ -262,15 +262,45 @@ describe('product-manager configuration', () => {
       { existingInstall: true },
     )).toMatchObject({
       enabled: true,
-      provider: 'codex',
       future_asset: { keep: true },
+    })
+    expect(normalizeProductManagerConfig(
+      { enabled: true, provider: 'codex' } as any,
+      { existingInstall: true },
+    )).not.toHaveProperty('provider')
+  })
+
+  it('migrates a legacy provider once into unified routing', () => {
+    const migrated = migrateLegacyProductManagerProviderDocument({
+      routing: {
+        frontend: { models: ['gemini'], primary: 'gemini', strategy: 'fallback' },
+        backend: { models: ['codex'], primary: 'codex', strategy: 'fallback' },
+      },
+      product_manager: {
+        enabled: true,
+        provider: 'gemini',
+        timeout_ms: 5000,
+      },
+    })
+    expect(migrated.changed).toBe(true)
+    expect(migrated.document.routing['product-manager'].primary).toBe('gemini')
+    expect(migrated.document.product_manager).toEqual({
+      enabled: true,
+      timeout_ms: 5000,
     })
   })
 
-  it('rejects unsupported providers and never selects Claude or Grok', () => {
-    expect(() => normalizeProductManagerConfig(
-      { enabled: true, provider: 'claude' as never },
-      { existingInstall: true },
-    )).toThrow(/provider/)
+  it('keeps an existing unified route authoritative while deleting the legacy field', () => {
+    const migrated = migrateLegacyProductManagerProviderDocument({
+      routing: {
+        'product-manager': { models: ['claude'], primary: 'claude', strategy: 'fallback' },
+      },
+      product_manager: {
+        enabled: true,
+        provider: 'codex',
+      },
+    })
+    expect(migrated.document.routing['product-manager'].primary).toBe('claude')
+    expect(migrated.document.product_manager).not.toHaveProperty('provider')
   })
 })

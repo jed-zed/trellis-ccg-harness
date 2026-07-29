@@ -57,7 +57,8 @@ CCG 智能层
 - pnpm/Corepack
 - Go（CCG wrapper 的 test/build 门禁必需）
 - Codex CLI（精确安装本地 CCG Codex 插件所必需）
-- Gemini、Grok、Claude Code CLI 均为独立可选 provider；Global Setup 不会隐式安装或登录，且从不探测或启动 Claude
+- Gemini、Grok、Claude Code CLI 均为独立可选 provider；Global Setup 不会隐式安装或登录 Claude，
+  只有显式授权的产品经理调用才会启动已有 Claude CLI
 
 ```powershell
 git clone --branch v0.2.0 --depth 1 https://github.com/jed-zed/trellis-ccg-harness.git
@@ -71,23 +72,34 @@ pnpm setup
 
 `pnpm setup` 是面向用户的 **Global Setup**，每个用户环境运行一次。它会：
 
-1. 在任何写入前预览并检查精确 Trellis 版本、CCG 3.3.2 CLI、`ccg
-   codex-mode install`、当前 Harness snapshot 的本地 Codex marketplace /
+1. 在任何写入前预览并检查精确 Trellis 版本、来源清单记录的当前 CCG 快照指纹、首次
+   `ccg codex-mode install` 或已有 Codex mode 的只读 doctor、当前 Harness snapshot 的本地 Codex marketplace /
    CCG 插件、13 个 bundled platform Skills、个人 catalog 选择和 provider
    状态；
 2. 交互模式逐项确认核心动作，随后执行 Global Init；自动化模式必须给出
    完整 flags 和所有批准开关；
-3. 对相同 snapshot 保持幂等；同名 marketplace/plugin 来自其他路径或版本时
-   fail closed，不会覆盖；
+3. 对相同 snapshot 保持幂等；仅当旧 marketplace/plugin 的精确身份仍匹配
+   Harness ownership 且上一组已验证快照可用于回滚时，才事务式升级；
+   未被 Harness 所有或发生路径/版本漂移时 fail closed，不会覆盖；
 4. 只把 provider 的 `install` / `login` 选择记录为待单独批准动作并输出
    status/guidance，绝不把安装或登录塞进本次总授权；安装始终按官方文档手动
    完成。独立命令会绑定 Codex/Grok 的固定 auth-only 指引并要求第二次确认，
    但不会启动 Provider CLI；Gemini 没有获准的 auth-only 子命令，也只提供
    手动登录指导，不启动其完整交互 agent；
-5. Claude 默认 `skip`，只提供官方文档，不探测、不启动。显式选择 Claude
+5. Global Setup 中 Claude 安装/登录默认 `skip`，只提供官方文档，不探测、不启动。显式选择 Claude
    安装/登录会被标为退出 zero-`.claude` profile，但仍不会由 Harness 执行；
 6. 每个 Harness-owned 步骤后比较用户级和项目级 `.claude` 状态；已有内容
    保持不变，任何创建或修改都会立即停止后续步骤。
+
+如果 13 个平台 Skill 已由早期 Skill-platform migration 管理，Global Init
+只在旧清单、目标路径和每个 Skill tree digest 全部匹配时接受该状态；它不会
+重写旧清单、备份链、保留的外部 Skill 或项目迁移记录。
+
+尚未发布到权威远端的当前 CCG 快照只能从明确给出的干净源码 checkout 联动安装：
+
+```powershell
+pnpm setup -- -CcgSourceCheckout I:\path\to\clean-ccg-checkout
+```
 
 第三方 Skill、插件和 MCP/CLI 不属于这 13 个核心项。先运行
 `node .\scripts\harness-init.mjs third-party-plan --home-dir <absolute-user-home>`
@@ -324,11 +336,17 @@ pnpm --dir .\components\ccg-workflow build
 
 1. Trellis 创建任务并沉淀 `prd.md`、`design.md` 和 `implement.md`。
 2. Codex 作为主编排器在当前会话 inline 执行。
-3. CCG 可按项目策略调用只读 Gemini 或手动 GPT Pro；Claude 被 Harness 禁用。GPT Pro
+3. CCG 可按项目策略调用只读 Gemini 或手动 GPT Pro；Claude 仅可作为显式选择的只读
+   产品经理 Provider。GPT Pro
    证据直接写入 Trellis task 内的 `.ccg-evidence/`，不会创建第二套 `.ccg/tasks` 生命周期。
 4. Grok 当前是默认关闭的可选提供方，不阻塞普通工作；将来重新启用时，联网证据仍需 fail-closed。
 5. CCG 质量门禁与 Trellis check 共同验证。
 6. Trellis 更新规范、提交并归档任务。
+
+产品经理 review 成功后，Harness 会把产品经理原话、findings、risks、process adjustments、
+唯一推荐下一步和 Provider 身份写入 tracked `latestAdvice`。Codex 必须先执行
+`pm present`、向用户复述这份意见并停止；只有展示后的新鲜显式回复才能进入 `pm respond`。
+关卡清除后，`pm status` 仍保留最近建议，通用 Trellis resume action 不会覆盖它。
 
 ## 模型与提供方边界
 
@@ -336,7 +354,7 @@ pnpm --dir .\components\ccg-workflow build
 |---|---|---|
 | Codex | 启用 | 唯一工作区写入者，inline 执行 |
 | Gemini | 启用 | 只读分析与复审 |
-| Claude | 禁用 | 不参与本 Harness 工作流 |
+| Claude | 可选启用 | 仅限显式授权的产品经理评审；无工具、无工作区写入、无会话持久化 |
 | GPT Pro | 启用 | 仅通过 CCG 的手动证据命令 |
 | Grok | 禁用、可选 | 未配置或不可用时不阻塞 |
 
@@ -380,7 +398,11 @@ pnpm harness:update -- --trellis-version <exact-semantic-version>
 CCG 只能从个人 fork 或已验证的本地个人 checkout 更新。不得把原作者 `main` 直接覆盖到 `components/ccg-workflow`。
 
 ```powershell
-# 预检个人仓库完整 commit/tree、运行 CCG + Harness 门禁，然后事务式替换
+# 推荐：从干净 checkout 的当前 HEAD 解析 commit/tree，运行 CCG + Harness 门禁，
+# 然后联动替换 snapshot、manifest 和匹配运行时
+pnpm harness:update -- --source-checkout I:\ai\ccg-workflow
+
+# 可选：审计重放或远端拉取时仍可显式给出完整 commit
 pnpm harness:update -- --ccg-commit <40-character-commit> --source-checkout I:\ai\ccg-workflow
 
 # 恢复上一份由 Harness 创建的快照
@@ -392,6 +414,11 @@ pnpm harness:recover
 # 只撤销 Harness 确认拥有且未被用户修改的全局安装状态
 pnpm harness:uninstall
 ```
+
+CCG 更新不是长期锁版，而是“联动打包更新 + 当前快照来源指纹”：每次事务从
+干净 checkout 的当前 HEAD（或显式 commit）构建候选，在同一事务刷新组件快照、
+`harness.sources.json` 和匹配的 CLI/plugin。manifest 中的精确 commit、Git tree、
+包版本和内容摘要只描述当前快照，供校验和回滚使用。
 
 更新过程不依赖外部 `tar`：它从选定 commit 的 blob 构建候选，并逐项校验
 路径、类型、blob SHA 和 POSIX 可执行位。候选激活后，会在最终组件路径重新
@@ -411,9 +438,10 @@ staged、untracked、ignored、rename 等全部 live 组件内容；只要更新
 
 全局 ownership 对普通 npm 包记录完整内容树身份，而不只比较
 `package.json`。Harness 只会首次接管原本不存在的普通 Trellis 全局包；如果已有
-普通包，因无法保证逐字节恢复其中的本地补丁，会在安装前拒绝接管。CCG 全局链接
-仍可按其精确 source path 恢复。重复 bootstrap 只有在当前状态仍匹配上次 Harness
-fingerprint 时才允许续管。
+普通包，因无法保证逐字节恢复其中的本地补丁，会在安装前拒绝接管。CCG CLI 从当次
+Harness snapshot 打包安装为普通全局目录，并把依赖收进该包的 nested tree，避免运行时
+junction 回指可变 snapshot 或把无关全局包纳入 CCG 身份；重复 bootstrap 只有在当前
+状态仍匹配上次 Harness fingerprint 时才允许续管。
 
 `harness-init` 重复应用时会同时验证 project contract、schema 和严格 ownership
 摘要；`export-skill` 会逐段拒绝 `.agents/skills` 中的 symlink、junction 或
@@ -421,7 +449,7 @@ reparse point，避免把 Skill 写出目标仓库。
 
 每次更新必须同步：
 
-- `harness.sources.json` 中的 personal commit 和 Git tree；
+- `harness.sources.json` 中当前快照的 personal commit、Git tree 和内容摘要；
 - CCG 版本；
 - 来源验证结果；
 - lint、typecheck、test、build；

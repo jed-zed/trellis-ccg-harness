@@ -2,7 +2,9 @@
 param(
   [string]$RepoRoot = (Split-Path -Parent $PSScriptRoot),
   [switch]$Index,
-  [string]$CcgUpdateTargetVersion
+  [string]$CcgUpdateTargetVersion,
+  [string]$CcgSetupPreviousPluginVersion,
+  [string]$AuthoritativeCheckout
 )
 
 $ErrorActionPreference = "Stop"
@@ -40,6 +42,41 @@ function Add-Pass([string]$Message) {
 function Add-Warning([string]$Message) {
   $warnings.Add($Message)
   Write-Output "WARN  $Message"
+}
+
+function Test-CcgUpdateTargetPluginCache($Finding) {
+  if (
+    -not $CcgUpdateTargetVersion -or
+    [string]$Finding.id -ne "ccg-plugin-cache"
+  ) {
+    return $false
+  }
+  return @($Finding.evidence.available) | Where-Object {
+    [string]$_ -eq $CcgUpdateTargetVersion -or
+    ([string]$_).StartsWith(
+      "$CcgUpdateTargetVersion+",
+      [StringComparison]::OrdinalIgnoreCase
+    )
+  } | Select-Object -First 1
+}
+
+function Test-CcgSetupPluginTransition($Finding) {
+  if (
+    -not $CcgUpdateTargetVersion -or
+    -not $CcgSetupPreviousPluginVersion -or
+    [string]$Finding.id -ne "ccg-plugin-cache"
+  ) {
+    return $false
+  }
+  $actual = [string]$Finding.evidence.actual
+  $available = @($Finding.evidence.available)
+  if ($CcgSetupPreviousPluginVersion -eq "missing") {
+    return $actual -eq "missing" -and $available.Count -eq 0
+  }
+  return (
+    $actual -eq $CcgSetupPreviousPluginVersion -and
+    $available -contains $CcgSetupPreviousPluginVersion
+  )
 }
 
 function Write-AdapterFinding($Finding) {
@@ -112,6 +149,29 @@ else {
   Add-Pass "$goVersion"
 }
 
+$ccgVersion = Read-Version "ccg"
+$ccgRuntimeVersion = $null
+if ($ccgVersion -match '(?i)\bccg/(\d+\.\d+\.\d+)\b') {
+  $ccgRuntimeVersion = $Matches[1]
+}
+elseif ($ccgVersion) {
+  $versionLine = ($ccgVersion -split "\r?\n")[-1].Trim()
+  if ($versionLine -match '^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$') {
+    $ccgRuntimeVersion = $versionLine
+  }
+}
+if (-not $ccgRuntimeVersion) {
+  if ($ccgVersion) {
+    Add-Failure "Installed personal CCG CLI returned an invalid version: $ccgVersion."
+  }
+  else {
+    Add-Failure "Installed personal CCG CLI could not be verified."
+  }
+}
+else {
+  Add-Pass "Installed personal CCG CLI $ccgRuntimeVersion"
+}
+
 $transactionState = Join-Path $RepoRoot ".harness-cache"
 $transactionJournal = Join-Path $transactionState "transaction-journal.json"
 $transactionLock = Join-Path $transactionState "transaction.lock"
@@ -141,6 +201,9 @@ try {
     RepoRoot = $RepoRoot
     Index = $Index
   }
+  if ($AuthoritativeCheckout) {
+    $verifySourceArguments.AuthoritativeCheckout = $AuthoritativeCheckout
+  }
   & (Join-Path $PSScriptRoot "verify-sources.ps1") @verifySourceArguments
   Add-Pass "Personal source provenance and Git tree"
 }
@@ -149,7 +212,7 @@ catch {
 }
 
 $adapterScript = Join-Path $PSScriptRoot "harness-adapter.mjs"
-$adapterArguments = @($adapterScript, "conflicts")
+$adapterArguments = @($adapterScript, "conflicts", "--skip-runtime")
 if ($Index) {
   $adapterArguments += "--index"
 }
@@ -181,34 +244,45 @@ else {
   if ($adapterReport) {
     $blockingFindings = [System.Collections.Generic.List[object]]::new()
     $runtimeTargetRejected = $false
-    $runtimeFindings = @(
-      $adapterReport.findings |
-        Where-Object { [string]$_.id -eq "ccg-runtime-cli" }
-    )
-    if ($runtimeFindings.Count -ne 1) {
+    if ($ccgRuntimeVersion -ne $CcgUpdateTargetVersion) {
+      $reportedRuntimeVersion = if ($ccgRuntimeVersion) {
+        $ccgRuntimeVersion
+      }
+      else {
+        "missing"
+      }
       Add-Failure (
-        "CCG update preflight requires exactly one global CCG runtime finding; " +
-        "found $($runtimeFindings.Count)."
+        "Global CCG runtime must match update target " +
+        "$CcgUpdateTargetVersion; found $reportedRuntimeVersion."
       )
       $runtimeTargetRejected = $true
     }
     foreach ($finding in @($adapterReport.findings)) {
       if ([string]$finding.id -eq "ccg-runtime-cli") {
-        $runtimeVersion = [string]$finding.evidence.actual
-        if ($runtimeVersion -ne $CcgUpdateTargetVersion) {
-          $reportedRuntimeVersion = if ($runtimeVersion) {
-            $runtimeVersion
-          }
-          else {
-            "missing"
-          }
+        Write-AdapterFinding $finding
+        continue
+      }
+      if ([string]$finding.id -eq "ccg-plugin-cache") {
+        if (Test-CcgSetupPluginTransition $finding) {
+          Add-Warning (
+            "CCG setup preflight permits the exact previous plugin identity " +
+            "$CcgSetupPreviousPluginVersion before installation."
+          )
+          continue
+        }
+        if (-not (Test-CcgUpdateTargetPluginCache $finding)) {
           Add-Failure (
-            "Global CCG runtime must match update target " +
-            "$CcgUpdateTargetVersion; found $reportedRuntimeVersion."
+            "CCG plugin cache must include update target " +
+            "$CcgUpdateTargetVersion; found " +
+            "$(@($finding.evidence.available) -join ', ')."
           )
           $runtimeTargetRejected = $true
           continue
         }
+        Add-Pass (
+          "CCG plugin cache includes update target $CcgUpdateTargetVersion"
+        )
+        continue
       }
       Write-AdapterFinding $finding
       if (

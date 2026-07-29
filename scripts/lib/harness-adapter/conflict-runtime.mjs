@@ -8,11 +8,59 @@ import {
 } from "./conflict-utils.mjs";
 import {
   commandError,
+  defaultAsyncRunner,
   defaultRunner,
   readJson,
   readTextIfPresent,
-  runCommand,
+  runCommandAsync,
 } from "./process.mjs";
+
+function quotePowerShellLiteral(value) {
+  if (typeof value !== "string" || /[\0\r\n]/.test(value)) return null;
+  return `'${value.replaceAll("'", "''")}'`;
+}
+
+export function buildWindowsPowerShellRuntimeInvocation(
+  nodePath,
+  npmCliPath,
+  env = process.env,
+) {
+  if (
+    ![nodePath, npmCliPath].every(
+      (candidate) =>
+        typeof candidate === "string" && path.isAbsolute(candidate),
+    )
+  ) {
+    return null;
+  }
+  const systemRoot = env.SystemRoot || env.SYSTEMROOT;
+  if (!systemRoot) return null;
+  const powershellPath = path.join(
+    systemRoot,
+    "System32",
+    "WindowsPowerShell",
+    "v1.0",
+    "powershell.exe",
+  );
+  if (!path.isAbsolute(powershellPath) || !existsSync(powershellPath)) {
+    return null;
+  }
+  const nodeLiteral = quotePowerShellLiteral(nodePath);
+  const cliLiteral = quotePowerShellLiteral(npmCliPath);
+  if (!nodeLiteral || !cliLiteral) return null;
+  return {
+    command: powershellPath,
+    args: [
+      "-NoLogo",
+      "-NoProfile",
+      "-NonInteractive",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-Command",
+      `& ${nodeLiteral} ${cliLiteral} --version; exit $LASTEXITCODE`,
+    ],
+  };
+}
 
 function runtimeInvocations(contract, env) {
   const invocations = [];
@@ -26,6 +74,34 @@ function runtimeInvocations(contract, env) {
       "ccg.mjs",
     );
     if (existsSync(npmCliPath)) {
+      const powershellInvocation =
+        buildWindowsPowerShellRuntimeInvocation(
+          process.execPath,
+          npmCliPath,
+          env,
+        );
+      if (powershellInvocation) {
+        invocations.push(powershellInvocation);
+      }
+      const commandPaths = [process.execPath, npmCliPath];
+      if (
+        commandPaths.every(
+          (candidate) =>
+            path.isAbsolute(candidate) &&
+            !/[\r\n"%]/.test(candidate),
+        )
+      ) {
+        invocations.push({
+          command: process.env.ComSpec || "cmd.exe",
+          args: [
+            "/d",
+            "/s",
+            "/c",
+            `""${process.execPath}" "${npmCliPath}" --version"`,
+          ],
+          windowsVerbatimArguments: true,
+        });
+      }
       invocations.push({
         command: process.execPath,
         args: [npmCliPath, "--version"],
@@ -39,20 +115,36 @@ function runtimeInvocations(contract, env) {
   return invocations;
 }
 
-export function runCcgRuntimeCheck({
+export async function runCcgRuntimeCheck({
   repoRoot,
   contract,
   add,
-  runner = defaultRunner,
+  runner = defaultAsyncRunner,
   env = process.env,
+  includeRuntimeState = true,
 }) {
+  if (!includeRuntimeState) {
+    add(
+      "ccg-runtime-cli",
+      "info",
+      "info",
+      "Installed CCG CLI check is skipped in deterministic CI mode.",
+    );
+    return;
+  }
   let result = null;
   let selectedInvocation = null;
   for (const invocation of runtimeInvocations(contract, env)) {
-    const attempt = runCommand(
+    const attempt = await runCommandAsync(
       invocation.command,
       invocation.args,
-      { repoRoot, runner, env },
+      {
+        repoRoot,
+        runner,
+        env,
+        windowsVerbatimArguments:
+          invocation.windowsVerbatimArguments === true,
+      },
     );
     selectedInvocation = invocation;
     result = attempt;
@@ -66,7 +158,7 @@ export function runCcgRuntimeCheck({
   if (installedVersion === null) {
     add(
       "ccg-runtime-cli",
-      "warning",
+      "blocking",
       "conflict",
       "Installed CCG CLI could not be verified.",
       result?.status === 0
@@ -103,34 +195,39 @@ function checkPluginCache({
     "ccg",
   );
   let pluginVersion = null;
-  let candidates = [];
+  let availableVersions = [];
   try {
-    candidates = readdirSync(pluginCacheRoot, {
+    const candidates = readdirSync(pluginCacheRoot, {
       withFileTypes: true,
     })
       .filter((entry) => entry.isDirectory())
       .map((entry) => entry.name)
-      .sort((left, right) => right.localeCompare(left));
+      .sort((left, right) =>
+        right.localeCompare(left, undefined, {
+          numeric: true,
+          sensitivity: "base",
+        }),
+      );
+    for (const candidate of candidates) {
+      try {
+        const manifest = readJson(
+          path.join(
+            pluginCacheRoot,
+            candidate,
+            ".codex-plugin",
+            "plugin.json",
+          ),
+        );
+        if (manifest.name === "ccg" && manifest.version === candidate) {
+          availableVersions.push(candidate);
+        }
+      } catch {
+        // Ignore malformed cache entries; only exact plugin manifests count.
+      }
+    }
+    pluginVersion = availableVersions[0] ?? null;
   } catch {
     // A missing user cache is setup drift, not source drift.
-  }
-  for (const candidate of candidates) {
-    try {
-      const manifest = readJson(
-        path.join(
-          pluginCacheRoot,
-          candidate,
-          ".codex-plugin",
-          "plugin.json",
-        ),
-      );
-      if (manifest.name === "ccg" && manifest.version === candidate) {
-        pluginVersion = manifest.version;
-        break;
-      }
-    } catch {
-      // Ignore malformed or incomplete cache entries and keep looking.
-    }
   }
   add(
     "ccg-plugin-cache",
@@ -139,7 +236,10 @@ function checkPluginCache({
     pluginVersion
       ? "Installed personal CCG Codex plugin cache is available."
       : "Installed personal CCG Codex plugin cache could not be verified.",
-    { actual: pluginVersion ?? "missing" },
+    {
+      actual: pluginVersion ?? "missing",
+      available: availableVersions,
+    },
     "Install the personal CCG Codex plugin before running plugin workflows.",
   );
 }

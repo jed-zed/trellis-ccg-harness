@@ -17,7 +17,11 @@ import {
   runVersionAndSourceChecks,
 } from "./conflict-static.mjs";
 import { resolveCurrentTask } from "./context.mjs";
-import { defaultRunner, readJson } from "./process.mjs";
+import {
+  defaultAsyncRunner,
+  defaultRunner,
+  readJson,
+} from "./process.mjs";
 import { redactString, redactValue } from "./redaction.mjs";
 
 function createAddFinding(findings) {
@@ -103,12 +107,14 @@ function buildReport(schemaVersion, findings) {
 
 export { conflictExitCode };
 
-export function auditConflicts(
+export async function auditConflicts(
   repoRoot,
   {
     runner = defaultRunner,
+    runtimeRunner,
     env = process.env,
     homeDir = homedir(),
+    includeRuntimeState = true,
     includeUserState = true,
     treeish = "HEAD",
     taskResolver = resolveCurrentTask,
@@ -124,8 +130,14 @@ export function auditConflicts(
 
   runVersionAndSourceChecks({ ...shared, treeish });
   runStateAndTaskChecks({ ...shared, taskResolver });
-  runPolicyChecks({ contract, add, env });
-  runCcgRuntimeCheck(shared);
+  runPolicyChecks(shared);
+  await runCcgRuntimeCheck({
+    ...shared,
+    runner:
+      runtimeRunner ??
+      (runner === defaultRunner ? defaultAsyncRunner : runner),
+    includeRuntimeState,
+  });
   runUserStateChecks({
     ...shared,
     homeDir,

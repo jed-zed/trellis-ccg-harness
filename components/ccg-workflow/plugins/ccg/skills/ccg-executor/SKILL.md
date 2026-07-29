@@ -21,6 +21,10 @@ You are the Codex-side orchestrator for CCG workflow plans. Plans are produced b
 - Do not let any routed provider directly own the real workspace. External
   providers supply bounded analysis, Unified Diff Patch prototypes, tests, or
   review notes; Codex applies final edits and verifies them.
+- Claude is disabled for ordinary delegation. It may run only through an
+  explicitly authorized `ccg product-manager review` call when unified routing
+  selects Claude for `product-manager`; the call remains no-tool, no-write
+  evidence inside the existing Trellis lifecycle.
 - Treat external diffs as dirty prototypes. Codex must refactor them into the
   repository's local style before applying, never paste them into the real
   workspace unchecked.
@@ -60,6 +64,7 @@ Classify each task slice and resolve only the top-level roles needed:
 ccg routing get frontend --json
 ccg routing get backend --json
 ccg routing get search --json
+ccg routing get product-manager --json
 ```
 
 Analysis, planning, implementation drafting, and review are phases inside the

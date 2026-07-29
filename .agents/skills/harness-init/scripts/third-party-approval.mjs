@@ -1580,7 +1580,7 @@ async function removeEmptyLockClaimDirectory(claimDirectory) {
       return;
     } catch (error) {
       if (
-        error?.code !== "ENOTEMPTY" ||
+        (error?.code !== "ENOTEMPTY" && error?.code !== "EEXIST") ||
         attempt >= LOCK_CLAIM_DIRECTORY_REMOVE_RETRIES
       ) {
         throw error;

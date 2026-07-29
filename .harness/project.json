@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "status": "ready",
+  "status": "approved",
   "project": {
     "name": "trellis-ccg-harness",
     "purpose": "Provide a reproducible personal AI development Harness combining Trellis lifecycle authority with the reviewed personal CCG intelligence and quality layer.",
@@ -178,7 +178,7 @@
       "workspaceWrite": false
     },
     "claude": {
-      "enabled": false,
+      "enabled": true,
       "workspaceWrite": false
     },
     "grok": {
@@ -205,8 +205,8 @@
       "https://github.com/jed-zed/ccg-gptpro-worflow",
       "https://github.com/mindfold-ai/trellis"
     ],
-    "dependencyPolicy": "locked-and-source-verified",
-    "updatePolicy": "explicit-version-or-commit-with-full-gates",
+    "dependencyPolicy": "source-verified-current-snapshot",
+    "updatePolicy": "coupled-bundle-update-with-current-snapshot-source-fingerprint",
     "rollbackPolicy": "transactional-and-ownership-aware",
     "uninstallPolicy": "remove-only-owned-unchanged-state"
   },
@@ -228,5 +228,42 @@
   "approval": {
     "approvedAt": "2026-07-25T21:56:50.8840650+00:00",
     "approvedBy": "jed18859103958-cyber"
+  },
+  "productManager": {
+    "stateAuthority": "trellis-task-projection",
+    "stateFile": ".trellis/tasks/<task>/product-manager.json",
+    "evidenceRoot": ".trellis/tasks/<task>/.ccg-evidence/product-manager",
+    "selectedProviderAuthority": "unified-ccg-routing",
+    "allowedProviders": [
+      "codex",
+      "gemini",
+      "claude"
+    ],
+    "providerCapabilities": {
+      "codex": {
+        "readOnly": true,
+        "workspaceWrite": false,
+        "terminal": false,
+        "subagents": false,
+        "network": "explicit-per-call",
+        "paid": "explicit-per-call"
+      },
+      "gemini": {
+        "readOnly": true,
+        "workspaceWrite": false,
+        "terminal": false,
+        "subagents": false,
+        "network": "explicit-per-call",
+        "paid": "explicit-per-call"
+      },
+      "claude": {
+        "readOnly": true,
+        "workspaceWrite": false,
+        "terminal": false,
+        "subagents": false,
+        "network": "explicit-per-call",
+        "paid": "explicit-per-call"
+      }
+    }
   }
 }

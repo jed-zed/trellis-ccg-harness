@@ -193,6 +193,10 @@ test('root Harness contract pins the 13-core and reject-all third-party baseline
     path.join(ROOT, '.harness', 'project.schema.json'),
     'utf8',
   )
+  const productManagerSchemaText = await readFile(
+    path.join(ROOT, '.harness', 'product-manager.schema.json'),
+    'utf8',
+  )
   const sourceText = await readFile(
     path.join(ROOT, '.harness', 'third-party-sources.json'),
     'utf8',
@@ -208,6 +212,10 @@ test('root Harness contract pins the 13-core and reject-all third-party baseline
     'assets',
     'third-party-sources.json',
   )
+  const distributionProductManagerSchema = await readSkillFile(
+    'assets',
+    'product-manager.schema.json',
+  )
   const contract = JSON.parse(contractText)
   const sourceSha256 = sha256(canonicalJson(JSON.parse(sourceText)))
 
@@ -222,9 +230,17 @@ test('root Harness contract pins the 13-core and reject-all third-party baseline
     excluded: [],
   })
   assert.equal(schemaText, canonicalJson(JSON.parse(distributionSchema)))
+  assert.equal(
+    productManagerSchemaText,
+    canonicalJson(JSON.parse(distributionProductManagerSchema)),
+  )
   assert.equal(sourceText, canonicalJson(JSON.parse(distributionSource)))
   assert.equal(ownership.contractSha256, sha256(contractText))
   assert.equal(ownership.schemaSha256, sha256(schemaText))
+  assert.equal(
+    ownership.productManagerSchemaSha256,
+    sha256(productManagerSchemaText),
+  )
   assert.equal(ownership.thirdPartySourceManifestSha256, sourceSha256)
   assert.ok(
     ownership.managedPaths.includes('.harness/third-party-sources.json'),

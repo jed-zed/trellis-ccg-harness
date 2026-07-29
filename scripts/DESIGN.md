@@ -3,9 +3,9 @@
 ## Design Goals
 
 - Preserve Trellis as the only lifecycle and plan authority.
-- Preserve the exact personal CCG Git tree while using an installed personal
-  CLI/plugin as the runtime without an exact-version compatibility lock.
-- Make blocking source and policy drift deterministic and testable offline.
+- Preserve the exact personal CCG Git tree while using the installed matching
+  CLI/plugin as the runtime.
+- Make blocking drift deterministic and testable offline.
 - Keep model credentials and mutable evidence outside Git and task artifacts.
 - Work on Windows, macOS, and Linux without shell interpolation.
 
@@ -133,6 +133,16 @@ unclaimed path merely because an earlier observation matched.
 - Executable helpers use canonical absolute command bindings whose file and,
   for Node launchers, package-tree identities are revalidated before use.
 - Commands are executed with argument arrays and `shell: false`.
+- The Windows installed-CCG version probe still executes the packaged CLI.
+  It first uses the system Windows PowerShell executable as a no-profile bridge
+  to the exact trusted Node executable and installed CCG entrypoint, with an
+  exact `cmd.exe` bridge retained as a compatibility path. This avoids the
+  hosted-runner nested Node launch failure without trusting package metadata as
+  runtime evidence or interpolating task-controlled input.
+- `doctor.ps1` executes the installed `ccg --version` command natively before
+  invoking the adapter. Its adapter call skips only the duplicate nested
+  runtime probe, avoiding hosted-runner nested Node capture failures while
+  keeping the ordinary adapter command and the doctor runtime gate fail-closed.
 - Global Init records provider install/login intent but never executes it.
   Every Provider installation and login is documentation/manual-only; Harness
   never probes or starts `claude`. A later provider guidance request needs an
@@ -151,10 +161,10 @@ unclaimed path merely because an earlier observation matched.
 - Bootstrap and lifecycle operations record exactly which global npm state they
   own, restore it on failure, and refuse to overwrite later user changes.
 - Installing CodeGraph never creates or refreshes a `.codegraph` index.
-- Harness initialization never invokes Claude and never creates, restores,
-  mutates, or deletes user-level or project `.claude` content. CCG may route an
-  already available Claude CLI as a bounded read-only helper without changing
-  that ownership boundary.
+- Harness initialization never invokes Claude and Harness never creates,
+  restores, mutates, or deletes user-level or project `.claude` content.
+  A separately authorized product-manager review may invoke the trusted native
+  Claude CLI in safe, no-tool, non-persistent mode without workspace writes.
 
 Accepted limitation: an operator can intentionally point the manual probe at an
 internal HTTPS service. This is equivalent to running a local HTTP client and
@@ -165,14 +175,34 @@ is not exposed to untrusted task input.
 - User-level Trellis hook precedence depends on the local fallback containing
   the marker declared by the adapter contract; doctor reports drift if a
   future global Trellis update removes that guard.
-- The activated local CCG CLI and any Harness-managed global link are blocking
-  doctor/update checks.
+- The activated local CCG CLI and its Harness-managed packaged global
+  installation are blocking doctor/update checks and must not junction back
+  into the mutable snapshot.
 - Search capability is true only when the response contains both a web-search
   tool call and citation/annotation evidence.
 - GPT Pro remains owned by the existing CCG bridge and is not reimplemented by
   the Harness adapter.
 
 ## Change History
+
+### 2026-07-28 - Cross-platform conflict resolution
+
+**Change:** Restored cross-platform lock-claim cleanup retries, canonicalized
+Windows test paths before comparison, made the installed-CCG runtime probe
+asynchronous with exact Windows PowerShell and command bridges, and separated
+deterministic CI from user runtime inspection.
+
+**Reason:** The product-manager branch merge exposed Linux transient-directory
+cleanup drift, Windows 8.3 versus long-path aliases, and a pre-existing hosted
+runner `ERROR_BROKEN_PIPE` that had previously been warning-only.
+
+**Impact:** Harness approval locks, plugin/command resolver tests, adapter
+subprocess capture, doctor, and cross-platform CI.
+
+**Security boundary:** The Windows bridge uses `shell: false` to start the
+native command processor with a fixed `--version` command. Both the Node
+executable and installed CCG entrypoint must be absolute and free of command
+expansion characters; no project, task, or Provider value is interpolated.
 
 ### 2026-07-25 - Secondary adversarial review closure
 

@@ -1,12 +1,18 @@
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import {
+  existsSync,
+  readFileSync,
+} from "node:fs";
 import path from "node:path";
 
 import {
   createSafeSubprocessEnv,
   redactString,
 } from "./redaction.mjs";
+
+const DEFAULT_ASYNC_TIMEOUT_MS = 30_000;
+const DEFAULT_MAX_CAPTURE_BYTES = 1024 * 1024;
 
 export function readJson(filePath) {
   return JSON.parse(readFileSync(filePath, "utf8"));
@@ -37,23 +43,91 @@ export function assertInside(rootPath, targetPath, label) {
   throw new Error(`${label} resolves outside its allowed root.`);
 }
 
-export function defaultRunner(command, args, options) {
-  return spawnSync(command, args, {
+function spawnOptions(options) {
+  return {
     cwd: options.cwd,
     encoding: "utf8",
     env: options.env,
     shell: false,
+    windowsVerbatimArguments: options.windowsVerbatimArguments === true,
     windowsHide: true,
+  };
+}
+
+export function defaultRunner(command, args, options) {
+  return spawnSync(command, args, spawnOptions(options));
+}
+
+export function defaultAsyncRunner(command, args, options) {
+  return new Promise((resolve) => {
+    const child = spawn(command, args, {
+      ...spawnOptions(options),
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    const stdout = [];
+    const stderr = [];
+    const maxCaptureBytes =
+      options.maxCaptureBytes ?? DEFAULT_MAX_CAPTURE_BYTES;
+    let capturedBytes = 0;
+    let terminalError = null;
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (terminalError === null) {
+        terminalError = new Error("Command timed out.");
+        child.kill();
+      }
+    }, options.timeoutMs ?? DEFAULT_ASYNC_TIMEOUT_MS);
+    timer.unref();
+    const capture = (chunks, chunk) => {
+      capturedBytes += chunk.length;
+      if (capturedBytes <= maxCaptureBytes) {
+        chunks.push(chunk);
+        return;
+      }
+      if (terminalError === null) {
+        terminalError = new Error("Command output exceeded the capture limit.");
+        child.kill();
+      }
+    };
+    child.stdout.on("data", (chunk) => capture(stdout, chunk));
+    child.stderr.on("data", (chunk) => capture(stderr, chunk));
+    child.once("error", (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve({
+        status: null,
+        stdout: Buffer.concat(stdout).toString("utf8"),
+        stderr: Buffer.concat(stderr).toString("utf8"),
+        error,
+      });
+    });
+    child.once("close", (status, signal) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve({
+        status,
+        signal,
+        stdout: Buffer.concat(stdout).toString("utf8"),
+        stderr: Buffer.concat(stderr).toString("utf8"),
+        error:
+          terminalError ??
+          (status === null
+            ? new Error(`Command terminated by signal ${signal ?? "unknown"}.`)
+            : null),
+      });
+    });
   });
 }
 
 function normalizeCommandResult(result) {
   return {
     status:
-      typeof result?.status === "number"
-        ? result.status
-        : result?.error
-          ? null
+      result?.error
+        ? null
+        : typeof result?.status === "number"
+          ? result.status
           : 0,
     stdout: String(result?.stdout ?? "").trim(),
     stderr: String(result?.stderr ?? "").trim(),
@@ -74,6 +148,29 @@ export function runCommand(
     runner(command, args, {
       cwd: repoRoot,
       env: createSafeSubprocessEnv(env),
+    }),
+  );
+}
+
+export async function runCommandAsync(
+  command,
+  args,
+  {
+    repoRoot,
+    runner = defaultAsyncRunner,
+    env = process.env,
+    maxCaptureBytes = DEFAULT_MAX_CAPTURE_BYTES,
+    timeoutMs = DEFAULT_ASYNC_TIMEOUT_MS,
+    windowsVerbatimArguments = false,
+  },
+) {
+  return normalizeCommandResult(
+    await runner(command, args, {
+      cwd: repoRoot,
+      env: createSafeSubprocessEnv(env),
+      maxCaptureBytes,
+      timeoutMs,
+      windowsVerbatimArguments,
     }),
   );
 }

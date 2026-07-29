@@ -58,6 +58,15 @@ test("doctor blocks on interrupted transaction residue", async () => {
   assert.match(doctor, /harness:recover/)
 })
 
+test("doctor natively verifies CCG before skipping only the duplicate adapter probe", async () => {
+  const doctor = await readFile(
+    path.join(ROOT, "scripts", "doctor.ps1"),
+    "utf8",
+  )
+  assert.match(doctor, /Read-Version\s+"ccg"/)
+  assert.match(doctor, /conflicts",\s*"--skip-runtime"/)
+})
+
 test("doctor verifies the repository visibility recorded by the source manifest", async () => {
   const [doctor, manifestBytes] = await Promise.all([
     readFile(path.join(ROOT, "scripts", "doctor.ps1"), "utf8"),
@@ -67,6 +76,21 @@ test("doctor verifies the repository visibility recorded by the source manifest"
   assert.equal(manifest.harness.visibility, "public")
   assert.match(doctor, /manifest\.harness\.visibility/)
   assert.doesNotMatch(doctor, /repository is not private/i)
+})
+
+test("bootstrap package-installs CCG without a global link to the snapshot", async () => {
+  const bootstrap = await readFile(
+    path.join(ROOT, "scripts", "bootstrap.ps1"),
+    "utf8",
+  )
+  assert.match(
+    bootstrap,
+    /npm install -g --install-links=true --install-strategy=nested \$ccgRoot/,
+  )
+  assert.doesNotMatch(
+    bootstrap,
+    /Linking the personal CCG snapshot as the global ccg command/,
+  )
 })
 
 test("Dependabot covers Actions, the CCG package, and the Go wrapper", async () => {

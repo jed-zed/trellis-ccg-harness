@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import {
   mkdirSync,
   mkdtempSync,
@@ -19,6 +20,10 @@ import {
   probeOpenAICompatibleGrok,
   redactValue,
 } from "../scripts/lib/harness-adapter.mjs";
+import {
+  buildWindowsPowerShellRuntimeInvocation,
+} from "../scripts/lib/harness-adapter/conflict-runtime.mjs";
+import { runCommandAsync } from "../scripts/lib/harness-adapter/process.mjs";
 import { resolvePython } from "../scripts/lib/python-resolver.mjs";
 
 function writeJson(filePath, value) {
@@ -30,6 +35,101 @@ function writeText(filePath, value) {
   mkdirSync(path.dirname(filePath), { recursive: true });
   writeFileSync(filePath, value);
 }
+
+function sha256(value) {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+test("asynchronous command capture returns stdout and stderr", async () => {
+  const result = await runCommandAsync(
+    process.execPath,
+    [
+      "-e",
+      "process.stdout.write('runtime-ok\\n'); process.stderr.write('note\\n')",
+    ],
+    {
+      repoRoot: path.resolve("."),
+    },
+  );
+  assert.equal(result.status, 0);
+  assert.equal(result.stdout, "runtime-ok");
+  assert.equal(result.stderr, "note");
+});
+
+test("asynchronous command capture fails closed on oversized output", async () => {
+  const result = await runCommandAsync(
+    process.execPath,
+    ["-e", "process.stdout.write('x'.repeat(4096))"],
+    {
+      repoRoot: path.resolve("."),
+      maxCaptureBytes: 32,
+    },
+  );
+  assert.equal(result.status, null);
+  assert.match(result.error.message, /capture limit/i);
+});
+
+test(
+  "Windows asynchronous command capture supports an exact cmd bridge",
+  { skip: process.platform !== "win32" },
+  async () => {
+    const commandLine = `""${process.execPath}" --version"`;
+    const result = await runCommandAsync(
+      process.env.ComSpec,
+      ["/d", "/s", "/c", commandLine],
+      {
+        repoRoot: path.resolve("."),
+        windowsVerbatimArguments: true,
+      },
+    );
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /^v\d+\./);
+  },
+);
+
+test(
+  "Windows runtime probe supports a system PowerShell bridge",
+  { skip: process.platform !== "win32" },
+  async () => {
+    const fixtureRoot = mkdtempSync(
+      path.join(tmpdir(), "harness-powershell-bridge-"),
+    );
+    try {
+      const cliPath = path.join(fixtureRoot, "version.mjs");
+      writeText(
+        cliPath,
+        "process.stdout.write(`${process.version}\\n`);\n",
+      );
+      assert.equal(
+        buildWindowsPowerShellRuntimeInvocation(
+          "node",
+          cliPath,
+          process.env,
+        ),
+        null,
+      );
+      const invocation = buildWindowsPowerShellRuntimeInvocation(
+        process.execPath,
+        cliPath,
+        process.env,
+      );
+      assert.ok(invocation);
+      assert.match(
+        invocation.command,
+        /WindowsPowerShell[\\/]v1\.0[\\/]powershell\.exe$/i,
+      );
+      const result = await runCommandAsync(
+        invocation.command,
+        invocation.args,
+        { repoRoot: path.resolve(".") },
+      );
+      assert.equal(result.status, 0, result.stderr);
+      assert.match(result.stdout, /^v\d+\./);
+    } finally {
+      rmSync(fixtureRoot, { recursive: true, force: true });
+    }
+  },
+);
 
 function adapterContract() {
   return {
@@ -51,48 +151,65 @@ function adapterContract() {
         sourceSnapshotExecutable: false,
       },
     },
+    productManager: {
+      stateAuthority: "trellis-task-projection",
+      stateFile: "product-manager.json",
+      evidenceRoot: ".ccg-evidence/product-manager",
+      selectedProviderAuthority: "unified-ccg-routing",
+      allowedProviders: ["codex", "gemini", "claude"],
+      providerCapabilities: {
+        codex: {
+          readOnly: true,
+          workspaceWrite: false,
+          terminal: false,
+          subagents: false,
+          network: "explicit-per-call",
+          paid: "explicit-per-call",
+        },
+        gemini: {
+          readOnly: true,
+          workspaceWrite: false,
+          terminal: false,
+          subagents: false,
+          network: "explicit-per-call",
+          paid: "explicit-per-call",
+        },
+        claude: {
+          readOnly: true,
+          workspaceWrite: false,
+          terminal: false,
+          subagents: false,
+          network: "explicit-per-call",
+          paid: "explicit-per-call",
+        },
+        grok: {
+          readOnly: false,
+          workspaceWrite: false,
+          terminal: false,
+          subagents: false,
+          network: "forbidden",
+          paid: "forbidden",
+        },
+      },
+    },
     state: {
       ignoredRuntimePaths: [".ccg", ".codex/ccg"],
       forbiddenTrackedPaths: [".ccg", ".codex/ccg"],
     },
     models: {
-      codex: {
-        routable: true,
-        runtimeAvailability: "built-in",
-        workspaceWrite: true,
-      },
-      gemini: {
-        routable: true,
-        runtimeAvailability: "provider-cli",
-        workspaceWrite: false,
-      },
-      claude: {
-        routable: true,
-        runtimeAvailability: "provider-cli",
-        workspaceWrite: false,
-      },
-      antigravity: {
-        routable: true,
-        runtimeAvailability: "provider-cli",
-        workspaceWrite: false,
-      },
+      codex: { enabled: true, workspaceWrite: true },
+      gemini: { enabled: true, workspaceWrite: false },
+      claude: { enabled: true, workspaceWrite: false },
       grok: {
-        routable: true,
-        runtimeAvailability: "provider-cli",
-        externalIntelligence: "opt-in",
+        enabled: false,
+        optional: true,
         workspaceWrite: false,
       },
       gptpro: {
-        routable: false,
-        runtimeAvailability: "manual-only",
+        enabled: true,
         manualOnly: true,
         workspaceWrite: false,
       },
-    },
-    routing: {
-      authority: "ccg",
-      roles: ["frontend", "backend", "search"],
-      resolutionCommand: "ccg routing get <role> --json",
     },
     dispatch: { codex: "inline" },
     hooks: {
@@ -168,6 +285,40 @@ function createFixture() {
     path.join(repoRoot, ".harness", "adapter.json"),
     adapterContract(),
   );
+  const project = {
+    productManager: {
+      ...adapterContract().productManager,
+      stateFile: ".trellis/tasks/<task>/product-manager.json",
+      evidenceRoot:
+        ".trellis/tasks/<task>/.ccg-evidence/product-manager",
+    },
+  };
+  const projectBytes = `${JSON.stringify(project, null, 2)}\n`;
+  const projectSchemaBytes = `${JSON.stringify({ type: "object" }, null, 2)}\n`;
+  const productManagerSchemaBytes = `${JSON.stringify(
+    { type: "object" },
+    null,
+    2,
+  )}\n`;
+  writeText(path.join(repoRoot, ".harness", "project.json"), projectBytes);
+  writeText(
+    path.join(repoRoot, ".harness", "project.schema.json"),
+    projectSchemaBytes,
+  );
+  writeText(
+    path.join(repoRoot, ".harness", "product-manager.schema.json"),
+    productManagerSchemaBytes,
+  );
+  writeJson(path.join(repoRoot, ".harness", "ownership.json"), {
+    contractSha256: sha256(projectBytes),
+    schemaSha256: sha256(projectSchemaBytes),
+    productManagerSchemaSha256: sha256(productManagerSchemaBytes),
+    managedPaths: [
+      ".harness/project.json",
+      ".harness/project.schema.json",
+      ".harness/product-manager.schema.json",
+    ],
+  });
   writeJson(path.join(repoRoot, "harness.sources.json"), sourceManifest());
   writeJson(path.join(repoRoot, "package.json"), {
     name: "fixture",
@@ -249,6 +400,13 @@ function createFixture() {
     if (command === "git" && args.includes("ls-files")) {
       return { status: 0, stdout: state.tracked, stderr: "" };
     }
+    if (command === "git" && args.includes("check-ignore")) {
+      return {
+        status: args.at(-1).includes(".ccg-evidence/product-manager") ? 0 : 1,
+        stdout: "",
+        stderr: "",
+      };
+    }
     if (command === "ccg" || command === "ccg.cmd") {
       return { status: 0, stdout: state.ccgVersion, stderr: "" };
     }
@@ -299,6 +457,26 @@ test("redacts nested credentials, bearer tokens, query tokens, and JWTs", () => 
   assert.equal(redacted.nested[2], REDACTED);
   assert.equal(serialized.includes(secret), false);
   assert.equal(serialized.includes("eyJabcdefghijk"), false);
+});
+
+test("preserves repeated aliases while still stopping actual cycles", () => {
+  const shared = { artifact: "implement.md", token: "unsafe" };
+  const cyclic = { name: "root" };
+  cyclic.self = cyclic;
+
+  const redacted = redactValue({
+    first: shared,
+    second: shared,
+    cyclic,
+  });
+
+  assert.deepEqual(redacted.first, {
+    artifact: "implement.md",
+    token: REDACTED,
+  });
+  assert.deepEqual(redacted.second, redacted.first);
+  assert.notEqual(redacted.second, "[CIRCULAR]");
+  assert.equal(redacted.cyclic.self, "[CIRCULAR]");
 });
 
 test("normalizes HTTPS provider URLs and rejects remote HTTP", () => {
@@ -370,10 +548,7 @@ test("builds canonical context from the active Trellis task", () => {
     assert.equal(context.task.status, "in_progress");
     assert.match(context.task.artifacts["prd.md"].sha256, /^[a-f0-9]{64}$/);
     assert.equal(context.sources.ccg.gitTree, "personal-tree");
-    assert.equal(context.routing.authority, "ccg");
-    assert.deepEqual(context.routing.roles, ["frontend", "backend", "search"]);
-    assert.equal(context.models.claude.routable, true);
-    assert.equal(context.models.grok.externalIntelligence, "opt-in");
+    assert.equal(context.models.claude.enabled, true);
   } finally {
     fixture.cleanup();
   }
@@ -429,10 +604,10 @@ test("canonical context uses the shared Windows py -3 resolver", () => {
   }
 });
 
-test("clean fixture has no blocking conflicts", () => {
+test("clean fixture has no blocking conflicts", async () => {
   const fixture = createFixture();
   try {
-    const report = auditConflicts(fixture.repoRoot, {
+    const report = await auditConflicts(fixture.repoRoot, {
       runner: fixture.runner,
       homeDir: fixture.homeDir,
     });
@@ -447,27 +622,7 @@ test("clean fixture has no blocking conflicts", () => {
   }
 });
 
-test("CCG runtime accepts an owner-compatible version newer than the source snapshot", () => {
-  const fixture = createFixture();
-  try {
-    fixture.state.ccgVersion = "ccg/9.9.9 win32-x64 node-v24.0.0";
-    const report = auditConflicts(fixture.repoRoot, {
-      runner: fixture.runner,
-      homeDir: fixture.homeDir,
-    });
-    const finding = report.findings.find(
-      (item) => item.id === "ccg-runtime-cli",
-    );
-    assert.equal(finding.status, "ok");
-    assert.equal(finding.evidence.actual, "9.9.9");
-    assert.equal(Object.hasOwn(finding.evidence, "expected"), false);
-    assert.equal(report.summary.blocking, 0);
-  } finally {
-    fixture.cleanup();
-  }
-});
-
-test("Codex plugin cache accepts any structurally valid owned version", () => {
+test("Codex plugin cache accepts an owned base-version cachebuster", async () => {
   const fixture = createFixture();
   try {
     const cacheRoot = path.join(
@@ -482,17 +637,16 @@ test("Codex plugin cache accepts any structurally valid owned version", () => {
       recursive: true,
       force: true,
     });
-    mkdirSync(path.join(cacheRoot, "zz-broken"));
     writeJson(
       path.join(
         cacheRoot,
-        "9.9.9+codex.20260728190000",
+        "3.3.0+codex.20260726153650",
         ".codex-plugin",
         "plugin.json",
       ),
-      { name: "ccg", version: "9.9.9+codex.20260728190000" },
+      { name: "ccg", version: "3.3.0+codex.20260726153650" },
     );
-    const report = auditConflicts(fixture.repoRoot, {
+    const report = await auditConflicts(fixture.repoRoot, {
       runner: fixture.runner,
       homeDir: fixture.homeDir,
     });
@@ -502,15 +656,121 @@ test("Codex plugin cache accepts any structurally valid owned version", () => {
     assert.equal(finding.status, "ok");
     assert.equal(
       finding.evidence.actual,
-      "9.9.9+codex.20260728190000",
+      "3.3.0+codex.20260726153650",
     );
-    assert.equal(Object.hasOwn(finding.evidence, "expected"), false);
   } finally {
     fixture.cleanup();
   }
 });
 
-test("Trellis assets under project .claude are blocking conflicts", () => {
+test("Codex plugin cache accepts valid owner-compatible versions", async () => {
+  const fixture = createFixture();
+  try {
+    const cacheRoot = path.join(
+      fixture.homeDir,
+      ".codex",
+      "plugins",
+      "cache",
+      "ccg-gptpro-worflow",
+      "ccg",
+    );
+    rmSync(path.join(cacheRoot, "3.3.0"), {
+      recursive: true,
+      force: true,
+    });
+    writeJson(
+      path.join(
+        cacheRoot,
+        "3.4.1+codex.1",
+        ".codex-plugin",
+        "plugin.json",
+      ),
+      { name: "ccg", version: "3.4.1+codex.1" },
+    );
+    const report = await auditConflicts(fixture.repoRoot, {
+      runner: fixture.runner,
+      homeDir: fixture.homeDir,
+    });
+    const finding = report.findings.find(
+      (item) => item.id === "ccg-plugin-cache",
+    );
+    assert.equal(finding.status, "ok");
+    assert.equal(finding.severity, "warning");
+    assert.equal(finding.evidence.actual, "3.4.1+codex.1");
+    assert.deepEqual(finding.evidence.available, ["3.4.1+codex.1"]);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("missing CCG CLI blocks while a missing plugin cache remains visible", async () => {
+  const fixture = createFixture();
+  try {
+    fixture.state.ccgVersion = "";
+    rmSync(
+      path.join(
+        fixture.homeDir,
+        ".codex",
+        "plugins",
+        "cache",
+        "ccg-gptpro-worflow",
+      ),
+      { recursive: true, force: true },
+    );
+    const report = await auditConflicts(fixture.repoRoot, {
+      runner: fixture.runner,
+      homeDir: fixture.homeDir,
+    });
+    const runtime = report.findings.find(
+      (item) => item.id === "ccg-runtime-cli",
+    );
+    const plugin = report.findings.find(
+      (item) => item.id === "ccg-plugin-cache",
+    );
+    assert.equal(runtime.status, "conflict");
+    assert.equal(runtime.severity, "blocking");
+    assert.equal(plugin.status, "conflict");
+    assert.equal(plugin.severity, "warning");
+    assert.ok(report.summary.blocking >= 1);
+    assert.ok(report.summary.warning >= 1);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("deterministic CI skips only user runtime checks", async () => {
+  const fixture = createFixture();
+  try {
+    fixture.state.ccgVersion = "";
+    const report = await auditConflicts(fixture.repoRoot, {
+      runner: fixture.runner,
+      homeDir: fixture.homeDir,
+      includeRuntimeState: false,
+      includeUserState: false,
+    });
+    const runtime = report.findings.find(
+      (item) => item.id === "ccg-runtime-cli",
+    );
+    assert.equal(runtime.status, "info");
+    assert.equal(runtime.severity, "info");
+    assert.equal(report.summary.blocking, 0);
+
+    const ordinary = await auditConflicts(fixture.repoRoot, {
+      runner: fixture.runner,
+      homeDir: fixture.homeDir,
+    });
+    assert.equal(
+      ordinary.findings.find(
+        (item) => item.id === "ccg-runtime-cli",
+      ).status,
+      "conflict",
+    );
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("Trellis assets under project .claude are blocking conflicts", async () => {
   const fixture = createFixture();
   try {
     writeText(
@@ -523,7 +783,7 @@ test("Trellis assets under project .claude are blocking conflicts", () => {
       ),
       "# stale Trellis projection\n",
     );
-    const report = auditConflicts(fixture.repoRoot, {
+    const report = await auditConflicts(fixture.repoRoot, {
       runner: fixture.runner,
       homeDir: fixture.homeDir,
     });
@@ -538,7 +798,7 @@ test("Trellis assets under project .claude are blocking conflicts", () => {
   }
 });
 
-test("unrelated project .claude content is reported but preserved", () => {
+test("unrelated project .claude content is reported but preserved", async () => {
   const fixture = createFixture();
   try {
     const userFile = path.join(
@@ -547,7 +807,7 @@ test("unrelated project .claude content is reported but preserved", () => {
       "user-owned.md",
     );
     writeText(userFile, "keep\n");
-    const report = auditConflicts(fixture.repoRoot, {
+    const report = await auditConflicts(fixture.repoRoot, {
       runner: fixture.runner,
       homeDir: fixture.homeDir,
     });
@@ -563,7 +823,7 @@ test("unrelated project .claude content is reported but preserved", () => {
   }
 });
 
-test("source, runtime state, provider, and model write drift are blocking", () => {
+test("source, runtime state, provider, and Claude drift are blocking", async () => {
   const fixture = createFixture();
   try {
     fixture.state.tree = "wrong-tree";
@@ -575,11 +835,11 @@ test("source, runtime state, provider, and model write drift are blocking", () =
     );
     const contract = JSON.parse(readFileSync(contractPath, "utf8"));
     contract.providers.openAICompatibleGrok.apiKeyEnv = "XAI_API_KEY";
-    contract.models.claude.workspaceWrite = true;
     writeJson(contractPath, contract);
-    const report = auditConflicts(fixture.repoRoot, {
+    const report = await auditConflicts(fixture.repoRoot, {
       runner: fixture.runner,
       homeDir: fixture.homeDir,
+      env: { ...process.env, HARNESS_ENABLE_CLAUDE: "true" },
     });
     assert.equal(conflictExitCode(report), 2);
     for (const id of [
@@ -598,60 +858,7 @@ test("source, runtime state, provider, and model write drift are blocking", () =
   }
 });
 
-test("role selection does not violate the Codex-only write policy", () => {
-  const fixture = createFixture();
-  try {
-    const report = auditConflicts(fixture.repoRoot, {
-      runner: fixture.runner,
-      homeDir: fixture.homeDir,
-      env: {
-        ...process.env,
-        HARNESS_ENABLE_CLAUDE: "true",
-        HARNESS_MODEL: "claude",
-      },
-    });
-    assert.equal(
-      report.findings.find((item) => item.id === "model-policy").status,
-      "ok",
-    );
-  } finally {
-    fixture.cleanup();
-  }
-});
-
-for (const provider of [
-  "gemini",
-  "claude",
-  "antigravity",
-  "grok",
-  "gptpro",
-]) {
-  test(`${provider} workspace write access is blocking`, () => {
-    const fixture = createFixture();
-    try {
-      const contractPath = path.join(
-        fixture.repoRoot,
-        ".harness",
-        "adapter.json",
-      );
-      const contract = JSON.parse(readFileSync(contractPath, "utf8"));
-      contract.models[provider].workspaceWrite = true;
-      writeJson(contractPath, contract);
-      const report = auditConflicts(fixture.repoRoot, {
-        runner: fixture.runner,
-        homeDir: fixture.homeDir,
-      });
-      assert.equal(
-        report.findings.find((item) => item.id === "model-policy").status,
-        "conflict",
-      );
-    } finally {
-      fixture.cleanup();
-    }
-  });
-}
-
-test("unguarded duplicate Trellis prompt hooks remain warning-only", () => {
+test("unguarded duplicate Trellis prompt hooks remain warning-only", async () => {
   const fixture = createFixture();
   try {
     writeJson(path.join(fixture.homeDir, ".codex", "hooks.json"), {
@@ -669,7 +876,7 @@ test("unguarded duplicate Trellis prompt hooks remain warning-only", () => {
         ],
       },
     });
-    const report = auditConflicts(fixture.repoRoot, {
+    const report = await auditConflicts(fixture.repoRoot, {
       runner: fixture.runner,
       homeDir: fixture.homeDir,
     });
@@ -684,7 +891,7 @@ test("unguarded duplicate Trellis prompt hooks remain warning-only", () => {
   }
 });
 
-test("guarded global Trellis hook yields to the project hook", () => {
+test("guarded global Trellis hook yields to the project hook", async () => {
   const fixture = createFixture();
   try {
     writeJson(path.join(fixture.homeDir, ".codex", "hooks.json"), {
@@ -711,7 +918,7 @@ test("guarded global Trellis hook yields to the project hook", () => {
       ),
       'PROJECT_LOCAL_HOOK_PRECEDENCE_MARKER = "TRELLIS_PROJECT_HOOK_PRECEDENCE_V1"\n',
     );
-    const report = auditConflicts(fixture.repoRoot, {
+    const report = await auditConflicts(fixture.repoRoot, {
       runner: fixture.runner,
       homeDir: fixture.homeDir,
     });
@@ -726,7 +933,7 @@ test("guarded global Trellis hook yields to the project hook", () => {
   }
 });
 
-test("an idle repository without an active task remains doctor-safe", () => {
+test("an idle repository without an active task remains doctor-safe", async () => {
   const fixture = createFixture();
   try {
     for (const stderr of ["No active task found.", ""]) {
@@ -743,7 +950,7 @@ test("an idle repository without an active task remains doctor-safe", () => {
         }
         return fixture.runner(command, args, options);
       };
-      const report = auditConflicts(fixture.repoRoot, {
+      const report = await auditConflicts(fixture.repoRoot, {
         runner,
         homeDir: fixture.homeDir,
       });

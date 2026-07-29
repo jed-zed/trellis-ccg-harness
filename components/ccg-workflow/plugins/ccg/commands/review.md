@@ -28,3 +28,7 @@ top-level providers for bounded review evidence. Review is an internal phase of
 each role. Codex verifies findings before reporting them. When a selected role
 uses Gemini, invoke the bundled browser preview helper automatically and do not
 call the raw Gemini CLI.
+
+Claude is disabled for ordinary review delegation. It may run only when
+unified CCG routing selects Claude for the isolated, read-only
+`product-manager` role and the project allows the explicit provider call.

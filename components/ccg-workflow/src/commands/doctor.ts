@@ -5,8 +5,10 @@ import { createHash } from 'node:crypto'
 import { homedir } from 'node:os'
 import { join } from 'pathe'
 import type { ModelRouting, ModelType } from '../types'
+import type { ProductManagerProvider } from '../product-manager/contracts'
 import { STANDARD_ROUTING_ROLES } from '../types'
-import { readCcgConfig } from '../utils/config'
+import { IMPLEMENTED_PRODUCT_MANAGER_PROVIDERS } from '../product-manager/provider-registry'
+import { readCcgConfig, readCcgConfigAt } from '../utils/config'
 import { resolveCodexHome, validateOwnershipManifest } from '../utils/codex-mode'
 import { EXPECTED_BINARY_VERSION, verifyBinaryVersion } from '../utils/installer'
 import { assertManagedPath } from '../utils/managed-path'
@@ -78,7 +80,7 @@ export function collectRoutingModels(routing?: Partial<ModelRouting>): string[] 
 
 export function routingStatusRows(routing?: Partial<ModelRouting>): Array<{ role: string, provider: string }> {
   return STANDARD_ROUTING_ROLES.map(role => ({
-    role: role.charAt(0).toUpperCase() + role.slice(1),
+    role,
     provider: routing?.[role]?.primary || '—',
   }))
 }
@@ -172,6 +174,7 @@ async function inspectCodexOwnership(
   }
 
   const issues: string[] = []
+  const notes: string[] = []
   const files = Array.isArray(ownership?.files) ? ownership.files : []
   if (ownership?.schemaVersion !== 1)
     issues.push('unsupported schema')
@@ -228,8 +231,22 @@ async function inspectCodexOwnership(
         issues.push(`managed file missing: ${relativePath}`)
         continue
       }
-      if (sha256(await fs.readFile(target)) !== installedSha256)
-        issues.push(`managed file digest mismatch: ${relativePath}`)
+      if (sha256(await fs.readFile(target)) !== installedSha256) {
+        if (relativePath === 'ccg/config.toml') {
+          try {
+            if (!(await readCcgConfigAt(target)))
+              issues.push('mutable CCG config is missing')
+            else
+              notes.push('mutable CCG config differs from the installed template and will be preserved')
+          }
+          catch {
+            issues.push('mutable CCG config is malformed')
+          }
+        }
+        else {
+          issues.push(`managed file digest mismatch: ${relativePath}`)
+        }
+      }
     }
     catch {
       issues.push(`managed file unreadable: ${relativePath}`)
@@ -246,7 +263,9 @@ async function inspectCodexOwnership(
   return {
     valid: issues.length === 0,
     detail: issues.length === 0
-      ? `v${String(ownership.version)}, ${files.length} managed files; ownership digests verified`
+      ? `v${String(ownership.version)}, ${files.length} managed files; ownership digests verified${
+        notes.length === 0 ? '' : `; ${notes.join('; ')}`
+      }`
       : issues.join('; '),
   }
 }
@@ -317,6 +336,36 @@ async function doctorCodex(): Promise<DoctorResult> {
     detail: hasPendingTransaction
       ? 'Interrupted operation found; run `ccg codex-mode recover`'
       : 'No interrupted operation',
+  })
+
+  const ccgConfigPath = join(codexHome, 'ccg', 'config.toml')
+  let codexConfig: Awaited<ReturnType<typeof readCcgConfigAt>> = null
+  let routingError: string | null = null
+  try {
+    codexConfig = await readCcgConfigAt(ccgConfigPath)
+  }
+  catch (error) {
+    routingError = error instanceof Error ? error.message : String(error)
+  }
+  const routeRows = routingStatusRows(codexConfig?.routing)
+  checks.push({
+    label: 'CCG role routing',
+    status: codexConfig && !routingError ? OK : FAIL,
+    detail: routingError || (codexConfig
+      ? routeRows.map(row => `${row.role}=${row.provider}`).join(', ')
+      : `Not found (${ccgConfigPath})`),
+  })
+  const productManagerProvider = codexConfig?.routing?.['product-manager']?.primary
+  const productManagerImplemented = Boolean(
+    productManagerProvider
+    && IMPLEMENTED_PRODUCT_MANAGER_PROVIDERS.includes(productManagerProvider as ProductManagerProvider),
+  )
+  checks.push({
+    label: 'Product manager route',
+    status: productManagerImplemented ? OK : FAIL,
+    detail: productManagerProvider
+      ? `${productManagerProvider}${productManagerImplemented ? '; read-only adapter implemented' : '; adapter unavailable, no fallback'}`
+      : 'No unified product-manager route',
   })
 
   console.log()

@@ -12,6 +12,7 @@ import {
   link,
   lstat,
   mkdir,
+  mkdtemp,
   readFile,
   readdir,
   realpath,
@@ -21,7 +22,7 @@ import {
   stat,
   writeFile,
 } from "node:fs/promises";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
@@ -107,7 +108,7 @@ const PROJECT_SKILL_MAX_FILE_BYTES = 16 * 1024 * 1024;
 const PROJECT_SKILL_MAX_TOTAL_BYTES = 64 * 1024 * 1024;
 const COLLABORATION_BLOCK_START = "<!-- HARNESS-COLLABORATION:START -->";
 const COLLABORATION_BLOCK_END = "<!-- HARNESS-COLLABORATION:END -->";
-const PROJECT_POLICY_VERSION = 2;
+const PROJECT_POLICY_VERSION = 6;
 const COLLABORATION_MARKER_FORMAT_VERSION = 1;
 const PROJECT_OWNERSHIP_SCHEMA_VERSION = 2;
 const PROJECT_SKILL_OWNERSHIP_SCHEMA_VERSION = 3;
@@ -139,6 +140,7 @@ const PROJECT_TRANSACTION_TARGETS = new Set([
   PROJECT_POLICY_RELATIVE_PATH,
   ".harness/project.json",
   ".harness/project.schema.json",
+  ".harness/product-manager.schema.json",
   ".harness/ownership.json",
   ".harness/project-skills.json",
   THIRD_PARTY_SOURCE_RELATIVE_PATH,
@@ -1352,6 +1354,10 @@ export async function reviseReadyProjectSkills({
   );
   const agentsPath = path.join(root, "AGENTS.md");
   const manifestPath = path.join(harnessDir, "project-skills.json");
+  const productManagerSchemaPath = path.join(
+    harnessDir,
+    "product-manager.schema.json",
+  );
   const profile = await loadSkillRepositoryProfile({ homeDir });
   if (!profile) {
     throw new Error(
@@ -1402,12 +1408,17 @@ export async function reviseReadyProjectSkills({
     projectFingerprint,
     ownershipFingerprint,
     schemaFingerprint,
+    productManagerSchemaFingerprint,
     policyFingerprint,
     agentsFingerprint,
   ] = await Promise.all([
     readFileFingerprint(projectPath, "Harness project contract"),
     readFileFingerprint(ownershipPath, "Harness ownership manifest"),
     readFileFingerprint(schemaPath, "Harness project schema"),
+    readFileFingerprint(
+      productManagerSchemaPath,
+      "Harness product-manager schema",
+    ),
     readFileFingerprint(policyPath, "Harness collaboration policy"),
     readFileFingerprint(agentsPath, "AGENTS.md"),
   ]);
@@ -1415,6 +1426,7 @@ export async function reviseReadyProjectSkills({
     !projectFingerprint.exists ||
     !ownershipFingerprint.exists ||
     !schemaFingerprint.exists ||
+    !productManagerSchemaFingerprint.exists ||
     !policyFingerprint.exists ||
     !agentsFingerprint.exists
   ) {
@@ -1431,6 +1443,7 @@ export async function reviseReadyProjectSkills({
     JSON.parse(ownershipFingerprint.bytes.toString("utf8")),
     projectFingerprint.sha256,
     schemaFingerprint.sha256,
+    productManagerSchemaFingerprint.sha256,
   );
   const managedBlock = currentOwnership.managedBlocks?.find(
     (entry) => entry?.path === "AGENTS.md",
@@ -1460,6 +1473,24 @@ export async function reviseReadyProjectSkills({
   }
   const sourceSchemaBytes = canonicalJsonBytes(sourceSchemaFingerprint.bytes);
   const sourceSchemaSha256 = sha256(sourceSchemaBytes);
+  const sourceProductManagerSchemaFingerprint =
+    await readFileFingerprint(
+      path.join(
+        sourceSkill,
+        "assets",
+        "product-manager.schema.json",
+      ),
+      "Harness product-manager schema asset",
+    );
+  if (!sourceProductManagerSchemaFingerprint.exists) {
+    throw new Error("Harness product-manager schema asset does not exist.");
+  }
+  const sourceProductManagerSchemaBytes = canonicalJsonBytes(
+    sourceProductManagerSchemaFingerprint.bytes,
+  );
+  const sourceProductManagerSchemaSha256 = sha256(
+    sourceProductManagerSchemaBytes,
+  );
   validateOwnedPolicyProjection(
     currentOwnership,
     managedBlock,
@@ -1559,10 +1590,13 @@ export async function reviseReadyProjectSkills({
     schemaVersion: PROJECT_SKILL_OWNERSHIP_SCHEMA_VERSION,
     contractSha256: sha256(candidateContractBytes),
     schemaSha256: sourceSchemaSha256,
+    productManagerSchemaSha256:
+      sourceProductManagerSchemaSha256,
     projectSkillsManifestSha256: sha256(manifestBytes),
     managedPaths: [
       ...new Set([
         ...currentOwnership.managedPaths,
+        ".harness/product-manager.schema.json",
         ...managedSkillPaths,
       ]),
     ],
@@ -1721,6 +1755,12 @@ export async function reviseReadyProjectSkills({
           expectedOriginal: schemaFingerprint,
         },
         {
+          path: ".harness/product-manager.schema.json",
+          bytes: sourceProductManagerSchemaBytes,
+          mode: productManagerSchemaFingerprint.mode,
+          expectedOriginal: productManagerSchemaFingerprint,
+        },
+        {
           path: ".harness/project.json",
           bytes: candidateContractBytes,
           mode: projectFingerprint.mode,
@@ -1838,10 +1878,7 @@ function assertProviders(providers) {
   if (!providers.codex.enabled || !providers.codex.workspaceWrite) {
     throw new Error("Codex must remain the enabled workspace writer.");
   }
-  if (providers.claude.enabled || providers.claude.workspaceWrite) {
-    throw new Error("Claude must remain disabled with no workspace write access.");
-  }
-  for (const provider of ["gemini", "grok", "gptPro"]) {
+  for (const provider of ["gemini", "claude", "grok", "gptPro"]) {
     if (providers[provider].workspaceWrite) {
       throw new Error(
         `${provider} cannot receive workspace write authority.`,
@@ -1858,6 +1895,87 @@ function assertProviders(providers) {
   }
 }
 
+function assertProductManager(productManager) {
+  assertObject(productManager, "productManager");
+  assertExactKeys(
+    productManager,
+    [
+      "stateAuthority",
+      "stateFile",
+      "evidenceRoot",
+      "selectedProviderAuthority",
+      "allowedProviders",
+      "providerCapabilities",
+    ],
+    "productManager",
+  );
+  const expected = {
+    stateAuthority: "trellis-task-projection",
+    stateFile: ".trellis/tasks/<task>/product-manager.json",
+    evidenceRoot:
+      ".trellis/tasks/<task>/.ccg-evidence/product-manager",
+    selectedProviderAuthority: "unified-ccg-routing",
+  };
+  for (const [field, value] of Object.entries(expected)) {
+    if (productManager[field] !== value) {
+      throw new Error(`productManager.${field} must be ${value}.`);
+    }
+  }
+  if (
+    !Array.isArray(productManager.allowedProviders) ||
+    productManager.allowedProviders.length === 0 ||
+    productManager.allowedProviders.some(
+      (provider) => !["codex", "gemini", "claude"].includes(provider),
+    ) ||
+    new Set(productManager.allowedProviders).size !==
+      productManager.allowedProviders.length
+  ) {
+    throw new Error(
+      "productManager.allowedProviders must be a unique non-empty subset of codex, gemini, and claude.",
+    );
+  }
+  assertObject(
+    productManager.providerCapabilities,
+    "productManager.providerCapabilities",
+  );
+  assertExactKeys(
+    productManager.providerCapabilities,
+    ["codex", "gemini", "claude"],
+    "productManager.providerCapabilities",
+  );
+  for (const provider of ["codex", "gemini", "claude"]) {
+    const capabilities = productManager.providerCapabilities[provider];
+    assertObject(
+      capabilities,
+      `productManager.providerCapabilities.${provider}`,
+    );
+    assertExactKeys(
+      capabilities,
+      [
+        "readOnly",
+        "workspaceWrite",
+        "terminal",
+        "subagents",
+        "network",
+        "paid",
+      ],
+      `productManager.providerCapabilities.${provider}`,
+    );
+    if (
+      capabilities.readOnly !== true ||
+      capabilities.workspaceWrite !== false ||
+      capabilities.terminal !== false ||
+      capabilities.subagents !== false ||
+      capabilities.network !== "explicit-per-call" ||
+      capabilities.paid !== "explicit-per-call"
+    ) {
+      throw new Error(
+        `productManager provider ${provider} must be independently read-only with no terminal, workspace-write, or subagent authority.`,
+      );
+    }
+  }
+}
+
 function assertContractObjects(contract) {
   for (const field of [
     "project",
@@ -1867,6 +1985,7 @@ function assertContractObjects(contract) {
     "qualityGates",
     "skills",
     "security",
+    "productManager",
     "hooks",
     "source",
     "ci",
@@ -2127,6 +2246,7 @@ export function validateProjectContract(
   assertContractSkills(contract.skills, contract.workflow);
   assertContractThirdParty(contract);
   assertProviders(contract.providers);
+  assertProductManager(contract.productManager);
   assertContractSecurity(contract);
   if (requireApproved) assertApprovedContract(contract);
   else assertDraftProjectFields(contract);
@@ -3413,6 +3533,7 @@ async function runProjectTransaction({
 function buildProjectOwnership(
   contractSha256,
   schemaSha256,
+  productManagerSchemaSha256,
   policyBytes,
   renderedBlock,
   thirdPartySourceBytes = null,
@@ -3424,6 +3545,7 @@ function buildProjectOwnership(
     owner: "trellis-ccg-harness",
     contractSha256,
     schemaSha256,
+    productManagerSchemaSha256,
     policy: {
       policyVersion: PROJECT_POLICY_VERSION,
       markerFormatVersion: COLLABORATION_MARKER_FORMAT_VERSION,
@@ -3436,6 +3558,7 @@ function buildProjectOwnership(
       PROJECT_POLICY_RELATIVE_PATH,
       ".harness/project.json",
       ".harness/project.schema.json",
+      ".harness/product-manager.schema.json",
     ],
     managedBlocks: [
       {
@@ -3460,6 +3583,8 @@ function validateExistingProjectOwnership(
   ownership,
   contractSha256,
   schemaSha256,
+  productManagerSchemaSha256 = null,
+  { allowLegacyProductManagerSchema = false } = {},
 ) {
   const legacyPaths = [
     ".harness/ownership.json",
@@ -3487,6 +3612,30 @@ function validateExistingProjectOwnership(
     throw new Error(
       "The existing .harness ownership is not a compatible Harness-managed project contract.",
     );
+  }
+  if (productManagerSchemaSha256 !== null) {
+    const ownsSchemaPath = ownership.managedPaths.includes(
+      ".harness/product-manager.schema.json",
+    );
+    const ownsSchemaDigest =
+      ownership.productManagerSchemaSha256 ===
+      productManagerSchemaSha256;
+    if (
+      (ownsSchemaPath || ownership.productManagerSchemaSha256 !== undefined) &&
+      (!ownsSchemaPath || !ownsSchemaDigest)
+    ) {
+      throw new Error(
+        "The managed product-manager schema ownership is incomplete or modified.",
+      );
+    }
+    if (
+      !allowLegacyProductManagerSchema &&
+      (!ownsSchemaPath || !ownsSchemaDigest)
+    ) {
+      throw new Error(
+        "The managed product-manager schema ownership is missing.",
+      );
+    }
   }
   if (
     ownership.schemaVersion === PROJECT_SKILL_OWNERSHIP_SCHEMA_VERSION &&
@@ -3648,6 +3797,22 @@ export async function applyProjectContract({
   }
   const schemaBytes = canonicalJsonBytes(schemaFingerprint.bytes);
   const schemaSha256 = sha256(schemaBytes);
+  const productManagerSchemaPath = path.join(
+    sourceSkill,
+    "assets",
+    "product-manager.schema.json",
+  );
+  const productManagerSchemaFingerprint = await readFileFingerprint(
+    productManagerSchemaPath,
+    "Harness product-manager schema asset",
+  );
+  if (!productManagerSchemaFingerprint.exists) {
+    throw new Error("Harness product-manager schema asset does not exist.");
+  }
+  const productManagerSchemaBytes = canonicalJsonBytes(
+    productManagerSchemaFingerprint.bytes,
+  );
+  const productManagerSchemaSha256 = sha256(productManagerSchemaBytes);
   const thirdPartySourcePath = path.join(
     sourceSkill,
     "assets",
@@ -3711,6 +3876,11 @@ export async function applyProjectContract({
       schemaFingerprint,
       "Harness project contract schema asset",
     );
+    await assertFingerprintUnchanged(
+      productManagerSchemaPath,
+      productManagerSchemaFingerprint,
+      "Harness product-manager schema asset",
+    );
     if (thirdPartySourceFingerprint !== null) {
       await assertFingerprintUnchanged(
         thirdPartySourcePath,
@@ -3729,6 +3899,7 @@ export async function applyProjectContract({
     let ownership = buildProjectOwnership(
       contractSha256,
       schemaSha256,
+      productManagerSchemaSha256,
       policyBytes,
       collaborationBlock,
       thirdPartySourceBytes,
@@ -3746,6 +3917,10 @@ export async function applyProjectContract({
       ...PROJECT_POLICY_RELATIVE_PATH.split("/"),
     );
     const targetSchemaPath = path.join(harnessDir, "project.schema.json");
+    const targetProductManagerSchemaPath = path.join(
+      harnessDir,
+      "product-manager.schema.json",
+    );
     const targetThirdPartySourcePath = path.join(
       root,
       ...THIRD_PARTY_SOURCE_RELATIVE_PATH.split("/"),
@@ -3762,6 +3937,11 @@ export async function applyProjectContract({
       targetSchemaPath,
       "Existing Harness project schema",
     );
+    const targetProductManagerSchemaFingerprint =
+      await readFileFingerprint(
+        targetProductManagerSchemaPath,
+        "Existing Harness product-manager schema",
+      );
     const targetThirdPartySourceFingerprint =
       thirdPartySourceBytes === null
         ? null
@@ -3839,6 +4019,11 @@ export async function applyProjectContract({
           "The project third-party source manifest exists without Harness ownership; refusing collision.",
         );
       }
+      if (targetProductManagerSchemaFingerprint.exists) {
+        throw new Error(
+          "The project product-manager schema exists without Harness ownership; refusing collision.",
+        );
+      }
       if (thirdPartySourceBytes !== null) {
         targets.push({
           path: THIRD_PARTY_SOURCE_RELATIVE_PATH,
@@ -3861,6 +4046,12 @@ export async function applyProjectContract({
           expectedOriginal: targetSchemaFingerprint,
         },
         {
+          path: ".harness/product-manager.schema.json",
+          bytes: productManagerSchemaBytes,
+          mode: 0o600,
+          expectedOriginal: targetProductManagerSchemaFingerprint,
+        },
+        {
           path: ".harness/ownership.json",
           bytes: nextOwnershipBytes,
           mode: 0o600,
@@ -3868,38 +4059,73 @@ export async function applyProjectContract({
         },
       );
     } else {
-      preconditions.push({
-        path: ".harness/project.json",
-        expected: projectFingerprint,
-      });
       const currentProjectBytes = canonicalJson(
         JSON.parse(projectFingerprint.bytes.toString("utf8")),
       );
-      if (currentProjectBytes !== contractBytes) {
-        throw new Error(
-          "The existing Harness project contract differs; refusing collision.",
-        );
-      }
-      let currentSchemaBytes;
       try {
-        currentSchemaBytes = canonicalJsonBytes(
-          targetSchemaFingerprint.bytes,
-        );
+        canonicalJsonBytes(targetSchemaFingerprint.bytes);
       } catch {
         throw new Error(
           "The existing Harness project schema differs; refusing collision.",
         );
       }
-      if (sha256(currentSchemaBytes) !== schemaSha256) {
-        throw new Error(
-          "The existing Harness project schema differs; refusing collision.",
-        );
+      let currentProductManagerSchemaSha256 = null;
+      if (targetProductManagerSchemaFingerprint.exists) {
+        try {
+          currentProductManagerSchemaSha256 = sha256(
+            canonicalJsonBytes(
+              targetProductManagerSchemaFingerprint.bytes,
+            ),
+          );
+        } catch {
+          throw new Error(
+            "The existing Harness product-manager schema differs; refusing collision.",
+          );
+        }
       }
       const currentOwnership = validateExistingProjectOwnership(
         JSON.parse(ownershipFingerprint.bytes.toString("utf8")),
-        contractSha256,
+        projectFingerprint.sha256,
         targetSchemaFingerprint.sha256,
+        targetProductManagerSchemaFingerprint.sha256 ??
+          productManagerSchemaSha256,
+        { allowLegacyProductManagerSchema: true },
       );
+      const claimsProductManagerSchema =
+        currentOwnership.productManagerSchemaSha256 !== undefined ||
+        currentOwnership.managedPaths.includes(
+          ".harness/product-manager.schema.json",
+        );
+      if (
+        claimsProductManagerSchema &&
+        !targetProductManagerSchemaFingerprint.exists
+      ) {
+        throw new Error(
+          "The managed project product-manager schema is missing; refusing overwrite.",
+        );
+      }
+      if (
+        !claimsProductManagerSchema &&
+        targetProductManagerSchemaFingerprint.exists
+      ) {
+        throw new Error(
+          "The project product-manager schema exists without ownership; refusing collision.",
+        );
+      }
+      if (currentProjectBytes === contractBytes) {
+        preconditions.push({
+          path: ".harness/project.json",
+          expected: projectFingerprint,
+        });
+      } else {
+        targets.push({
+          path: ".harness/project.json",
+          bytes: Buffer.from(contractBytes),
+          mode: projectFingerprint.mode,
+          expectedOriginal: projectFingerprint,
+        });
+        status = "upgraded";
+      }
       if (thirdPartySourceBytes !== null) {
         const expectedThirdPartySourceSha256 =
           sha256(thirdPartySourceBytes);
@@ -3977,6 +4203,28 @@ export async function applyProjectContract({
           expectedOriginal: targetSchemaFingerprint,
         });
         status = "migrated";
+      }
+      if (
+        targetProductManagerSchemaFingerprint.exists &&
+        currentProductManagerSchemaSha256 ===
+          productManagerSchemaSha256
+      ) {
+        preconditions.push({
+          path: ".harness/product-manager.schema.json",
+          expected: targetProductManagerSchemaFingerprint,
+        });
+      } else {
+        targets.push({
+          path: ".harness/product-manager.schema.json",
+          bytes: productManagerSchemaBytes,
+          mode: targetProductManagerSchemaFingerprint.exists
+            ? targetProductManagerSchemaFingerprint.mode
+            : 0o600,
+          expectedOriginal: targetProductManagerSchemaFingerprint,
+        });
+        status = targetProductManagerSchemaFingerprint.exists
+          ? "upgraded"
+          : "migrated";
       }
       const managedBlock = currentOwnership.managedBlocks?.find(
         (entry) => entry?.path === "AGENTS.md",
@@ -4147,6 +4395,130 @@ export async function applyProjectContract({
   }
 }
 
+export async function migrateProjectProductManager({
+  approved,
+  allowedProviders = null,
+  coupledSourceUpdate = false,
+  markReady = true,
+  repoRoot,
+  skillRoot = DEFAULT_SKILL_ROOT,
+  faultInjector,
+  isProcessAlive,
+  readProcessIdentity,
+  provenanceKeyPath,
+}) {
+  if (approved !== true) {
+    throw new Error(
+      "Product-manager contract migration requires explicit approval.",
+    );
+  }
+  const root = path.resolve(repoRoot);
+  const sourceSkill = path.resolve(skillRoot);
+  const projectPath = path.join(root, ".harness", "project.json");
+  const templatePath = path.join(
+    sourceSkill,
+    "assets",
+    "project-contract.template.json",
+  );
+  const currentFingerprint = await readFileFingerprint(
+    projectPath,
+    "Existing Harness project contract",
+  );
+  const templateFingerprint = await readFileFingerprint(
+    templatePath,
+    "Harness project contract template",
+  );
+  if (!currentFingerprint.exists || !templateFingerprint.exists) {
+    throw new Error(
+      "Product-manager migration requires an initialized Harness and its contract template.",
+    );
+  }
+  const current = JSON.parse(currentFingerprint.bytes.toString("utf8"));
+  const template = JSON.parse(templateFingerprint.bytes.toString("utf8"));
+  assertProductManager(template.productManager);
+  const selectedAllowedProviders =
+    allowedProviders ??
+    current.productManager?.allowedProviders ??
+    template.productManager.allowedProviders;
+  if (
+    !Array.isArray(selectedAllowedProviders) ||
+    selectedAllowedProviders.some(
+      (provider) => !template.productManager.allowedProviders.includes(provider),
+    )
+  ) {
+    throw new Error(
+      "Requested product-manager providers are not supported by the current Harness template.",
+    );
+  }
+  const enableClaude = selectedAllowedProviders.includes("claude");
+  const candidate = {
+    ...current,
+    status: "approved",
+    providers: {
+      ...current.providers,
+      claude: {
+        ...current.providers.claude,
+        enabled: enableClaude,
+        workspaceWrite: false,
+      },
+    },
+    productManager: {
+      ...template.productManager,
+      allowedProviders: selectedAllowedProviders,
+    },
+    source: coupledSourceUpdate
+      ? {
+          ...current.source,
+          dependencyPolicy: "source-verified-current-snapshot",
+          updatePolicy:
+            "coupled-bundle-update-with-current-snapshot-source-fingerprint",
+        }
+      : current.source,
+  };
+  validateProjectContract(candidate, { requireApproved: true });
+  const temporaryRoot = await mkdtemp(
+    path.join(tmpdir(), "harness-product-manager-migration-"),
+  );
+  const contractPath = path.join(
+    temporaryRoot,
+    "approved-project-contract.json",
+  );
+  try {
+    await writeFile(contractPath, canonicalJson(candidate), {
+      encoding: "utf8",
+      mode: 0o600,
+      flag: "wx",
+    });
+    const applied = await applyProjectContract({
+      repoRoot: root,
+      contractPath,
+      skillRoot: sourceSkill,
+      faultInjector,
+      isProcessAlive,
+      readProcessIdentity,
+      provenanceKeyPath,
+    });
+    const ready = markReady
+      ? await markProjectReady({
+          repoRoot: root,
+          skillRoot: sourceSkill,
+          faultInjector,
+          isProcessAlive,
+          readProcessIdentity,
+          provenanceKeyPath,
+        })
+      : null;
+    return {
+      status: markReady ? "ready" : "approved-awaiting-gates",
+      appliedStatus: applied.status,
+      readyStatus: ready?.status ?? null,
+      projectPath,
+    };
+  } finally {
+    await rm(temporaryRoot, { recursive: true, force: true });
+  }
+}
+
 export async function markProjectReady({
   repoRoot,
   skillRoot = DEFAULT_SKILL_ROOT,
@@ -4161,6 +4533,10 @@ export async function markProjectReady({
   const projectPath = path.join(harnessDir, "project.json");
   const ownershipPath = path.join(harnessDir, "ownership.json");
   const schemaPath = path.join(harnessDir, "project.schema.json");
+  const productManagerSchemaPath = path.join(
+    harnessDir,
+    "product-manager.schema.json",
+  );
   const policyPath = path.join(
     root,
     ...PROJECT_POLICY_RELATIVE_PATH.split("/"),
@@ -4193,6 +4569,22 @@ export async function markProjectReady({
   const sourceSchemaSha256 = sha256(
     canonicalJsonBytes(sourceSchemaFingerprint.bytes),
   );
+  const sourceProductManagerSchemaPath = path.join(
+    sourceSkill,
+    "assets",
+    "product-manager.schema.json",
+  );
+  const sourceProductManagerSchemaFingerprint =
+    await readFileFingerprint(
+      sourceProductManagerSchemaPath,
+      "Harness product-manager schema asset",
+    );
+  if (!sourceProductManagerSchemaFingerprint.exists) {
+    throw new Error("Harness product-manager schema asset does not exist.");
+  }
+  const sourceProductManagerSchemaSha256 = sha256(
+    canonicalJsonBytes(sourceProductManagerSchemaFingerprint.bytes),
+  );
   const expectedRenderedBlockSha256 = sha256(
     renderCollaborationBlock(
       sourcePolicyFingerprint.bytes.toString("utf8"),
@@ -4224,6 +4616,11 @@ export async function markProjectReady({
       sourceSchemaFingerprint,
       "Harness project contract schema asset",
     );
+    await assertFingerprintUnchanged(
+      sourceProductManagerSchemaPath,
+      sourceProductManagerSchemaFingerprint,
+      "Harness product-manager schema asset",
+    );
     const projectFingerprint = await readFileFingerprint(
       projectPath,
       "Harness project contract",
@@ -4235,6 +4632,10 @@ export async function markProjectReady({
     const schemaFingerprint = await readFileFingerprint(
       schemaPath,
       "Harness project schema",
+    );
+    const productManagerSchemaFingerprint = await readFileFingerprint(
+      productManagerSchemaPath,
+      "Harness product-manager schema",
     );
     const policyFingerprint = await readFileFingerprint(
       policyPath,
@@ -4248,6 +4649,7 @@ export async function markProjectReady({
       !projectFingerprint.exists ||
       !ownershipFingerprint.exists ||
       !schemaFingerprint.exists ||
+      !productManagerSchemaFingerprint.exists ||
       !policyFingerprint.exists ||
       !agentsFingerprint.exists
     ) {
@@ -4258,6 +4660,14 @@ export async function markProjectReady({
     if (schemaFingerprint.sha256 !== sourceSchemaSha256) {
       throw new Error(
         "The managed Harness project schema is modified; refusing readiness promotion.",
+      );
+    }
+    if (
+      productManagerSchemaFingerprint.sha256 !==
+      sourceProductManagerSchemaSha256
+    ) {
+      throw new Error(
+        "The managed Harness product-manager schema is modified; refusing readiness promotion.",
       );
     }
 
@@ -4275,6 +4685,7 @@ export async function markProjectReady({
       JSON.parse(ownershipFingerprint.bytes.toString("utf8")),
       projectFingerprint.sha256,
       schemaFingerprint.sha256,
+      productManagerSchemaFingerprint.sha256,
     );
     let thirdPartySourceFingerprint = null;
     if (contract.thirdParty !== undefined) {
@@ -4354,6 +4765,10 @@ export async function markProjectReady({
       faultInjector,
       preconditions: [
         { path: ".harness/project.schema.json", expected: schemaFingerprint },
+        {
+          path: ".harness/product-manager.schema.json",
+          expected: productManagerSchemaFingerprint,
+        },
         { path: PROJECT_POLICY_RELATIVE_PATH, expected: policyFingerprint },
         { path: "AGENTS.md", expected: agentsFingerprint },
         ...(thirdPartySourceFingerprint

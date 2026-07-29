@@ -203,6 +203,7 @@ async function nodePackageCommand({
   packageName,
   binName,
   label,
+  dependencySurface,
 }) {
   const root = path.resolve(packageRoot);
   let realRoot;
@@ -239,7 +240,10 @@ async function nodePackageCommand({
   const [script, identity, packageTree] = await Promise.all([
     fileIdentity(entrypoint, `${label} entrypoint`),
     fileIdentity(packageJsonPath, `${label} package identity`),
-    packageTreeIdentity(trustedRoot, `${label} dependency surface`),
+    packageTreeIdentity(
+      dependencySurface === "package" ? realRoot : trustedRoot,
+      `${label} dependency surface`,
+    ),
   ]);
   if (
     !inside(realRoot, script.realPath) ||
@@ -352,6 +356,8 @@ async function resolveNodePackage({
         packageName,
         binName,
         label,
+        dependencySurface:
+          packageName === "ccg-workflow" ? "package" : "trusted-root",
       });
       if (resolved) return resolved;
     } catch (error) {
@@ -430,6 +436,7 @@ function executableNamesFor(logicalName, platform) {
 
 const NODE_PACKAGE_COMMANDS = Object.freeze({
   npm: { packageName: "npm" },
+  ccg: { packageName: "ccg-workflow" },
   codex: { packageName: "@openai/codex" },
   gemini: { packageName: "@google/gemini-cli" },
 });
@@ -593,6 +600,25 @@ async function resolveCodex({
   });
 }
 
+async function resolveCcg({
+  nodePath,
+  env,
+  platform,
+  approvedPackageRoots,
+}) {
+  const resolved = await resolveNodePackage({
+    nodePath,
+    env,
+    platform,
+    approvedPackageRoots,
+    packageName: "ccg-workflow",
+    binName: "ccg",
+    label: "CCG CLI",
+  });
+  if (resolved) return resolved;
+  throw new Error("Cannot resolve CCG from a trusted Node package root.");
+}
+
 async function resolveGemini({ nodePath, env, platform, approvedPackageRoots }) {
   const resolved = await resolveNodePackage({
     nodePath,
@@ -647,6 +673,14 @@ export async function resolveTrustedCommand(logicalName, {
       platform,
       approvedPackageRoots,
       approvedCommandRoots,
+    });
+  }
+  if (logicalName === "ccg") {
+    return resolveCcg({
+      nodePath,
+      env,
+      platform,
+      approvedPackageRoots,
     });
   }
   if (logicalName === "gemini") {

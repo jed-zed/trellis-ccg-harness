@@ -15,6 +15,7 @@ snapshot and is verified through root commands.
 | Specification | Applies when |
 |---|---|
 | [Harness Initializer](./harness-initializer.md) | Changing contract apply, project ownership, or readiness promotion |
+| [Product Manager Review](./product-manager-review.md) | Changing reviewer providers, task projection, evidence, gates, or lifecycle integration |
 
 ## Pre-Development Checklist
 

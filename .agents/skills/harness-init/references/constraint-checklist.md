@@ -77,7 +77,10 @@ decisions that remain unresolved.
 - Which optional provider CLIs are installed, which installation requests must
   remain official-documentation/manual-only, and which Codex/Gemini/Grok login
   guidance has a separately reviewed plan digest and second explicit approval?
-  Claude remains default-skipped and Harness never probes or executes it.
+  Claude installation/login remains default-skipped and Harness initialization
+  never probes or executes it. A separately selected product-manager Provider
+  may invoke an already installed Claude only with explicit per-call approval
+  and a no-tool, no-write, non-persistent execution boundary.
 - Do all executable status/source/action helpers use a verified absolute
   command binding and an explicit minimal environment rooted in the approved
   home/config locations, with `NODE_OPTIONS`, `NODE_PATH`, `LD_PRELOAD`,
@@ -123,7 +126,8 @@ decisions that remain unresolved.
 ## Updates, Rollback, and Uninstall
 
 - Which source is allowed for Trellis, CCG, Harness, and dependency updates?
-- Are versions, commits, trees, checksums, and package integrity pinned?
+- Does each coupled package update record the current version, commit, tree,
+  checksum, and package integrity as a snapshot provenance fingerprint?
 - What validation must pass before replacement?
 - What snapshot, transaction record, lock, rollback, and interruption behavior
   is required?

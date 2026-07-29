@@ -8,12 +8,22 @@ runtime model policy, and provider boundaries deterministic.
 
 ## Responsibilities
 
-- `harness-adapter.mjs`: exposes canonical context, conflict audit, and explicit
-  OpenAI-compatible Grok probe commands.
+- `harness-adapter.mjs`: exposes canonical context, conflict audit, explicit
+  OpenAI-compatible Grok probes, and the Trellis-attached product-manager
+  status/review/presentation/response boundary.
 - `lib/harness-adapter/`: implements redaction, safe subprocess execution,
-  Trellis context resolution, conflict checks, and provider probing.
-- `doctor.ps1`: combines machine prerequisites, personal source provenance,
-  adapter conflict checks, remote identity, and repository privacy.
+  Trellis context resolution, conflict checks, and provider probing. The
+  installed CCG version probe is asynchronous so Windows hosted runners do not
+  inherit the nested `spawnSync` failure mode. On Windows it first uses the
+  system Windows PowerShell executable as a no-profile bridge to the trusted
+  Node executable and installed CCG entrypoint, with an exact `cmd.exe` bridge
+  retained as a compatibility path. No task input or ambient command name
+  enters either command line.
+- `doctor.ps1`: combines machine prerequisites, a native installed-CCG CLI
+  version probe, personal source provenance, adapter conflict checks, remote
+  identity, and repository privacy. It tells the adapter to skip only the
+  duplicate nested runtime probe after the native probe succeeds or records a
+  failure.
 - `verify-sources.ps1`: verifies Trellis/CCG versions and the exact personal CCG
   Git tree, authoritative checkout, dirty state, and optional staged index
   without trusting unreadable working-tree files.
@@ -54,15 +64,19 @@ Interactive initialization asks the latter after candidate selection, displays
 the candidate sources and manifest digest, defaults to `no`, and drops only
 the declined network candidates while core initialization continues.
 - `bootstrap.ps1`: internal toolchain bootstrap. It installs dependencies and
-  optionally links the personal CCG CLI inside a rollback-capable ownership
-  transaction; users normally enter through `pnpm setup`.
+  optionally package-installs the personal CCG CLI as a real global directory
+  with a self-contained nested dependency tree inside a rollback-capable
+  ownership transaction; the compatibility switch is still named `-LinkCcg`,
+  and users normally enter through `pnpm setup`.
 - `harness-init.mjs`: performs read-only discovery, persists an explicitly
   approved user Skill-repository profile, applies only a credential-free
   project contract plus the ownership-recorded collaboration-policy block in
   `AGENTS.md`, installs only the exact approved project Skill copies, and
   atomically promotes a verified approved contract to `ready`.
-- `harness-lifecycle.mjs`: performs exact-version Trellis or commit-pinned CCG
-  updates, rollback, crash recovery, and ownership-safe uninstall transactions.
+- `harness-lifecycle.mjs`: performs exact-version Trellis updates or coupled CCG
+  bundle updates from a clean checkout's current HEAD, records the current
+  snapshot source fingerprint, and provides rollback, crash recovery, and
+  ownership-safe uninstall transactions.
 - `lib/harness-gates.mjs`: runs the exact CCG, Go, and root test commands used
   by lifecycle transactions.
 - `lib/harness-transaction.mjs`: provides exclusive locking, durable journals,
@@ -89,6 +103,10 @@ personal CCG source implementation.
 pnpm setup
 node .\scripts\harness-adapter.mjs context
 node .\scripts\harness-adapter.mjs conflicts
+node .\scripts\harness-adapter.mjs conflicts --ci
+node .\scripts\harness-adapter.mjs pm status
+node .\scripts\harness-adapter.mjs pm present --state-revision <revision-from-status>
+node .\scripts\harness-adapter.mjs pm respond --response "验收通过" --state-revision <revision-from-present>
 node .\scripts\harness-init.mjs third-party-plan --home-dir <absolute-user-home>
 node .\scripts\harness-init.mjs global-init --non-interactive --home-dir <absolute-user-home> --catalog-mode skip --provider-actions "codex=later,gemini=later,grok=later,claude=skip" --third-party-global-skills none --third-party-global-plugins none --third-party-mcp-cli none --third-party-source-sha256 <sha256-from-third-party-plan> --approved
 node .\scripts\harness-init.mjs provider-action-plan --home-dir <absolute-user-home> --repo-root <absolute-project> --provider codex --action login
@@ -107,11 +125,25 @@ pwsh -NoProfile -File .\scripts\clean-install-acceptance.ps1 -Live -HarnessRef v
 pnpm harness:test
 pwsh -NoProfile -File .\scripts\doctor.ps1
 pnpm harness:update -- --trellis-version <exact-semantic-version>
+pnpm harness:update -- --source-checkout <clean-personal-ccg-checkout>
+# Optional audit replay:
 pnpm harness:update -- --ccg-commit <40-character-commit> --source-checkout <path>
 pnpm harness:rollback
 pnpm harness:recover
 pnpm harness:uninstall
 ```
+
+`conflicts --ci` verifies tracked source, policy, and task contracts while
+skipping machine-specific user runtime and plugin state. Ordinary `conflicts`
+and `doctor.ps1` still fail closed when the installed CCG runtime is missing or
+cannot be executed.
+
+`pm status` always returns tracked `latestAdvice`, including the Provider's
+statement, findings, risks, process adjustments, and recommended next action,
+even after a gate response clears `currentGate`. A hard gate must be passed
+through `pm present` first. Codex then restates that exact advice to the user
+and stops; only a fresh explicit response may be applied with `pm respond`.
+Previous blanket approvals cannot answer a new gate.
 
 For an interactive project, begin with a `draft` contract whose project,
 toolchain, quality, security, and provider constraints are complete. `project-init`
@@ -144,13 +176,26 @@ minimal environment rooted in the plan's home/config paths; they strip
 unrelated variables. Harness never probes or invokes Claude and never creates
 or mutates `.claude`.
 
+Global Setup accepts `-CcgSourceCheckout <absolute-path>` when the immutable
+manifest commit is not yet reachable from the recorded remote. Bootstrap uses
+that clean checkout for provenance only, permits exactly the preflight-observed
+plugin identity during the install transition, and runs strict doctor again
+after the target plugin and Codex mode are installed.
+
+An existing schema-v1/v2 Skill-platform migration ownership file is a separate
+supported Global Init identity. It is accepted read-only only when all 13
+managed target paths and tree digests remain intact; Global Init does not
+rewrite its backup chain, preserved external Skills, or project audit fields.
+
 CCG package and marketplace identity use the release base version, while the
 plugin manifest and Harness ownership record use the exact `+codex.<build>`
 version from that same snapshot. Codex inspection may expose either the exact
 base version or that exact plugin build; setup accepts only those two values
-from the recorded local marketplace/source. A different build, source path,
-marketplace, duplicate, or ownership record fails closed. Codex cache
-directories use the exact plugin-build version.
+from the recorded local marketplace/source. Setup may replace an older exact
+Harness-owned identity only when its immutable source remains available for
+rollback; an unowned different build, source path, marketplace, duplicate, or
+ownership record fails closed. Codex cache directories use the exact
+plugin-build version.
 
 The optional Grok probe is explicit and reads credentials only from
 `HARNESS_GROK_*` process environment variables.

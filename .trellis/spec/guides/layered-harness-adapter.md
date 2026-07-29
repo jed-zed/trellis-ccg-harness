@@ -25,13 +25,13 @@ state under `.ccg/` and `.codex/ccg/` is evidence only and must remain ignored.
 
 - `.agents/skills/harness-init/assets/collaboration-policy.md` is the
   distribution's upstream reusable rule source. Each initialized project gets
-  a pinned owned source at `.harness/policies/collaboration-policy.md`.
+  an owned policy snapshot at `.harness/policies/collaboration-policy.md`.
 - Root `AGENTS.md` contains an exact derived projection between
   `HARNESS-COLLABORATION` markers. Keep the Trellis-managed block, the
   project-specific Harness block, and user content outside those markers
   unchanged.
 - After contract approval, `harness-init apply` transactionally writes the
-  pinned policy, projects it into the new project's `AGENTS.md`, and records
+  owned policy snapshot, projects it into the new project's `AGENTS.md`, and records
   source and rendered digests in schema-v2 `.harness/ownership.json`.
 - Missing `AGENTS.md` is created. Malformed, duplicate, conflicting, missing,
   or user-modified managed blocks fail closed instead of being overwritten.
@@ -53,7 +53,7 @@ state under `.ccg/` and `.codex/ccg/` is evidence only and must remain ignored.
   or finalizes a verified committed one.
 - PR #1 ownership without `managedBlocks` migrates only when no collaboration
   markers exist. A lower policy revision upgrades only when the current block
-  and pinned source match their recorded digests; a newer version is never
+  and owned policy snapshot match their recorded digests; a newer version is never
   downgraded, and same-version content drift fails closed.
 - Portable CAS identity includes POSIX mode, change time, UID, and GID where
   the platform exposes them. ACLs, extended attributes, and Windows security
@@ -75,29 +75,19 @@ state under `.ccg/` and `.codex/ccg/` is evidence only and must remain ignored.
 ## Runtime Rules
 
 - Codex is the sole workspace writer and uses `codex.dispatch_mode: inline`.
-- CCG-registered Provider CLIs, including Gemini, Claude, Antigravity, and
-  Grok, are routable bounded read-only helpers when their runtimes are
-  available.
-- CCG is the sole authority for the independent `frontend`, `backend`, and
-  `search` mappings. Harness must not persist a second role map.
+- Gemini is a bounded read-only helper.
+- Claude may be the explicitly selected product-manager provider. It is
+  read-only, tool-less, non-persistent, and never owns workspace or lifecycle writes.
 - GPT Pro is manual-only and remains owned by the CCG bridge.
-- Grok role routing is independent from opt-in external intelligence. Missing
-  Provider CLIs and disabled external-intelligence probes do not block
-  unrelated work.
+- Grok is optional and disabled until a working provider is configured.
 - A user-level Trellis workflow-state hook must yield whenever the project
   registers its local equivalent; the adapter contract marker makes this
   precedence auditable.
-- Execute CCG through an installed personal CLI/plugin. The version recorded in
-  the source manifest describes the tracked snapshot only; the owner guarantees
-  runtime compatibility across personal CCG versions. Never use
-  `components/ccg-workflow/` as the integration runtime.
+- Execute CCG through the installed CLI/plugin version recorded in the source
+  manifest. Never use `components/ccg-workflow/` as the integration runtime.
 
 ## Provider Rules
 
-- `models.*.routable` describes CCG role eligibility, while runtime
-  availability is determined by the Provider CLI or wrapper.
-- Provider `enabled` fields in an approved Harness project contract authorize
-  installer/login guidance only; they are not role-routing policy.
 - Official Grok CLI/ACP uses `XAI_API_KEY` or isolated browser login.
 - Compatible Grok APIs use only `HARNESS_GROK_*`.
 - GPT Pro provider configuration uses only `HARNESS_GPTPRO_*`.
@@ -108,15 +98,12 @@ state under `.ccg/` and `.codex/ccg/` is evidence only and must remain ignored.
 
 ## Conflict Severity
 
-- **Blocking:** source-snapshot or project-tool drift, tracked runtime state, unsafe task
-  authority, non-inline dispatch, non-Codex workspace write access, routing
-  authority drift, provider credential overlap, or command namespace collision.
+- **Blocking:** source/version drift, tracked runtime state, unsafe task
+  authority, non-inline dispatch, writable or tool-enabled Claude execution, provider credential
+  overlap, or command namespace collision.
 - **Warning:** missing local setup, optional provider outage, or unguarded
   duplicate Trellis prompt-state hooks.
 - **Info:** intentionally inert generated assets or nested component CI.
-
-A valid installed personal CCG CLI/plugin version that differs from
-`harness.sources.json` is not drift and must not produce a conflict.
 
 Blocking conflicts exit with code 2. Warnings and information remain visible
 but do not block ordinary work.

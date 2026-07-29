@@ -1,12 +1,15 @@
 import { createHash } from 'node:crypto'
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   createProductManagerProviderPrompt,
   invokeValidatedProductManagerProvider,
+  productManagerStatus,
   reviewProductManager,
+  resolveClaudeProductManagerModel,
+  unwrapProviderOutput,
 } from '../../commands/product-manager'
 import { canonicalJson } from '../canonical-json'
 import { createInvocationKey } from '../invocation'
@@ -18,9 +21,13 @@ async function fixture() {
   await writeFile(join(taskDir, 'task.json'), '{"id":"pm"}\n', 'utf8')
   const config = join(root, 'config.toml')
   await writeFile(config, [
+    '[routing.product-manager]',
+    'models = ["codex"]',
+    'primary = "codex"',
+    'strategy = "fallback"',
+    '',
     '[product_manager]',
     'enabled = true',
-    'provider = "codex"',
     'contract_version = "1"',
     'max_retries = 1',
     'timeout_ms = 5000',
@@ -88,6 +95,78 @@ afterEach(() => {
 })
 
 describe('product-manager command', () => {
+  it('defaults Claude product-manager calls to the explicit opus model alias', () => {
+    vi.stubEnv('CCG_PRODUCT_MANAGER_CLAUDE_MODEL', '')
+    expect(resolveClaudeProductManagerModel()).toBe('opus')
+
+    vi.stubEnv('CCG_PRODUCT_MANAGER_CLAUDE_MODEL', 'claude-opus-5')
+    expect(resolveClaudeProductManagerModel()).toBe('claude-opus-5')
+  })
+
+  it('reports the provider resolved from unified routing', async () => {
+    const value = await fixture()
+    try {
+      const status = await productManagerStatus({ config: value.config })
+      expect(status.routing).toEqual({
+        authority: 'unified-ccg-routing',
+        role: 'product-manager',
+        provider: 'codex',
+      })
+      expect(status.configured).not.toHaveProperty('provider')
+      expect(status.effective).toMatchObject({ status: 'ready', provider: 'codex' })
+    }
+    finally {
+      await rm(value.root, { recursive: true, force: true })
+    }
+  })
+
+  it('fails closed when the unified route is not implemented or not allowed', async () => {
+    const value = await fixture()
+    try {
+      await writeFile(value.config, [
+        '[routing.product-manager]',
+        'models = ["antigravity"]',
+        'primary = "antigravity"',
+        'strategy = "fallback"',
+        '',
+        '[product_manager]',
+        'enabled = true',
+        'contract_version = "1"',
+        '',
+      ].join('\n'), 'utf8')
+      const unimplemented = await productManagerStatus({ config: value.config })
+      expect(unimplemented.effective).toEqual({
+        status: 'unavailable',
+        reason: 'selected_provider_not_implemented',
+        selected: 'antigravity',
+      })
+
+      await writeFile(value.config, [
+        '[routing.product-manager]',
+        'models = ["gemini"]',
+        'primary = "gemini"',
+        'strategy = "fallback"',
+        '',
+        '[product_manager]',
+        'enabled = true',
+        'contract_version = "1"',
+        '',
+      ].join('\n'), 'utf8')
+      const disallowed = await productManagerStatus({
+        config: value.config,
+        allowedProviders: 'claude',
+      })
+      expect(disallowed.effective).toEqual({
+        status: 'unavailable',
+        reason: 'selected_provider_not_allowed',
+        selected: 'gemini',
+      })
+    }
+    finally {
+      await rm(value.root, { recursive: true, force: true })
+    }
+  })
+
   it('redacts credentials before constructing the provider payload', () => {
     const prompt = createProductManagerProviderPrompt({
       api_key: 'sk_abcdefghijklmnop',
@@ -98,6 +177,15 @@ describe('product-manager command', () => {
     expect(prompt).not.toContain('sk_abcdefghijklmnop')
     expect(prompt).not.toContain('Bearer abcdefghijklmnop')
     expect(prompt).toContain('[REDACTED]')
+  })
+
+  it('unwraps Claude structured output without accepting envelope commentary', () => {
+    const structured = { provider_identity: { provider: 'claude' } }
+    expect(unwrapProviderOutput(JSON.stringify({
+      type: 'result',
+      result: 'ignored presentation text',
+      structured_output: structured,
+    }), 'claude')).toEqual(structured)
   })
 
   it('reuses the completed result for the same invocation key without another provider call', async () => {
@@ -135,6 +223,25 @@ describe('product-manager command', () => {
       })
       expect(result.verdict).toBe('unavailable')
       expect(result.provider_identity.provider).toBe('codex')
+      const auditFile = join(
+        value.taskDir,
+        '.ccg-evidence',
+        'product-manager',
+        'calls',
+        createInvocationKey(value.input),
+        'audit.ndjson',
+      )
+      const attempts = (await readFile(auditFile, 'utf8'))
+        .trim()
+        .split('\n')
+        .map(line => JSON.parse(line))
+        .filter(entry => entry.status === 'attempt_failed')
+      expect(attempts).toHaveLength(2)
+      expect(attempts.map(entry => [entry.attempt, entry.max_attempts, entry.provider])).toEqual([
+        [1, 2, 'codex'],
+        [2, 2, 'codex'],
+      ])
+      expect(attempts.every(entry => typeof entry.error === 'string' && entry.error.length > 0)).toBe(true)
     }
     finally {
       await rm(value.root, { recursive: true, force: true })
@@ -145,6 +252,7 @@ describe('product-manager command', () => {
     const value = await fixture()
     try {
       let calls = 0
+      const failures: Array<{ attempt: number, maxAttempts: number, error: unknown }> = []
       const result = await invokeValidatedProductManagerProvider({
         input: value.input,
         invocationKey: createInvocationKey(value.input),
@@ -154,8 +262,14 @@ describe('product-manager command', () => {
           calls++
           return calls === 1 ? { malformed: true } : outputFor(value.input)
         },
+        onAttemptFailure: (failure) => {
+          failures.push(failure)
+        },
       })
       expect(calls).toBe(2)
+      expect(failures).toHaveLength(1)
+      expect(failures[0]).toMatchObject({ attempt: 1, maxAttempts: 2 })
+      expect(failures[0].error).toBeInstanceOf(Error)
       expect(result.verdict).toBe('accepted')
     }
     finally {
@@ -167,6 +281,7 @@ describe('product-manager command', () => {
     const value = await fixture()
     try {
       let calls = 0
+      const failures: Array<{ attempt: number, maxAttempts: number }> = []
       const result = await invokeValidatedProductManagerProvider({
         input: value.input,
         invocationKey: createInvocationKey(value.input),
@@ -176,8 +291,15 @@ describe('product-manager command', () => {
           calls++
           return { malformed: true }
         },
+        onAttemptFailure: ({ attempt, maxAttempts }) => {
+          failures.push({ attempt, maxAttempts })
+        },
       })
       expect(calls).toBe(2)
+      expect(failures).toEqual([
+        { attempt: 1, maxAttempts: 2 },
+        { attempt: 2, maxAttempts: 2 },
+      ])
       expect(result.verdict).toBe('unavailable')
     }
     finally {

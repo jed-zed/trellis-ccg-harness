@@ -56,7 +56,6 @@ export interface InstallCodexModeOptions {
   codexHome?: string
   templateDir?: string
   pythonCommand?: string
-  productManagerProvider?: 'disabled' | 'codex' | 'gemini'
 }
 
 export interface UninstallCodexModeOptions {
@@ -786,7 +785,9 @@ export async function installCodexModeAt(
     const existingAgents = await fs.pathExists(agentsPath) ? await fs.readFile(agentsPath, 'utf8') : ''
 
     const ccgConfigPath = join(codexHome, 'ccg', 'config.toml')
-    const config = await readCcgConfigAt(ccgConfigPath)
+    const config = await readCcgConfigAt(ccgConfigPath, {
+      persistMigration: false,
+    })
     const injectOpts = {
       routing: config?.routing as any,
       liteMode: config?.performance?.liteMode || false,
@@ -831,29 +832,24 @@ export async function installCodexModeAt(
       planned.set(normalizedRelative(join('hooks', name)), bytes)
     }
     const configTemplate = await fs.readFile(join(templateDir, 'ccg-config.toml'))
-    if (!config && !options.productManagerProvider) {
-      planned.set('ccg/config.toml', configTemplate)
+    if (config) {
+      const parsed = parse(configTemplate.toString('utf8')) as Record<string, any>
+      const preserved = config as unknown as Record<string, any>
+      planned.set('ccg/config.toml', Buffer.from(stringify({
+        ...parsed,
+        ...preserved,
+        general: {
+          ...parsed.general,
+          ...preserved.general,
+          version: packageVersion,
+        },
+        routing: config.routing,
+        intelligence: config.intelligence,
+        product_manager: config.product_manager,
+      }), 'utf8'))
     }
     else {
-      const parsed = config
-        ? {
-            ...config,
-            general: {
-              ...config.general,
-              version: packageVersion,
-            },
-          } as Record<string, any>
-        : parse(configTemplate.toString('utf8')) as Record<string, any>
-      if (options.productManagerProvider) {
-        parsed.product_manager = {
-          ...parsed.product_manager,
-          enabled: options.productManagerProvider !== 'disabled',
-          provider: options.productManagerProvider === 'disabled'
-            ? ''
-            : options.productManagerProvider,
-        }
-      }
-      planned.set('ccg/config.toml', Buffer.from(stringify(parsed), 'utf8'))
+      planned.set('ccg/config.toml', configTemplate)
     }
     planned.set('.ccg-version', Buffer.from(packageVersion, 'utf8'))
 
@@ -879,8 +875,12 @@ export async function installCodexModeAt(
       const prior = previousFiles.get(relativePath)
       let original = prior?.original
       if (prior) {
-        const userEditableCcgConfig = relativePath === 'ccg/config.toml'
-        if (!userEditableCcgConfig && (!current || sha256(current) !== prior.installedSha256))
+        const isValidMutableConfig = (
+          relativePath === 'ccg/config.toml'
+          && current
+          && config
+        )
+        if (!current || (sha256(current) !== prior.installedSha256 && !isValidMutableConfig))
           throw new Error(`${relativePath} was modified after installation; refusing to overwrite it.`)
       }
       else if (current) {

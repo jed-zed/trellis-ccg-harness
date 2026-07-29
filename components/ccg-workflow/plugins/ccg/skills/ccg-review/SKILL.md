@@ -25,3 +25,6 @@ When a selected provider is Gemini, call the bundled preview helper with
 `--prompt-template review`; do not call the raw Gemini CLI. For another
 provider, use the existing adapter described by the routing rule. If required
 external review evidence is missing, say so and do not claim it occurred.
+
+Claude is not a generic ordinary reviewer. It may participate only through an
+explicitly selected and authorized read-only `product-manager` contract.

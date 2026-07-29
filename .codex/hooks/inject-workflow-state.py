@@ -10,9 +10,12 @@ The emitted ``hookEventName`` field is platform-aware: most hosts expect
 CodeBuddy / Droid / Codex / Copilot wiring), but Gemini CLI 0.40.x renamed
 its per-turn event to ``BeforeAgent`` and its schema validator rejects the
 legacy name. ``_detect_platform`` picks the right value at runtime.
-Breadcrumb text is pulled exclusively from workflow.md
-[workflow-state:STATUS] tag blocks — workflow.md is the single source of
-truth. There are no fallback dicts in this script: when workflow.md is
+Lifecycle breadcrumb text is pulled exclusively from workflow.md
+[workflow-state:STATUS] tag blocks — workflow.md remains the lifecycle source
+of truth. A read-only Codex-only product-manager gate projection may append
+the active task's tracked ``product-manager.json.currentGate``; it never calls
+a provider, acquires a lock, or writes state. There are no fallback lifecycle
+dicts in this script: when workflow.md is
 missing or a tag is absent, the breadcrumb degrades to a generic
 "Refer to workflow.md for current step." line so users see (and fix)
 the broken state instead of the hook silently masking it.
@@ -145,8 +148,10 @@ def _resolve_active_task(root: Path, input_data: dict):
     return resolve_active_task(root, input_data, platform=_detect_platform(input_data))
 
 
-def get_active_task(root: Path, input_data: dict) -> Optional[tuple[str, str, str]]:
-    """Return (task_id, status, source) from the current active task."""
+def get_active_task(
+    root: Path, input_data: dict
+) -> Optional[tuple[str, str, str, Path]]:
+    """Return (task_id, status, source, task_dir) for the active task."""
     active = _resolve_active_task(root, input_data)
     if not active.task_path:
         return None
@@ -169,7 +174,55 @@ def get_active_task(root: Path, input_data: dict) -> Optional[tuple[str, str, st
     status = data.get("status", "")
     if not isinstance(status, str) or not status:
         return None
-    return task_id, status, active.source
+    return task_id, status, active.source, task_dir
+
+
+_PRODUCT_MANAGER_RESPONSES = (
+    "验收通过",
+    "验收不通过：原因",
+    "忽略风险并继续",
+)
+
+
+def load_product_manager_gate(task_dir: Path) -> Optional[str]:
+    """Render the tracked pending gate without mutating or invoking anything."""
+    state_path = task_dir / "product-manager.json"
+    if not state_path.is_file():
+        return None
+    try:
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+    if not isinstance(state, dict):
+        return None
+    gate = state.get("currentGate")
+    if not isinstance(gate, dict) or gate.get("status") != "awaiting_user_acceptance":
+        return None
+    checkpoint = gate.get("checkpointId")
+    verdict = gate.get("pmVerdict")
+    card = gate.get("acceptanceCard")
+    if not isinstance(checkpoint, str) or not checkpoint.strip():
+        return None
+    if not isinstance(verdict, str) or not verdict.strip():
+        verdict = "unknown"
+    next_action = state.get("nextAction")
+    if isinstance(card, dict) and isinstance(card.get("nextAction"), str):
+        next_action = card["nextAction"]
+    if not isinstance(next_action, str) or not next_action.strip():
+        next_action = "Show `pm status` and wait for the user's decision."
+    responses = "\n".join(f"- {response}" for response in _PRODUCT_MANAGER_RESPONSES)
+    return (
+        "<product-manager-gate>\n"
+        "HARD STOP: product-manager user acceptance is pending.\n"
+        f"Checkpoint: {checkpoint}\n"
+        f"PM verdict: {verdict}\n"
+        f"Resume breadcrumb: {next_action.strip()}\n"
+        "Show `node scripts/harness-adapter.mjs pm status` and accept only:\n"
+        f"{responses}\n"
+        "Do not continue implementation, finish, or archive until `pm respond` "
+        "records one of these decisions.\n"
+        "</product-manager-gate>"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -422,7 +475,7 @@ def main() -> int:
             None, "no_task", templates, breadcrumb_key=no_task_key
         )
     else:
-        task_id, status, source = task
+        task_id, status, source, task_dir = task
         status_key = resolve_breadcrumb_key(status, platform, config)
         source_for_breadcrumb = None if platform == "codex" else source
         breadcrumb = build_breadcrumb(
@@ -434,6 +487,10 @@ def main() -> int:
             parts.append(CODEX_NO_TASK_BOOTSTRAP_NOTICE)
         parts.append(_codex_mode_banner(config))
         parts.append(breadcrumb)
+        if task is not None:
+            gate = load_product_manager_gate(task_dir)
+            if gate is not None:
+                parts.append(gate)
         breadcrumb = "\n\n".join(parts)
 
     # Kiro (CLI userPromptSubmit / IDE promptSubmit) adds a hook's stdout

@@ -70,8 +70,10 @@ Initialization has two explicit, independently resumable commands:
 - `global-init` installs the 13 bundled platform Skills as link-free owned
   copies under an explicit or current user home, records the `skip`/`local`/
   `clone` catalog decision, and performs read-only Codex, Gemini, and Grok
-  CLI/authentication status checks. Claude Code is documentation-only:
-  Harness never probes or starts `claude`.
+  CLI/authentication status checks. Claude Code installation and login remain
+  documentation/manual-only; Global Init never probes or starts `claude`.
+  A later explicitly authorized product-manager call is a separate runtime
+  operation and does not grant initialization authority.
 - `project-init` inspects one repository and derives its technology stack and
   catalog recommendations. Interactively it accepts a complete non-Skill
   `draft` contract, asks each catalog and third-party project candidate as an
@@ -374,7 +376,7 @@ After approval:
    `.harness/` state, and malformed or conflicting collaboration markers. It
    may incrementally adopt an existing safe `.harness/` directory only when
    every initializer-owned target is absent; unrelated entries remain
-   user-owned, while a pre-existing pinned policy or collaboration block must
+   user-owned, while a pre-existing owned policy snapshot or collaboration block must
    exactly match the approved distribution bytes. It
    uses an owned project lock, a pending journal, verified backups, read-only
    contract/schema preconditions, and final digest/identity/mode
@@ -382,7 +384,7 @@ After approval:
    and hashing so ownership remains stable across line-ending policies. An
    intact legacy Schema projection with matching ownership is transactionally
    migrated when only its JSON formatting differs. It creates
-   `.harness/project.json`, its JSON Schema, a pinned project policy at
+   `.harness/project.json`, its JSON Schema, an owned project policy snapshot at
    `.harness/policies/collaboration-policy.md`, and a schema-v2 ownership
    manifest, then projects the distribution
    [collaboration policy](assets/collaboration-policy.md) into one
@@ -412,7 +414,7 @@ After approval:
 	   files. Owner records bind both PID and process-instance identity, so a
 	   reused PID does not keep dead initializer state locked. PR #1 ownership
 	   without block metadata migrates only when no collaboration marker exists.
-   A lower policy version upgrades only when the current block and pinned
+   A lower policy version upgrades only when the current block and owned policy
    source still match their previous ownership digests. A newer version is
    never downgraded, and content changes at the current version require an
    explicit version bump. User edits always fail closed.
@@ -454,7 +456,7 @@ After approval:
    node scripts/harness-init.mjs mark-ready --repo-root "<repository>"
    ```
 
-   `mark-ready` verifies schema-v2 or schema-v3 ownership, contract, schema, pinned
+   `mark-ready` verifies schema-v2 or schema-v3 ownership, contract, schema, owned
    policy, and managed `AGENTS.md` block, then atomically updates only the
    contract status and ownership digest. Record gate commands in the contract,
    not transient logs or secrets.
@@ -477,7 +479,7 @@ Report:
 
 - the final constraints and authorities;
 - every file created or changed;
-- the distribution policy source, pinned project source, and derived
+- the distribution policy source, owned project snapshot, and derived
   `AGENTS.md` block;
 - validation commands and outcomes;
 - anything intentionally left in `draft`;

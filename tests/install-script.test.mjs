@@ -6,6 +6,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -43,9 +44,13 @@ function writeJson(target, value) {
   writeFileSync(target, `${JSON.stringify(value, null, 2)}\n`);
 }
 
+function canonicalPath(target) {
+  return path.resolve(realpathSync.native(target));
+}
+
 function commandShimSource() {
   return `#!/usr/bin/env node
-import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 const [command, ...args] = process.argv.slice(2);
@@ -54,6 +59,17 @@ const logPath = process.env.MOCK_COMMAND_LOG;
 appendFileSync(logPath, JSON.stringify({ command, args }) + "\\n");
 const readState = () => JSON.parse(readFileSync(statePath, "utf8"));
 const writeState = (value) => writeFileSync(statePath, JSON.stringify(value, null, 2) + "\\n");
+const canonical = (target) => {
+  try {
+    return realpathSync.native(target).toLowerCase();
+  } catch {
+    return path.resolve(target).toLowerCase();
+  }
+};
+const versionForRoot = (state, root) =>
+  Object.entries(state.reportedPluginVersions ?? {}).find(
+    ([candidate]) => canonical(candidate) === canonical(root),
+  )?.[1] ?? state.reportedPluginVersion;
 
 if (command === "trellis" && args[0] === "--version") {
   console.log("trellis 0.6.9");
@@ -74,7 +90,18 @@ if (command === "trellis" && args[0] === "--version") {
     console.error("Codex mode failed once");
     process.exitCode = 93;
   } else {
+    const ownershipPath = path.join(process.env.HOME, ".codex", ".ccg", "ownership.json");
+    mkdirSync(path.dirname(ownershipPath), { recursive: true });
+    writeFileSync(ownershipPath, "{}\\n");
     console.log("Codex mode installed");
+  }
+} else if (command === "ccg" && args.join(" ") === "doctor --platform codex") {
+  const state = readState();
+  if (state.codexDoctorBehavior === "fail") {
+    console.error("Codex mode ownership verification failed");
+    process.exitCode = 94;
+  } else {
+    console.log("All Codex checks passed");
   }
 } else if (command === "codex" && args[0] === "--version") {
   console.log("codex-cli 0.142.0");
@@ -94,7 +121,7 @@ if (command === "trellis" && args[0] === "--version") {
         pluginId: "ccg@ccg-gptpro-worflow",
         name: "ccg",
         marketplaceName: "ccg-gptpro-worflow",
-        version: state.reportedPluginVersion,
+        version: versionForRoot(state, marketplace.root),
         installed: false,
         source: {
           source: "local",
@@ -126,20 +153,27 @@ if (command === "trellis" && args[0] === "--version") {
     process.exitCode = 94;
   } else {
     const marketplace = state.marketplaces.find((entry) => entry.name === "ccg-gptpro-worflow");
-    state.installed.push({
-      pluginId: "ccg@ccg-gptpro-worflow",
-      name: "ccg",
-      marketplaceName: "ccg-gptpro-worflow",
-      version: state.reportedPluginVersion,
-      installed: true,
-      enabled: true,
-      source: {
-        source: "local",
-        path: path.join(marketplace.root, "plugins", "ccg"),
-      },
-    });
-    writeState(state);
-    console.log(JSON.stringify({ pluginId: args[2], installed: true }));
+    if (state.pluginBehavior === "fail-once") {
+      state.pluginBehavior = "normal";
+      writeState(state);
+      console.error("Codex plugin add failed once");
+      process.exitCode = 95;
+    } else {
+      state.installed.push({
+        pluginId: "ccg@ccg-gptpro-worflow",
+        name: "ccg",
+        marketplaceName: "ccg-gptpro-worflow",
+        version: versionForRoot(state, marketplace.root),
+        installed: true,
+        enabled: true,
+        source: {
+          source: "local",
+          path: path.join(marketplace.root, "plugins", "ccg"),
+        },
+      });
+      writeState(state);
+      console.log(JSON.stringify({ pluginId: args[2], installed: true }));
+    }
   }
 } else if (
   command === "codex" &&
@@ -322,9 +356,21 @@ function fixture({
     : "";
   writeFileSync(
     path.join(repoRoot, "scripts", "bootstrap.ps1"),
-    `param([string]$RepoRoot, [switch]$LinkCcg)
+    `param(
+  [string]$RepoRoot,
+  [switch]$LinkCcg,
+  [string]$CcgSetupTargetVersion,
+  [string]$CcgSetupPreviousPluginVersion,
+  [string]$AuthoritativeCcgCheckout
+)
 Add-Content -LiteralPath $env:MOCK_COMMAND_LOG -Value '{"command":"bootstrap"}'
 ${bootstrapMutation}
+`,
+  );
+  writeFileSync(
+    path.join(repoRoot, "scripts", "doctor.ps1"),
+    `param([string]$RepoRoot, [string]$AuthoritativeCheckout)
+Add-Content -LiteralPath $env:MOCK_COMMAND_LOG -Value '{"command":"doctor"}'
 `,
   );
   writeFileSync(
@@ -437,12 +483,80 @@ function commandLog(value) {
     .map((line) => JSON.parse(line));
 }
 
+function installOwnedPreviousPlugin(value, {
+  version = "3.3.1",
+  pluginVersion = `${version}+codex.1`,
+} = {}) {
+  const marketplaceRoot = path.join(value.root, "previous-ccg");
+  const pluginSource = path.join(marketplaceRoot, "plugins", "ccg");
+  mkdirSync(path.join(pluginSource, ".codex-plugin"), { recursive: true });
+  writeJson(path.join(marketplaceRoot, ".codex-plugin", "marketplace.json"), {
+    name: "ccg-gptpro-worflow",
+    plugins: [{
+      name: "ccg",
+      version,
+      source: "./plugins/ccg",
+    }],
+  });
+  writeJson(path.join(pluginSource, ".codex-plugin", "plugin.json"), {
+    name: "ccg",
+    version: pluginVersion,
+  });
+  writeJson(
+    path.join(value.homeDir, ".agents", "harness", "codex-plugin.json"),
+    {
+      schemaVersion: 1,
+      owner: "trellis-ccg-harness",
+      marketplace: {
+        name: "ccg-gptpro-worflow",
+        sourceRoot: marketplaceRoot,
+      },
+      plugin: {
+        id: "ccg@ccg-gptpro-worflow",
+        baseVersion: version,
+        version: pluginVersion,
+        sourcePath: pluginSource,
+      },
+    },
+  );
+  const state = JSON.parse(readFileSync(value.statePath, "utf8"));
+  state.marketplaces = [{
+    name: "ccg-gptpro-worflow",
+    root: marketplaceRoot,
+  }];
+  state.installed = [{
+    pluginId: "ccg@ccg-gptpro-worflow",
+    name: "ccg",
+    marketplaceName: "ccg-gptpro-worflow",
+    version: pluginVersion,
+    installed: true,
+    enabled: true,
+    source: {
+      source: "local",
+      path: pluginSource,
+    },
+  }];
+  state.reportedPluginVersions = {
+    [path.resolve(marketplaceRoot)]: pluginVersion,
+    [path.resolve(
+      value.repoRoot,
+      "components",
+      "ccg-workflow",
+    )]: CCG_PLUGIN_VERSION,
+  };
+  writeJson(value.statePath, state);
+  return { marketplaceRoot, pluginSource, version, pluginVersion };
+}
+
 test("non-interactive Global Setup is explicit, exact, provider-safe, and idempotent", () => {
   const value = fixture();
   try {
     const first = runSetup(value);
     assert.equal(first.status, 0, `${first.stdout}\n${first.stderr}`);
-    assert.match(first.stdout, /CCG CLI: build\/link exact 3\.3\.2/);
+    assert.match(
+      first.stdout,
+      /CCG CLI: build\/package-install exact 3\.3\.2/,
+    );
     assert.match(
       first.stdout,
       /Codex plugin: ccg@ccg-gptpro-worflow@3\.3\.2\+codex\.1/,
@@ -489,6 +603,14 @@ test("non-interactive Global Setup is explicit, exact, provider-safe, and idempo
     );
     assert.ok(pluginInstallIndex >= 0);
     assert.ok(codexModeIndex > pluginInstallIndex);
+    const finalDoctorIndex = firstCalls.findIndex(
+      ({ command }) => command === "doctor",
+    );
+    const globalInitIndex = firstCalls.findIndex(
+      ({ command }) => command === "global-init",
+    );
+    assert.ok(finalDoctorIndex > codexModeIndex);
+    assert.ok(globalInitIndex > finalDoctorIndex);
     const globalSkills = JSON.parse(
       readFileSync(
         path.join(value.homeDir, ".agents", "harness", "global-skills.json"),
@@ -529,6 +651,20 @@ test("non-interactive Global Setup is explicit, exact, provider-safe, and idempo
         ({ command, args }) =>
           command === "codex" &&
           args.slice(0, 3).join(" ") === "plugin marketplace add",
+      ).length,
+      1,
+    );
+    assert.equal(
+      calls.filter(
+        ({ command, args }) =>
+          command === "ccg" && args.join(" ") === "codex-mode install",
+      ).length,
+      1,
+    );
+    assert.equal(
+      calls.filter(
+        ({ command, args }) =>
+          command === "ccg" && args.join(" ") === "doctor --platform codex",
       ).length,
       1,
     );
@@ -612,6 +748,153 @@ test("Codex may report the exact marketplace base version for the same plugin sn
       ),
     );
     assert.equal(ownership.plugin.version, CCG_PLUGIN_VERSION);
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("Global Setup accepts a newer immutable CCG version recorded by the Harness", () => {
+  const value = fixture();
+  try {
+    const version = "3.4.1";
+    const pluginVersion = `${version}+codex.1`;
+    const ccgRoot = path.join(
+      value.repoRoot,
+      "components",
+      "ccg-workflow",
+    );
+    const sourceManifestPath = path.join(value.repoRoot, "harness.sources.json");
+    const sourceManifest = JSON.parse(readFileSync(sourceManifestPath, "utf8"));
+    sourceManifest.ccg.version = version;
+    writeJson(sourceManifestPath, sourceManifest);
+    writeJson(path.join(ccgRoot, "package.json"), {
+      name: "ccg-workflow",
+      version,
+    });
+    writeJson(path.join(ccgRoot, ".codex-plugin", "marketplace.json"), {
+      name: "ccg-gptpro-worflow",
+      plugins: [{
+        name: "ccg",
+        version,
+        source: "./plugins/ccg",
+      }],
+    });
+    writeJson(
+      path.join(ccgRoot, "plugins", "ccg", ".codex-plugin", "plugin.json"),
+      { name: "ccg", version: pluginVersion },
+    );
+    const state = JSON.parse(readFileSync(value.statePath, "utf8"));
+    state.reportedPluginVersion = pluginVersion;
+    writeJson(value.statePath, state);
+
+    const result = runSetup(value, ["-PreviewOnly"]);
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+    assert.match(
+      result.stdout,
+      /CCG CLI: build\/package-install exact 3\.4\.1 snapshot/,
+    );
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("Global Setup transactionally upgrades an exact Harness-owned Codex plugin", () => {
+  const value = fixture();
+  try {
+    installOwnedPreviousPlugin(value);
+    const result = runSetup(value);
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+    const ownership = JSON.parse(
+      readFileSync(
+        path.join(value.homeDir, ".agents", "harness", "codex-plugin.json"),
+        "utf8",
+      ),
+    );
+    assert.equal(ownership.plugin.version, CCG_PLUGIN_VERSION);
+    assert.equal(
+      canonicalPath(ownership.marketplace.sourceRoot),
+      canonicalPath(path.join(value.repoRoot, "components", "ccg-workflow")),
+    );
+    const state = JSON.parse(readFileSync(value.statePath, "utf8"));
+    assert.equal(state.installed.length, 1);
+    assert.equal(state.installed[0].version, CCG_PLUGIN_VERSION);
+    assert.equal(
+      canonicalPath(state.installed[0].source.path),
+      canonicalPath(path.join(
+        value.repoRoot,
+        "components",
+        "ccg-workflow",
+        "plugins",
+        "ccg",
+      )),
+    );
+    const calls = commandLog(value);
+    const removePlugin = calls.findIndex(
+      ({ command, args }) =>
+        command === "codex" &&
+        args.slice(0, 2).join(" ") === "plugin remove",
+    );
+    const removeMarketplace = calls.findIndex(
+      ({ command, args }) =>
+        command === "codex" &&
+        args.slice(0, 3).join(" ") === "plugin marketplace remove",
+    );
+    const addMarketplace = calls.findIndex(
+      ({ command, args }) =>
+        command === "codex" &&
+        args.slice(0, 3).join(" ") === "plugin marketplace add",
+    );
+    const addPlugin = calls.findIndex(
+      ({ command, args }) =>
+        command === "codex" &&
+        args.slice(0, 2).join(" ") === "plugin add",
+    );
+    assert.ok(removePlugin >= 0);
+    assert.ok(removeMarketplace > removePlugin);
+    assert.ok(addMarketplace > removeMarketplace);
+    assert.ok(addPlugin > addMarketplace);
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("a failed owned Codex plugin upgrade restores the previous registration", () => {
+  const value = fixture();
+  try {
+    const previous = installOwnedPreviousPlugin(value);
+    const beforeOwnership = readFileSync(
+      path.join(value.homeDir, ".agents", "harness", "codex-plugin.json"),
+    );
+    const state = JSON.parse(readFileSync(value.statePath, "utf8"));
+    state.pluginBehavior = "fail-once";
+    writeJson(value.statePath, state);
+
+    const result = runSetup(value);
+    assert.notEqual(result.status, 0);
+    assert.match(setupDiagnostic(result), /plugin add failed once/i);
+    assert.deepEqual(
+      readFileSync(
+        path.join(value.homeDir, ".agents", "harness", "codex-plugin.json"),
+      ),
+      beforeOwnership,
+    );
+    const restored = JSON.parse(readFileSync(value.statePath, "utf8"));
+    assert.equal(restored.marketplaces.length, 1);
+    assert.equal(restored.marketplaces[0].name, "ccg-gptpro-worflow");
+    assert.equal(
+      canonicalPath(restored.marketplaces[0].root),
+      canonicalPath(previous.marketplaceRoot),
+    );
+    assert.equal(restored.installed.length, 1);
+    assert.equal(restored.installed[0].version, previous.pluginVersion);
+    assert.equal(
+      canonicalPath(restored.installed[0].source.path),
+      canonicalPath(previous.pluginSource),
+    );
+    assert.equal(
+      commandLog(value).some(({ command }) => command === "global-init"),
+      false,
+    );
   } finally {
     value.cleanup();
   }
@@ -755,7 +1038,10 @@ test("the installer accepts a newer internally consistent CCG source version", (
   try {
     const result = runSetup(value, ["-PreviewOnly"]);
     assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
-    assert.match(result.stdout, /CCG CLI: build\/link exact 9\.9\.9/);
+    assert.match(
+      result.stdout,
+      /CCG CLI: build\/package-install exact 9\.9\.9 snapshot/,
+    );
     assert.match(
       result.stdout,
       /Codex plugin: ccg@ccg-gptpro-worflow@9\.9\.9\+codex\.1/,
@@ -965,6 +1251,35 @@ test("a plain Codex mode failure can resume without reinstalling the plugin", ()
       ).length,
       2,
     );
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("an existing Codex mode must pass read-only ownership verification", () => {
+  const value = fixture();
+  try {
+    const first = runSetup(value);
+    assert.equal(first.status, 0, `${first.stdout}\n${first.stderr}`);
+    const state = JSON.parse(readFileSync(value.statePath, "utf8"));
+    state.codexDoctorBehavior = "fail";
+    writeJson(value.statePath, state);
+
+    const second = runSetup(value);
+    assert.notEqual(second.status, 0);
+    assert.match(
+      `${second.stdout}\n${second.stderr}`,
+      /Codex mode ownership verification failed/i,
+    );
+    const calls = commandLog(value);
+    assert.equal(
+      calls.filter(
+        ({ command, args }) =>
+          command === "ccg" && args.join(" ") === "codex-mode install",
+      ).length,
+      1,
+    );
+    assert.equal(calls.filter(({ command }) => command === "global-init").length, 1);
   } finally {
     value.cleanup();
   }

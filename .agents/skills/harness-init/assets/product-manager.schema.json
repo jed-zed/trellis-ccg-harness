@@ -1,0 +1,318 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/jed-zed/trellis-ccg-harness/schemas/product-manager.schema.json",
+  "title": "Trellis Product Manager Task Projection",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "taskId",
+    "stateRevision",
+    "planRevision",
+    "planDigest",
+    "milestones",
+    "currentGate",
+    "finalReview",
+    "progress",
+    "nextAction",
+    "latestAdvice",
+    "history",
+    "updatedAt"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "taskId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "stateRevision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "planRevision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "planDigest": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "milestones": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "weight",
+          "status",
+          "pmVerdict",
+          "pmReview",
+          "userAcceptance",
+          "evidenceRefs",
+          "reviewStale",
+          "evidenceGap",
+          "majorRisk"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^M[1-9][0-9]*$"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "weight": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          },
+          "status": {
+            "enum": [
+              "not_started",
+              "in_progress",
+              "blocked",
+              "awaiting_user_acceptance",
+              "completed",
+              "user_overridden"
+            ]
+          },
+          "pmVerdict": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "accepted",
+              "rejected",
+              "needs_user_decision",
+              "reopen_request",
+              "unavailable",
+              null
+            ]
+          },
+          "pmReview": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "userAcceptance": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "evidenceRefs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "reviewStale": {
+            "type": "boolean"
+          },
+          "evidenceGap": {
+            "type": "boolean"
+          },
+          "majorRisk": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "currentGate": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "finalReview": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "progress": {
+      "type": "object",
+      "required": [
+        "implementation",
+        "productAcceptance",
+        "health",
+        "reasons"
+      ],
+      "properties": {
+        "implementation": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "productAcceptance": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "health": {
+          "enum": [
+            "green",
+            "yellow",
+            "red"
+          ]
+        },
+        "reasons": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "nextAction": {
+      "type": "string",
+      "minLength": 1
+    },
+    "latestAdvice": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "required": [
+            "invocationKey",
+            "triggerType",
+            "checkpointId",
+            "planRevision",
+            "verdict",
+            "providerIdentity",
+            "generatedAt",
+            "productManagerStatement",
+            "findings",
+            "risks",
+            "processAdjustments",
+            "recommendedNextAction",
+            "evidenceRefs",
+            "presentedAt"
+          ],
+          "properties": {
+            "invocationKey": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "triggerType": {
+              "enum": [
+                "INTAKE_REVIEW",
+                "PLAN_REVIEW",
+                "DRIFT_REVIEW",
+                "MILESTONE_REVIEW",
+                "FINAL_REVIEW"
+              ]
+            },
+            "checkpointId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "planRevision": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "verdict": {
+              "enum": [
+                "accepted",
+                "rejected",
+                "needs_user_decision",
+                "reopen_request",
+                "unavailable"
+              ]
+            },
+            "providerIdentity": {
+              "type": "object",
+              "required": [
+                "provider",
+                "model",
+                "cli_version"
+              ],
+              "properties": {
+                "provider": {
+                  "enum": [
+                    "codex",
+                    "gemini",
+                    "claude"
+                  ]
+                },
+                "model": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "cli_version": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "additionalProperties": false
+            },
+            "generatedAt": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "productManagerStatement": {
+              "type": "string",
+              "minLength": 1
+            },
+            "findings": {
+              "type": "array",
+              "items": {
+                "type": "object"
+              }
+            },
+            "risks": {
+              "type": "array",
+              "items": {
+                "type": "object"
+              }
+            },
+            "processAdjustments": {
+              "type": "array",
+              "items": {
+                "type": "object"
+              }
+            },
+            "recommendedNextAction": {
+              "type": "string",
+              "minLength": 1
+            },
+            "evidenceRefs": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "presentedAt": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "date-time"
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "history": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "updatedAt": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "additionalProperties": false
+}
