@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 7
-- **Last Active**: 2026-07-29
+- **Total Sessions**: 6
+- **Last Active**: 2026-07-28
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~219 | Active |
+| `journal-1.md` | ~194 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,7 +29,6 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
-| 7 | 2026-07-29 | Automate GPT Pro side-panel bridge | `49bc626`, `d017293`, `2f3db6a`, `91ba27c`, `1316cc8` | `codex/integrate-gptpro-sidebar-automation` |
 | 6 | 2026-07-28 | Remove CCG runtime version lock | `d6fab9d566e8b59aff804ee75332985de31fca16` | `codex/remove-ccg-version-lock` |
 | 5 | 2026-07-28 | Deliver original CCG preview parity | `76f6615`, `4ca1892`, `5059f95`, `9331016`, `ff9b32f`, `8dfd44e`, `ea9c052`, `9867c32`, `acee759` | `codex/original-preview-parity-harness` |
 | 4 | 2026-07-27 | Close provider role routing rollout | `b6e2e09`, `ddf09ce`, `1ee673d`, `62ccd67` | `codex/provider-routing-closeout` |
