@@ -130,7 +130,6 @@
   "skills": {
     "globalPolicy": "minimal-essential-only",
     "globalEssential": [
-      "grill-me",
       "harness-init",
       "trellis-before-dev",
       "trellis-brainstorm",
