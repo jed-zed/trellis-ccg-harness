@@ -149,6 +149,29 @@ else {
   Add-Pass "$goVersion"
 }
 
+$ccgVersion = Read-Version "ccg"
+$ccgRuntimeVersion = $null
+if ($ccgVersion -match '(?i)\bccg/(\d+\.\d+\.\d+)\b') {
+  $ccgRuntimeVersion = $Matches[1]
+}
+elseif ($ccgVersion) {
+  $versionLine = ($ccgVersion -split "\r?\n")[-1].Trim()
+  if ($versionLine -match '^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$') {
+    $ccgRuntimeVersion = $versionLine
+  }
+}
+if (-not $ccgRuntimeVersion) {
+  if ($ccgVersion) {
+    Add-Failure "Installed personal CCG CLI returned an invalid version: $ccgVersion."
+  }
+  else {
+    Add-Failure "Installed personal CCG CLI could not be verified."
+  }
+}
+else {
+  Add-Pass "Installed personal CCG CLI $ccgRuntimeVersion"
+}
+
 $transactionState = Join-Path $RepoRoot ".harness-cache"
 $transactionJournal = Join-Path $transactionState "transaction-journal.json"
 $transactionLock = Join-Path $transactionState "transaction.lock"
@@ -189,7 +212,7 @@ catch {
 }
 
 $adapterScript = Join-Path $PSScriptRoot "harness-adapter.mjs"
-$adapterArguments = @($adapterScript, "conflicts")
+$adapterArguments = @($adapterScript, "conflicts", "--skip-runtime")
 if ($Index) {
   $adapterArguments += "--index"
 }
@@ -221,34 +244,23 @@ else {
   if ($adapterReport) {
     $blockingFindings = [System.Collections.Generic.List[object]]::new()
     $runtimeTargetRejected = $false
-    $runtimeFindings = @(
-      $adapterReport.findings |
-        Where-Object { [string]$_.id -eq "ccg-runtime-cli" }
-    )
-    if ($runtimeFindings.Count -ne 1) {
+    if ($ccgRuntimeVersion -ne $CcgUpdateTargetVersion) {
+      $reportedRuntimeVersion = if ($ccgRuntimeVersion) {
+        $ccgRuntimeVersion
+      }
+      else {
+        "missing"
+      }
       Add-Failure (
-        "CCG update preflight requires exactly one global CCG runtime finding; " +
-        "found $($runtimeFindings.Count)."
+        "Global CCG runtime must match update target " +
+        "$CcgUpdateTargetVersion; found $reportedRuntimeVersion."
       )
       $runtimeTargetRejected = $true
     }
     foreach ($finding in @($adapterReport.findings)) {
       if ([string]$finding.id -eq "ccg-runtime-cli") {
-        $runtimeVersion = [string]$finding.evidence.actual
-        if ($runtimeVersion -ne $CcgUpdateTargetVersion) {
-          $reportedRuntimeVersion = if ($runtimeVersion) {
-            $runtimeVersion
-          }
-          else {
-            "missing"
-          }
-          Add-Failure (
-            "Global CCG runtime must match update target " +
-            "$CcgUpdateTargetVersion; found $reportedRuntimeVersion."
-          )
-          $runtimeTargetRejected = $true
-          continue
-        }
+        Write-AdapterFinding $finding
+        continue
       }
       if ([string]$finding.id -eq "ccg-plugin-cache") {
         if (Test-CcgSetupPluginTransition $finding) {

@@ -172,6 +172,7 @@ function fixture() {
     ["trellis", "0.6.9"],
     ["pnpm", "10.17.1"],
     ["go", "go version go1.26.5 test/amd64"],
+    ["ccg", `ccg/${TARGET_VERSION} test-runtime`],
     ["git", "https://github.com/jed-zed/trellis-ccg-harness.git"],
     ["gh", "false"],
   ]) {
@@ -184,6 +185,9 @@ function fixture() {
       const reportPath = path.join(fixtureRoot, name);
       write(reportPath, `${JSON.stringify(report, null, 2)}\n`);
       return reportPath;
+    },
+    setCcgVersion(version) {
+      writeCommand(binRoot, "ccg", `ccg/${version} test-runtime`);
     },
     cleanup() {
       rmSync(fixtureRoot, { recursive: true, force: true });
@@ -261,6 +265,7 @@ test("CCG doctor accepts owner-compatible versions while updates remain target-b
         summary: "Installed personal CCG CLI is available.",
       }),
     );
+    value.setCcgVersion("9.9.9");
     const strict = runDoctor(value, ownerCompatibleReport, null);
     assert.equal(strict.status, 0, `${strict.stdout}\n${strict.stderr}`);
     assert.match(
@@ -268,6 +273,7 @@ test("CCG doctor accepts owner-compatible versions while updates remain target-b
       /Installed personal CCG CLI is available/i,
     );
 
+    value.setCcgVersion(TARGET_VERSION);
     const unrelatedTarget = runDoctor(value, reportPath, "3.4.0");
     assert.notEqual(unrelatedTarget.status, 0);
     assert.match(
@@ -275,6 +281,7 @@ test("CCG doctor accepts owner-compatible versions while updates remain target-b
       /Global CCG runtime must match update target 3\.4\.0/i,
     );
 
+    value.setCcgVersion(CURRENT_VERSION);
     const staleRuntimeReport = value.writeReport(
       "stale-runtime.json",
       adapterReport(null, {
@@ -290,6 +297,7 @@ test("CCG doctor accepts owner-compatible versions while updates remain target-b
       /global CCG runtime.*target 3\.3\.1|target.*runtime/i,
     );
 
+    value.setCcgVersion(TARGET_VERSION);
     const missingPluginReport = value.writeReport(
       "missing-plugin.json",
       adapterReport(null, undefined, {

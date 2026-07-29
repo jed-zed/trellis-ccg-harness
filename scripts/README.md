@@ -19,8 +19,11 @@ runtime model policy, and provider boundaries deterministic.
   Node executable and installed CCG entrypoint, with an exact `cmd.exe` bridge
   retained as a compatibility path. No task input or ambient command name
   enters either command line.
-- `doctor.ps1`: combines machine prerequisites, personal source provenance,
-  adapter conflict checks, remote identity, and repository privacy.
+- `doctor.ps1`: combines machine prerequisites, a native installed-CCG CLI
+  version probe, personal source provenance, adapter conflict checks, remote
+  identity, and repository privacy. It tells the adapter to skip only the
+  duplicate nested runtime probe after the native probe succeeds or records a
+  failure.
 - `verify-sources.ps1`: verifies Trellis/CCG versions and the exact personal CCG
   Git tree, authoritative checkout, dirty state, and optional staged index
   without trusting unreadable working-tree files.

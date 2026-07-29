@@ -139,6 +139,10 @@ unclaimed path merely because an earlier observation matched.
   exact `cmd.exe` bridge retained as a compatibility path. This avoids the
   hosted-runner nested Node launch failure without trusting package metadata as
   runtime evidence or interpolating task-controlled input.
+- `doctor.ps1` executes the installed `ccg --version` command natively before
+  invoking the adapter. Its adapter call skips only the duplicate nested
+  runtime probe, avoiding hosted-runner nested Node capture failures while
+  keeping the ordinary adapter command and the doctor runtime gate fail-closed.
 - Global Init records provider install/login intent but never executes it.
   Every Provider installation and login is documentation/manual-only; Harness
   never probes or starts `claude`. A later provider guidance request needs an

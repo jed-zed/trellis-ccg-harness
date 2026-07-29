@@ -66,13 +66,14 @@ function usage() {
 
 Usage:
   node scripts/harness-adapter.mjs context [--json]
-  node scripts/harness-adapter.mjs conflicts [--json] [--ci] [--index]
+  node scripts/harness-adapter.mjs conflicts [--json] [--ci] [--index] [--skip-runtime]
   node scripts/harness-adapter.mjs pm <status|sync-plan|review|respond|final-eligibility>
   node scripts/harness-adapter.mjs grok-probe [--json] [--chat] [--search] [--live]
 
 Notes:
   - context reads the active canonical Trellis task.
   - conflicts is offline; --ci skips user-level plugin and hook inspection.
+  - --skip-runtime is reserved for doctor.ps1 after its native CCG CLI probe.
   - grok-probe is explicit and may call a paid provider. It reads only
     HARNESS_GROK_BASE_URL, HARNESS_GROK_API_KEY, and HARNESS_GROK_MODEL.
 `);
@@ -91,8 +92,9 @@ function handleContext() {
 
 async function handleConflicts(args) {
   const deterministicCi = hasFlag(args, "--ci");
+  const skipRuntime = hasFlag(args, "--skip-runtime");
   const report = await auditConflicts(repoRoot, {
-    includeRuntimeState: !deterministicCi,
+    includeRuntimeState: !deterministicCi && !skipRuntime,
     includeUserState: !deterministicCi,
     treeish: hasFlag(args, "--index") ? "INDEX" : "HEAD",
   });

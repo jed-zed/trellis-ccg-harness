@@ -58,6 +58,15 @@ test("doctor blocks on interrupted transaction residue", async () => {
   assert.match(doctor, /harness:recover/)
 })
 
+test("doctor natively verifies CCG before skipping only the duplicate adapter probe", async () => {
+  const doctor = await readFile(
+    path.join(ROOT, "scripts", "doctor.ps1"),
+    "utf8",
+  )
+  assert.match(doctor, /Read-Version\s+"ccg"/)
+  assert.match(doctor, /conflicts",\s*"--skip-runtime"/)
+})
+
 test("doctor verifies the repository visibility recorded by the source manifest", async () => {
   const [doctor, manifestBytes] = await Promise.all([
     readFile(path.join(ROOT, "scripts", "doctor.ps1"), "utf8"),
