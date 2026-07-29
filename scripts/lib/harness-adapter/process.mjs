@@ -49,6 +49,7 @@ function spawnOptions(options) {
     encoding: "utf8",
     env: options.env,
     shell: false,
+    windowsVerbatimArguments: options.windowsVerbatimArguments === true,
     windowsHide: true,
   };
 }
@@ -160,6 +161,7 @@ export async function runCommandAsync(
     env = process.env,
     maxCaptureBytes = DEFAULT_MAX_CAPTURE_BYTES,
     timeoutMs = DEFAULT_ASYNC_TIMEOUT_MS,
+    windowsVerbatimArguments = false,
   },
 ) {
   return normalizeCommandResult(
@@ -168,6 +170,7 @@ export async function runCommandAsync(
       env: createSafeSubprocessEnv(env),
       maxCaptureBytes,
       timeoutMs,
+      windowsVerbatimArguments,
     }),
   );
 }

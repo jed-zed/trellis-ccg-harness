@@ -184,7 +184,8 @@ is not exposed to untrusted task input.
 
 **Change:** Restored cross-platform lock-claim cleanup retries, canonicalized
 Windows test paths before comparison, made the installed-CCG runtime probe
-asynchronous, and separated deterministic CI from user runtime inspection.
+asynchronous with an exact Windows command bridge, and separated deterministic
+CI from user runtime inspection.
 
 **Reason:** The product-manager branch merge exposed Linux transient-directory
 cleanup drift, Windows 8.3 versus long-path aliases, and a pre-existing hosted
@@ -192,6 +193,11 @@ runner `ERROR_BROKEN_PIPE` that had previously been warning-only.
 
 **Impact:** Harness approval locks, plugin/command resolver tests, adapter
 subprocess capture, doctor, and cross-platform CI.
+
+**Security boundary:** The Windows bridge uses `shell: false` to start the
+native command processor with a fixed `--version` command. Both the Node
+executable and installed CCG entrypoint must be absolute and free of command
+expansion characters; no project, task, or Provider value is interpolated.
 
 ### 2026-07-25 - Secondary adversarial review closure
 

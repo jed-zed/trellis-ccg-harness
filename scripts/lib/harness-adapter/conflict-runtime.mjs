@@ -27,6 +27,25 @@ function runtimeInvocations(contract, env) {
       "ccg.mjs",
     );
     if (existsSync(npmCliPath)) {
+      const commandPaths = [process.execPath, npmCliPath];
+      if (
+        commandPaths.every(
+          (candidate) =>
+            path.isAbsolute(candidate) &&
+            !/[\r\n"%]/.test(candidate),
+        )
+      ) {
+        invocations.push({
+          command: process.env.ComSpec || "cmd.exe",
+          args: [
+            "/d",
+            "/s",
+            "/c",
+            `""${process.execPath}" "${npmCliPath}" --version"`,
+          ],
+          windowsVerbatimArguments: true,
+        });
+      }
       invocations.push({
         command: process.execPath,
         args: [npmCliPath, "--version"],
@@ -67,6 +86,8 @@ export async function runCcgRuntimeCheck({
         repoRoot,
         runner,
         env,
+        windowsVerbatimArguments:
+          invocation.windowsVerbatimArguments === true,
       },
     );
     selectedInvocation = invocation;

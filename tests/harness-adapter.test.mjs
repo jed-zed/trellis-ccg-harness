@@ -66,6 +66,24 @@ test("asynchronous command capture fails closed on oversized output", async () =
   assert.match(result.error.message, /capture limit/i);
 });
 
+test(
+  "Windows asynchronous command capture supports an exact cmd bridge",
+  { skip: process.platform !== "win32" },
+  async () => {
+    const commandLine = `""${process.execPath}" --version"`;
+    const result = await runCommandAsync(
+      process.env.ComSpec,
+      ["/d", "/s", "/c", commandLine],
+      {
+        repoRoot: path.resolve("."),
+        windowsVerbatimArguments: true,
+      },
+    );
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /^v\d+\./);
+  },
+);
+
 function adapterContract() {
   return {
     schemaVersion: 1,
