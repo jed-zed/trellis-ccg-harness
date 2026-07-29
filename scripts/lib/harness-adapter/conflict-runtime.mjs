@@ -15,6 +15,53 @@ import {
   runCommandAsync,
 } from "./process.mjs";
 
+function quotePowerShellLiteral(value) {
+  if (typeof value !== "string" || /[\0\r\n]/.test(value)) return null;
+  return `'${value.replaceAll("'", "''")}'`;
+}
+
+export function buildWindowsPowerShellRuntimeInvocation(
+  nodePath,
+  npmCliPath,
+  env = process.env,
+) {
+  if (
+    ![nodePath, npmCliPath].every(
+      (candidate) =>
+        typeof candidate === "string" && path.isAbsolute(candidate),
+    )
+  ) {
+    return null;
+  }
+  const systemRoot = env.SystemRoot || env.SYSTEMROOT;
+  if (!systemRoot) return null;
+  const powershellPath = path.join(
+    systemRoot,
+    "System32",
+    "WindowsPowerShell",
+    "v1.0",
+    "powershell.exe",
+  );
+  if (!path.isAbsolute(powershellPath) || !existsSync(powershellPath)) {
+    return null;
+  }
+  const nodeLiteral = quotePowerShellLiteral(nodePath);
+  const cliLiteral = quotePowerShellLiteral(npmCliPath);
+  if (!nodeLiteral || !cliLiteral) return null;
+  return {
+    command: powershellPath,
+    args: [
+      "-NoLogo",
+      "-NoProfile",
+      "-NonInteractive",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-Command",
+      `& ${nodeLiteral} ${cliLiteral} --version; exit $LASTEXITCODE`,
+    ],
+  };
+}
+
 function runtimeInvocations(contract, env) {
   const invocations = [];
   if (process.platform === "win32" && env.APPDATA) {
@@ -27,6 +74,15 @@ function runtimeInvocations(contract, env) {
       "ccg.mjs",
     );
     if (existsSync(npmCliPath)) {
+      const powershellInvocation =
+        buildWindowsPowerShellRuntimeInvocation(
+          process.execPath,
+          npmCliPath,
+          env,
+        );
+      if (powershellInvocation) {
+        invocations.push(powershellInvocation);
+      }
       const commandPaths = [process.execPath, npmCliPath];
       if (
         commandPaths.every(

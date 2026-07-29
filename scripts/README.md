@@ -14,9 +14,11 @@ runtime model policy, and provider boundaries deterministic.
 - `lib/harness-adapter/`: implements redaction, safe subprocess execution,
   Trellis context resolution, conflict checks, and provider probing. The
   installed CCG version probe is asynchronous so Windows hosted runners do not
-  inherit the nested `spawnSync` failure mode. On Windows it first uses an
-  exact `cmd.exe` bridge to the trusted Node executable and installed CCG
-  entrypoint; no task input or ambient command name enters that command line.
+  inherit the nested `spawnSync` failure mode. On Windows it first uses the
+  system Windows PowerShell executable as a no-profile bridge to the trusted
+  Node executable and installed CCG entrypoint, with an exact `cmd.exe` bridge
+  retained as a compatibility path. No task input or ambient command name
+  enters either command line.
 - `doctor.ps1`: combines machine prerequisites, personal source provenance,
   adapter conflict checks, remote identity, and repository privacy.
 - `verify-sources.ps1`: verifies Trellis/CCG versions and the exact personal CCG

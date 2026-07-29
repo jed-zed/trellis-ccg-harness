@@ -133,11 +133,12 @@ unclaimed path merely because an earlier observation matched.
 - Executable helpers use canonical absolute command bindings whose file and,
   for Node launchers, package-tree identities are revalidated before use.
 - Commands are executed with argument arrays and `shell: false`.
-- The Windows installed-CCG version probe still executes the packaged CLI but
-  captures stdout and stderr through two mode-restricted files in a fresh
-  temporary directory. This avoids hosted-runner nested-pipe failures without
-  trusting package metadata as runtime evidence; the exact files and directory
-  are removed immediately after the synchronous probe.
+- The Windows installed-CCG version probe still executes the packaged CLI.
+  It first uses the system Windows PowerShell executable as a no-profile bridge
+  to the exact trusted Node executable and installed CCG entrypoint, with an
+  exact `cmd.exe` bridge retained as a compatibility path. This avoids the
+  hosted-runner nested Node launch failure without trusting package metadata as
+  runtime evidence or interpolating task-controlled input.
 - Global Init records provider install/login intent but never executes it.
   Every Provider installation and login is documentation/manual-only; Harness
   never probes or starts `claude`. A later provider guidance request needs an
@@ -184,8 +185,8 @@ is not exposed to untrusted task input.
 
 **Change:** Restored cross-platform lock-claim cleanup retries, canonicalized
 Windows test paths before comparison, made the installed-CCG runtime probe
-asynchronous with an exact Windows command bridge, and separated deterministic
-CI from user runtime inspection.
+asynchronous with exact Windows PowerShell and command bridges, and separated
+deterministic CI from user runtime inspection.
 
 **Reason:** The product-manager branch merge exposed Linux transient-directory
 cleanup drift, Windows 8.3 versus long-path aliases, and a pre-existing hosted

@@ -20,6 +20,9 @@ import {
   probeOpenAICompatibleGrok,
   redactValue,
 } from "../scripts/lib/harness-adapter.mjs";
+import {
+  buildWindowsPowerShellRuntimeInvocation,
+} from "../scripts/lib/harness-adapter/conflict-runtime.mjs";
 import { runCommandAsync } from "../scripts/lib/harness-adapter/process.mjs";
 import { resolvePython } from "../scripts/lib/python-resolver.mjs";
 
@@ -81,6 +84,50 @@ test(
     );
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /^v\d+\./);
+  },
+);
+
+test(
+  "Windows runtime probe supports a system PowerShell bridge",
+  { skip: process.platform !== "win32" },
+  async () => {
+    const fixtureRoot = mkdtempSync(
+      path.join(tmpdir(), "harness-powershell-bridge-"),
+    );
+    try {
+      const cliPath = path.join(fixtureRoot, "version.mjs");
+      writeText(
+        cliPath,
+        "process.stdout.write(`${process.version}\\n`);\n",
+      );
+      assert.equal(
+        buildWindowsPowerShellRuntimeInvocation(
+          "node",
+          cliPath,
+          process.env,
+        ),
+        null,
+      );
+      const invocation = buildWindowsPowerShellRuntimeInvocation(
+        process.execPath,
+        cliPath,
+        process.env,
+      );
+      assert.ok(invocation);
+      assert.match(
+        invocation.command,
+        /WindowsPowerShell[\\/]v1\.0[\\/]powershell\.exe$/i,
+      );
+      const result = await runCommandAsync(
+        invocation.command,
+        invocation.args,
+        { repoRoot: path.resolve(".") },
+      );
+      assert.equal(result.status, 0, result.stderr);
+      assert.match(result.stdout, /^v\d+\./);
+    } finally {
+      rmSync(fixtureRoot, { recursive: true, force: true });
+    }
   },
 );
 
