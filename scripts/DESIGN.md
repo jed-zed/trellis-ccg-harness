@@ -183,8 +183,8 @@ is not exposed to untrusted task input.
 ### 2026-07-28 - Cross-platform conflict resolution
 
 **Change:** Restored cross-platform lock-claim cleanup retries, canonicalized
-Windows test paths before comparison, and made the Windows installed-CCG
-runtime probe use short-lived file-backed output capture.
+Windows test paths before comparison, made the installed-CCG runtime probe
+asynchronous, and separated deterministic CI from user runtime inspection.
 
 **Reason:** The product-manager branch merge exposed Linux transient-directory
 cleanup drift, Windows 8.3 versus long-path aliases, and a pre-existing hosted

@@ -12,10 +12,9 @@ runtime model policy, and provider boundaries deterministic.
   OpenAI-compatible Grok probes, and the Trellis-attached product-manager
   status/review/presentation/response boundary.
 - `lib/harness-adapter/`: implements redaction, safe subprocess execution,
-  Trellis context resolution, conflict checks, and provider probing. On
-  Windows, the installed CCG version probe uses short-lived file-backed output
-  capture so nested process pipes cannot turn a working CLI into a false
-  `ERROR_BROKEN_PIPE` conflict.
+  Trellis context resolution, conflict checks, and provider probing. The
+  installed CCG version probe is asynchronous so Windows hosted runners do not
+  inherit the nested `spawnSync` failure mode.
 - `doctor.ps1`: combines machine prerequisites, personal source provenance,
   adapter conflict checks, remote identity, and repository privacy.
 - `verify-sources.ps1`: verifies Trellis/CCG versions and the exact personal CCG
@@ -97,6 +96,7 @@ personal CCG source implementation.
 pnpm setup
 node .\scripts\harness-adapter.mjs context
 node .\scripts\harness-adapter.mjs conflicts
+node .\scripts\harness-adapter.mjs conflicts --ci
 node .\scripts\harness-adapter.mjs pm status
 node .\scripts\harness-adapter.mjs pm present --state-revision <revision-from-status>
 node .\scripts\harness-adapter.mjs pm respond --response "验收通过" --state-revision <revision-from-present>
@@ -125,6 +125,11 @@ pnpm harness:rollback
 pnpm harness:recover
 pnpm harness:uninstall
 ```
+
+`conflicts --ci` verifies tracked source, policy, and task contracts while
+skipping machine-specific user runtime and plugin state. Ordinary `conflicts`
+and `doctor.ps1` still fail closed when the installed CCG runtime is missing or
+cannot be executed.
 
 `pm status` always returns tracked `latestAdvice`, including the Provider's
 statement, findings, risks, process adjustments, and recommended next action,

@@ -1,21 +1,18 @@
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
-  closeSync,
   existsSync,
-  mkdtempSync,
-  openSync,
   readFileSync,
-  rmSync,
-  rmdirSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
 import path from "node:path";
 
 import {
   createSafeSubprocessEnv,
   redactString,
 } from "./redaction.mjs";
+
+const DEFAULT_ASYNC_TIMEOUT_MS = 30_000;
+const DEFAULT_MAX_CAPTURE_BYTES = 1024 * 1024;
 
 export function readJson(filePath) {
   return JSON.parse(readFileSync(filePath, "utf8"));
@@ -56,53 +53,80 @@ function spawnOptions(options) {
   };
 }
 
-function runWithFileBackedOutput(command, args, options) {
-  const captureDirectory = mkdtempSync(
-    path.join(tmpdir(), "harness-command-output-"),
-  );
-  const stdoutPath = path.join(captureDirectory, "stdout");
-  const stderrPath = path.join(captureDirectory, "stderr");
-  let stdoutDescriptor;
-  let stderrDescriptor;
-  try {
-    stdoutDescriptor = openSync(stdoutPath, "wx", 0o600);
-    stderrDescriptor = openSync(stderrPath, "wx", 0o600);
-    const result = spawnSync(command, args, {
-      ...spawnOptions(options),
-      stdio: ["ignore", stdoutDescriptor, stderrDescriptor],
-    });
-    closeSync(stdoutDescriptor);
-    stdoutDescriptor = undefined;
-    closeSync(stderrDescriptor);
-    stderrDescriptor = undefined;
-    return {
-      ...result,
-      stdout: readFileSync(stdoutPath, "utf8"),
-      stderr: readFileSync(stderrPath, "utf8"),
-    };
-  } finally {
-    if (stdoutDescriptor !== undefined) closeSync(stdoutDescriptor);
-    if (stderrDescriptor !== undefined) closeSync(stderrDescriptor);
-    rmSync(stdoutPath, { force: true });
-    rmSync(stderrPath, { force: true });
-    rmdirSync(captureDirectory);
-  }
+export function defaultRunner(command, args, options) {
+  return spawnSync(command, args, spawnOptions(options));
 }
 
-export function defaultRunner(command, args, options) {
-  if (options.fileBackedStdio) {
-    return runWithFileBackedOutput(command, args, options);
-  }
-  return spawnSync(command, args, spawnOptions(options));
+export function defaultAsyncRunner(command, args, options) {
+  return new Promise((resolve) => {
+    const child = spawn(command, args, {
+      ...spawnOptions(options),
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    const stdout = [];
+    const stderr = [];
+    const maxCaptureBytes =
+      options.maxCaptureBytes ?? DEFAULT_MAX_CAPTURE_BYTES;
+    let capturedBytes = 0;
+    let terminalError = null;
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (terminalError === null) {
+        terminalError = new Error("Command timed out.");
+        child.kill();
+      }
+    }, options.timeoutMs ?? DEFAULT_ASYNC_TIMEOUT_MS);
+    timer.unref();
+    const capture = (chunks, chunk) => {
+      capturedBytes += chunk.length;
+      if (capturedBytes <= maxCaptureBytes) {
+        chunks.push(chunk);
+        return;
+      }
+      if (terminalError === null) {
+        terminalError = new Error("Command output exceeded the capture limit.");
+        child.kill();
+      }
+    };
+    child.stdout.on("data", (chunk) => capture(stdout, chunk));
+    child.stderr.on("data", (chunk) => capture(stderr, chunk));
+    child.once("error", (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve({
+        status: null,
+        stdout: Buffer.concat(stdout).toString("utf8"),
+        stderr: Buffer.concat(stderr).toString("utf8"),
+        error,
+      });
+    });
+    child.once("close", (status, signal) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve({
+        status,
+        signal,
+        stdout: Buffer.concat(stdout).toString("utf8"),
+        stderr: Buffer.concat(stderr).toString("utf8"),
+        error:
+          terminalError ??
+          (status === null
+            ? new Error(`Command terminated by signal ${signal ?? "unknown"}.`)
+            : null),
+      });
+    });
+  });
 }
 
 function normalizeCommandResult(result) {
   return {
     status:
-      typeof result?.status === "number"
-        ? result.status
-        : result?.error
-          ? null
+      result?.error
+        ? null
+        : typeof result?.status === "number"
+          ? result.status
           : 0,
     stdout: String(result?.stdout ?? "").trim(),
     stderr: String(result?.stderr ?? "").trim(),
@@ -117,14 +141,33 @@ export function runCommand(
     repoRoot,
     runner = defaultRunner,
     env = process.env,
-    fileBackedStdio = false,
   },
 ) {
   return normalizeCommandResult(
     runner(command, args, {
       cwd: repoRoot,
       env: createSafeSubprocessEnv(env),
-      fileBackedStdio,
+    }),
+  );
+}
+
+export async function runCommandAsync(
+  command,
+  args,
+  {
+    repoRoot,
+    runner = defaultAsyncRunner,
+    env = process.env,
+    maxCaptureBytes = DEFAULT_MAX_CAPTURE_BYTES,
+    timeoutMs = DEFAULT_ASYNC_TIMEOUT_MS,
+  },
+) {
+  return normalizeCommandResult(
+    await runner(command, args, {
+      cwd: repoRoot,
+      env: createSafeSubprocessEnv(env),
+      maxCaptureBytes,
+      timeoutMs,
     }),
   );
 }

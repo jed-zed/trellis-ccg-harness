@@ -8,10 +8,11 @@ import {
 } from "./conflict-utils.mjs";
 import {
   commandError,
+  defaultAsyncRunner,
   defaultRunner,
   readJson,
   readTextIfPresent,
-  runCommand,
+  runCommandAsync,
 } from "./process.mjs";
 
 function runtimeInvocations(contract, env) {
@@ -39,24 +40,33 @@ function runtimeInvocations(contract, env) {
   return invocations;
 }
 
-export function runCcgRuntimeCheck({
+export async function runCcgRuntimeCheck({
   repoRoot,
   contract,
   add,
-  runner = defaultRunner,
+  runner = defaultAsyncRunner,
   env = process.env,
+  includeRuntimeState = true,
 }) {
+  if (!includeRuntimeState) {
+    add(
+      "ccg-runtime-cli",
+      "info",
+      "info",
+      "Installed CCG CLI check is skipped in deterministic CI mode.",
+    );
+    return;
+  }
   let result = null;
   let selectedInvocation = null;
   for (const invocation of runtimeInvocations(contract, env)) {
-    const attempt = runCommand(
+    const attempt = await runCommandAsync(
       invocation.command,
       invocation.args,
       {
         repoRoot,
         runner,
         env,
-        fileBackedStdio: process.platform === "win32",
       },
     );
     selectedInvocation = invocation;

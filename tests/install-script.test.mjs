@@ -50,7 +50,7 @@ function canonicalPath(target) {
 
 function commandShimSource() {
   return `#!/usr/bin/env node
-import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 const [command, ...args] = process.argv.slice(2);
@@ -59,9 +59,17 @@ const logPath = process.env.MOCK_COMMAND_LOG;
 appendFileSync(logPath, JSON.stringify({ command, args }) + "\\n");
 const readState = () => JSON.parse(readFileSync(statePath, "utf8"));
 const writeState = (value) => writeFileSync(statePath, JSON.stringify(value, null, 2) + "\\n");
+const canonical = (target) => {
+  try {
+    return realpathSync.native(target).toLowerCase();
+  } catch {
+    return path.resolve(target).toLowerCase();
+  }
+};
 const versionForRoot = (state, root) =>
-  state.reportedPluginVersions?.[path.resolve(root)] ??
-  state.reportedPluginVersion;
+  Object.entries(state.reportedPluginVersions ?? {}).find(
+    ([candidate]) => canonical(candidate) === canonical(root),
+  )?.[1] ?? state.reportedPluginVersion;
 
 if (command === "trellis" && args[0] === "--version") {
   console.log("trellis 0.6.9");

@@ -89,9 +89,11 @@ function handleContext() {
   printJson(buildCanonicalContext(repoRoot));
 }
 
-function handleConflicts(args) {
-  const report = auditConflicts(repoRoot, {
-    includeUserState: !hasFlag(args, "--ci"),
+async function handleConflicts(args) {
+  const deterministicCi = hasFlag(args, "--ci");
+  const report = await auditConflicts(repoRoot, {
+    includeRuntimeState: !deterministicCi,
+    includeUserState: !deterministicCi,
     treeish: hasFlag(args, "--index") ? "INDEX" : "HEAD",
   });
   if (hasFlag(args, "--json")) {

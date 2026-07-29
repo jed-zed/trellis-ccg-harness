@@ -20,7 +20,7 @@ import {
   probeOpenAICompatibleGrok,
   redactValue,
 } from "../scripts/lib/harness-adapter.mjs";
-import { runCommand } from "../scripts/lib/harness-adapter/process.mjs";
+import { runCommandAsync } from "../scripts/lib/harness-adapter/process.mjs";
 import { resolvePython } from "../scripts/lib/python-resolver.mjs";
 
 function writeJson(filePath, value) {
@@ -37,8 +37,8 @@ function sha256(value) {
   return createHash("sha256").update(value).digest("hex");
 }
 
-test("file-backed command capture returns stdout and stderr without a pipe", () => {
-  const result = runCommand(
+test("asynchronous command capture returns stdout and stderr", async () => {
+  const result = await runCommandAsync(
     process.execPath,
     [
       "-e",
@@ -46,12 +46,24 @@ test("file-backed command capture returns stdout and stderr without a pipe", () 
     ],
     {
       repoRoot: path.resolve("."),
-      fileBackedStdio: true,
     },
   );
   assert.equal(result.status, 0);
   assert.equal(result.stdout, "runtime-ok");
   assert.equal(result.stderr, "note");
+});
+
+test("asynchronous command capture fails closed on oversized output", async () => {
+  const result = await runCommandAsync(
+    process.execPath,
+    ["-e", "process.stdout.write('x'.repeat(4096))"],
+    {
+      repoRoot: path.resolve("."),
+      maxCaptureBytes: 32,
+    },
+  );
+  assert.equal(result.status, null);
+  assert.match(result.error.message, /capture limit/i);
 });
 
 function adapterContract() {
@@ -527,10 +539,10 @@ test("canonical context uses the shared Windows py -3 resolver", () => {
   }
 });
 
-test("clean fixture has no blocking conflicts", () => {
+test("clean fixture has no blocking conflicts", async () => {
   const fixture = createFixture();
   try {
-    const report = auditConflicts(fixture.repoRoot, {
+    const report = await auditConflicts(fixture.repoRoot, {
       runner: fixture.runner,
       homeDir: fixture.homeDir,
     });
@@ -545,7 +557,7 @@ test("clean fixture has no blocking conflicts", () => {
   }
 });
 
-test("Codex plugin cache accepts an owned base-version cachebuster", () => {
+test("Codex plugin cache accepts an owned base-version cachebuster", async () => {
   const fixture = createFixture();
   try {
     const cacheRoot = path.join(
@@ -569,7 +581,7 @@ test("Codex plugin cache accepts an owned base-version cachebuster", () => {
       ),
       { name: "ccg", version: "3.3.0+codex.20260726153650" },
     );
-    const report = auditConflicts(fixture.repoRoot, {
+    const report = await auditConflicts(fixture.repoRoot, {
       runner: fixture.runner,
       homeDir: fixture.homeDir,
     });
@@ -586,7 +598,7 @@ test("Codex plugin cache accepts an owned base-version cachebuster", () => {
   }
 });
 
-test("Codex plugin cache accepts valid owner-compatible versions", () => {
+test("Codex plugin cache accepts valid owner-compatible versions", async () => {
   const fixture = createFixture();
   try {
     const cacheRoot = path.join(
@@ -610,7 +622,7 @@ test("Codex plugin cache accepts valid owner-compatible versions", () => {
       ),
       { name: "ccg", version: "3.4.1+codex.1" },
     );
-    const report = auditConflicts(fixture.repoRoot, {
+    const report = await auditConflicts(fixture.repoRoot, {
       runner: fixture.runner,
       homeDir: fixture.homeDir,
     });
@@ -626,7 +638,7 @@ test("Codex plugin cache accepts valid owner-compatible versions", () => {
   }
 });
 
-test("missing CCG CLI blocks while a missing plugin cache remains visible", () => {
+test("missing CCG CLI blocks while a missing plugin cache remains visible", async () => {
   const fixture = createFixture();
   try {
     fixture.state.ccgVersion = "";
@@ -640,7 +652,7 @@ test("missing CCG CLI blocks while a missing plugin cache remains visible", () =
       ),
       { recursive: true, force: true },
     );
-    const report = auditConflicts(fixture.repoRoot, {
+    const report = await auditConflicts(fixture.repoRoot, {
       runner: fixture.runner,
       homeDir: fixture.homeDir,
     });
@@ -661,7 +673,39 @@ test("missing CCG CLI blocks while a missing plugin cache remains visible", () =
   }
 });
 
-test("Trellis assets under project .claude are blocking conflicts", () => {
+test("deterministic CI skips only user runtime checks", async () => {
+  const fixture = createFixture();
+  try {
+    fixture.state.ccgVersion = "";
+    const report = await auditConflicts(fixture.repoRoot, {
+      runner: fixture.runner,
+      homeDir: fixture.homeDir,
+      includeRuntimeState: false,
+      includeUserState: false,
+    });
+    const runtime = report.findings.find(
+      (item) => item.id === "ccg-runtime-cli",
+    );
+    assert.equal(runtime.status, "info");
+    assert.equal(runtime.severity, "info");
+    assert.equal(report.summary.blocking, 0);
+
+    const ordinary = await auditConflicts(fixture.repoRoot, {
+      runner: fixture.runner,
+      homeDir: fixture.homeDir,
+    });
+    assert.equal(
+      ordinary.findings.find(
+        (item) => item.id === "ccg-runtime-cli",
+      ).status,
+      "conflict",
+    );
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("Trellis assets under project .claude are blocking conflicts", async () => {
   const fixture = createFixture();
   try {
     writeText(
@@ -674,7 +718,7 @@ test("Trellis assets under project .claude are blocking conflicts", () => {
       ),
       "# stale Trellis projection\n",
     );
-    const report = auditConflicts(fixture.repoRoot, {
+    const report = await auditConflicts(fixture.repoRoot, {
       runner: fixture.runner,
       homeDir: fixture.homeDir,
     });
@@ -689,7 +733,7 @@ test("Trellis assets under project .claude are blocking conflicts", () => {
   }
 });
 
-test("unrelated project .claude content is reported but preserved", () => {
+test("unrelated project .claude content is reported but preserved", async () => {
   const fixture = createFixture();
   try {
     const userFile = path.join(
@@ -698,7 +742,7 @@ test("unrelated project .claude content is reported but preserved", () => {
       "user-owned.md",
     );
     writeText(userFile, "keep\n");
-    const report = auditConflicts(fixture.repoRoot, {
+    const report = await auditConflicts(fixture.repoRoot, {
       runner: fixture.runner,
       homeDir: fixture.homeDir,
     });
@@ -714,7 +758,7 @@ test("unrelated project .claude content is reported but preserved", () => {
   }
 });
 
-test("source, runtime state, provider, and Claude drift are blocking", () => {
+test("source, runtime state, provider, and Claude drift are blocking", async () => {
   const fixture = createFixture();
   try {
     fixture.state.tree = "wrong-tree";
@@ -727,7 +771,7 @@ test("source, runtime state, provider, and Claude drift are blocking", () => {
     const contract = JSON.parse(readFileSync(contractPath, "utf8"));
     contract.providers.openAICompatibleGrok.apiKeyEnv = "XAI_API_KEY";
     writeJson(contractPath, contract);
-    const report = auditConflicts(fixture.repoRoot, {
+    const report = await auditConflicts(fixture.repoRoot, {
       runner: fixture.runner,
       homeDir: fixture.homeDir,
       env: { ...process.env, HARNESS_ENABLE_CLAUDE: "true" },
@@ -749,7 +793,7 @@ test("source, runtime state, provider, and Claude drift are blocking", () => {
   }
 });
 
-test("unguarded duplicate Trellis prompt hooks remain warning-only", () => {
+test("unguarded duplicate Trellis prompt hooks remain warning-only", async () => {
   const fixture = createFixture();
   try {
     writeJson(path.join(fixture.homeDir, ".codex", "hooks.json"), {
@@ -767,7 +811,7 @@ test("unguarded duplicate Trellis prompt hooks remain warning-only", () => {
         ],
       },
     });
-    const report = auditConflicts(fixture.repoRoot, {
+    const report = await auditConflicts(fixture.repoRoot, {
       runner: fixture.runner,
       homeDir: fixture.homeDir,
     });
@@ -782,7 +826,7 @@ test("unguarded duplicate Trellis prompt hooks remain warning-only", () => {
   }
 });
 
-test("guarded global Trellis hook yields to the project hook", () => {
+test("guarded global Trellis hook yields to the project hook", async () => {
   const fixture = createFixture();
   try {
     writeJson(path.join(fixture.homeDir, ".codex", "hooks.json"), {
@@ -809,7 +853,7 @@ test("guarded global Trellis hook yields to the project hook", () => {
       ),
       'PROJECT_LOCAL_HOOK_PRECEDENCE_MARKER = "TRELLIS_PROJECT_HOOK_PRECEDENCE_V1"\n',
     );
-    const report = auditConflicts(fixture.repoRoot, {
+    const report = await auditConflicts(fixture.repoRoot, {
       runner: fixture.runner,
       homeDir: fixture.homeDir,
     });
@@ -824,7 +868,7 @@ test("guarded global Trellis hook yields to the project hook", () => {
   }
 });
 
-test("an idle repository without an active task remains doctor-safe", () => {
+test("an idle repository without an active task remains doctor-safe", async () => {
   const fixture = createFixture();
   try {
     for (const stderr of ["No active task found.", ""]) {
@@ -841,7 +885,7 @@ test("an idle repository without an active task remains doctor-safe", () => {
         }
         return fixture.runner(command, args, options);
       };
-      const report = auditConflicts(fixture.repoRoot, {
+      const report = await auditConflicts(fixture.repoRoot, {
         runner,
         homeDir: fixture.homeDir,
       });
