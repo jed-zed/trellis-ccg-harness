@@ -18,7 +18,7 @@ resend were used.
 | --- | --- | --- |
 | `jed-zed/codex-skill-repository` | `codex/publish-chatgpt-pro-sidebar` | `38c4fd3ce54913175b884419bdc8a40d72297e37` / `5487f8205c5c6e94e51c84e8ad79129ee0b474fb` |
 | `jed-zed/ccg-gptpro-worflow` | `codex/automate-gptpro-sidebar-bridge` | `59ef05f7496fa9659d7df5d82bcecbdcd7a3ebd0` / `bb4a9a927879ee59185fa297855f462d41a00571` |
-| `jed-zed/trellis-ccg-harness` | `codex/integrate-gptpro-sidebar-automation` | source snapshot through `2f3db6a` |
+| `jed-zed/trellis-ccg-harness` | `codex/integrate-gptpro-sidebar-automation` | source snapshot through `bcb3acf` |
 
 The personal Skill and CCG branches were pushed before final Harness closeout.
 The Harness branch was first pushed through acceptance commit `91ba27c`; the
@@ -68,6 +68,14 @@ serialization, automatic-resend prohibition, exact URL/window binding,
 response-size limits, latest assistant-turn capture, and preservation of
 pending watcher registrations.
 
+During final runtime verification, Codex also found that the formal
+`-PluginOnly` setup preview recognized an owned older CCG plugin but the
+execution branch failed to pass that ownership into the upgrade transaction.
+The resulting fail-closed error left the old plugin intact. Commit `bcb3acf`
+passes the ownership state into the existing transactional installer and adds
+a regression that upgrades an exact previous plugin. The real upgrade then
+completed and Codex Desktop's plugin inventory reported `3.4.3+codex.1`.
+
 ## Validation
 
 | Gate | Result |
@@ -80,7 +88,8 @@ pending watcher registrations.
 | CCG production build | passed |
 | CCG package | `ccg-workflow-3.4.3.tgz`, 658685 bytes, SHA-256 `f020bd2f2abfcedf9ea5380ad499504785dbd7620215a8f53da881c0558e51af` |
 | Harness focused adapter suite | `24 passed, 0 failed` |
-| Harness full suite | `406 passed, 3 skipped, 0 failed` |
+| Harness install-script suite | `21 passed, 0 failed` |
+| Harness full suite | `407 passed, 3 skipped, 0 failed` |
 | Harness doctor | passed |
 | Harness conflict audit | `0 blocking, 0 warning, 2 info, 18 passed` |
 | Harness source verification | passed; CCG commit `59ef05f`, tree `bb4a9a9` |
@@ -101,12 +110,12 @@ passed.
 ## Source archive
 
 - Path:
-  `I:\ai\.codex-task-cache\019fa981-725e-7f02-93a7-bb1e1b7aefd3\source-package-20260729-1410\gptpro-sidebar-automation-source.zip`
-- Size: `690088` bytes
+  `I:\ai\.codex-task-cache\019fa981-725e-7f02-93a7-bb1e1b7aefd3\source-package-20260729-1435\gptpro-sidebar-automation-source.zip`
+- Size: `714832` bytes
 - SHA-256:
-  `67c305c400262461619a477d72dd46f27507e165262e8db98a02b2efb6973164`
-- Files: `127` files, `150` ZIP entries
-- Uncompressed staged bytes: `2408909`
+  `40bea083306b19316b5308b12d2b2d2c6784d9515c0689ac10907287f92872ff`
+- Files: `132` files, `155` ZIP entries
+- Uncompressed staged bytes: `2511121`
 - Forbidden archive paths: `0`
 - Credential-pattern matches: `0`
 
@@ -120,5 +129,6 @@ security review was performed or claimed.
 - Cross-platform remote CI is not claimed; the work was validated locally on
   Windows and pushed to feature branches without creating PRs.
 - The current Codex Desktop process may require a reload before its in-memory
-  plugin catalog displays CCG `3.4.3`. The global CCG CLI, stable personal
-  Skill, Stop Hook, and plugin cache were already synchronized.
+  Skill catalog uses the newly installed CCG `3.4.3` plugin. The live plugin
+  inventory, global CCG CLI, stable personal Skill, Stop Hook, and plugin cache
+  are already synchronized.

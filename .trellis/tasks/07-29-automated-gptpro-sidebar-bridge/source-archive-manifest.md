@@ -8,7 +8,7 @@ Generated for the automated GPT Pro side-panel bridge delivery.
 | --- | --- | --- |
 | `ccg-gptpro-worflow` | `fe3935722abda6c734ecbb784da0011789d11a63` | `59ef05f7496fa9659d7df5d82bcecbdcd7a3ebd0` |
 | `codex-skill-repository` | `0ba0035c0d86f521f33ddd7341f846abc568bf76` | `38c4fd3ce54913175b884419bdc8a40d72297e37` |
-| `trellis-ccg-harness` | `677ea35e9533bff676a8f1c133b72dc0ad2866d8` | `2f3db6a` |
+| `trellis-ccg-harness` | `677ea35e9533bff676a8f1c133b72dc0ad2866d8` | `bcb3acf` |
 
 ## Inclusion rule
 
