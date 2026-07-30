@@ -1824,6 +1824,7 @@ def append_gptpro_evidence(
         "artifactFile": relative_artifact_path(session.response_file, task_dir),
         "artifactSha256": hashlib.sha256(response_bytes).hexdigest(),
         "artifactChars": len(response_text),
+        "artifactBytes": len(response_bytes),
         "summary": (
             f"ChatGPT Pro sidebar {session.mode} response imported for {session.round_name}."
             if transport_metadata
@@ -1904,6 +1905,7 @@ def save_response(
     round_status = status["rounds"][session.round_name]
     round_status["response_saved"] = True
     round_status["response_chars"] = len(response_text)
+    round_status["response_bytes"] = len(response_bytes)
     round_status["response_sha256"] = hashlib.sha256(response_bytes).hexdigest()
     if transport_metadata:
         round_status["transport"] = transport_metadata["transport"]

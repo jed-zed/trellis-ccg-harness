@@ -132,11 +132,11 @@ implementation defects, delivered in personal Skill commits `e9d07c9` and
 
 | Gate | Result |
 | --- | --- |
-| Personal Skill Pester suite | `114 passed, 0 failed` |
+| Personal Skill Pester suite | `115 passed, 0 failed` |
 | CCG focused GPT Pro bridge tests | `39 passed, 0 failed` |
 | CCG lint | passed |
 | CCG typecheck | passed |
-| CCG unit suite | `552 passed, 1 skipped, 0 failed` |
+| CCG unit suite | `553 passed, 1 skipped, 0 failed` |
 | CCG production build | passed |
 | CCG package | `ccg-workflow-3.4.3.tgz`, 658685 bytes, SHA-256 `f020bd2f2abfcedf9ea5380ad499504785dbd7620215a8f53da881c0558e51af` |
 | Harness focused adapter suite | `24 passed, 0 failed` |
@@ -144,15 +144,18 @@ implementation defects, delivered in personal Skill commits `e9d07c9` and
 | Harness full suite | `407 passed, 3 skipped, 0 failed` |
 | Harness doctor | passed |
 | Harness conflict audit | `0 blocking, 0 warning, 2 info, 18 passed` |
-| Harness source verification | passed; CCG commit `59ef05f`, tree `bb4a9a9` |
+| Harness source verification | passed; CCG commit `f174d68`, tree `784a46e` |
 | Go module tests | passed from `components/ccg-workflow/codeagent-wrapper` |
 | Go module build | passed from `components/ccg-workflow/codeagent-wrapper` |
 | `git diff --check` | passed |
 | Skill remote CI, initial workflow | passed, run [`30512985204`](https://github.com/jed-zed/codex-skill-repository/actions/runs/30512985204) |
 | Skill remote CI, parallel-watcher fix | passed, run [`30514946535`](https://github.com/jed-zed/codex-skill-repository/actions/runs/30514946535) |
 | Skill remote CI, legacy-claim acknowledgement | passed, run [`30515322358`](https://github.com/jed-zed/codex-skill-repository/actions/runs/30515322358) |
+| Skill remote CI, portable Hook follow-up | passed twice on PR #2 and again on `main`; runs [`30538530774`](https://github.com/jed-zed/codex-skill-repository/actions/runs/30538530774) and [`30538630253`](https://github.com/jed-zed/codex-skill-repository/actions/runs/30538630253) |
 | CCG remote CI | passed on Windows, Linux, and Go jobs, run [`30513024223`](https://github.com/jed-zed/ccg-gptpro-worflow/actions/runs/30513024223) |
+| CCG remote CI, response byte evidence follow-up | passed on Windows, Linux, and Go jobs, run [`30538530315`](https://github.com/jed-zed/ccg-gptpro-worflow/actions/runs/30538530315) |
 | Harness remote CI | passed on Windows, Linux, macOS bootstrap, and Go jobs, run [`30513024050`](https://github.com/jed-zed/trellis-ccg-harness/actions/runs/30513024050) |
+| Harness transactional CCG refresh | passed candidate and final-path CCG gates plus `407 passed, 3 skipped` root tests; transaction `2026-07-30T11-37-05-600Z-93ea2cf5-aafb-4438-a535-28d9845bd511` |
 
 One resource-saturated parallel CCG test run reported a Vitest worker RPC
 timeout after all 552 tests passed. It was not accepted as green. A later
@@ -179,6 +182,23 @@ passed.
 The scan was packaging hygiene only. Per the user's direction, no broad
 security review was performed or claimed.
 
+## Pull request closeout
+
+- Personal Skill PR [`#1`](https://github.com/jed-zed/codex-skill-repository/pull/1)
+  merged as `83338b1`; portable Hook follow-up PR
+  [`#2`](https://github.com/jed-zed/codex-skill-repository/pull/2) merged as
+  `9e7b662`.
+- CCG automation PR
+  [`#15`](https://github.com/jed-zed/ccg-gptpro-worflow/pull/15) merged as
+  `010b30e`; response-byte normalization follow-up PR
+  [`#16`](https://github.com/jed-zed/ccg-gptpro-worflow/pull/16) merged as
+  `f174d68`.
+- Harness integration PR
+  [`#18`](https://github.com/jed-zed/trellis-ccg-harness/pull/18) contains the
+  exact merged CCG tree and reviewed Personal Skill snapshot. Its GitHub record
+  is the authoritative source for the final CI run and merge transition that
+  occur after this branch-local acceptance artifact is committed.
+
 ## Remaining limits
 
 - The live parallel run proves two side-panel conversations in this one
@@ -187,5 +207,6 @@ security review was performed or claimed.
 - Remote CI proves deterministic code, packaging, and cross-platform
   contracts; it cannot prove a logged-in live side panel or Desktop Stop Hook.
   Those were verified separately in the current Windows Desktop session.
-- All changes remain on pushed feature branches. No pull request, merge,
-  deployment, release, package publication, or production change was made.
+- The source changes were delivered through the pull requests above. No
+  deployment, release, package publication, database migration, production
+  configuration change, or real-user data operation was performed.

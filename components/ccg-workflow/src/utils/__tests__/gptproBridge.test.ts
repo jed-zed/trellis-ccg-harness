@@ -914,6 +914,7 @@ describe('GPT Pro sidebar bridge', () => {
     expect(promptText).toContain('Claude evidence status: automatic')
     expect(promptText).toContain(routing.summary)
 
+    const manualResponse = 'Manual GPT Pro response: 响应\n'
     const saveScript = [
       'import importlib.util, pathlib, sys',
       'spec = importlib.util.spec_from_file_location("gptpro_bridge", sys.argv[1])',
@@ -921,13 +922,15 @@ describe('GPT Pro sidebar bridge', () => {
       'sys.modules["gptpro_bridge"] = mod',
       'spec.loader.exec_module(mod)',
       'session = mod.load_session(pathlib.Path(sys.argv[2]).parent)',
-      'mod.save_response(session, "Manual GPT Pro response\\n")',
+      `mod.save_response(session, ${JSON.stringify(manualResponse)})`,
     ].join('; ')
     runPython(PYTHON!, ['-c', saveScript, BRIDGE, statusFile], root)
 
     const updatedStatus = fs.readJsonSync(statusFile)
     const roundStatus = updatedStatus.rounds['round-1']
     expect(roundStatus.response_saved).toBe(true)
+    expect(roundStatus.response_chars).toBe(manualResponse.length)
+    expect(roundStatus.response_bytes).toBe(Buffer.byteLength(manualResponse, 'utf-8'))
     expect(roundStatus.response_sha256).toMatch(/^[a-f0-9]{64}$/)
 
     const evidence = fs.readJsonSync(join(taskDir, 'evidence.json'))
@@ -940,7 +943,9 @@ describe('GPT Pro sidebar bridge', () => {
       artifactFile: expect.stringContaining('round-1/response.md'),
     })
     expect(gptproEvidence.artifactSha256).toMatch(/^[a-f0-9]{64}$/)
-    expect(gptproEvidence.artifactChars).toBe('Manual GPT Pro response\n'.length)
+    expect(gptproEvidence.artifactChars).toBe(manualResponse.length)
+    expect(gptproEvidence.artifactBytes).toBe(Buffer.byteLength(manualResponse, 'utf-8'))
+    expect(gptproEvidence.artifactBytes).toBeGreaterThan(gptproEvidence.artifactChars)
   })
 
   maybeIt('inherits required routing evidence for follow-up sessions without fresh routing files', () => {
