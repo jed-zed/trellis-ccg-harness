@@ -31,14 +31,23 @@ the source/provenance boundary that owns each component.
 
 ## Acceptance Criteria
 
-- [ ] Running the relevant Go tests does not open a browser.
-- [ ] Running `init_developer.py -h` or `--help` exits successfully, prints
+- [x] Running the relevant Go tests does not open a browser.
+- [x] Running `init_developer.py -h` or `--help` exits successfully, prints
       help, and creates no identity file or workspace directory.
-- [ ] Invalid or extra developer-name arguments fail before filesystem writes.
-- [ ] Valid developer names still initialize the expected workspace.
-- [ ] Normal CCG Live Output previews still open for real non-lite executions.
-- [ ] Harness source, test, doctor, and conflict gates pass.
-- [ ] Each child task is independently validated before the parent is complete.
+- [x] Invalid or extra developer-name arguments fail before filesystem writes.
+- [x] Valid developer names still initialize the expected workspace.
+- [x] Normal CCG Live Output previews still open for real non-lite executions.
+- [x] Harness source, test, doctor, and conflict gates pass.
+- [x] Each child task is independently validated before the parent is complete.
+
+## Completion Evidence
+
+- Personal CCG source commit: `38178138cea22688ef9d34c2128eaeb1c5e43518`.
+- Harness sync commit: `ae6239b8bba086df599d9e6d3477621afd91c479`.
+- Identity overlay commit: `6002cba0d10d035682246b5229b263c39dbdcd58`.
+- Final gates: Harness 410 passed/3 host-capability skips, CCG 562 passed/1
+  skipped, focused identity 4 passed, Go test/build passed, doctor and conflict
+  audits passed.
 
 ## Boundaries
 
