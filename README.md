@@ -108,10 +108,16 @@ pnpm setup -- -CcgSourceCheckout I:\path\to\clean-ccg-checkout
 第三方 Skill、插件和 MCP/CLI 不属于这 13 个核心项。先运行
 `node .\scripts\harness-init.mjs third-party-plan --home-dir <absolute-user-home>`
 查看固定来源、许可、写入范围、hook、网络与数据外发影响；四个分组默认全部
-不选，只有用户对具体候选明确批准后才安装。初始化器会明确推荐适用候选，
-包括 Ponytail、Caveman、Context7、fast-context 和 CodeGraph，但推荐不会
-自动勾选或授权安装。Context7 会发送文档查询和库标识，`fast-context`
-会发送查询和目录/检索数据；受严格数据边界时两者必须保持未选。
+不选，只有用户对具体候选明确批准后才继续。初始化器会明确推荐适用候选，
+包括 Ponytail、Caveman、Context7、Playwright、DeepWiki、Exa、
+`fast-context` 和 CodeGraph，但推荐不会自动勾选、安装或授权联网。
+Context7 会发送文档查询和库标识；Playwright 可接触浏览器页面、交互与选定的
+本地浏览器状态，浏览器二进制下载仍需另行批准；DeepWiki 使用官方
+`https://mcp.deepwiki.com/mcp`，会发送公开仓库标识和查询；Exa 会发送搜索
+查询与请求 URL。Exa 的托管基础模式不要求 key；本地/生产模式需要时，先从
+`https://dashboard.exa.ai/api-keys` 获取，并只交给 CCG 现有的 owner-only
+secret 边界。Harness 不读取、收集或保存该 key。`fast-context` 会发送查询
+和目录/检索数据；受严格数据边界时这些联网候选必须保持未选。
 最终交互批准会同时展示第三方 `planSha256`、批准的 package/command roots、
 子进程配置根和绑定命令身份；批准只覆盖这一份完整计划。非交互模式只要
 选中了任意第三方候选，就必须在 source manifest 摘要之外再传
@@ -122,11 +128,12 @@ pnpm setup -- -CcgSourceCheckout I:\path\to\clean-ccg-checkout
 不阻塞 13 个 core Skills/Trellis/CCG。私人 catalog clone 使用另一项
 `AllowCatalogNetwork`，不会与第三方下载共用授权；自动化若确需下载第三方，
 必须显式传 `AllowThirdPartyNetwork`/`--allow-third-party-network`。
-批准安装的 MCP 会生成 Harness-owned 本地 launcher；每次启动前都会
+CodeGraph 与 `fast-context` 等 Harness-owned 本地 launcher 仍会在每次启动前
 重新验证批准清单摘要、ownership、精确包版本/SRI、lockfile、完整安装树
-指纹和唯一入口，任何漂移都会 fail closed。由于 Codex host 当前没有
-原子 create-only 的 MCP 注册接口，初始化器不会覆盖或自动新增同名配置；
-注册 launcher 保持 `manual-pending`，先向用户展示现有状态和人工命令。
+指纹和唯一入口，任何漂移都会 fail closed。Context7、Playwright、
+DeepWiki 和 Exa 不再由 Harness 重复安装或写 MCP host 配置；批准后只返回
+固定的 `ccg config mcp` 交接和 `manual-pending` 状态，由 CCG 复用其冲突
+检测、三端同步、ownership、回滚和密钥遮蔽流程。Harness 不自动执行该命令。
 
 首次 Global Setup 会明确说明“推荐不等于选择”，每个第三方候选仍默认
 `no`/跳过；完成后会列出仍未安装或需要处理的推荐项。以后可随时运行：

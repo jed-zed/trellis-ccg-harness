@@ -1521,6 +1521,7 @@ function actionTargets({ candidate, source, homeDir, env, platform }) {
   if (candidate.id === "ponytail.default-full") {
     return [globalConfigPath({ homeDir, env, platform })];
   }
+  if (candidate.kind === "ccg-managed-mcp") return [];
   if (candidate.kind === "mcp-cli") {
     return [
       packageTarget(homeDir, candidate, source),
@@ -1553,6 +1554,12 @@ function buildPlannedActions({
       sourceId: source.id,
       dependencies: [...candidate.dependencies],
       targets: actionTargets({ candidate, source, homeDir, env, platform }),
+      ...(candidate.kind === "ccg-managed-mcp"
+        ? {
+            handoff: structuredClone(candidate.action),
+            source: ccgManagedMcpSource(candidate, source),
+          }
+        : {}),
       ...(candidate.id === "ripgrep" ? { assetPlatform } : {}),
       ...(requiredCommands.length
         ? {
@@ -1590,7 +1597,30 @@ function journalActionResult(action) {
     ...(action.executable ? { executable: action.executable } : {}),
     ...(action.platform ? { platform: action.platform } : {}),
     ...(action.mcpConfigured !== undefined ? { mcpConfigured: action.mcpConfigured } : {}),
+    ...(action.handoff ? { handoff: structuredClone(action.handoff) } : {}),
+    ...(action.source ? { source: structuredClone(action.source) } : {}),
     ...(action.error ? { error: safeError(action.error) } : {}),
+  };
+}
+
+function ccgManagedMcpSource(candidate, source) {
+  return {
+    repository: source.repository,
+    commit: source.commit,
+    gitTree: source.gitTree,
+    ...(source.release ? { release: source.release } : {}),
+    ...(candidate.packageSelector
+      ? { packageSelector: candidate.packageSelector }
+      : {}),
+    ...(source.packageIntegrity
+      ? { packageIntegrity: source.packageIntegrity }
+      : {}),
+    ...(source.endpoint ? { endpoint: source.endpoint } : {}),
+    ...(source.documentation ? { documentation: source.documentation } : {}),
+    ...(source.accessGuide ? { accessGuide: source.accessGuide } : {}),
+    ...(source.artifactPolicy
+      ? { artifactPolicy: source.artifactPolicy }
+      : {}),
   };
 }
 
@@ -2006,6 +2036,14 @@ export async function applyThirdPartyGlobalActions({
                 expectedSha256: ownership.actions[id].sha256,
               });
             }
+          } else if (candidate.kind === "ccg-managed-mcp") {
+            result = {
+              status: "manual-pending",
+              reason:
+                "Approved MCP configuration is delegated to the reviewed CCG workflow; Harness performed no install, host mutation, credential read, or provider call.",
+              handoff: structuredClone(candidate.action),
+              source: ccgManagedMcpSource(candidate, source),
+            };
           } else if (candidate.kind === "mcp-cli") {
             const installed = await installPinnedNpmTool({ candidate, source, homeDir, platform, runCommand: effectiveRunCommand, ownership, manifestDigest, allowNetwork, faultInjector, journalEffect });
             const launcher = mcpLauncherInvocation({ candidate, homeDir });

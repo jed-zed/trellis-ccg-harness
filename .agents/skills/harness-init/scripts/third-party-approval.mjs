@@ -71,6 +71,10 @@ const SOURCE_FIELDS = new Set([
   "package",
   "packageIntegrity",
   "packageLock",
+  "endpoint",
+  "documentation",
+  "accessGuide",
+  "artifactPolicy",
   "license",
   "assets",
 ]);
@@ -97,6 +101,7 @@ const CANDIDATE_FIELDS = new Set([
   "prohibitedActions",
   "strictDataBoundaryAllowed",
   "unsupportedPlatformBehavior",
+  "action",
 ]);
 const CANDIDATE_PATH_FIELDS = new Set([
   "name",
@@ -121,6 +126,11 @@ const CANDIDATE_LIFECYCLE_FIELDS = new Set([
 const CANDIDATE_MIGRATION_FIELDS = new Set([
   "acceptedLegacyTreeSha256",
 ]);
+const CANDIDATE_ACTION_FIELDS = new Set([
+  "status",
+  "command",
+  "guidance",
+]);
 const PUBLIC_CANDIDATE_FIELDS = Object.freeze([
   "id",
   "name",
@@ -144,6 +154,7 @@ const PUBLIC_CANDIDATE_FIELDS = Object.freeze([
   "prohibitedActions",
   "strictDataBoundaryAllowed",
   "unsupportedPlatformBehavior",
+  "action",
 ]);
 let cachedSelfProcessInstance = null;
 
@@ -434,6 +445,32 @@ function assertCredentialFreeHttpsRepository(value, label) {
   }
 }
 
+function validateServiceSourceMetadata(source) {
+  for (const field of ["endpoint", "documentation", "accessGuide"]) {
+    if (source[field] !== undefined) {
+      assertCredentialFreeHttpsRepository(source[field], `Source ${source.id} ${field}`);
+    }
+  }
+  if (source.endpoint !== undefined && source.documentation === undefined) {
+    throw new Error(`Source ${source.id} service endpoint requires official documentation.`);
+  }
+  if (
+    source.artifactPolicy !== undefined &&
+    source.artifactPolicy !== "remote-service-no-local-sri"
+  ) {
+    throw new Error(`Source ${source.id} has an unsupported artifact policy.`);
+  }
+  if (
+    source.endpoint !== undefined &&
+    source.package === undefined &&
+    source.artifactPolicy !== "remote-service-no-local-sri"
+  ) {
+    throw new Error(
+      `Source ${source.id} remote service without a local package must declare remote-service-no-local-sri.`,
+    );
+  }
+}
+
 function validateSourceAssets(source) {
   const packageFields = [
     source.package,
@@ -542,6 +579,7 @@ export function validateThirdPartySourceManifest(manifest) {
     immutable(source.gitTree, `Source ${source.id} gitTree`);
     if (typeof source.license !== "string" || !source.license.trim()) throw new Error(`Source ${source.id} lacks a license.`);
     validateSourceAssets(source);
+    validateServiceSourceMetadata(source);
     sourcesById.set(source.id, source);
     for (const [field, value] of Object.entries(source)) {
       if (typeof value === "string" && /(^|[\/@_-])(main|latest)(?:$|[\/@_-])/i.test(value) && !["repository"].includes(field)) {
@@ -601,6 +639,29 @@ export function validateThirdPartySourceManifest(manifest) {
     }
     if (candidate.migration !== undefined) {
       assertExactFields(candidate.migration, CANDIDATE_MIGRATION_FIELDS, `Candidate ${candidate.id} migration`);
+    }
+    if (candidate.kind === "ccg-managed-mcp") {
+      assertExactFields(
+        candidate.action,
+        CANDIDATE_ACTION_FIELDS,
+        `CCG-managed MCP candidate ${candidate.id} action`,
+      );
+      if (
+        candidate.action.status !== "ccg-managed" ||
+        candidate.action.command !== "ccg config mcp" ||
+        typeof candidate.action.guidance !== "string" ||
+        !candidate.action.guidance.trim() ||
+        candidate.action.guidance.length > 500
+      ) {
+        throw new Error(
+          `CCG-managed MCP candidate ${candidate.id} action must use the fixed ccg config mcp command and bounded guidance.`,
+        );
+      }
+      if (candidate.effects?.network !== true) {
+        throw new Error(`CCG-managed MCP candidate ${candidate.id} must disclose network effects.`);
+      }
+    } else if (candidate.action !== undefined) {
+      throw new Error(`Candidate ${candidate.id} cannot declare a CCG-managed action.`);
     }
     if (candidate.paths !== undefined) {
       if (!Array.isArray(candidate.paths) || !candidate.paths.length) throw new Error(`Candidate ${candidate.id} has invalid Skill paths.`);
@@ -834,6 +895,10 @@ function approvalExpectedInstallation(candidate, source) {
     packageSelector: candidate.packageSelector ?? null,
     packageIntegrity: source.packageIntegrity ?? null,
     packageLockSha256: source.packageLock?.sha256 ?? null,
+    endpoint: source.endpoint ?? null,
+    documentation: source.documentation ?? null,
+    accessGuide: source.accessGuide ?? null,
+    artifactPolicy: source.artifactPolicy ?? null,
     assets: (source.assets ?? []).map(({ platform, name, sha256: digest }) => ({
       platform,
       name,
@@ -849,6 +914,15 @@ function approvalExpectedInstallation(candidate, source) {
 
 async function installedPathStatus(root, candidate, source, manifestSha256) {
   const expected = approvalExpectedInstallation(candidate, source);
+  if (candidate.kind === "ccg-managed-mcp") {
+    const observed = {
+      status: "manual-pending",
+      reason:
+        "MCP configuration is delegated to the reviewed CCG workflow; Harness does not inspect, install, or mutate the host configuration.",
+      owned: false,
+    };
+    return { status: observed.status, scope: candidate.scope, expected, observed };
+  }
   if (!candidate.paths) {
     const ownership = await readGlobalActionObservation(root);
     if (ownership.unsafe) {
@@ -957,6 +1031,10 @@ function approvalSourceEvidence(source) {
         packageCount: source.packageLock.packageCount,
       }
       : null,
+    endpoint: source.endpoint ?? null,
+    documentation: source.documentation ?? null,
+    accessGuide: source.accessGuide ?? null,
+    artifactPolicy: source.artifactPolicy ?? null,
     license: source.license,
     assets: (source.assets ?? []).map((asset) => ({
       platform: asset.platform,

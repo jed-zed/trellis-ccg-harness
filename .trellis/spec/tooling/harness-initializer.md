@@ -96,7 +96,7 @@ and recovery tests; ordinary callers use only `repoRoot`.
   targets.
 - Provider credentials have no initializer fields or environment contract.
   Secret-looking contract keys or values are rejected before mutation.
-- `addons --status` is a read-only inventory of the nine global candidates in
+- `addons --status` is a read-only inventory of the twelve global candidates in
   the pinned third-party manifest. It never accepts selections, approvals, or
   network authorization.
 - Interactive `addons` lists every candidate and defaults every selection,
@@ -115,6 +115,13 @@ and recovery tests; ordinary callers use only `repoRoot`.
   blocked dependency never satisfies its dependents.
 - Drifted or unowned targets are reported but are never selectable or
   overwritten by the addon workflow.
+- Context7, Playwright, DeepWiki, and Exa are CCG-managed MCP handoffs. Harness
+  validates and displays their immutable package/service evidence, effects,
+  and fixed `ccg config mcp` command, but never executes that command, installs
+  their packages, mutates host MCP configuration, or reads credentials.
+- DeepWiki uses only `https://mcp.deepwiki.com/mcp` and explicitly records that
+  the remote service has no local SRI. Exa exposes
+  `https://dashboard.exa.ai/api-keys` as guidance, never as a credential field.
 
 ## 4. Validation & Error Matrix
 
@@ -187,7 +194,7 @@ Errors propagate to `scripts/harness-init.mjs`, which writes one
 
 `tests/harness-third-party-cli.test.mjs` must assert:
 
-- status is global-only, read-only, and reports all nine candidates;
+- status is global-only, read-only, and reports all twelve candidates;
 - planning requires explicit global selection groups and does not mutate;
 - interactive Enter defaults skip every candidate and cancel final approval;
 - Ponytail dependencies may be selected in one transaction but cannot bypass

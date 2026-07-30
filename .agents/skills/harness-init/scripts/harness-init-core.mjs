@@ -6794,9 +6794,23 @@ function thirdPartyCandidateQuestion(candidate, sourceManifestSha256) {
     `Approval group: ${groupLabel}`,
     `Purpose: ${candidate.purpose}`,
     `Source manifest SHA-256: ${sourceManifestSha256}`,
-    `Source: ${candidate.repository} @ ${candidate.commit}`,
+    candidate.repository && candidate.commit
+      ? `Source: ${candidate.repository} @ ${candidate.commit}`
+      : null,
     candidate.gitTree ? `Source Git tree: ${candidate.gitTree}` : null,
     candidate.release ? `Release: ${candidate.release}` : null,
+    candidate.source?.endpoint
+      ? `Endpoint: ${candidate.source.endpoint}`
+      : null,
+    candidate.source?.documentation
+      ? `Official documentation: ${candidate.source.documentation}`
+      : null,
+    candidate.source?.accessGuide
+      ? `API key page: ${candidate.source.accessGuide}`
+      : null,
+    candidate.source?.artifactPolicy
+      ? `Artifact policy: ${candidate.source.artifactPolicy}`
+      : null,
     candidate.packageIntegrity
       ? `Package SRI: ${candidate.packageIntegrity}`
       : null,
@@ -6826,6 +6840,12 @@ function thirdPartyCandidateQuestion(candidate, sourceManifestSha256) {
     `Effects: scripts=${candidate.scripts}, hooks=${candidate.hooks}, ` +
       `executables=${candidate.executables}, network=${Boolean(candidate.effects?.network)}`,
     `Data egress: ${candidate.dataEgress}`,
+    candidate.action
+      ? `CCG handoff: status=${candidate.action.status}; command=${candidate.action.command}`
+      : null,
+    candidate.action?.guidance
+      ? `Handoff guidance: ${candidate.action.guidance}`
+      : null,
     `Lifecycle: update=${candidate.lifecycle.update}; ` +
       `rollback=${candidate.lifecycle.rollback}; uninstall=${candidate.lifecycle.uninstall}`,
   ]
@@ -6933,6 +6953,7 @@ function addonCandidateView(plan, candidate, selectedIds) {
   return {
     id: candidate.id,
     name: candidate.name,
+    kind: candidate.kind,
     group: candidate.group,
     purpose: candidate.purpose,
     recommended: candidate.recommended === true,
@@ -6941,6 +6962,8 @@ function addonCandidateView(plan, candidate, selectedIds) {
     selectable: status !== "blocked" && status !== "drifted",
     reason,
     dependencies: [...candidate.dependencies],
+    source: structuredClone(candidate.source),
+    action: candidate.action ? structuredClone(candidate.action) : null,
     effects: {
       scripts: candidate.scripts,
       hooks: candidate.hooks,

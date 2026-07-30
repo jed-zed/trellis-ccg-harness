@@ -448,7 +448,13 @@ test("approval planning has four groups and selects no third party by default", 
         .flatMap((entry) => entry.candidates)
         .map((entry) => [entry.id, entry]),
     );
-    for (const id of ["codegraph", "fast-context", "context7"]) {
+    for (const id of [
+      "codegraph",
+      "fast-context",
+      "context7",
+      "playwright",
+      "exa",
+    ]) {
       const candidate = byId.get(id);
       const source = JSON.parse(readFileSync(MANIFEST_PATH, "utf8"))
         .sources.find((entry) => entry.id === id);
@@ -457,6 +463,28 @@ test("approval planning has four groups and selects no third party by default", 
       assert.deepEqual(candidate.source.packageLock, source.packageLock);
       assert.deepEqual(candidate.source.assets, []);
     }
+    for (const id of ["context7", "playwright", "deepwiki", "exa"]) {
+      const candidate = byId.get(id);
+      assert.equal(candidate.kind, "ccg-managed-mcp");
+      assert.equal(candidate.action.status, "ccg-managed");
+      assert.equal(candidate.action.command, "ccg config mcp");
+      assert.match(candidate.action.guidance, /\S/);
+      assert.equal(candidate.selected, false);
+      assert.equal(candidate.recommended, true);
+    }
+    assert.equal(
+      byId.get("deepwiki").source.endpoint,
+      "https://mcp.deepwiki.com/mcp",
+    );
+    assert.equal(
+      byId.get("deepwiki").source.artifactPolicy,
+      "remote-service-no-local-sri",
+    );
+    assert.equal(
+      byId.get("exa").source.accessGuide,
+      "https://dashboard.exa.ai/api-keys",
+    );
+    assert.equal(JSON.stringify(plan).includes("mcp-deepwiki"), false);
     const ripgrep = byId.get("ripgrep");
     assert.equal(ripgrep.source.gitTree, "c743701524f65f036cf174d6551918be7dfc0d40");
     assert.deepEqual(
@@ -504,6 +532,24 @@ test("approval planning rejects unapproved secret-like manifest fields", async (
   } finally {
     value.cleanup();
   }
+});
+
+test("CCG-managed MCP handoffs reject command injection and credential-bearing service URLs", () => {
+  const injectedCommand = JSON.parse(readFileSync(MANIFEST_PATH, "utf8"));
+  injectedCommand.candidates.find((entry) => entry.id === "exa")
+    .action.command = "ccg config mcp --api-key must-not-appear";
+  assert.throws(
+    () => validateThirdPartySourceManifest(injectedCommand),
+    /CCG-managed MCP.*command/i,
+  );
+
+  const credentialUrl = JSON.parse(readFileSync(MANIFEST_PATH, "utf8"));
+  credentialUrl.sources.find((entry) => entry.id === "deepwiki")
+    .endpoint = "https://user:secret@mcp.deepwiki.com/mcp";
+  assert.throws(
+    () => validateThirdPartySourceManifest(credentialUrl),
+    /credential-free HTTPS/i,
+  );
 });
 
 test("approval plan digest binds displayed installation observations", async () => {
@@ -2017,12 +2063,20 @@ test("every approval candidate reports bounded installation evidence and an allo
     );
     assert.equal(ponytailHook.installed.status, "manual-pending");
     const context7 = candidates.find((candidate) => candidate.id === "context7");
-    assert.equal(context7.installed.status, "absent");
+    assert.equal(context7.installed.status, "manual-pending");
     assert.match(context7.installed.expected.packageIntegrity, /^sha512-/);
     assert.match(
       context7.installed.expected.packageLockSha256,
       /^[a-f0-9]{64}$/,
     );
+    for (const id of ["context7", "playwright", "deepwiki", "exa"]) {
+      const candidate = candidates.find((entry) => entry.id === id);
+      assert.equal(candidate.installed.status, "manual-pending");
+      assert.match(
+        candidate.installed.observed.reason,
+        /delegated.*CCG|CCG.*workflow/i,
+      );
+    }
   } finally {
     value.cleanup();
   }
