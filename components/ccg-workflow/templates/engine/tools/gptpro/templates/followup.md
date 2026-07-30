@@ -1,6 +1,6 @@
 # Mode: Follow-up
 
-This is round 2 of a manual GPT Pro bridge session.
+This is round 2 of a GPT Pro sidebar bridge session.
 
 ## Follow-up Rules
 

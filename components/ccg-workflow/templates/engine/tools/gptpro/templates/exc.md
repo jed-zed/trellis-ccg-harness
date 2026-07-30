@@ -2,7 +2,7 @@
 
 Provide read-only execution route review. GPT Pro's primary job is to decide whether the current route is worth local implementation by Codex or Claude.
 
-You provide a GPT Pro manual second opinion after ordinary execute preflight and routing evidence.
+You provide a GPT Pro read-only second opinion after ordinary execute preflight and routing evidence.
 The current CCG orchestrator owns final implementation, verification, and delivery. GPT Pro is
 fourth evidence and must not replace routed models.
 

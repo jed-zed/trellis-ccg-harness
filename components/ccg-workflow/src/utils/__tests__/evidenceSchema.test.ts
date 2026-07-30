@@ -88,6 +88,36 @@ describe('task evidence helpers', () => {
     expect(result.item.provider).toBe('gemini')
   })
 
+  it('preserves UTF-8 byte counts across evidence read and write normalization', () => {
+    const { taskDir } = makeTask('utf8-byte-count')
+    const response = 'GPT Pro 响应'
+    const artifactBytes = Buffer.byteLength(response, 'utf-8')
+
+    taskUtils.writeEvidence(taskDir, {
+      schemaVersion: 1,
+      items: [{
+        id: 'gptpro-review-byte-count',
+        provider: 'gptpro',
+        role: 'review',
+        policy: 'manual',
+        available: true,
+        artifactFile: 'gptpro/response.md',
+        artifactSha256: sha256(response),
+        artifactChars: response.length,
+        artifactBytes,
+        summary: 'UTF-8 byte-count round trip.',
+      }],
+    })
+
+    const firstRead = taskUtils.readEvidence(taskDir)
+    expect(firstRead.items[0].artifactBytes).toBe(artifactBytes)
+    expect(firstRead.items[0].artifactBytes).toBeGreaterThan(firstRead.items[0].artifactChars)
+
+    taskUtils.writeEvidence(taskDir, firstRead)
+    const secondRead = taskUtils.readEvidence(taskDir)
+    expect(secondRead.items[0].artifactBytes).toBe(artifactBytes)
+  })
+
   it('normalizes legacy task.json Gemini evidence for reads', () => {
     const { taskDir } = makeTask('legacy')
     const response = 'Legacy Gemini response'

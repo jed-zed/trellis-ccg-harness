@@ -200,9 +200,9 @@ When your message mentions security, caching, RAG, Kubernetes, etc., the relevan
 |---------|-------------|
 | `/ccg:grok-intel` | Collect validated current Web/X evidence through isolated Grok ACP |
 | `/ccg:grok-verify` | Verify a plan, diff, target, and dependencies against current facts |
-| `/ccg:gptpro-plan` | Manual GPT Pro planning evidence after required Grok routing |
-| `/ccg:gptpro-exc` | Manual GPT Pro execution-route review |
-| `/ccg:gptpro-review` | Manual GPT Pro final review with canonical Grok provenance |
+| `/ccg:gptpro-plan` | Automated GPT Pro sidebar planning evidence after required Grok routing |
+| `/ccg:gptpro-exc` | Automated GPT Pro sidebar execution-route review |
+| `/ccg:gptpro-review` | Automated GPT Pro sidebar final review with canonical Grok provenance |
 
 ### OpenSpec Integration
 
@@ -230,11 +230,19 @@ node bin/ccg.mjs init
 
 Requires **Node.js 20+** and **Claude Code CLI**. Codex CLI, Gemini CLI, and Grok CLI are optional (enable multi-model features).
 
+If you hand this repository URL to an AI agent, have it follow
+[`AI_INSTALL.md`](./AI_INSTALL.md). The repository URL is not installation
+approval. After CCG is installed, `ccg addons` or `ccg addons --json` shows the
+recommended Ponytail, Caveman, grill-me, and MCP companions without installing
+anything; the default is always skip.
+
 ## CLI Commands
 
 ```bash
 node bin/ccg.mjs                          # Interactive menu
 node bin/ccg.mjs init                     # 4-step install wizard
+node bin/ccg.mjs addons                   # Read-only companion add-on catalog
+node bin/ccg.mjs addons --json            # Machine-readable catalog for AI agents
 node bin/ccg.mjs doctor                   # Environment health check
 node bin/ccg.mjs doctor --platform codex  # Explicit Codex ownership/version health check
 node bin/ccg.mjs status                   # Installation overview
@@ -359,4 +367,4 @@ MIT
 
 ---
 
-v3.4.2 | [Issues](https://github.com/jed-zed/ccg-gptpro-worflow/issues) | [Contributing](./CONTRIBUTING.md)
+v3.4.3 | [Issues](https://github.com/jed-zed/ccg-gptpro-worflow/issues) | [Contributing](./CONTRIBUTING.md)

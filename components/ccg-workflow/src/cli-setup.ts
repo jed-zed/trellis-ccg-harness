@@ -6,6 +6,7 @@ import ansis from 'ansis'
 import { version } from '../package.json'
 import { homedir } from 'node:os'
 import { join } from 'pathe'
+import { showCompanionAddons } from './commands/addons'
 import { configMcp } from './commands/config-mcp'
 import { configRouting } from './commands/config-routing'
 import { doctor, status } from './commands/doctor'
@@ -30,6 +31,7 @@ function customizeHelp(sections: any[]): any[] {
     body: [
       `  ${ansis.cyan('ccg')}              ${i18n.t('cli:help.commandDescriptions.showMenu')}`,
       `  ${ansis.cyan('ccg init')} | ${ansis.cyan('i')}     ${i18n.t('cli:help.commandDescriptions.initConfig')}`,
+      `  ${ansis.cyan('ccg addons')}       ${i18n.t('cli:help.commandDescriptions.addons')}`,
       `  ${ansis.cyan('ccg config mcp')}   ${i18n.t('cli:help.commandDescriptions.configMcp')}`,
       `  ${ansis.cyan('ccg diagnose-mcp')} ${i18n.t('cli:help.commandDescriptions.diagnoseMcp')}`,
       `  ${ansis.cyan('ccg fix-mcp')}      ${i18n.t('cli:help.commandDescriptions.fixMcp')}`,
@@ -185,6 +187,18 @@ export async function setupCommands(cli: CAC): Promise<void> {
   const noIntelligenceOption = initCommand.options.find(option => option.rawName === '--no-intelligence')
   if (noIntelligenceOption)
     noIntelligenceOption.config.default = undefined
+
+  // Companion add-on catalog. This command is deliberately read-only and
+  // never treats a recommendation as installation approval.
+  cli
+    .command('addons', i18n.t('cli:help.commandDescriptions.addons'))
+    .option('--json', 'Print the read-only catalog as JSON')
+    .option('--lang, -l <lang>', `${i18n.t('cli:help.optionDescriptions.displayLanguage')} (zh-CN, en)`)
+    .action(async (options: { json?: boolean, lang?: 'en' | 'zh-CN' }) => {
+      if (options.lang)
+        await initI18n(options.lang)
+      showCompanionAddons({ json: options.json })
+    })
 
   // Diagnose MCP command
   cli

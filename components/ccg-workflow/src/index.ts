@@ -1,5 +1,6 @@
 // CCG - Claude + Codex + Gemini Multi-Model Collaboration System
 export * from './types'
+export * from './commands/addons'
 export { init } from './commands/init'
 export { showMainMenu } from './commands/menu'
 export { update } from './commands/update'

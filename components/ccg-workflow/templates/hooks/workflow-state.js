@@ -21,9 +21,9 @@ try {
   }
 
   const turns = trackTurn(task.dir, task.currentPhase, task.nextAction);
-  const manualWaitGates = new Set(['manual_gptpro_waiting']);
-  const isManualWait = manualWaitGates.has(task.gate);
-  const loop = isManualWait ? null : detectLoop(turns, 3);
+  const externalWaitGates = new Set(['gptpro_sidebar_running', 'manual_gptpro_waiting']);
+  const isExternalWait = externalWaitGates.has(task.gate);
+  const loop = isExternalWait ? null : detectLoop(turns, 3);
 
   const lines = [
     '<ccg-state>',
@@ -38,8 +38,8 @@ try {
 
   lines.push(`Next: ${task.nextAction || 'Continue current phase'}`);
 
-  if (isManualWait) {
-    lines.push('Manual wait: GPT Pro response must be saved before continuing.');
+  if (isExternalWait) {
+    lines.push('External wait: the GPT Pro sidebar watcher will continue this task through the Stop Hook.');
   }
 
   if (loop) {
