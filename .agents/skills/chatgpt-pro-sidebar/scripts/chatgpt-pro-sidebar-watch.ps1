@@ -66,6 +66,54 @@ function Get-WatchSha256Text {
     }
 }
 
+function Enter-WatchStartMutex {
+    param(
+        [Parameter(Mandatory = $true)][string]$EvidenceDirectory,
+        [int]$TimeoutMilliseconds = 30000
+    )
+
+    if ($TimeoutMilliseconds -lt 0) {
+        throw 'Watcher start mutex timeout must be non-negative.'
+    }
+    $identity = [System.IO.Path]::GetFullPath($EvidenceDirectory)
+    $identity = $identity.TrimEnd([System.IO.Path]::DirectorySeparatorChar).ToLowerInvariant()
+    $mutexName = 'Local\ChatGptProSidebarWatchStart-' + (Get-WatchSha256Text -Text $identity)
+    $mutex = [System.Threading.Mutex]::new($false, $mutexName)
+    $acquired = $false
+    try {
+        try {
+            $acquired = $mutex.WaitOne($TimeoutMilliseconds)
+        }
+        catch [System.Threading.AbandonedMutexException] {
+            $acquired = $true
+        }
+        if (-not $acquired) {
+            throw 'Timed out waiting for another watcher start operation on this evidence directory.'
+        }
+        return $mutex
+    }
+    catch {
+        if (-not $acquired) {
+            $mutex.Dispose()
+        }
+        throw
+    }
+}
+
+function Exit-WatchStartMutex {
+    param([AllowNull()]$Mutex)
+
+    if ($null -eq $Mutex) {
+        return
+    }
+    try {
+        $Mutex.ReleaseMutex()
+    }
+    finally {
+        $Mutex.Dispose()
+    }
+}
+
 function Write-WatchTextAtomic {
     param(
         [Parameter(Mandatory = $true)][string]$Path,
@@ -726,6 +774,22 @@ function ConvertTo-EncodedWorkerCommand {
 }
 
 function Start-WatchProcess {
+    param(
+        [Parameter(Mandatory = $true)][string]$EvidenceDirectory,
+        [Parameter(Mandatory = $true)][string]$ThreadId,
+        [switch]$DisableContinuation
+    )
+
+    $mutex = Enter-WatchStartMutex -EvidenceDirectory $EvidenceDirectory
+    try {
+        return Start-WatchProcessExclusive @PSBoundParameters
+    }
+    finally {
+        Exit-WatchStartMutex -Mutex $mutex
+    }
+}
+
+function Start-WatchProcessExclusive {
     param(
         [Parameter(Mandatory = $true)][string]$EvidenceDirectory,
         [Parameter(Mandatory = $true)][string]$ThreadId,

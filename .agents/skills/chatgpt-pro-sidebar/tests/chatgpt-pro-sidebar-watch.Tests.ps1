@@ -630,6 +630,33 @@ Describe 'Detached launcher behavior' {
         $Script:StopHookRegistryRootOverride = $null
     }
 
+    It 'serializes watcher starts for the same evidence directory' {
+        $directory = Join-Path $TestDrive 'launcher-mutex'
+        New-WatchFixtureEvidence -Directory $directory
+        $mutex = Enter-WatchStartMutex -EvidenceDirectory $directory
+        try {
+            $quotedWatcher = $watcherPath.Replace("'", "''")
+            $quotedDirectory = $directory.Replace("'", "''")
+            $childCommand = @"
+. '$quotedWatcher'
+try {
+    `$childMutex = Enter-WatchStartMutex -EvidenceDirectory '$quotedDirectory' -TimeoutMilliseconds 150
+    Exit-WatchStartMutex -Mutex `$childMutex
+    exit 0
+}
+catch {
+    exit 41
+}
+"@
+            $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($childCommand))
+            & powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand $encoded
+            $LASTEXITCODE | Should -Be 41
+        }
+        finally {
+            Exit-WatchStartMutex -Mutex $mutex
+        }
+    }
+
     It 'returns promptly with one process id and reuses an active watcher' {
         $directory = Join-Path $TestDrive 'launcher'
         New-WatchFixtureEvidence -Directory $directory
