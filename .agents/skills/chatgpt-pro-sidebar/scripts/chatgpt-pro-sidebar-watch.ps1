@@ -32,6 +32,7 @@ $Script:CallbackFileName = 'watch-callback.json'
 $Script:ContinuationAckFileName = 'watch-continuation-ack.json'
 $Script:LogFileName = 'watch.log'
 $Script:StopHookRegistryDirectoryName = 'stop-hook-v2'
+$Script:LegacyStopHookRegistryDirectoryName = 'stop-hook-v1'
 $Script:MaximumStopHookWaitSeconds = 7400
 $Script:StopHookRegistryRootOverride = $null
 
@@ -397,13 +398,27 @@ function Invoke-WatchLoop {
         $ok = $exitCode -eq 0 -and $null -ne $payload -and [bool](Get-WatchProperty $payload 'ok' $false)
 
         if (-not $ok) {
+            $category = [string](Get-WatchProperty $payload 'category' 'ProbeUnavailable')
+            if ($exitCode -eq 32 -and $category -eq 'ConcurrentUiOperation') {
+                & $ObservationAction ([ordered]@{
+                    atUtc = ([datetime](& $NowAction)).ToUniversalTime().ToString('o')
+                    exitCode = $exitCode
+                    ok = $false
+                    category = $category
+                    deferred = $true
+                    consecutiveFailures = $consecutiveFailures
+                })
+                & $SleepAction $SleepSeconds
+                continue
+            }
+
             $consecutiveFailures++
             $stableStopped = 0
             & $ObservationAction ([ordered]@{
                 atUtc = ([datetime](& $NowAction)).ToUniversalTime().ToString('o')
                 exitCode = $exitCode
                 ok = $false
-                category = [string](Get-WatchProperty $payload 'category' 'ProbeUnavailable')
+                category = $category
                 consecutiveFailures = $consecutiveFailures
             })
             if ($consecutiveFailures -ge $FailureLimit) {
@@ -802,12 +817,26 @@ function Acknowledge-WatchContinuation {
         [string](Get-WatchProperty $claim 'codexThreadId' '') -ne $expectedThreadId) {
         throw 'Continuation evidence belongs to another Codex task.'
     }
-    if ([string](Get-WatchProperty $claim 'watcherId' '') -ne $watcherId) {
-        throw 'Continuation claim belongs to another watcher.'
-    }
     $status = [string](Get-WatchProperty $event 'status' '')
     if ([string]::IsNullOrWhiteSpace($status)) {
         throw 'A terminal watch event is required before acknowledgement.'
+    }
+    $claimWatcherId = [string](Get-WatchProperty $claim 'watcherId' '')
+    $registrationPath = [string](Get-WatchProperty $state 'stopHookRegistrationPath' '')
+    $registrationParent = if ([string]::IsNullOrWhiteSpace($registrationPath)) {
+        ''
+    }
+    else {
+        Split-Path -Parent $registrationPath
+    }
+    $isLegacyClaim = (
+        [string]::IsNullOrWhiteSpace($claimWatcherId) -and
+        -not [string]::IsNullOrWhiteSpace($registrationParent) -and
+        (Split-Path -Leaf $registrationParent) -eq $Script:LegacyStopHookRegistryDirectoryName -and
+        [string](Get-WatchProperty $claim 'terminalStatus' '') -eq $status
+    )
+    if ($claimWatcherId -ne $watcherId -and -not $isLegacyClaim) {
+        throw 'Continuation claim belongs to another watcher.'
     }
     $acknowledgement = [ordered]@{
         schemaVersion = $Script:WatcherSchemaVersion

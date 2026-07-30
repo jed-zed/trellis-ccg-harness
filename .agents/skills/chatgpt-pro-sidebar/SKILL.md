@@ -39,6 +39,8 @@ Run from a normal interactive Windows desktop session containing the visible Cod
 $adapter = Join-Path $skillRoot 'scripts\chatgpt-pro-sidebar.ps1'
 $watcher = Join-Path $skillRoot 'scripts\chatgpt-pro-sidebar-watch.ps1'
 $stopHook = Join-Path $skillRoot 'scripts\chatgpt-pro-sidebar-stop-hook.py'
+$resolvedStopHook = (Resolve-Path -LiteralPath $stopHook).Path.Replace('\', '/')
+$stopHookCommand = 'python "' + $resolvedStopHook + '"'
 
 powershell.exe -NoProfile -File $adapter status
 powershell.exe -NoProfile -File $adapter status -WindowRuntimeId $windowRuntimeId
@@ -53,6 +55,7 @@ powershell.exe -NoProfile -File $adapter run -PromptPath $promptFile -EvidenceDi
 # Preferred for long-running Pro work:
 powershell.exe -NoProfile -File $watcher start -EvidenceDir $roundDir -CodexThreadId $env:CODEX_THREAD_ID
 powershell.exe -NoProfile -File $watcher status -EvidenceDir $roundDir
+$stopHookCommand
 ```
 
 Prefer `-PromptPath` over inline `-Prompt` to avoid quoting errors and shell-history disclosure. `send` and `run` require `-IdempotencyKey`; make it an opaque non-secret such as `trellis-task-id:round-1`, never a credential or prompt excerpt. All live commands are serialized through a named interactive-session mutex; exit `32` means another adapter process currently owns the side panel.
@@ -61,7 +64,7 @@ When more than one Codex top-level window is open, the adapter may automatically
 
 The watcher requires the exact current Codex thread UUID. Prefer inherited `CODEX_THREAD_ID`; otherwise pass the current thread ID explicitly. Never use `--last`, a thread title, or an arbitrary callback command. `start` is idempotent per evidence directory: it reuses one live worker or reports the existing terminal event instead of creating duplicate continuations. Each watcher writes `%LOCALAPPDATA%\ChatGptProSidebar\stop-hook-v2\<thread-id>\<watcher-id>.json`, so registrations in the same Codex task cannot overwrite each other. The Hook also reads the former `stop-hook-v1\<thread-id>.json` layout during migration. Polling and Hook waiting read only local state and consume no model tokens. The Hook does not call `codex exec resume`, launch a separate CLI agent, select a model, write the Desktop composer, click Submit, or retry an uncertain ChatGPT submission. The continuation turn reviews the persisted event and response evidence. `-NoWake` is reserved for deterministic tests.
 
-The installed Skill requires one reviewed user-level `Stop` Hook with command `python C:/Users/29933/.codex/skills/chatgpt-pro-sidebar/scripts/chatgpt-pro-sidebar-stop-hook.py` and timeout `7500`. Codex Desktop hashes command and timeout as part of Hook trust. Review and trust that exact handler once in the Desktop Hook UI; never write a trusted hash by hand. A scheduled task is only a fallback because every scheduled cadence starts a model turn and consumes usage, while this Hook waits locally inside the turn-stop lifecycle event.
+The installed Skill requires one reviewed user-level `Stop` Hook with timeout `7500`. Set `$skillRoot` to the actual installed directory containing this `SKILL.md` (for example, the selected user-level or project-level Skill copy), then use the exact command printed by `$stopHookCommand` above. Never copy an author-specific home-directory path or assume another installation root. Codex Desktop hashes the resolved command and timeout as part of Hook trust. Review and trust that exact handler once in the Desktop Hook UI; never write a trusted hash by hand. A scheduled task is only a fallback because every scheduled cadence starts a model turn and consumes usage, while this Hook waits locally inside the turn-stop lifecycle event.
 
 Do not click, type in, navigate, refresh, resize, or switch conversations inside the Codex browser side panel while `new-chat`, `send`, `wait`, or `run` is active. Using other applications is allowed. Focus restoration is pure UIA and race-aware: the adapter restores the original focused element only while focus remains in the expected Codex top-level UIA element (or never left the original top level), so it does not pull focus back after the user switches to a third application. The adapter synthesizes no keystrokes and never uses the clipboard.
 

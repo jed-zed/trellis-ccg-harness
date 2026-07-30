@@ -372,7 +372,26 @@ def _load_registrations(
                 registrationPath=str(registration_path),
             )
             continue
-        evidence_directory = Path(raw_evidence).resolve()
+        try:
+            evidence_directory = Path(raw_evidence).resolve()
+        except OSError as exc:
+            _append_log(
+                registry_root,
+                "registration_evidence_unavailable",
+                codexThreadId=thread_id,
+                registrationPath=str(registration_path),
+                error=type(exc).__name__,
+            )
+            continue
+        if not evidence_directory.is_dir():
+            _append_log(
+                registry_root,
+                "registration_evidence_unavailable",
+                codexThreadId=thread_id,
+                registrationPath=str(registration_path),
+                evidenceDirectory=str(evidence_directory),
+            )
+            continue
         acknowledgement = _read_json(evidence_directory / ACK_FILE_NAME)
         if (
             acknowledgement is not None

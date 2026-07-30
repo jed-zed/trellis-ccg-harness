@@ -197,6 +197,42 @@ Describe 'Token-free watcher state machine' {
         $finalizeCount | Should -Be 0
     }
 
+    It 'defers UI mutex contention without losing a stable stop observation' {
+        $queue = [System.Collections.Queue]::new()
+        $queue.Enqueue((New-WatchProbe -Generating $false))
+        1..3 | ForEach-Object {
+            $queue.Enqueue((New-WatchProbe -Generating $false -ExitCode 32 -Category 'ConcurrentUiOperation'))
+        }
+        $queue.Enqueue((New-WatchProbe -Generating $false))
+        $observed = [System.Collections.ArrayList]::new()
+        $now = [datetime]'2026-07-28T20:00:00Z'
+
+        $result = Invoke-WatchLoop `
+            -BoundConversationUrl $script:BoundUrl `
+            -StablePollCount 2 `
+            -FailureLimit 3 `
+            -OverallTimeoutSeconds 300 `
+            -SleepSeconds 5 `
+            -ProbeAction { $queue.Dequeue() } `
+            -FinalizeAction {
+                [pscustomobject]@{ ExitCode = 0; Payload = [pscustomobject]@{ ok = $true; completed = $true } }
+            } `
+            -SleepAction { param($seconds) } `
+            -NowAction { $now } `
+            -ObservationAction { param($record) $null = $observed.Add($record) }
+
+        $result.Status | Should -Be 'completed'
+        $result.Observations | Should -Be 5
+        $result.ConsecutiveProbeFailures | Should -Be 0
+        @(
+            $observed | Where-Object {
+                $_ -is [System.Collections.IDictionary] -and
+                $_.Contains('deferred') -and
+                $_['deferred']
+            }
+        ).Count | Should -Be 3
+    }
+
     It 'fails closed when the selected conversation changes' {
         $now = [datetime]'2026-07-28T20:00:00Z'
         $result = Invoke-WatchLoop `
@@ -277,6 +313,37 @@ Describe 'Codex Stop Hook continuation contract' {
         $acknowledgement.codexThreadId | Should -Be $script:ThreadId
         $acknowledgement.watcherId | Should -Be $watcherId
         $acknowledgement.terminalStatus | Should -Be 'probe-failed'
+    }
+
+    It 'acknowledges one matching legacy v1 claim without a watcher id' {
+        $directory = Join-Path $TestDrive 'acknowledge-legacy-terminal'
+        $watcherId = [guid]::NewGuid().ToString()
+        $legacyRegistrationPath = Join-Path (
+            Join-Path $TestDrive $Script:LegacyStopHookRegistryDirectoryName
+        ) ($script:ThreadId + '.json')
+        $null = New-Item -ItemType Directory -Path $directory -Force
+        Write-WatchJsonAtomic -Path (Join-Path $directory $Script:StateFileName) -Value ([ordered]@{
+            schemaVersion = 1
+            watcherId = $watcherId
+            codexThreadId = $script:ThreadId
+            stopHookRegistrationPath = $legacyRegistrationPath
+        })
+        Write-WatchJsonAtomic -Path (Join-Path $directory $Script:EventFileName) -Value ([ordered]@{
+            schemaVersion = 1
+            status = 'completed'
+        })
+        Write-WatchJsonAtomic -Path (Join-Path $directory $Script:StopHookClaimFileName) -Value ([ordered]@{
+            schemaVersion = 1
+            codexThreadId = $script:ThreadId
+            terminalStatus = 'completed'
+        })
+
+        $result = Acknowledge-WatchContinuation -EvidenceDirectory $directory -ThreadId $script:ThreadId
+        $acknowledgement = Read-WatchJson -Path (Join-Path $directory $Script:ContinuationAckFileName) -Required
+
+        $result.acknowledged | Should -BeTrue
+        $acknowledgement.watcherId | Should -Be $watcherId
+        $acknowledgement.terminalStatus | Should -Be 'completed'
     }
 
     It 'registers one exact thread and bounded evidence directory' {

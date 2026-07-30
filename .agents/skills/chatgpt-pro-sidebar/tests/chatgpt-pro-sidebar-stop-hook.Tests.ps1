@@ -195,6 +195,41 @@ Describe 'Codex Stop Hook helper' {
         Test-Path -LiteralPath (Join-Path $pendingEvidence 'watch-callback.json') | Should -BeFalse
     }
 
+    It 'skips a stale missing evidence directory and continues valid registrations' {
+        $registry = Join-Path $TestDrive 'registry-stale-evidence'
+        $missingEvidence = Join-Path $TestDrive 'evidence-no-longer-present'
+        $validEvidence = Join-Path $TestDrive 'evidence-still-present'
+        $staleWatcherId = [guid]::NewGuid().ToString()
+        $staleRegistration = Join-Path (
+            Join-Path $registry $script:ThreadId
+        ) ($staleWatcherId + '.json')
+        Write-TestJson -Path $staleRegistration -Value ([ordered]@{
+            schemaVersion = 1
+            transport = 'codex-stop-hook'
+            phase = 'registered'
+            hookDeadlineUtc = [datetime]::UtcNow.AddSeconds(-1).ToString('o')
+            codexThreadId = $script:ThreadId
+            watcherId = $staleWatcherId
+            evidenceDirectory = $missingEvidence
+        })
+        New-TestRegistration -Registry $registry -Evidence $validEvidence
+        Write-TestJson -Path (Join-Path $validEvidence 'watch-event.json') -Value ([ordered]@{
+            status = 'completed'
+        })
+
+        $result = Invoke-TestStopHook -Registry $registry
+        $decision = $result.Output[0] | ConvertFrom-Json
+        $log = Get-Content -LiteralPath (Join-Path $registry 'stop-hook.log') -Raw
+
+        $result.ExitCode | Should -Be 0
+        $result.Output.Count | Should -Be 1
+        $decision.decision | Should -Be 'block'
+        $decision.reason | Should -Match ([regex]::Escape($validEvidence))
+        Test-Path -LiteralPath (Join-Path $validEvidence 'watch-stop-hook.claim') | Should -BeTrue
+        Test-Path -LiteralPath $missingEvidence | Should -BeFalse
+        $log | Should -Match 'registration_evidence_unavailable'
+    }
+
     It 'reads one legacy v1 registration during migration' {
         $registry = Join-Path $TestDrive 'registry-legacy'
         $evidence = Join-Path $TestDrive 'evidence-legacy'
@@ -283,5 +318,16 @@ Describe 'Codex Stop Hook helper' {
         $result.ExitCode | Should -Be 0
         $decision.decision | Should -Be 'block'
         $decision.reason | Should -Match 'worker-crashed'
+    }
+}
+
+Describe 'Codex Stop Hook installation guidance' {
+    It 'derives the trusted Hook command from the selected Skill installation' {
+        $skillDocument = Get-Content -Raw -LiteralPath (Join-Path (Split-Path -Parent $PSScriptRoot) 'SKILL.md')
+
+        $skillDocument | Should -Not -Match 'C:/Users/29933'
+        $skillDocument | Should -Match '\$resolvedStopHook = \(Resolve-Path -LiteralPath \$stopHook\)'
+        $skillDocument | Should -Match '\$stopHookCommand = ''python "'' \+ \$resolvedStopHook \+ ''"'''
+        $skillDocument | Should -Match 'actual installed directory containing this `SKILL\.md`'
     }
 }
