@@ -69,6 +69,7 @@
   "skills": {
     "globalPolicy": "minimal-essential-only",
     "globalEssential": [
+      "chatgpt-pro-sidebar",
       "harness-init",
       "trellis-before-dev",
       "trellis-brainstorm",

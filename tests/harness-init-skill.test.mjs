@@ -110,7 +110,7 @@ test('harness-init delegates contract mutation to the executable validator', asy
   assert.ok(schema.required.includes('thirdParty'))
 })
 
-test('harness-init refines and reuses the 13-Skill global platform profile', async () => {
+test('harness-init refines and reuses the 14-Skill global platform profile', async () => {
   const skill = await readSkillFile('SKILL.md')
   const template = JSON.parse(
     await readSkillFile('assets', 'project-contract.template.json'),
@@ -131,6 +131,7 @@ test('harness-init refines and reuses the 13-Skill global platform profile', asy
   assert.deepEqual(template.skills, {
     globalPolicy: 'minimal-essential-only',
     globalEssential: [
+      'chatgpt-pro-sidebar',
       'harness-init',
       'trellis-before-dev',
       'trellis-brainstorm',
@@ -184,7 +185,7 @@ test('root AGENTS projects the canonical collaboration policy', async () => {
   assert.equal(pinnedPolicy, policy)
 })
 
-test('root Harness contract pins the 13-core and reject-all third-party baseline', async () => {
+test('root Harness contract pins the 14-core and reject-all third-party baseline', async () => {
   const contractText = await readFile(
     path.join(ROOT, '.harness', 'project.json'),
     'utf8',
@@ -219,7 +220,11 @@ test('root Harness contract pins the 13-core and reject-all third-party baseline
   const contract = JSON.parse(contractText)
   const sourceSha256 = sha256(canonicalJson(JSON.parse(sourceText)))
 
-  assert.equal(contract.skills.globalEssential.length, 13)
+  assert.equal(contract.skills.globalEssential.length, 14)
+  assert.equal(
+    contract.skills.globalEssential.includes('chatgpt-pro-sidebar'),
+    true,
+  )
   assert.equal(contract.skills.globalEssential.includes('grill-me'), false)
   assert.deepEqual(contract.thirdParty, {
     sourceManifestSha256: sourceSha256,

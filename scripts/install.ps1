@@ -866,9 +866,9 @@ function Assert-GlobalSkillProjection {
   if (
     $manifest.owner -ne "trellis-ccg-harness" -or
     (-not $directOwnership -and -not $migrationOwnership) -or
-    $skills.Count -ne 13
+    $skills.Count -ne 14
   ) {
-    throw "Global Init did not verify exactly 13 owned platform Skills."
+    throw "Global Init did not verify exactly 14 owned platform Skills."
   }
   foreach ($skill in $skills) {
     if (-not (Test-Path -LiteralPath $skill.targetPath -PathType Container)) {
@@ -1209,7 +1209,7 @@ Write-Output (
   "  Codex mode: after plugin registration run 'ccg codex-mode install' " +
   "(never legacy 'ccg init')"
 )
-Write-Output "  Platform Skills: Global Init will install/verify 13 bundled copies"
+Write-Output "  Platform Skills: Global Init will install/verify 14 bundled copies"
 Write-Output "  Personal Skill catalog: $catalogPreview"
 Write-Output (
   "  Catalog network: $($AllowCatalogNetwork.IsPresent); " +
@@ -1250,7 +1250,7 @@ if (-not $NonInteractive) {
     Confirm-SetupItem "Codex plugin $pluginId from the local snapshot" `
       $ApproveCcgPlugin.IsPresent
     Confirm-SetupItem "ccg codex-mode install" $ApproveCodexMode.IsPresent
-    Confirm-SetupItem "Global Init and 13 bundled platform Skills" `
+    Confirm-SetupItem "Global Init and 14 bundled platform Skills" `
       $ApproveGlobalInit.IsPresent
   }
 }

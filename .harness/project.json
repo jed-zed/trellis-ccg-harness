@@ -31,8 +31,7 @@
       ".harness/ownership.json",
       ".harness/policies/collaboration-policy.md",
       ".harness/third-party-sources.json",
-      ".harness/project-skills.json",
-      ".agents/skills/chatgpt-pro-sidebar"
+      ".harness/project-skills.json"
     ],
     "ignoredRuntimePaths": [
       ".ccg",
@@ -130,6 +129,7 @@
   "skills": {
     "globalPolicy": "minimal-essential-only",
     "globalEssential": [
+      "chatgpt-pro-sidebar",
       "harness-init",
       "trellis-before-dev",
       "trellis-brainstorm",
@@ -147,12 +147,7 @@
     "repositoryProfile": "user-saved",
     "selectionMode": "recommend-and-approve",
     "installMode": "copy",
-    "projectSelection": [
-      {
-        "name": "chatgpt-pro-sidebar",
-        "reason": "Approved as a project-specific Skill for this repository."
-      }
-    ]
+    "projectSelection": []
   },
   "thirdParty": {
     "sourceManifestSha256": "8176e5526fbb4d953047ecf110a503983c98dae6db71dfd31fed8b5064225903",

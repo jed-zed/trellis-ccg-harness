@@ -795,14 +795,14 @@ test("platform migration uses an explicit arbitrary catalog and approved project
       projectSkills: selected,
       preservedPaths: [roots.preserved],
     });
-    assert.equal(inventory.platform.length, 13);
+    assert.equal(inventory.platform.length, 14);
     assert.equal(inventory.catalog.length, 3);
     assert.deepEqual(
       inventory.catalogSkills.map((entry) => entry.name),
       ["review-notes", "test-first"],
     );
     assert.equal(inventory.platform.filter((entry) => entry.action === "replace").length, 10);
-    assert.equal(inventory.platform.filter((entry) => entry.action === "add").length, 3);
+    assert.equal(inventory.platform.filter((entry) => entry.action === "add").length, 4);
     assert.equal(inventory.platform.filter((entry) => entry.action === "preserve").length, 0);
 
     const emptySelection = await planSkillPlatformMigration({
@@ -853,7 +853,7 @@ test("platform migration uses an explicit arbitrary catalog and approved project
       readFileSync(path.join(value.homeDir, ".agents", "harness", "global-skills.json"), "utf8"),
     );
     assert.equal(globalOwnership.schemaVersion, 2);
-    assert.equal(globalOwnership.managedPlatformSkills.length, 13);
+    assert.equal(globalOwnership.managedPlatformSkills.length, 14);
     assert.deepEqual(
       globalOwnership.catalogSkills.map((entry) => entry.name),
       ["review-notes", "test-first"],

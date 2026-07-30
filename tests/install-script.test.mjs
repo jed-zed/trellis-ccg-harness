@@ -24,6 +24,7 @@ const INSTALL_SCRIPT = path.join(REPO_ROOT, "scripts", "install.ps1");
 const CCG_VERSION = "3.3.2";
 const CCG_PLUGIN_VERSION = "3.3.2+codex.1";
 const PLATFORM_SKILLS = [
+  "chatgpt-pro-sidebar",
   "harness-init",
   "trellis-before-dev",
   "trellis-brainstorm",
@@ -637,7 +638,7 @@ test("non-interactive Global Setup is explicit, exact, provider-safe, and idempo
         "utf8",
       ),
     );
-    assert.equal(globalSkills.managedPlatformSkills.length, 13);
+    assert.equal(globalSkills.managedPlatformSkills.length, 14);
     const firstGlobalInit = commandLog(value).find(
       ({ command }) => command === "global-init",
     );

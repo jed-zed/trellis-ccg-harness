@@ -307,7 +307,11 @@ test("Global Init installs all bundled platform Skills into an isolated home and
       skillRoot: SKILL_ROOT,
     });
     assert.equal(first.status, "initialized");
-    assert.equal(first.platform.installedSkills.length, 13);
+    assert.equal(first.platform.installedSkills.length, 14);
+    assert.equal(
+      first.platform.installedSkills.includes("chatgpt-pro-sidebar"),
+      true,
+    );
     assert.equal(first.thirdParty.globalActions.status, "skipped");
     assert.equal(
       existsSync(
@@ -674,7 +678,7 @@ test("Global Init fails closed on a fresh platform Skill collision", async () =>
   }
 });
 
-test("Global Init accepts the legacy 14-Skill ownership manifest without replacing grill-me", async () => {
+test("Global Init accepts the legacy 15-Skill ownership manifest without replacing grill-me", async () => {
   const value = fixture();
   try {
     await runGlobalInit({

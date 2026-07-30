@@ -36,8 +36,8 @@ unresolved decision per turn. Each question must
 6. **Preserve existing ownership.** Treat every existing project or global file
    as user-owned until an ownership manifest or managed block proves otherwise.
    Merge or back up approved changes; never silently replace valid content.
-7. **Keep the Harness platform global.** The global baseline is all 13
-   built-in Harness/Trellis platform Skills: `harness-init`,
+7. **Keep the Harness platform global.** The global baseline is all 14
+   built-in Harness/Trellis platform Skills: `chatgpt-pro-sidebar`, `harness-init`,
    `trellis-before-dev`, `trellis-brainstorm`, `trellis-break-loop`,
    `trellis-channel`, `trellis-check`, `trellis-continue`,
    `trellis-finish-work`, `trellis-meta`, `trellis-session-insight`,
@@ -225,7 +225,7 @@ decides the branch:
   a time directly to refine the initialization Skill:
 1. the absolute, explicitly approved Skill catalog path (not an active global
      `.agents/skills` or `.codex/skills` tree);
-  2. the fixed 13-Skill global Harness platform baseline listed above;
+  2. the fixed 14-Skill global Harness platform baseline listed above;
   3. reusable selection guidance and explicit exclusions;
   4. confirmation that project Skills use approved copy snapshots rather than
      links.

@@ -29,7 +29,7 @@ runtime model policy, and provider boundaries deterministic.
   without trusting unreadable working-tree files.
 - `install.ps1`: public, user-facing Global Setup. It previews and obtains
   explicit approval for exact Trellis/CCG installation, Codex mode, the
-  snapshot-local Codex plugin, all 13 bundled platform Skills, catalog choice,
+  snapshot-local Codex plugin, all 14 bundled platform Skills, catalog choice,
   and Global Init. Provider CLI install/login selections remain unexecuted
   guidance that needs a separate approval. Installation is always manual from
   official documentation. A later `provider-action-plan` plus interactive,
@@ -196,7 +196,7 @@ plugin identity during the install transition, and runs strict doctor again
 after the target plugin and Codex mode are installed.
 
 An existing schema-v1/v2 Skill-platform migration ownership file is a separate
-supported Global Init identity. It is accepted read-only only when all 13
+supported Global Init identity. It is accepted read-only only when all 14
 managed target paths and tree digests remain intact; Global Init does not
 rewrite its backup chain, preserved external Skills, or project audit fields.
 
@@ -225,14 +225,14 @@ credential-free catalog remotes, preserves existing approved selection
 reasons, and uses a neutral project-specific reason for newly selected Skills.
 
 The platform migration seeds or validates a user-selected, credential-free Git
-catalog of any bounded size, keeps all 13 built-in Harness platform Skills global,
+catalog of any bounded size, keeps all 14 built-in Harness platform Skills global,
 projects the repository path into an independently owned global `AGENTS.md`
 block, revises an intact `ready` project through schema-v3 ownership when
 project Skills are selected, and moves old globals only into a recoverable
 backup. Planning and status are read-only; apply and rollback require explicit
 approval and fail closed on digest drift.
 
-Legacy global `grill-me` directories are not part of the 13-core projection:
+Legacy global `grill-me` directories are not part of the 14-core projection:
 the migration leaves them untouched. A new `grill-me` install is instead an
 explicitly approved third-party bundle with pinned source and ownership record.
 

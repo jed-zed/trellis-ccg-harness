@@ -29,6 +29,7 @@ const PUBLIC_BASELINE_CONTRACT = path.join(
   "public-baseline-approved-contract.json",
 );
 const GLOBAL_PLATFORM_SKILLS = [
+  "chatgpt-pro-sidebar",
   "harness-init",
   "trellis-before-dev",
   "trellis-brainstorm",

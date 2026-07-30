@@ -26,6 +26,7 @@ import { promisify } from "node:util";
 const execFile = promisify(execFileCallback);
 
 export const GLOBAL_PLATFORM_SKILLS = Object.freeze([
+  "chatgpt-pro-sidebar",
   "harness-init",
   "trellis-before-dev",
   "trellis-brainstorm",
@@ -690,7 +691,7 @@ function renderGlobalBlock(profilePath, repositoryPath) {
     `- Approved Skill catalog: \`${repositoryPath}\``,
     `- Global platform Skills: ${GLOBAL_PLATFORM_SKILLS.map((name) => `\`${name}\``).join(", ")}`,
     "- Catalog Skills are copied into each project only after explicit project approval.",
-    "- Only the listed 13 global platform Skill projections are Harness-owned; pre-existing third-party Skills, including legacy `grill-me`, remain user-owned unless separately approved.",
+    "- Only the listed 14 global platform Skill projections are Harness-owned; pre-existing third-party Skills, including legacy `grill-me`, remain user-owned unless separately approved.",
     GLOBAL_BLOCK_END,
   ].join("\n");
 }
@@ -1364,7 +1365,7 @@ export async function auditSkillPlatformMigration({
     canonicalJson(managedPlatformNames) !== canonicalJson(expectedPlatformNames) &&
     canonicalJson(managedPlatformNames) !== canonicalJson(legacyPlatformNames)
   ) {
-    issues.push("Global Skill ownership manifest does not bind the 13 built-in platform Skills (or the supported 14-Skill legacy set).");
+    issues.push("Global Skill ownership manifest does not bind the 14 built-in platform Skills (or the supported 15-Skill legacy set).");
   }
   let repository = null;
   try {

@@ -74,7 +74,7 @@ Standalone `harness-init` export applies the same real-directory-chain checks to
 and rechecks the target before rename. Project-contract idempotence requires an
 exact ownership schema plus matching contract and schema digests.
 
-All 13 built-in bundled Harness platform Skills are required global defaults. Removing
+All 14 built-in bundled Harness platform Skills are required global defaults. Removing
 or moving other pre-existing global Skills is deliberately outside
 initialization and requires a separate ownership-aware migration.
 
