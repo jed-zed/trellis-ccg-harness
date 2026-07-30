@@ -276,20 +276,24 @@ function checkModelPolicy({ contract, add, env }) {
     contract.models.codex?.workspaceWrite === true &&
     contract.models.claude?.enabled === true &&
     contract.models.claude?.workspaceWrite === false &&
+    contract.models.gptpro?.enabled === true &&
+    contract.models.gptpro?.manualOnly === false &&
+    contract.models.gptpro?.workspaceWrite === false &&
     !claudeOverride;
   add(
     "model-policy",
     "blocking",
     valid ? "ok" : "conflict",
     valid
-      ? "Codex is the sole writer and Claude is restricted to read-only provider work."
-      : "Model ownership or the Claude read-only policy was violated.",
+      ? "Codex is the sole writer; Claude and automated GPT Pro remain read-only."
+      : "Model ownership, Claude read-only policy, or the GPT Pro automation boundary was violated.",
     {
       workspaceOwner: contract.authorities.workspaceOwner,
       claudeEnabled: contract.models.claude?.enabled,
       claudeEnvironmentOverride: claudeOverride,
+      gptProModel: contract.models.gptpro,
     },
-    "Restore Codex-only write ownership; select Claude only through installed CCG product-manager config.",
+    "Restore Codex-only writes, Claude read-only routing, and the enabled non-manual GPT Pro read-only model.",
   );
 }
 
@@ -299,15 +303,23 @@ function checkProviderSeparation({ contract, add }) {
     contract.providers.openAICompatibleGrok?.apiKeyEnv,
   ].filter(Boolean);
   const distinct = new Set(names).size === names.length;
+  const gptPro = contract.providers.gptPro;
+  const gptProValid =
+    gptPro?.enabled === true &&
+    gptPro?.manualOnly === false &&
+    gptPro?.protocol === "chatgpt-pro-sidebar" &&
+    gptPro?.skill === "chatgpt-pro-sidebar" &&
+    gptPro?.continuation === "codex-stop-hook";
+  const valid = distinct && gptProValid;
   add(
     "provider-separation",
     "blocking",
-    distinct ? "ok" : "conflict",
-    distinct
+    valid ? "ok" : "conflict",
+    valid
       ? "Official and compatible Grok credentials are separate; GPT Pro uses the credential-free sidebar Skill boundary."
-      : "Provider credential namespaces overlap.",
-    { credentialEnvNames: names },
-    "Assign a unique environment variable to every provider boundary.",
+      : "Provider credential namespaces overlap or the GPT Pro sidebar boundary drifted.",
+    { credentialEnvNames: names, gptPro },
+    "Assign unique provider credentials and restore the GPT Pro sidebar Skill with Codex Stop Hook continuation.",
   );
 }
 
