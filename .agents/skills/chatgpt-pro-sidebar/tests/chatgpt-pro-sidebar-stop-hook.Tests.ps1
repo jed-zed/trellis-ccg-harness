@@ -195,6 +195,73 @@ Describe 'Codex Stop Hook helper' {
         Test-Path -LiteralPath (Join-Path $pendingEvidence 'watch-callback.json') | Should -BeFalse
     }
 
+    It 'claims only the bounded batch that is fully reported and leaves the rest for a later hook' {
+        $registry = Join-Path $TestDrive 'registry-bounded-fan-in'
+        $registrations = @(
+            foreach ($index in 1..10) {
+                $watcherId = '00000000-0000-0000-0000-{0:D12}' -f $index
+                $evidence = Join-Path $TestDrive ('evidence-bounded-{0:D2}' -f $index)
+                New-TestRegistration `
+                    -Registry $registry `
+                    -Evidence $evidence `
+                    -WatcherId $watcherId
+                Write-TestJson -Path (Join-Path $evidence 'watch-event.json') -Value ([ordered]@{
+                    status = 'completed'
+                })
+                [pscustomobject]@{
+                    WatcherId = $watcherId
+                    Evidence = $evidence
+                }
+            }
+        )
+
+        $first = Invoke-TestStopHook -Registry $registry
+        $firstDecision = $first.Output[0] | ConvertFrom-Json
+
+        $first.ExitCode | Should -Be 0
+        $first.Output.Count | Should -Be 1
+        $firstDecision.reason | Should -Match '8 ChatGPT Pro watcher registration'
+        foreach ($registration in $registrations[0..7]) {
+            $firstDecision.reason | Should -Match ([regex]::Escape($registration.Evidence))
+            Test-Path -LiteralPath (
+                Join-Path $registration.Evidence 'watch-stop-hook.claim'
+            ) | Should -BeTrue
+            Test-Path -LiteralPath (
+                Join-Path $registration.Evidence 'watch-callback.json'
+            ) | Should -BeTrue
+            Write-TestJson `
+                -Path (Join-Path $registration.Evidence 'watch-continuation-ack.json') `
+                -Value ([ordered]@{
+                    schemaVersion = 1
+                    acknowledged = $true
+                    codexThreadId = $script:ThreadId
+                    watcherId = $registration.WatcherId
+                })
+        }
+        foreach ($registration in $registrations[8..9]) {
+            $firstDecision.reason | Should -Not -Match ([regex]::Escape($registration.Evidence))
+            Test-Path -LiteralPath (
+                Join-Path $registration.Evidence 'watch-stop-hook.claim'
+            ) | Should -BeFalse
+            Test-Path -LiteralPath (
+                Join-Path $registration.Evidence 'watch-callback.json'
+            ) | Should -BeFalse
+        }
+
+        $second = Invoke-TestStopHook -Registry $registry
+        $secondDecision = $second.Output[0] | ConvertFrom-Json
+
+        $second.ExitCode | Should -Be 0
+        $second.Output.Count | Should -Be 1
+        $secondDecision.reason | Should -Match '2 ChatGPT Pro watcher registration'
+        foreach ($registration in $registrations[8..9]) {
+            $secondDecision.reason | Should -Match ([regex]::Escape($registration.Evidence))
+            Test-Path -LiteralPath (
+                Join-Path $registration.Evidence 'watch-stop-hook.claim'
+            ) | Should -BeTrue
+        }
+    }
+
     It 'skips a stale missing evidence directory and continues valid registrations' {
         $registry = Join-Path $TestDrive 'registry-stale-evidence'
         $missingEvidence = Join-Path $TestDrive 'evidence-no-longer-present'

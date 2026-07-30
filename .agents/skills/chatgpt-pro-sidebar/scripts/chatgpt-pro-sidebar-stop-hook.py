@@ -287,24 +287,17 @@ def _claim_continuation(
 
 
 def _continuation_reason(claimed: list[dict[str, Any]]) -> str:
-    visible = claimed[:MAX_REASON_REGISTRATIONS]
     lines = [
         (
             f"{len(claimed)} ChatGPT Pro watcher registration(s) reached a "
             "terminal state in this same Codex Desktop task."
         )
     ]
-    for item in visible:
+    for item in claimed:
         lines.append(
             f'- watcher "{item["watcherId"]}" status "{item["status"]}": '
             f'read "{item["eventPath"]}" and '
             f'the bounded evidence under "{item["evidenceDirectory"]}".'
-        )
-    if len(claimed) > len(visible):
-        lines.append(
-            f"- {len(claimed) - len(visible)} additional terminal "
-            "registration(s) were claimed; inspect the task-local watcher "
-            "evidence index."
         )
     lines.append(
         "Independently classify every claimed result and continue this same "
@@ -492,7 +485,9 @@ def run_hook(
 
         if terminal:
             claimed: list[dict[str, Any]] = []
-            for entry, status, event_path, evidence_directory in terminal:
+            for entry, status, event_path, evidence_directory in terminal[
+                :MAX_REASON_REGISTRATIONS
+            ]:
                 claimed_item = _claim_continuation(
                     registry_root=registry_root,
                     registration_path=entry["path"],

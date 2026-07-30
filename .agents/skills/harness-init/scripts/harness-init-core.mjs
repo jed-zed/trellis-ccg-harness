@@ -146,6 +146,8 @@ const PROJECT_TRANSACTION_TARGETS = new Set([
   THIRD_PARTY_SOURCE_RELATIVE_PATH,
   THIRD_PARTY_INSTALLATIONS_RELATIVE_PATH,
 ]);
+const PROJECT_SKILL_TRANSACTION_TARGET =
+  /^\.agents\/skills\/[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$/;
 
 async function exists(target) {
   try {
@@ -1405,6 +1407,25 @@ export async function reviseReadyProjectSkills({
     );
   }
 
+  const provenanceKey = await loadProjectProvenanceKey(
+    root,
+    provenanceKeyPath,
+  );
+  const recoveryLock = await acquireProjectLock(root, {
+    isProcessAlive,
+    readProcessIdentity,
+    provenanceKey,
+  });
+  try {
+    await recoverProjectTransactions(root, {
+      isProcessAlive,
+      readProcessIdentity,
+      provenanceKey,
+    });
+  } finally {
+    await recoveryLock.release();
+  }
+
   const [
     projectFingerprint,
     ownershipFingerprint,
@@ -1666,23 +1687,12 @@ export async function reviseReadyProjectSkills({
     );
   }
 
-  const provenanceKey = await loadProjectProvenanceKey(
-    root,
-    provenanceKeyPath,
-  );
   const lock = await acquireProjectLock(root, {
     isProcessAlive,
     readProcessIdentity,
     provenanceKey,
     faultInjector,
   });
-  const targetParent = path.join(root, ".agents", "skills");
-  const stage = path.join(
-    targetParent,
-    `.harness-skill-revision-${randomUUID()}`,
-  );
-  const installedTargets = [];
-  const replacedTargets = [];
   try {
     await recoverProjectTransactions(root, {
       isProcessAlive,
@@ -1719,17 +1729,6 @@ export async function reviseReadyProjectSkills({
       sourceSchemaFingerprint,
       "Harness project contract schema asset",
     );
-    await ensureSafeDirectoryChain(
-      root,
-      targetParent,
-      "Project Skill directory",
-      { create: true },
-    );
-    await mkdir(stage, { mode: 0o700 });
-    const stagedSkills = path.join(stage, "next");
-    const previousSkills = path.join(stage, "previous");
-    await mkdir(stagedSkills, { mode: 0o700 });
-    await mkdir(previousSkills, { mode: 0o700 });
     for (const skill of skills) {
       const target = path.join(root, ...skill.targetPath.split("/"));
       if (
@@ -1740,38 +1739,42 @@ export async function reviseReadyProjectSkills({
           `Project Skill target is user-owned; refusing collision: ${skill.targetPath}`,
         );
       }
-      const source = path.join(
-        profile.repositoryPath,
-        ...skill.sourceRelativePath.split("/"),
-      );
-      const staged = path.join(stagedSkills, skill.name);
-      const copied = await snapshotSkillTree(source, { copyTo: staged });
-      if (copied.treeSha256 !== skill.treeSha256) {
-        throw new Error(
-          `Project Skill source changed while staging: ${skill.name}`,
-        );
-      }
     }
-    for (const skill of existingManifest?.skills ?? []) {
-      const target = path.join(root, ...skill.targetPath.split("/"));
-      const backup = path.join(previousSkills, skill.name);
-      await rename(target, backup);
-      replacedTargets.push({ target, backup });
-    }
-    for (const skill of skills) {
-      const target = path.join(root, ...skill.targetPath.split("/"));
-      const staged = path.join(stagedSkills, skill.name);
-      await rename(staged, target);
-      installedTargets.push(target);
-      if (faultInjector) {
-        await faultInjector(`after-project-skill:${skill.name}`);
-      }
-    }
+    const existingSkillsByPath = new Map(
+      (existingManifest?.skills ?? []).map((skill) => [
+        skill.targetPath,
+        skill,
+      ]),
+    );
+    const nextSkillsByPath = new Map(
+      skills.map((skill) => [skill.targetPath, skill]),
+    );
+    const directoryTargets = [
+      ...new Set([
+        ...existingSkillsByPath.keys(),
+        ...nextSkillsByPath.keys(),
+      ]),
+    ].sort((left, right) => left.localeCompare(right)).map((targetPath) => {
+      const original = existingSkillsByPath.get(targetPath);
+      const next = nextSkillsByPath.get(targetPath);
+      return {
+        path: targetPath,
+        expectedOriginalTreeSha256: original?.treeSha256 ?? null,
+        expectedNextTreeSha256: next?.treeSha256 ?? null,
+        sourceDirectory: next
+          ? path.join(
+            profile.repositoryPath,
+            ...next.sourceRelativePath.split("/"),
+          )
+          : null,
+      };
+    });
     await runProjectTransaction({
       root,
       lock,
       provenanceKey,
       faultInjector,
+      directoryTargets,
       preconditions: [
         { path: PROJECT_POLICY_RELATIVE_PATH, expected: policyFingerprint },
         { path: "AGENTS.md", expected: agentsFingerprint },
@@ -1820,18 +1823,7 @@ export async function reviseReadyProjectSkills({
       projectSkillsManifestSha256: sha256(manifestBytes),
       installedSkills: skills.map((entry) => entry.name),
     };
-  } catch (error) {
-    for (const target of installedTargets.reverse()) {
-      await rm(target, { recursive: true, force: true });
-    }
-    for (const { target, backup } of replacedTargets.reverse()) {
-      if (await pathEntryExists(backup)) {
-        await rename(backup, target);
-      }
-    }
-    throw error;
   } finally {
-    await rm(stage, { recursive: true, force: true });
     await lock.release();
   }
 }
@@ -2319,6 +2311,24 @@ function projectTargetPath(root, relativePath, label = "Project target") {
     !PROJECT_TRANSACTION_TARGETS.has(relativePath)
   ) {
     throw new Error(`${label} is outside the Harness-owned project surface.`);
+  }
+  const target = path.join(root, ...relativePath.split("/"));
+  assertInside(root, target, label);
+  return target;
+}
+
+function projectSkillTransactionTargetPath(
+  root,
+  relativePath,
+  label = "Project Skill transaction target",
+) {
+  if (
+    typeof relativePath !== "string" ||
+    !PROJECT_SKILL_TRANSACTION_TARGET.test(relativePath)
+  ) {
+    throw new Error(
+      `${label} is outside the Harness-owned Project Skill surface.`,
+    );
   }
   const target = path.join(root, ...relativePath.split("/"));
   assertInside(root, target, label);
@@ -2857,10 +2867,23 @@ async function writeStagedFile(stageDirectory, target, bytes, mode) {
   await writeFile(target, bytes, { flag: "wx", mode });
 }
 
-async function collectMissingTargetDirectories(root, targets) {
+async function collectMissingTargetDirectories(
+  root,
+  targets,
+  directoryTargets = [],
+) {
   const candidates = new Set();
   for (const target of targets) {
     let current = path.dirname(projectTargetPath(root, target.path));
+    while (normalizeResolvedPath(current) !== normalizeResolvedPath(root)) {
+      candidates.add(current);
+      current = path.dirname(current);
+    }
+  }
+  for (const target of directoryTargets) {
+    let current = path.dirname(
+      projectSkillTransactionTargetPath(root, target.path),
+    );
     while (normalizeResolvedPath(current) !== normalizeResolvedPath(root)) {
       candidates.add(current);
       current = path.dirname(current);
@@ -2890,6 +2913,7 @@ async function prepareProjectTransaction({
   root,
   lock,
   targets,
+  directoryTargets = [],
   preconditions = [],
   provenanceKey,
 }) {
@@ -2913,6 +2937,13 @@ async function prepareProjectTransaction({
   );
 
   const targetPaths = new Set(targets.map((target) => target.path));
+  const directoryTargetPaths = new Set();
+  if (
+    targetPaths.size !== targets.length ||
+    (directoryTargets.length === 0 && targets.length === 0)
+  ) {
+    throw new Error("Harness transaction targets must be unique and non-empty.");
+  }
   const preconditionPaths = new Set();
   const journalPreconditions = [];
   for (const precondition of preconditions) {
@@ -3016,6 +3047,80 @@ async function prepareProjectTransaction({
     });
   }
 
+  const journalDirectoryTargets = [];
+  for (const target of directoryTargets) {
+    if (
+      !target ||
+      directoryTargetPaths.has(target.path) ||
+      (
+        typeof target.expectedOriginalTreeSha256 !== "string" &&
+        target.expectedOriginalTreeSha256 !== null
+      ) ||
+      (
+        typeof target.expectedNextTreeSha256 !== "string" &&
+        target.expectedNextTreeSha256 !== null
+      )
+    ) {
+      throw new Error("Harness Project Skill transaction target is invalid.");
+    }
+    const absolute = projectSkillTransactionTargetPath(root, target.path);
+    const originalExists = await pathEntryExists(absolute);
+    let originalTreeSha256 = null;
+    if (originalExists) {
+      originalTreeSha256 = (await snapshotSkillTree(absolute)).treeSha256;
+    }
+    if (
+      originalTreeSha256 !== target.expectedOriginalTreeSha256
+    ) {
+      throw new Error(
+        `${target.path} drifted before the Project Skill transaction was journaled.`,
+      );
+    }
+
+    let nextTreeSha256 = null;
+    if (target.expectedNextTreeSha256 !== null) {
+      assertString(
+        target.sourceDirectory,
+        `${target.path} source directory`,
+      );
+      const stagedNext = transactionStagePath(
+        stageDirectory,
+        "next-directories",
+        target.path,
+      );
+      const copied = await snapshotSkillTree(
+        path.resolve(target.sourceDirectory),
+        { copyTo: stagedNext },
+      );
+      nextTreeSha256 = copied.treeSha256;
+      if (nextTreeSha256 !== target.expectedNextTreeSha256) {
+        throw new Error(
+          `Project Skill source changed while staging: ${target.path}.`,
+        );
+      }
+    }
+    if (
+      originalTreeSha256 === null &&
+      nextTreeSha256 === null
+    ) {
+      throw new Error(
+        `Project Skill transaction target has no current or next tree: ${target.path}.`,
+      );
+    }
+    directoryTargetPaths.add(target.path);
+    journalDirectoryTargets.push({
+      path: target.path,
+      original: {
+        exists: originalTreeSha256 !== null,
+        treeSha256: originalTreeSha256,
+      },
+      next: {
+        exists: nextTreeSha256 !== null,
+        treeSha256: nextTreeSha256,
+      },
+    });
+  }
+
   const journal = authenticateProjectRecord(provenanceKey, "journal", {
     schemaVersion: PROJECT_JOURNAL_SCHEMA_VERSION,
     operation: "project-policy-apply",
@@ -3023,9 +3128,14 @@ async function prepareProjectTransaction({
     repoRoot: root,
     lockToken: lock.owner.token,
     createdAt: new Date().toISOString(),
-    createdDirectories: await collectMissingTargetDirectories(root, targets),
+    createdDirectories: await collectMissingTargetDirectories(
+      root,
+      targets,
+      directoryTargets,
+    ),
     preconditions: journalPreconditions,
     targets: journalTargets,
+    directoryTargets: journalDirectoryTargets,
   });
   const journalBytes = canonicalJson(journal);
   await writeFile(
@@ -3082,7 +3192,11 @@ function validateProjectTransactionJournal(
     normalizeResolvedPath(journal.repoRoot) !== normalizeResolvedPath(root) ||
     path.basename(stageDirectory) !== `${PROJECT_TRANSACTION_PREFIX}${journal.id}` ||
     !Array.isArray(journal.targets) ||
-    journal.targets.length === 0 ||
+    (
+      journal.directoryTargets !== undefined &&
+      !Array.isArray(journal.directoryTargets)
+    ) ||
+    journal.targets.length + (journal.directoryTargets?.length ?? 0) === 0 ||
     !Array.isArray(journal.createdDirectories) ||
     !Array.isArray(journal.preconditions)
   ) {
@@ -3102,6 +3216,34 @@ function validateProjectTransactionJournal(
     }
     seen.add(target.path);
   }
+  const directoryPaths = new Set();
+  for (const target of journal.directoryTargets ?? []) {
+    if (
+      !target ||
+      !PROJECT_SKILL_TRANSACTION_TARGET.test(String(target.path ?? "")) ||
+      directoryPaths.has(target.path) ||
+      typeof target.original?.exists !== "boolean" ||
+      typeof target.next?.exists !== "boolean" ||
+      target.original.exists !==
+        (typeof target.original.treeSha256 === "string") ||
+      target.next.exists !==
+        (typeof target.next.treeSha256 === "string") ||
+      (
+        target.original.exists &&
+        !/^[a-f0-9]{64}$/.test(target.original.treeSha256)
+      ) ||
+      (
+        target.next.exists &&
+        !/^[a-f0-9]{64}$/.test(target.next.treeSha256)
+      ) ||
+      (!target.original.exists && !target.next.exists)
+    ) {
+      throw new Error(
+        "Harness Project Skill transaction target is invalid.",
+      );
+    }
+    directoryPaths.add(target.path);
+  }
   const preconditionPaths = new Set();
   for (const precondition of journal.preconditions ?? []) {
     if (
@@ -3118,7 +3260,9 @@ function validateProjectTransactionJournal(
   for (const relative of journal.createdDirectories) {
     if (
       relative !== ".harness" &&
-      relative !== ".harness/policies"
+      relative !== ".harness/policies" &&
+      relative !== ".agents" &&
+      relative !== ".agents/skills"
     ) {
       throw new Error("Harness transaction directory journal is invalid.");
     }
@@ -3232,6 +3376,81 @@ async function installTransactionTarget(root, stageDirectory, target) {
   }
 }
 
+async function projectSkillTreeSha256(root, target) {
+  const destination = projectSkillTransactionTargetPath(root, target.path);
+  if (!(await pathEntryExists(destination))) return null;
+  return (await snapshotSkillTree(destination)).treeSha256;
+}
+
+async function installTransactionDirectoryTarget(
+  root,
+  stageDirectory,
+  target,
+) {
+  const destination = projectSkillTransactionTargetPath(root, target.path);
+  const currentTreeSha256 = await projectSkillTreeSha256(root, target);
+  if (currentTreeSha256 !== target.original.treeSha256) {
+    throw new Error(
+      `${target.path} drifted before final Project Skill replacement.`,
+    );
+  }
+  const displaced = transactionStagePath(
+    stageDirectory,
+    "displaced-directories",
+    target.path,
+  );
+  await ensureSafeDirectoryChain(
+    stageDirectory,
+    path.dirname(displaced),
+    "Transaction displaced Project Skill parent",
+    { create: true },
+  );
+  if (target.original.exists) {
+    await rename(destination, displaced);
+    const displacedTreeSha256 = (
+      await snapshotSkillTree(displaced)
+    ).treeSha256;
+    if (displacedTreeSha256 !== target.original.treeSha256) {
+      if (!(await pathEntryExists(destination))) {
+        await rename(displaced, destination);
+      }
+      throw new Error(
+        `${target.path} changed during final Project Skill compare-and-swap.`,
+      );
+    }
+  }
+  if (!target.next.exists) return;
+
+  const stagedNext = transactionStagePath(
+    stageDirectory,
+    "next-directories",
+    target.path,
+  );
+  try {
+    await rename(stagedNext, destination);
+  } catch (error) {
+    if (
+      target.original.exists &&
+      !(await pathEntryExists(destination)) &&
+      await pathEntryExists(displaced)
+    ) {
+      await rename(displaced, destination);
+    }
+    if (error?.code === "EEXIST") {
+      throw new Error(
+        `${target.path} was created concurrently; both Project Skill trees were preserved.`,
+      );
+    }
+    throw error;
+  }
+  const installedTreeSha256 = await projectSkillTreeSha256(root, target);
+  if (installedTreeSha256 !== target.next.treeSha256) {
+    throw new Error(
+      `Installed Project Skill ${target.path} failed digest verification.`,
+    );
+  }
+}
+
 async function removeCreatedTransactionDirectories(root, journal) {
   for (const relative of [...journal.createdDirectories].reverse()) {
     const directory = path.join(root, ...relative.split("/"));
@@ -3321,6 +3540,55 @@ async function rollbackProjectTransaction(
     // The target drifted before this transaction reached it. Preserve that
     // concurrent content while rolling back targets already installed.
   }
+  for (const target of [...(journal.directoryTargets ?? [])].reverse()) {
+    const destination = projectSkillTransactionTargetPath(root, target.path);
+    const currentTreeSha256 = await projectSkillTreeSha256(root, target);
+    const displaced = transactionStagePath(
+      stageDirectory,
+      "displaced-directories",
+      target.path,
+    );
+    const displacedTreeSha256 = await pathEntryExists(displaced)
+      ? (await snapshotSkillTree(displaced)).treeSha256
+      : null;
+    const currentIsNext =
+      target.next.exists &&
+      currentTreeSha256 === target.next.treeSha256;
+    const currentIsOriginal =
+      target.original.exists &&
+      currentTreeSha256 === target.original.treeSha256;
+
+    if (currentTreeSha256 === null || currentIsNext) {
+      if (currentIsNext) {
+        await rm(destination, { recursive: true, force: true });
+      }
+      if (target.original.exists) {
+        if (displacedTreeSha256 !== target.original.treeSha256) {
+          throw new Error(
+            `Cannot recover ${target.path}: verified Project Skill backup is invalid.`,
+          );
+        }
+        await ensureSafeDirectoryChain(
+          root,
+          path.dirname(destination),
+          `Recovery parent for ${target.path}`,
+          { create: true },
+        );
+        await rename(displaced, destination);
+      }
+      continue;
+    }
+    if (currentIsOriginal) continue;
+    if (displacedTreeSha256 !== null) {
+      throw new Error(
+        `${target.path} changed after Project Skill replacement; ` +
+          "current and original trees were preserved in " +
+          `${stageDirectory}.`,
+      );
+    }
+    // This target drifted before the transaction reached it. Preserve it while
+    // rolling back the Project Skill targets already installed.
+  }
   await removeCreatedTransactionDirectories(root, journal);
   await terminalizeOwnedDirectory(
     root,
@@ -3351,6 +3619,14 @@ async function verifyCommittedProjectTransaction(
     ) {
       throw new Error(
         `Committed Harness transaction target ${target.path} drifted; preserving recovery evidence.`,
+      );
+    }
+  }
+  for (const target of journal.directoryTargets ?? []) {
+    const currentTreeSha256 = await projectSkillTreeSha256(root, target);
+    if (currentTreeSha256 !== target.next.treeSha256) {
+      throw new Error(
+        `Committed Project Skill transaction target ${target.path} drifted; preserving recovery evidence.`,
       );
     }
   }
@@ -3464,6 +3740,7 @@ async function runProjectTransaction({
   root,
   lock,
   targets,
+  directoryTargets = [],
   preconditions = [],
   provenanceKey,
   faultInjector,
@@ -3475,12 +3752,26 @@ async function runProjectTransaction({
       root,
       lock,
       targets,
+      directoryTargets,
       preconditions,
       provenanceKey,
     });
     if (faultInjector) await faultInjector("after-journal");
     await verifyProjectTransactionPreconditions(root, prepared.journal);
     await createTransactionTargetDirectories(root, prepared.journal);
+    for (const target of prepared.journal.directoryTargets ?? []) {
+      if (faultInjector) {
+        await faultInjector(`before-directory:${target.path}`);
+      }
+      await installTransactionDirectoryTarget(
+        root,
+        prepared.stageDirectory,
+        target,
+      );
+      if (faultInjector) {
+        await faultInjector(`after-directory:${target.path}`);
+      }
+    }
     for (const target of prepared.journal.targets) {
       if (faultInjector) {
         await faultInjector(`before-target:${target.path}`);
