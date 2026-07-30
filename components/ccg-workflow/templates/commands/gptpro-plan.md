@@ -43,8 +43,9 @@ Plan-only boundary:
 - Do not execute implementation.
 - Do not apply product code changes.
 - Only create or update CCG plan artifacts and GPT Pro bridge artifacts.
-- After the user saves GPT Pro output, synthesize ordinary planning evidence plus GPT Pro planning
-  findings, write or revise the plan through the current orchestrator, report the plan path, and stop.
+- After the sidebar watcher reaches a terminal state and the bridge successfully imports a non-empty
+  GPT Pro response, synthesize ordinary planning evidence plus GPT Pro planning findings, write or
+  revise the plan through the current orchestrator, report the plan path, and stop.
 - Execution requires a separate `/ccg:execute <plan>` or `/ccg:codex-exec <plan>` request.
 
 Hard boundaries:
@@ -52,7 +53,8 @@ Hard boundaries:
 - Do not automate ChatGPT login, DOM reading, cookies, or tokens. Only the installed
   `chatgpt-pro-sidebar` Skill may submit prompts and capture bounded UIA output.
 - Do not paste the full generated prompt into the chat unless the user explicitly asks.
-- Do not continue planning synthesis after creating the bridge until the user saves a non-empty response.
+- Do not continue planning synthesis until the sidebar watcher reaches a terminal state and the bridge
+  successfully imports a non-empty GPT Pro response.
 - Do not store full GPT Pro evidence in `task.json`; use task-local `evidence.json`.
 
 ## Required Inputs

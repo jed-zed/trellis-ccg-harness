@@ -388,6 +388,23 @@ describe('GPT Pro sidebar bridge', () => {
     }
   })
 
+  it('requires automatic watcher completion and bridge import instead of a manual save gate', () => {
+    const surfaces = [
+      'templates/commands/gptpro-plan.md',
+      'templates/commands/gptpro-review.md',
+      'templates/commands/gptpro-exc.md',
+      'plugins/ccg/commands/gptpro-plan.md',
+      'plugins/ccg/commands/gptpro-review.md',
+      'plugins/ccg/commands/gptpro-exc.md',
+    ]
+    for (const relativePath of surfaces) {
+      const content = readFileSync(join(PACKAGE_ROOT, ...relativePath.split('/')), 'utf-8')
+      expect(content, relativePath).not.toMatch(/user saves? (?:a )?(?:non-empty )?(?:GPT Pro )?(?:output|response)/i)
+      expect(content, relativePath).toMatch(/sidebar watcher reaches a terminal state/i)
+      expect(content, relativePath).toMatch(/bridge\s+successfully imports a non-empty\s+GPT Pro response/i)
+    }
+  })
+
   maybeIt('imports completed sidebar evidence exactly once and records its provenance', () => {
     const root = join(TMP_ROOT, 'sidebar-import')
     const taskDir = join(root, '.ccg', 'tasks', 'sidebar-task')
@@ -438,6 +455,8 @@ describe('GPT Pro sidebar bridge', () => {
       provider: 'chatgpt-pro-sidebar',
       manual_copy_required: false,
       sidebar_transport_required: true,
+      auto_submit: true,
+      auto_output_read: true,
       sidebar_response_imported: true,
     })
     expect(status.rounds['round-1']).toMatchObject({

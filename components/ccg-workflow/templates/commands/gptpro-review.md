@@ -42,7 +42,8 @@ Hard boundaries:
 - Do not automate ChatGPT login, DOM reading, cookies, or tokens. Only the installed
   `chatgpt-pro-sidebar` Skill may submit prompts and capture bounded UIA output.
 - Do not paste the full generated prompt into the chat unless the user explicitly asks.
-- Do not continue analysis after creating the bridge until the user saves a non-empty response.
+- Do not continue analysis until the sidebar watcher reaches a terminal state and the bridge
+  successfully imports a non-empty GPT Pro response.
 - Do not store full GPT Pro evidence in `task.json`; use task-local `evidence.json`.
 
 ## Required Inputs
