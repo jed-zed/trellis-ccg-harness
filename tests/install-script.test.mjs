@@ -1179,10 +1179,12 @@ test("plugin-only setup rejects an older CCG CLI before plugin mutation", () => 
 
     const result = runPluginOnlySetup(value);
     assert.notEqual(result.status, 0);
+    const diagnostic = setupDiagnostic(result);
     assert.match(
-      setupDiagnostic(result),
-      /Plugin-only setup requires the existing CCG CLI to match 3\.3\.2 before plugin mutation/,
+      diagnostic,
+      /Plugin-only setup requires the existing CCG CLI to match 3\.3\.2 before/,
     );
+    assert.match(diagnostic, /plugin mutation; current: 3\.3\.1/);
     const calls = commandLog(value);
     assert.equal(
       calls.some(
