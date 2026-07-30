@@ -932,6 +932,58 @@ function Show-PendingProviderActions {
   }
 }
 
+function Show-PendingRecommendedAddons {
+  param(
+    [string]$HomeDir,
+    [string]$RepoRoot
+  )
+
+  try {
+    $output = @(
+      & node (Join-Path $RepoRoot "scripts/harness-init.mjs") `
+        "addons" "--status" `
+        "--home-dir" $HomeDir `
+        "--repo-root" $RepoRoot 2>&1
+    )
+    if ($LASTEXITCODE -ne 0) {
+      Write-Warning (
+        "Recommended add-on status could not be inspected; core setup remains " +
+        "complete. Run 'pnpm addons' later. Details: " +
+        ($output -join [Environment]::NewLine)
+      )
+      return
+    }
+    $status = ($output -join [Environment]::NewLine) | ConvertFrom-Json
+    $pending = @(
+      $status.candidates |
+        Where-Object {
+          $_.recommended -eq $true -and $_.status -ne "installed"
+        }
+    )
+    if ($pending.Count -eq 0) {
+      return
+    }
+    Write-Output ""
+    Write-Output (
+      "Recommended optional add-ons remain uninstalled or need attention " +
+      "(recommended does not mean selected):"
+    )
+    foreach ($candidate in $pending) {
+      Write-Output (
+        "  - $($candidate.name): status=$($candidate.status); " +
+        "default=skip"
+      )
+    }
+    Write-Output "  Run 'pnpm addons' from $RepoRoot to review or install them."
+  }
+  catch {
+    Write-Warning (
+      "Recommended add-on status could not be inspected; core setup remains " +
+      "complete. Run 'pnpm addons' later. Details: $($_.Exception.Message)"
+    )
+  }
+}
+
 $RepoRoot = Get-NormalizedPath $RepoRoot
 $HomeDir = Get-NormalizedPath $HomeDir
 Assert-NotFilesystemRoot $RepoRoot "RepoRoot"
@@ -1387,6 +1439,7 @@ if (-not $NonInteractive) {
   Assert-ClaudeUnchanged $claudeBaseline "Global Init"
   $platformManifestPath = Assert-GlobalSkillProjection
   Show-PendingProviderActions $globalResult $HomeDir $RepoRoot
+  Show-PendingRecommendedAddons $HomeDir $RepoRoot
 
   Write-Output ""
   Write-Output "Global Setup complete."

@@ -36,6 +36,7 @@ const PUBLIC_CONTRACT = path.join(
   "fixtures",
   "public-baseline-approved-contract.json",
 );
+const AI_INSTALL = path.join(ROOT, "AI_INSTALL.md");
 
 function testCommandRoots(homeDir) {
   const root = path.join(path.dirname(homeDir), "trusted-test-commands");
@@ -237,6 +238,478 @@ test("third-party-plan is read-only and every candidate is unselected", async ()
   }
 });
 
+test("package and README expose the human and AI add-on entry points", () => {
+  const packageJson = JSON.parse(
+    readFileSync(path.join(ROOT, "package.json"), "utf8"),
+  );
+  assert.equal(
+    packageJson.scripts.addons,
+    "node ./scripts/harness-init.mjs addons",
+  );
+  assert.equal(existsSync(AI_INSTALL), true);
+  const readme = readFileSync(path.join(ROOT, "README.md"), "utf8");
+  assert.match(readme, /AI_INSTALL\.md/);
+  assert.match(readme, /pnpm addons/);
+  const aiInstall = readFileSync(AI_INSTALL, "utf8");
+  assert.match(
+    aiInstall,
+    /\.agents\/skills\/harness-init\/assets\/third-party-sources\.json/,
+  );
+  assert.match(aiInstall, /--third-party-global-skills/);
+  assert.match(aiInstall, /--third-party-global-plugins/);
+  assert.match(aiInstall, /--third-party-mcp-cli/);
+  assert.match(aiInstall, /--third-party-source-sha256/);
+  assert.match(aiInstall, /--third-party-plan-sha256/);
+});
+
+test("addons status is read-only, global-only, and machine-readable", async () => {
+  const value = fixture();
+  try {
+    const result = await runHarnessInitCli(
+      [
+        "addons",
+        "--status",
+        "--home-dir",
+        value.homeDir,
+        "--repo-root",
+        value.repoRoot,
+      ],
+      { skillRoot: SKILL_ROOT, stdout: { write() {} } },
+    );
+    assert.equal(result.command, "addons");
+    assert.equal(result.mode, "status");
+    assert.match(result.sourceManifestSha256, /^[a-f0-9]{64}$/);
+    assert.match(result.planSha256, /^[a-f0-9]{64}$/);
+    assert.deepEqual(
+      result.candidates.map((candidate) => candidate.id),
+      [
+        "matt-grilling",
+        "caveman",
+        "ponytail.install",
+        "ponytail.hooks",
+        "ponytail.default-full",
+        "codegraph",
+        "fast-context",
+        "context7",
+        "ripgrep",
+      ],
+    );
+    assert.equal(
+      result.candidates.every(
+        (candidate) =>
+          candidate.group !== "project-skills" &&
+          candidate.selected === false &&
+          typeof candidate.status === "string" &&
+          typeof candidate.effects.network === "boolean",
+      ),
+      true,
+    );
+    assert.equal(
+      result.candidates.find((candidate) => candidate.id === "ponytail.hooks")
+        .status,
+      "blocked",
+    );
+    assert.equal(existsSync(path.join(value.homeDir, ".agents")), false);
+    assert.equal(existsSync(path.join(value.repoRoot, ".codegraph")), false);
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("addons plan-only binds explicit selections without mutation", async () => {
+  const value = fixture();
+  try {
+    const result = await runHarnessInitCli(
+      [
+        "addons",
+        "--plan-only",
+        "--home-dir",
+        value.homeDir,
+        "--repo-root",
+        value.repoRoot,
+        "--third-party-global-skills",
+        "caveman",
+        "--third-party-global-plugins",
+        "none",
+        "--third-party-mcp-cli",
+        "none",
+      ],
+      { skillRoot: SKILL_ROOT, stdout: { write() {} } },
+    );
+    assert.equal(result.mode, "plan");
+    assert.deepEqual(result.selections, {
+      globalSkills: ["caveman"],
+      globalPlugins: [],
+      mcpCli: [],
+    });
+    assert.deepEqual(result.approvals.approvedActionIds, ["caveman"]);
+    assert.deepEqual(result.networkCandidateIds, ["caveman"]);
+    assert.equal(
+      result.approvals.planSha256,
+      result.planSha256,
+    );
+    assert.equal(existsSync(path.join(value.homeDir, ".agents")), false);
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("addons read-only modes reject approval flags and incomplete selections", async () => {
+  const value = fixture();
+  try {
+    await assert.rejects(
+      runHarnessInitCli(
+        [
+          "addons",
+          "--status",
+          "--home-dir",
+          value.homeDir,
+          "--approved",
+        ],
+        { skillRoot: SKILL_ROOT, stdout: { write() {} } },
+      ),
+      /status.*read-only|approved/i,
+    );
+    await assert.rejects(
+      runHarnessInitCli(
+        [
+          "addons",
+          "--plan-only",
+          "--home-dir",
+          value.homeDir,
+          "--third-party-global-skills",
+          "none",
+        ],
+        { skillRoot: SKILL_ROOT, stdout: { write() {} } },
+      ),
+      /third-party-global-plugins/i,
+    );
+    assert.equal(existsSync(path.join(value.homeDir, ".agents")), false);
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("addons non-interactive apply requires exact approval digests before mutation", async () => {
+  const value = fixture();
+  try {
+    await assert.rejects(
+      runHarnessInitCli(
+        [
+          "addons",
+          "--non-interactive",
+          "--home-dir",
+          value.homeDir,
+          "--repo-root",
+          value.repoRoot,
+          "--third-party-global-skills",
+          "caveman",
+          "--third-party-global-plugins",
+          "none",
+          "--third-party-mcp-cli",
+          "none",
+          "--approved",
+        ],
+        { skillRoot: SKILL_ROOT, stdout: { write() {} } },
+      ),
+      /third-party-source-sha256/i,
+    );
+    assert.equal(existsSync(path.join(value.homeDir, ".agents")), false);
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("interactive addons recommends all candidates while defaulting every choice to skip", async () => {
+  const value = fixture();
+  const questions = [];
+  try {
+    const result = await runHarnessInitCli(
+      [
+        "addons",
+        "--home-dir",
+        value.homeDir,
+        "--repo-root",
+        value.repoRoot,
+      ],
+      {
+        promptChoice: async (question) => {
+          questions.push(question);
+          return "no";
+        },
+        skillRoot: SKILL_ROOT,
+        stdout: { write() {} },
+      },
+    );
+    assert.equal(result.status, "skipped");
+    assert.equal(result.mode, "interactive");
+    assert.equal(questions.length, 9);
+    assert.equal(
+      questions.every(
+        (question) =>
+          question.options[0] === "no" &&
+          question.recommended === "no" &&
+          question.defaultOption === "no" &&
+          /Recommended: yes/i.test(question.question) &&
+          /Default: skip/i.test(question.question),
+      ),
+      true,
+    );
+    assert.equal(existsSync(path.join(value.homeDir, ".agents")), false);
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("strict addons planning reports blocked data-egress candidates", async () => {
+  const value = fixture();
+  try {
+    const status = await runHarnessInitCli(
+      [
+        "addons",
+        "--status",
+        "--strict-data-boundary",
+        "--home-dir",
+        value.homeDir,
+        "--repo-root",
+        value.repoRoot,
+      ],
+      { skillRoot: SKILL_ROOT, stdout: { write() {} } },
+    );
+    for (const id of ["fast-context", "context7"]) {
+      const candidate = status.candidates.find((entry) => entry.id === id);
+      assert.equal(candidate.status, "blocked");
+      assert.equal(candidate.selectable, false);
+      assert.match(candidate.reason, /strict data boundary/i);
+    }
+    await assert.rejects(
+      runHarnessInitCli(
+        [
+          "addons",
+          "--plan-only",
+          "--strict-data-boundary",
+          "--home-dir",
+          value.homeDir,
+          "--repo-root",
+          value.repoRoot,
+          "--third-party-global-skills",
+          "none",
+          "--third-party-global-plugins",
+          "none",
+          "--third-party-mcp-cli",
+          "fast-context",
+        ],
+        { skillRoot: SKILL_ROOT, stdout: { write() {} } },
+      ),
+      /fast-context.*blocked|strict data boundary/i,
+    );
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("addons planning enforces Ponytail dependencies and permits one transaction", async () => {
+  const value = fixture();
+  try {
+    const base = [
+      "addons",
+      "--plan-only",
+      "--home-dir",
+      value.homeDir,
+      "--repo-root",
+      value.repoRoot,
+      "--third-party-global-skills",
+      "none",
+      "--third-party-mcp-cli",
+      "none",
+    ];
+    await assert.rejects(
+      runHarnessInitCli(
+        [
+          ...base,
+          "--third-party-global-plugins",
+          "ponytail.hooks",
+        ],
+        { skillRoot: SKILL_ROOT, stdout: { write() {} } },
+      ),
+      /ponytail\.hooks.*blocked|dependencies/i,
+    );
+    const plan = await runHarnessInitCli(
+      [
+        ...base,
+        "--third-party-global-plugins",
+        "ponytail.install,ponytail.hooks,ponytail.default-full",
+      ],
+      { skillRoot: SKILL_ROOT, stdout: { write() {} } },
+    );
+    assert.deepEqual(plan.approvals.approvedActionIds, [
+      "ponytail.install",
+      "ponytail.hooks",
+      "ponytail.default-full",
+    ]);
+    assert.deepEqual(plan.networkCandidateIds, ["ponytail.install"]);
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("addons planning exposes drift and refuses overwrite", async () => {
+  const value = fixture();
+  try {
+    const target = path.join(value.homeDir, ".agents", "skills", "caveman");
+    mkdirSync(target, { recursive: true });
+    writeFileSync(path.join(target, "SKILL.md"), "user-owned drift\n");
+    const status = await runHarnessInitCli(
+      [
+        "addons",
+        "--status",
+        "--home-dir",
+        value.homeDir,
+        "--repo-root",
+        value.repoRoot,
+      ],
+      { skillRoot: SKILL_ROOT, stdout: { write() {} } },
+    );
+    const caveman = status.candidates.find(
+      (candidate) => candidate.id === "caveman",
+    );
+    assert.equal(caveman.status, "drifted");
+    assert.equal(caveman.selectable, false);
+    await assert.rejects(
+      runHarnessInitCli(
+        [
+          "addons",
+          "--plan-only",
+          "--home-dir",
+          value.homeDir,
+          "--repo-root",
+          value.repoRoot,
+          "--third-party-global-skills",
+          "caveman",
+          "--third-party-global-plugins",
+          "none",
+          "--third-party-mcp-cli",
+          "none",
+        ],
+        { skillRoot: SKILL_ROOT, stdout: { write() {} } },
+      ),
+      /caveman.*drifted/i,
+    );
+    assert.equal(
+      readFileSync(path.join(target, "SKILL.md"), "utf8"),
+      "user-owned drift\n",
+    );
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("addons apply rejects stale digests and missing network approval before mutation", async () => {
+  const value = fixture();
+  try {
+    const plan = await runHarnessInitCli(
+      [
+        "addons",
+        "--plan-only",
+        "--home-dir",
+        value.homeDir,
+        "--repo-root",
+        value.repoRoot,
+        "--third-party-global-skills",
+        "caveman",
+        "--third-party-global-plugins",
+        "none",
+        "--third-party-mcp-cli",
+        "none",
+      ],
+      { skillRoot: SKILL_ROOT, stdout: { write() {} } },
+    );
+    const apply = [
+      "addons",
+      "--non-interactive",
+      "--home-dir",
+      value.homeDir,
+      "--repo-root",
+      value.repoRoot,
+      "--third-party-global-skills",
+      "caveman",
+      "--third-party-global-plugins",
+      "none",
+      "--third-party-mcp-cli",
+      "none",
+      "--third-party-source-sha256",
+      plan.sourceManifestSha256,
+      "--third-party-plan-sha256",
+      plan.planSha256,
+      "--approved",
+    ];
+    await assert.rejects(
+      runHarnessInitCli(
+        apply.map((entry) =>
+          entry === plan.planSha256 ? "0".repeat(64) : entry,
+        ),
+        { skillRoot: SKILL_ROOT, stdout: { write() {} } },
+      ),
+      /plan SHA-256 differs/i,
+    );
+    await assert.rejects(
+      runHarnessInitCli(apply, {
+        skillRoot: SKILL_ROOT,
+        stdout: { write() {} },
+      }),
+      /allow-third-party-network/i,
+    );
+    assert.equal(existsSync(path.join(value.homeDir, ".agents")), false);
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("interactive addons rebuilds the plan after approval and rejects TOCTOU drift", async () => {
+  const value = fixture();
+  let buildCount = 0;
+  try {
+    await assert.rejects(
+      runHarnessInitCli(
+        [
+          "addons",
+          "--home-dir",
+          value.homeDir,
+          "--repo-root",
+          value.repoRoot,
+        ],
+        {
+          promptChoice: async (question) => {
+            if (question.question.startsWith("Approve Caveman")) return "yes";
+            if (question.question.startsWith("Approve network acquisition")) {
+              return "yes";
+            }
+            if (question.question.startsWith("Approve installation")) {
+              return "approve";
+            }
+            return "no";
+          },
+          skillRoot: SKILL_ROOT,
+          stdout: { write() {} },
+          thirdPartyPlanBuilder: async (options) => {
+            buildCount += 1;
+            const plan = await testThirdPartyPlanBuilder(options);
+            if (buildCount === 2) {
+              return { ...plan, planSha256: "f".repeat(64) };
+            }
+            return plan;
+          },
+        },
+      ),
+      /plan drifted after presentation/i,
+    );
+    assert.equal(buildCount, 2);
+    assert.equal(existsSync(path.join(value.homeDir, ".agents")), false);
+  } finally {
+    value.cleanup();
+  }
+});
+
 test("non-interactive Global Init requires explicit reject-all selections and records them", async () => {
   const value = fixture();
   try {
@@ -404,6 +877,7 @@ test("interactive Global Init recommends every global candidate but keeps explic
       candidateQuestions.every(
         (entry) =>
           entry.recommended === "no" &&
+          entry.defaultOption === "no" &&
           entry.options[0] === "no" &&
           entry.options[1] === "yes" &&
           /install is recommended.*unselected until.*yes/is.test(entry.question),

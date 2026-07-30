@@ -194,7 +194,28 @@ Decoupled installed personal CCG CLI/plugin versions from source snapshot proven
 [OK] **Completed**
 
 
-## Session 7: Stop automation side effects
+## Session 7: Add approval-gated addon discovery
+
+**Date**: 2026-07-30
+**Task**: Add approval-gated addon discovery
+**Branch**: `codex/addon-discovery-ai-install`
+
+### Summary
+
+Added first-run recommended add-on discovery, pnpm addons status/plan/apply flows, AI-assisted installation guidance, and full approval/digest safety coverage; all Harness, CCG, source, and Go gates passed.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `8eca1e9` | (see git log) |
+
+### Status
+
+[OK] **Completed**
+
+
+## Session 8: Stop automation side effects
 
 **Date**: 2026-07-30
 **Task**: Stop automation side effects
