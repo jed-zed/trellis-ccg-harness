@@ -9,6 +9,9 @@
 - Schema-v1 Skill-platform migration ownership upgrades the missing defaults,
   profile, and global AGENTS managed block transactionally while preserving its
   project audit and backup identity.
+- Legacy managed-block verification treats LF and CRLF as the same owned text
+  while still rejecting any content change, and preserves the installed file's
+  line-ending style during replacement.
 - The local `grill-me` and required `grilling` trees were refreshed through the
   existing third-party ownership flow and match the pinned upstream trees.
 
@@ -59,6 +62,10 @@
   - installed `grilling`: passed.
 - `git diff --check`: passed.
 - Security review was intentionally not run per the explicit user requirement.
+
+The first remote Windows matrix run exposed a line-ending-only mismatch in the
+legacy managed-block digest check. The correction is covered by a CRLF
+regression fixture and the full local Harness suite above.
 
 ## Remote Delivery
 

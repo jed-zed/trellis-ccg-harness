@@ -1147,7 +1147,9 @@ test("Global Init transactionally upgrades a former Skill-platform migration bas
       "- Personal Skills require project approval.",
       "<!-- HARNESS-SKILL-REPOSITORY:END -->",
     ].join("\n");
-    const agentsBytes = Buffer.from(`# Existing global rules\n\n${oldBlock}\n`);
+    const agentsBytes = Buffer.from(
+      `# Existing global rules\n\n${oldBlock}\n`.replace(/\n/g, "\r\n"),
+    );
     mkdirSync(path.dirname(agentsPath), { recursive: true });
     writeFileSync(agentsPath, agentsBytes);
     const direct = JSON.parse(readFileSync(manifestPath, "utf8"));

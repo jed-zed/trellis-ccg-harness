@@ -717,6 +717,21 @@ function findGlobalBlock(content) {
   return content.slice(start, end + GLOBAL_BLOCK_END.length);
 }
 
+function matchesTextDigestAcrossLineEndings(content, expectedDigest) {
+  if (sha256(content) === expectedDigest) return true;
+  const lf = content.replace(/\r\n/g, "\n");
+  return (
+    sha256(lf) === expectedDigest ||
+    sha256(lf.replace(/\n/g, "\r\n")) === expectedDigest
+  );
+}
+
+function preserveLineEndings(content, replacement) {
+  return content.includes("\r\n")
+    ? replacement.replace(/\r?\n/g, "\r\n")
+    : replacement.replace(/\r\n/g, "\n");
+}
+
 function renderGlobalBlock(profilePath, repositoryPath) {
   return [
     GLOBAL_BLOCK_START,
@@ -743,10 +758,10 @@ function replaceOrAppendGlobalBlock(content, nextBlock, ownedDigest = null) {
   if (ownedDigest === null) {
     throw new Error("Global Skill repository block exists without compatible ownership.");
   }
-  if (sha256(current) !== ownedDigest) {
+  if (!matchesTextDigestAcrossLineEndings(current, ownedDigest)) {
     throw new Error("Global Skill repository block was edited; refusing overwrite.");
   }
-  return content.replace(current, nextBlock);
+  return content.replace(current, preserveLineEndings(current, nextBlock));
 }
 
 function matchesPlatformSkillSet(values, expected) {
@@ -857,7 +872,7 @@ export async function upgradeLegacySkillPlatformDefaults({
 
   const blockOwnership = (manifest.managedBlocks ?? []).find(
     (entry) =>
-      path.resolve(entry?.path ?? "") === path.resolve(agentsPath) &&
+      normalizePath(entry?.path ?? "") === normalizePath(agentsPath) &&
       entry.startMarker === GLOBAL_BLOCK_START &&
       entry.endMarker === GLOBAL_BLOCK_END,
   );
@@ -866,7 +881,10 @@ export async function upgradeLegacySkillPlatformDefaults({
   if (
     !blockOwnership ||
     currentBlock === null ||
-    sha256(currentBlock) !== blockOwnership.renderedBlockSha256
+    !matchesTextDigestAcrossLineEndings(
+      currentBlock,
+      blockOwnership.renderedBlockSha256,
+    )
   ) {
     throw new Error(
       "Legacy global Skill repository block is missing or was edited.",
