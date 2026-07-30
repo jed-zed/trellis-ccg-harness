@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 8
+- **Total Sessions**: 9
 - **Last Active**: 2026-07-30
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~242 | Active |
+| `journal-1.md` | ~264 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 9 | 2026-07-30 | Stop automation side effects | `6002cba0d10d035682246b5229b263c39dbdcd58`, `ae6239b8bba086df599d9e6d3477621afd91c479` | `codex/fix-test-browser-popups` |
 | 8 | 2026-07-30 | Add approval-gated addon discovery | `8eca1e9` | `codex/addon-discovery-ai-install` |
 | 7 | 2026-07-29 | Automate GPT Pro side-panel bridge | `49bc626`, `d017293`, `2f3db6a`, `91ba27c`, `1316cc8`, `bcb3acf`, `f33678d` | `codex/integrate-gptpro-sidebar-automation` |
 | 6 | 2026-07-28 | Remove CCG runtime version lock | `d6fab9d566e8b59aff804ee75332985de31fca16` | `codex/remove-ccg-version-lock` |

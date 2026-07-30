@@ -14,15 +14,17 @@ import (
 )
 
 var listenWebServer = net.Listen
+var newWebServerForExecution = NewWebServer
 
 // WebServer manages SSE connections for real-time output streaming
 type WebServer struct {
-	mu       sync.RWMutex
-	clients  map[string][]chan ContentEvent
-	sessions map[string]*SessionState
-	server   *http.Server
-	port     int
-	backend  string // Current backend name for single-panel display
+	mu            sync.RWMutex
+	clients       map[string][]chan ContentEvent
+	sessions      map[string]*SessionState
+	server        *http.Server
+	port          int
+	backend       string // Current backend name for single-panel display
+	browserOpener func(string)
 }
 
 // SessionState tracks a running session
@@ -47,9 +49,10 @@ type ContentEvent struct {
 // NewWebServer creates a new web server
 func NewWebServer(backend string) *WebServer {
 	return &WebServer{
-		clients:  make(map[string][]chan ContentEvent),
-		sessions: make(map[string]*SessionState),
-		backend:  backend,
+		clients:       make(map[string][]chan ContentEvent),
+		sessions:      make(map[string]*SessionState),
+		backend:       backend,
+		browserOpener: openBrowser,
 	}
 }
 
@@ -86,8 +89,11 @@ func (ws *WebServer) Start() error {
 		}
 	}()
 
-	// Auto-open browser
-	go openBrowser(url)
+	// Auto-open the browser for real executions. Tests may disable the injected
+	// opener while keeping the server and SSE paths under coverage.
+	if ws.browserOpener != nil {
+		go ws.browserOpener(url)
+	}
 
 	return nil
 }

@@ -888,7 +888,7 @@ func runCodexTaskWithContext(parentCtx context.Context, taskSpec TaskSpec, backe
 	// Skip in lite mode for better performance
 	var webSessionID string
 	if !liteMode && globalWebServer == nil {
-		globalWebServer = NewWebServer(cfg.Backend)
+		globalWebServer = newWebServerForExecution(cfg.Backend)
 		if err := globalWebServer.Start(); err != nil {
 			logWarn(fmt.Sprintf("Failed to start web server: %v", err))
 		}
