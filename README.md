@@ -9,6 +9,10 @@
 
 这里的 Harness 不是第三套框架或另一个依赖。**Trellis + 个人 CCG 的组合本身就是 Harness**；本仓库的脚本、来源清单和 CI 只是让这套组合可以安全安装、验证、升级和迁移。
 
+> 如果你准备把本仓库链接直接交给 AI 安装，请同时让它遵守
+> [`AI_INSTALL.md`](AI_INSTALL.md)。仓库链接只授权只读检查和计划，不代表
+> 已批准全局写入、可选扩展、第三方联网、Provider 登录或付费调用。
+
 ## 当前组成
 
 | 层 | 版本/来源 | 职责 |
@@ -123,6 +127,34 @@ pnpm setup -- -CcgSourceCheckout I:\path\to\clean-ccg-checkout
 指纹和唯一入口，任何漂移都会 fail closed。由于 Codex host 当前没有
 原子 create-only 的 MCP 注册接口，初始化器不会覆盖或自动新增同名配置；
 注册 launcher 保持 `manual-pending`，先向用户展示现有状态和人工命令。
+
+首次 Global Setup 会明确说明“推荐不等于选择”，每个第三方候选仍默认
+`no`/跳过；完成后会列出仍未安装或需要处理的推荐项。以后可随时运行：
+
+```powershell
+# 交互菜单；每项默认 skip
+pnpm addons
+
+# 只读状态
+pnpm addons -- --status --home-dir <absolute-user-home> --repo-root .
+
+# 只读 AI/自动化计划；三个全局分组必须全部显式给出
+pnpm addons -- `
+  --plan-only `
+  --home-dir <absolute-user-home> `
+  --repo-root . `
+  --third-party-global-skills none `
+  --third-party-global-plugins none `
+  --third-party-mcp-cli none
+```
+
+`pnpm addons` 只管理全局候选；项目专属 Skills 仍由 `project-init` 的同一
+Trellis contract 管理。`--status` 和 `--plan-only` 都是只读命令。
+非交互 apply 必须重复计划中的精确候选，并同时传
+`--third-party-source-sha256`、`--third-party-plan-sha256` 和
+`--approved`；计划含网络候选时还要单独传
+`--allow-third-party-network`。完整的 AI 状态机和命令见
+[`AI_INSTALL.md`](AI_INSTALL.md)。
 
 当 Global Init 返回 `needs-provider-actions` 时，先为单个待办生成只读计划：
 

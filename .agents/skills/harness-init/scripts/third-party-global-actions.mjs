@@ -146,6 +146,15 @@ function validateApprovalSelections(manifest, approvals, allCandidates) {
   }
 }
 
+function planHasExactCandidate(plan, id) {
+  return plan.groups
+    .flatMap((group) => group.candidates)
+    .some(
+      (candidate) =>
+        candidate.id === id && candidate.installed?.status === "exact",
+    );
+}
+
 function isImmutableSelector(value) {
   return typeof value === "string" && !/(^|[/@_-])(main|latest)(?:$|[/@_-])/i.test(value);
 }
@@ -1814,7 +1823,11 @@ export async function applyThirdPartyGlobalActions({
   const approved = new Set(approvedIds);
   for (const id of approvedIds) {
     const candidate = candidates.get(id);
-    const missingDependencies = candidate.dependencies.filter((dependency) => !approved.has(dependency));
+    const missingDependencies = candidate.dependencies.filter(
+      (dependency) =>
+        !approved.has(dependency) &&
+        !planHasExactCandidate(approvalPlan, dependency),
+    );
     if (missingDependencies.length) {
       throw new Error(`${candidate.id} requires explicitly approved dependencies: ${missingDependencies.join(", ")}.`);
     }

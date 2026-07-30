@@ -211,6 +211,25 @@ if (args[0] === "third-party-plan") {
   console.log(JSON.stringify({ sourceManifestSha256: "f".repeat(64) }));
   process.exit(0);
 }
+if (args[0] === "addons" && args.includes("--status")) {
+  appendFileSync(process.env.MOCK_COMMAND_LOG, JSON.stringify({
+    command: "addons",
+    args,
+  }) + "\\n");
+  console.log(JSON.stringify({
+    command: "addons",
+    mode: "status",
+    candidates: [
+      {
+        id: "ponytail.install",
+        name: "Ponytail plugin",
+        recommended: true,
+        status: "absent",
+      },
+    ],
+  }));
+  process.exit(0);
+}
 appendFileSync(process.env.MOCK_COMMAND_LOG, JSON.stringify({
   command: "global-init",
   args,
@@ -569,6 +588,7 @@ test("non-interactive Global Setup is explicit, exact, provider-safe, and idempo
     );
     assert.match(first.stdout, /provider-action-plan/);
     assert.match(first.stdout, /manual-only/);
+    assert.match(first.stdout, /pnpm addons/);
     assert.match(first.stdout, /\.claude state: unchanged/);
     assert.equal(
       readFileSync(path.join(value.homeDir, ".claude", "user.txt"), "utf8"),

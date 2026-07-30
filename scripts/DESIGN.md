@@ -95,6 +95,34 @@ Codex invokes the Harness-owned launcher, which revalidates the approval
 manifest, ownership, package lock, full installed-tree fingerprint, and exact
 entrypoint before every local process start.
 
+`addons` is a thin orchestration surface over the same canonical plan,
+approval ledger, source resolver, global Skill transaction, and global action
+transaction. It does not own a second installer or approval store:
+
+```text
+addons --status
+  -> build canonical plan
+  -> project global candidate states/effects
+  -> JSON only, no mutation
+
+addons --plan-only + explicit groups
+  -> build canonical plan
+  -> resolve exact selections/dependencies/network effects
+  -> JSON only, no mutation
+
+addons --non-interactive + exact groups/digests/approval
+  -> rebuild and compare canonical plan
+  -> fail closed on blocked/drifted/dependency/boundary changes
+  -> existing approval + apply transactions
+```
+
+Interactive `addons` uses the same candidate explanation as Global Init,
+labels recommendation separately from selection, and makes `no` the Enter
+default. Global Setup performs a final read-only status call and prints the
+`pnpm addons` re-entry command when recommended candidates remain unresolved;
+failure to render that optional summary does not turn a successful core setup
+into a failure.
+
 Third-party filesystem mutation follows an additional fail-closed CAS rule.
 New destinations are published create-only. Existing owned objects are first
 atomically claimed into the transaction area, then the claimed object itself is

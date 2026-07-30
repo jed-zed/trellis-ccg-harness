@@ -65,8 +65,19 @@ unresolved decision per turn. Each question must
 
 ## Guided Entry Points
 
-Initialization has two explicit, independently resumable commands:
+Initialization has three explicit, independently resumable commands:
 
+- `addons` is the global-only third-party re-entry point. Interactive mode
+  displays all global candidates, labels recommendations without preselecting
+  them, and defaults every choice and network decision to `no`.
+  `addons --status` is read-only. `addons --plan-only` requires explicit
+  `global-skills`, `global-plugins`, and `mcp-cli` selections (use `none` for
+  an empty group) and emits the source/plan digests and exact effects without
+  mutation. Non-interactive apply must repeat those groups, both reviewed
+  digests, `--approved`, and separate third-party network approval when
+  required. It rebuilds the plan before mutation and rejects drifted, blocked,
+  boundary-forbidden, or dependency-incomplete selections. Project Skills
+  remain under `project-init`.
 - `global-init` installs the 13 bundled platform Skills as link-free owned
   copies under an explicit or current user home, records the `skip`/`local`/
   `clone` catalog decision, and performs read-only Codex, Gemini, and Grok
@@ -146,6 +157,26 @@ node scripts/harness-init.mjs global-init `
   --third-party-source-sha256 "<sha256-from-third-party-plan>" `
   --approved
 ```
+
+Global add-on discovery and planning examples:
+
+```powershell
+node scripts/harness-init.mjs addons `
+  --status `
+  --home-dir "<explicit-user-home>" `
+  --repo-root "<repository>"
+node scripts/harness-init.mjs addons `
+  --plan-only `
+  --home-dir "<explicit-user-home>" `
+  --repo-root "<repository>" `
+  --third-party-global-skills none `
+  --third-party-global-plugins none `
+  --third-party-mcp-cli none
+```
+
+For an AI-driven install, follow the repository-root `AI_INSTALL.md` contract.
+A repository URL authorizes inspection only; it is never implicit approval for
+core writes, add-ons, network access, Provider login, or paid calls.
 
 For an existing local Git catalog, add `--catalog-mode local --repository
 "<catalog-working-tree>"`. For a separately approved clone, use

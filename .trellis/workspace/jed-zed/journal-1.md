@@ -219,3 +219,24 @@ Published the ChatGPT Pro sidebar Skill, automated all CCG GPT Pro bridges with 
 ### Status
 
 [OK] **Completed**
+
+
+## Session 8: Add approval-gated addon discovery
+
+**Date**: 2026-07-30
+**Task**: Add approval-gated addon discovery
+**Branch**: `codex/addon-discovery-ai-install`
+
+### Summary
+
+Added first-run recommended add-on discovery, pnpm addons status/plan/apply flows, AI-assisted installation guidance, and full approval/digest safety coverage; all Harness, CCG, source, and Go gates passed.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `8eca1e9` | (see git log) |
+
+### Status
+
+[OK] **Completed**
