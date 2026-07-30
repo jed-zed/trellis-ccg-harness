@@ -63,6 +63,16 @@ only acquisition of already selected, pinned third-party candidates.
 Interactive initialization asks the latter after candidate selection, displays
 the candidate sources and manifest digest, defaults to `no`, and drops only
 the declined network candidates while core initialization continues.
+- `harness-init.mjs addons` is the global-only re-entry point used by
+  `pnpm addons`. Interactive mode displays all global candidates and defaults
+  every choice to skip. `--status` emits read-only machine JSON;
+  `--plan-only` requires explicit values for all three global groups and emits
+  the exact source/plan digests, approvals, network candidates, states, and
+  effects without mutation. Non-interactive apply repeats those exact groups,
+  requires both digests plus `--approved`, and requires separate
+  `--allow-third-party-network` when the reviewed selection needs acquisition.
+  It rebuilds the canonical plan before writing and refuses blocked or drifted
+  selections. Project Skills remain in `project-init`.
 - `bootstrap.ps1`: internal toolchain bootstrap. It installs dependencies and
   optionally package-installs the personal CCG CLI as a real global directory
   with a self-contained nested dependency tree inside a rollback-capable
@@ -101,6 +111,9 @@ personal CCG source implementation.
 
 ```powershell
 pnpm setup
+pnpm addons
+pnpm addons -- --status --home-dir <absolute-user-home> --repo-root .
+pnpm addons -- --plan-only --home-dir <absolute-user-home> --repo-root . --third-party-global-skills none --third-party-global-plugins none --third-party-mcp-cli none
 node .\scripts\harness-adapter.mjs context
 node .\scripts\harness-adapter.mjs conflicts
 node .\scripts\harness-adapter.mjs conflicts --ci

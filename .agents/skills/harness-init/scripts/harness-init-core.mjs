@@ -4854,6 +4854,161 @@ export async function inspectProject(
   };
 }
 
+async function prepareThirdPartyGlobalOperation({
+  homeDir,
+  repoRoot,
+  skillRoot,
+  strictDataBoundary,
+  thirdPartyGlobalPlugins,
+  thirdPartyGlobalSkills,
+  thirdPartyMcpCli,
+  thirdPartyApprovalPlan = null,
+  thirdPartyPlanSha256 = null,
+  thirdPartyPlanBuilder = prepareThirdPartyPlan,
+  thirdPartySourceSha256 = null,
+  requirePlanSha256 = false,
+  requireSourceSha256 = false,
+}) {
+  const approvalPlan =
+    thirdPartyApprovalPlan ??
+    (await thirdPartyPlanBuilder({
+      homeDir,
+      repoRoot,
+      skillRoot,
+      strictDataBoundary,
+    }));
+  const selectedCount =
+    thirdPartyGlobalSkills.length +
+    thirdPartyGlobalPlugins.length +
+    thirdPartyMcpCli.length;
+  const effectivePlanSha256 =
+    thirdPartyPlanSha256 ?? thirdPartyApprovalPlan?.planSha256 ?? null;
+  if ((requirePlanSha256 || selectedCount > 0) && effectivePlanSha256 === null) {
+    throw new Error(
+      "Selected third-party actions require an explicitly approved plan SHA-256.",
+    );
+  }
+  if (
+    effectivePlanSha256 !== null &&
+    effectivePlanSha256 !== approvalPlan.planSha256
+  ) {
+    throw new Error(
+      "Third-party approval plan SHA-256 differs from the displayed execution plan.",
+    );
+  }
+  if (
+    thirdPartySourceSha256 !== null &&
+    thirdPartySourceSha256 !== approvalPlan.sourceManifestSha256
+  ) {
+    throw new Error(
+      "Third-party approval SHA-256 differs from the distribution source manifest.",
+    );
+  }
+  if (
+    (requireSourceSha256 || selectedCount > 0) &&
+    thirdPartySourceSha256 === null
+  ) {
+    throw new Error(
+      "Selected third-party actions require an explicit source manifest SHA-256.",
+    );
+  }
+  const approvals = resolveThirdPartyApprovals({
+    plan: approvalPlan,
+    selections: {
+      globalSkills: thirdPartyGlobalSkills,
+      globalPlugins: thirdPartyGlobalPlugins,
+      projectSkills: [],
+      mcpCli: thirdPartyMcpCli,
+    },
+  });
+  return { approvalPlan, approvals };
+}
+
+async function applyPreparedThirdPartyGlobals({
+  allowNetwork,
+  approved,
+  execFileImpl,
+  homeDir,
+  prepared,
+  repoRoot,
+  strictDataBoundary,
+  thirdPartyRunCommand,
+  thirdPartySourceResolver,
+}) {
+  const { approvalPlan, approvals } = prepared;
+  const loadedSource = await loadThirdPartySourceManifest({
+    manifestPath: approvalPlan.manifestPath,
+  });
+  const approvalPreflight = await preflightThirdPartyGlobalApproval({
+    approvalPlan,
+    approvals,
+    homeDir,
+    manifest: loadedSource.manifest,
+    repoRoot,
+    strictDataBoundary,
+  });
+  const record = await recordThirdPartyGlobalApproval({
+    approvalPlan,
+    approvals,
+    homeDir,
+    manifest: loadedSource.manifest,
+    repoRoot,
+    strictDataBoundary,
+  });
+  const sourceResolver =
+    thirdPartySourceResolver ??
+    (async ({ source }) => {
+      const cachedSource = path.join(
+        path.resolve(homeDir),
+        ".agents",
+        "harness",
+        "sources",
+        source.id,
+        source.commit,
+      );
+      if (!allowNetwork && !(await pathEntryExists(cachedSource))) {
+        throw new Error(
+          `Pinned source ${source.id} is not cached and network access was not approved.`,
+        );
+      }
+      return acquirePinnedGitSource({
+        approvalPlan,
+        homeDir,
+        source,
+        execFileImpl: execFileImpl ?? execFile,
+      });
+    });
+  const globalSkills = await applyThirdPartyGlobalSkills({
+    approved,
+    approvalPlan,
+    approvals,
+    homeDir,
+    manifest: loadedSource.manifest,
+    repoRoot,
+    sourceResolver,
+    strictDataBoundary,
+  });
+  const globalActions = await applyThirdPartyGlobalActions({
+    allowNetwork,
+    approvalPlan,
+    approvals,
+    homeDir,
+    manifest: loadedSource.manifest,
+    repoRoot,
+    runCommand: thirdPartyRunCommand,
+    sourceResolver,
+    strictDataBoundary,
+  });
+  return {
+    plan: approvalPlan,
+    approvals,
+    approvalPreflight,
+    globalSkills,
+    globalActions,
+    record,
+  };
+}
+
 export async function runGlobalInit({
   allowNetwork = false,
   allowCatalogNetwork = null,
@@ -4868,6 +5023,7 @@ export async function runGlobalInit({
   providerActions,
   providerRunCommand,
   providerStatusOverrides = null,
+  repoRoot = process.cwd(),
   skillRoot,
   strictDataBoundary = false,
   thirdPartyGlobalPlugins = [],
@@ -4889,58 +5045,21 @@ export async function runGlobalInit({
   const thirdPartyNetworkApproved =
     allowThirdPartyNetwork === null ? allowNetwork : allowThirdPartyNetwork;
   const sourceSkillRoot = path.resolve(skillRoot ?? DEFAULT_SKILL_ROOT);
-  const thirdPartyPlan =
-    thirdPartyApprovalPlan ??
-    (await thirdPartyPlanBuilder({
-      homeDir,
-      repoRoot: process.cwd(),
-      skillRoot: sourceSkillRoot,
-      strictDataBoundary,
-    }));
-  const selectedThirdPartyCount =
-    thirdPartyGlobalSkills.length +
-    thirdPartyGlobalPlugins.length +
-    thirdPartyMcpCli.length;
-  const effectiveThirdPartyPlanSha256 =
-    thirdPartyPlanSha256 ?? thirdPartyApprovalPlan?.planSha256 ?? null;
-  if (
-    selectedThirdPartyCount > 0 &&
-    effectiveThirdPartyPlanSha256 === null
-  ) {
-    throw new Error(
-      "Selected third-party actions require an explicitly approved plan SHA-256.",
-    );
-  }
-  if (
-    effectiveThirdPartyPlanSha256 !== null &&
-    effectiveThirdPartyPlanSha256 !== thirdPartyPlan.planSha256
-  ) {
-    throw new Error(
-      "Third-party approval plan SHA-256 differs from the displayed execution plan.",
-    );
-  }
-  if (
-    thirdPartySourceSha256 !== null &&
-    thirdPartySourceSha256 !== thirdPartyPlan.sourceManifestSha256
-  ) {
-    throw new Error(
-      "Third-party approval SHA-256 differs from the distribution source manifest.",
-    );
-  }
-  if (selectedThirdPartyCount > 0 && thirdPartySourceSha256 === null) {
-    throw new Error(
-      "Selected third-party actions require an explicit source manifest SHA-256.",
-    );
-  }
-  const thirdPartyApprovals = resolveThirdPartyApprovals({
-    plan: thirdPartyPlan,
-    selections: {
-      globalSkills: thirdPartyGlobalSkills,
-      globalPlugins: thirdPartyGlobalPlugins,
-      projectSkills: [],
-      mcpCli: thirdPartyMcpCli,
-    },
+  const preparedThirdParty = await prepareThirdPartyGlobalOperation({
+    homeDir,
+    repoRoot,
+    skillRoot: sourceSkillRoot,
+    strictDataBoundary,
+    thirdPartyGlobalPlugins,
+    thirdPartyGlobalSkills,
+    thirdPartyMcpCli,
+    thirdPartyApprovalPlan,
+    thirdPartyPlanSha256,
+    thirdPartyPlanBuilder,
+    thirdPartySourceSha256,
   });
+  const thirdPartyPlan = preparedThirdParty.approvalPlan;
+  const thirdPartyApprovals = preparedThirdParty.approvals;
   const providers = await inspectProviderCliStatuses({
     runCommand: providerRunCommand,
     statusOverrides: providerStatusOverrides,
@@ -5004,71 +5123,21 @@ export async function runGlobalInit({
     now,
     platformSkillsRoot: path.dirname(sourceSkillRoot),
   });
-  const loadedThirdPartySource = await loadThirdPartySourceManifest({
-    manifestPath: thirdPartyPlan.manifestPath,
-  });
-  // Check and bind the immutable approval ledger before any third-party source
-  // acquisition, Skill copy, package install, plugin, or MCP mutation.
-  const thirdPartyApprovalPreflight = await preflightThirdPartyGlobalApproval({
-    approvalPlan: thirdPartyPlan,
-    approvals: thirdPartyApprovals,
-    homeDir,
-    manifest: loadedThirdPartySource.manifest,
-    repoRoot: process.cwd(),
-    strictDataBoundary,
-  });
-  const thirdPartyApprovalRecord = await recordThirdPartyGlobalApproval({
-    approvalPlan: thirdPartyPlan,
-    approvals: thirdPartyApprovals,
-    homeDir,
-    manifest: loadedThirdPartySource.manifest,
-    repoRoot: process.cwd(),
-    strictDataBoundary,
-  });
-  const resolveThirdPartySource =
-    thirdPartySourceResolver ??
-    (async ({ source }) => {
-      const cachedSource = path.join(
-        path.resolve(homeDir),
-        ".agents",
-        "harness",
-        "sources",
-        source.id,
-        source.commit,
-      );
-      if (!thirdPartyNetworkApproved && !(await pathEntryExists(cachedSource))) {
-        throw new Error(
-          `Pinned source ${source.id} is not cached and network access was not approved.`,
-        );
-      }
-      return acquirePinnedGitSource({
-        approvalPlan: thirdPartyPlan,
-        homeDir,
-        source,
-        execFileImpl: execFileImpl ?? execFile,
-      });
-    });
-  const thirdPartyGlobalSkillResult = await applyThirdPartyGlobalSkills({
-    approved,
-    approvalPlan: thirdPartyPlan,
-    approvals: thirdPartyApprovals,
-    homeDir,
-    manifest: loadedThirdPartySource.manifest,
-    repoRoot: process.cwd(),
-    sourceResolver: resolveThirdPartySource,
-    strictDataBoundary,
-  });
-  const thirdPartyGlobalActionResult = await applyThirdPartyGlobalActions({
+  const thirdPartyResult = await applyPreparedThirdPartyGlobals({
     allowNetwork: thirdPartyNetworkApproved,
-    approvalPlan: thirdPartyPlan,
-    approvals: thirdPartyApprovals,
+    approved,
+    execFileImpl,
     homeDir,
-    manifest: loadedThirdPartySource.manifest,
-    repoRoot: process.cwd(),
-    runCommand: thirdPartyRunCommand,
-    sourceResolver: resolveThirdPartySource,
+    prepared: preparedThirdParty,
+    repoRoot,
     strictDataBoundary,
+    thirdPartyRunCommand,
+    thirdPartySourceResolver,
   });
+  const thirdPartyApprovalPreflight = thirdPartyResult.approvalPreflight;
+  const thirdPartyApprovalRecord = thirdPartyResult.record;
+  const thirdPartyGlobalSkillResult = thirdPartyResult.globalSkills;
+  const thirdPartyGlobalActionResult = thirdPartyResult.globalActions;
   let profileStatus = "skipped";
   if (catalog.repositoryPath) {
     const canonicalRepository = await realpath(catalog.repositoryPath);
@@ -5758,6 +5827,7 @@ function parseCliArgs(argv) {
   const [command, ...args] = argv;
   if (
     ![
+      "addons",
       "global-init",
       "project-init",
       "third-party-plan",
@@ -5812,6 +5882,8 @@ function parseCliArgs(argv) {
     allowCatalogNetwork: false,
     allowThirdPartyNetwork: false,
     nonInteractive: false,
+    statusOnly: false,
+    planOnly: false,
     noProjectSkills: false,
     selectedSkillsExplicit: false,
     approved: false,
@@ -5928,6 +6000,10 @@ function parseCliArgs(argv) {
       result.allowThirdPartyNetwork = true;
     } else if (option === "--non-interactive") {
       result.nonInteractive = true;
+    } else if (option === "--status") {
+      result.statusOnly = true;
+    } else if (option === "--plan-only") {
+      result.planOnly = true;
     } else if (option === "--inventory-sha256") {
       result.inventorySha256 = requireOption(args, index, option);
       index++;
@@ -6055,6 +6131,115 @@ function parseCliArgs(argv) {
     ) {
       throw new Error(
         "global-init --non-interactive with selected third parties requires --third-party-plan-sha256 <sha256>.",
+      );
+    }
+  }
+  if (command === "addons") {
+    if (result.statusOnly && result.planOnly) {
+      throw new Error("addons cannot combine --status with --plan-only.");
+    }
+    if (result.thirdPartyProjectSkills !== null) {
+      throw new Error(
+        "addons manages global candidates only; use project-init for project Skills.",
+      );
+    }
+    const unrelatedOption = [
+      [result.contractPath !== null, "--contract"],
+      [result.targetRepo !== null, "--target"],
+      [result.repositoryPath !== null, "--repository"],
+      [result.catalogMode !== null, "--catalog-mode"],
+      [result.catalogUrl !== null, "--catalog-url"],
+      [result.providerActions !== null, "--provider-actions"],
+      [result.provider !== null, "--provider"],
+      [result.providerAction !== null, "--action"],
+      [result.planSha256 !== null, "--plan-sha256"],
+      [result.allowCatalogNetwork, "--allow-catalog-network"],
+      [result.selectedSkills.length > 0, "--skills"],
+      [result.noProjectSkills, "--no-project-skills"],
+    ].find(([present]) => present);
+    if (unrelatedOption) {
+      throw new Error(`addons does not accept ${unrelatedOption[1]}.`);
+    }
+    const selectionsComplete = [
+      ["thirdPartyGlobalSkills", "--third-party-global-skills"],
+      ["thirdPartyGlobalPlugins", "--third-party-global-plugins"],
+      ["thirdPartyMcpCli", "--third-party-mcp-cli"],
+    ];
+    if (result.statusOnly) {
+      if (
+        result.approved ||
+        result.nonInteractive ||
+        result.allowThirdPartyNetwork ||
+        result.thirdPartyPlanSha256 !== null ||
+        result.thirdPartySourceSha256 !== null ||
+        selectionsComplete.some(([field]) => result[field] !== null)
+      ) {
+        throw new Error(
+          "addons --status is read-only and rejects selection or approval flags.",
+        );
+      }
+    } else if (result.planOnly) {
+      if (
+        result.approved ||
+        result.nonInteractive ||
+        result.allowThirdPartyNetwork ||
+        result.thirdPartyPlanSha256 !== null ||
+        result.thirdPartySourceSha256 !== null
+      ) {
+        throw new Error(
+          "addons --plan-only is read-only and rejects execution approval flags.",
+        );
+      }
+      for (const [field, option] of selectionsComplete) {
+        if (result[field] === null) {
+          throw new Error(
+            `addons --plan-only requires ${option} (use none to reject all).`,
+          );
+        }
+      }
+    } else if (result.nonInteractive) {
+      if (!result.approved) {
+        throw new Error("addons --non-interactive requires --approved.");
+      }
+      if (!result.homeDir) {
+        throw new Error(
+          "addons --non-interactive requires explicit --home-dir.",
+        );
+      }
+      for (const [field, option] of selectionsComplete) {
+        if (result[field] === null) {
+          throw new Error(
+            `addons --non-interactive requires ${option} (use none to reject all).`,
+          );
+        }
+      }
+      if (
+        !/^[a-f0-9]{64}$/.test(
+          String(result.thirdPartySourceSha256 ?? ""),
+        )
+      ) {
+        throw new Error(
+          "addons --non-interactive requires --third-party-source-sha256 <sha256>.",
+        );
+      }
+      if (
+        !/^[a-f0-9]{64}$/.test(
+          String(result.thirdPartyPlanSha256 ?? ""),
+        )
+      ) {
+        throw new Error(
+          "addons --non-interactive requires --third-party-plan-sha256 <sha256>.",
+        );
+      }
+    } else if (
+      result.approved ||
+      result.allowThirdPartyNetwork ||
+      result.thirdPartyPlanSha256 !== null ||
+      result.thirdPartySourceSha256 !== null ||
+      selectionsComplete.some(([field]) => result[field] !== null)
+    ) {
+      throw new Error(
+        "interactive addons obtains selections and approvals from its own prompts.",
       );
     }
   }
@@ -6215,8 +6400,9 @@ function thirdPartyCandidateQuestion(candidate, sourceManifestSha256) {
     candidate.unavailableReason
       ? `Status: BLOCKED — ${candidate.unavailableReason}`
       : candidate.recommended === true
-      ? "Recommendation: install is recommended, but remains unselected until you explicitly choose yes."
-      : "Recommendation: optional; remains unselected unless you explicitly choose yes.",
+      ? "Recommended: yes — install is recommended, but remains unselected until you explicitly choose yes."
+      : "Recommended: no — optional; remains unselected unless you explicitly choose yes.",
+    "Default: skip — press Enter or choose no to leave this candidate unchanged.",
     `Dependencies: ${candidate.dependencies.join(", ") || "none"}`,
     `Effects: scripts=${candidate.scripts}, hooks=${candidate.hooks}, ` +
       `executables=${candidate.executables}, network=${Boolean(candidate.effects?.network)}`,
@@ -6267,11 +6453,376 @@ async function prepareThirdPartyPlan({
   });
 }
 
+const ADDON_GROUPS = [
+  ["global-skills", "thirdPartyGlobalSkills", "globalSkills"],
+  ["global-plugins", "thirdPartyGlobalPlugins", "globalPlugins"],
+  ["mcp-cli", "thirdPartyMcpCli", "mcpCli"],
+];
+
+function addonSelectionsFromArgs(args) {
+  return Object.fromEntries(
+    ADDON_GROUPS.map(([, field, outputKey]) => [
+      outputKey,
+      [...(args[field] ?? [])],
+    ]),
+  );
+}
+
+function addonCandidates(plan) {
+  const allowedGroups = new Set(ADDON_GROUPS.map(([groupId]) => groupId));
+  return plan.groups
+    .filter((group) => allowedGroups.has(group.id))
+    .flatMap((group) => group.candidates);
+}
+
+function addonSelectedIds(selections) {
+  return new Set(Object.values(selections).flat());
+}
+
+function addonCandidateView(plan, candidate, selectedIds) {
+  const byId = new Map(
+    plan.groups
+      .flatMap((group) => group.candidates)
+      .map((entry) => [entry.id, entry]),
+  );
+  const missingDependencies = candidate.dependencies.filter((dependency) => {
+    if (selectedIds.has(dependency)) return false;
+    return byId.get(dependency)?.installed?.status !== "exact";
+  });
+  let status;
+  let reason = candidate.installed?.observed?.reason ?? null;
+  if (candidate.unavailableReason) {
+    status = "blocked";
+    reason = candidate.unavailableReason;
+  } else if (missingDependencies.length > 0) {
+    status = "blocked";
+    reason =
+      `Missing exact-installed or same-transaction dependencies: ` +
+      `${missingDependencies.join(", ")}.`;
+  } else if (
+    candidate.installed?.status === "drifted" ||
+    candidate.installed?.status === "unowned"
+  ) {
+    status = "drifted";
+  } else if (candidate.installed?.status === "exact") {
+    status = "installed";
+  } else if (candidate.installed?.status === "manual-pending") {
+    status = "manual-pending";
+  } else {
+    status = "absent";
+  }
+  return {
+    id: candidate.id,
+    name: candidate.name,
+    group: candidate.group,
+    purpose: candidate.purpose,
+    recommended: candidate.recommended === true,
+    selected: selectedIds.has(candidate.id),
+    status,
+    selectable: status !== "blocked" && status !== "drifted",
+    reason,
+    dependencies: [...candidate.dependencies],
+    effects: {
+      scripts: candidate.scripts,
+      hooks: candidate.hooks,
+      executables: candidate.executables,
+      network: Boolean(candidate.effects?.network),
+      dataEgress: candidate.dataEgress,
+    },
+    installed: structuredClone(candidate.installed),
+  };
+}
+
+function addonEvidence(plan, selections, mode) {
+  const selectedIds = addonSelectedIds(selections);
+  const candidates = addonCandidates(plan).map((candidate) =>
+    addonCandidateView(plan, candidate, selectedIds),
+  );
+  return {
+    schemaVersion: 1,
+    owner: "trellis-ccg-harness",
+    command: "addons",
+    mode,
+    sourceManifestSha256: plan.sourceManifestSha256,
+    planSha256: plan.planSha256,
+    strictDataBoundary: plan.strictDataBoundary,
+    selections,
+    networkCandidateIds: candidates
+      .filter(
+        (candidate) =>
+          candidate.selected && candidate.effects.network === true,
+      )
+      .map((candidate) => candidate.id),
+    candidates,
+  };
+}
+
+function assertAddonApprovalsApplicable(evidence, approvals) {
+  const unsafe = evidence.candidates.find(
+    (candidate) =>
+      candidate.selected &&
+      (candidate.status === "blocked" || candidate.status === "drifted"),
+  );
+  if (unsafe) {
+    throw new Error(
+      `${unsafe.id} is ${unsafe.status} and cannot be approved: ` +
+      `${unsafe.reason ?? "manual remediation is required."}`,
+    );
+  }
+  if (approvals.skipped.length > 0) {
+    throw new Error(
+      `Selected add-ons cannot be approved: ${approvals.skipped
+        .map((entry) => `${entry.id}: ${entry.reason}`)
+        .join("; ")}.`,
+    );
+  }
+}
+
+function addonExecutionStatus(operation) {
+  if (operation.globalSkills.status === "source-unavailable") {
+    return "failed";
+  }
+  if (
+    operation.globalActions.actions.some((action) =>
+      ["failed", "partial-failure"].includes(action.status))
+  ) {
+    return "failed";
+  }
+  if (
+    operation.globalActions.actions.some(
+      (action) => action.status === "manual-pending",
+    )
+  ) {
+    return "manual-pending";
+  }
+  return "completed";
+}
+
+async function runAddons({
+  args,
+  execFileImpl,
+  homeDir,
+  promptChoice,
+  skillRoot,
+  stdin,
+  stdout,
+  thirdPartyPlanBuilder,
+  thirdPartyRunCommand,
+  thirdPartySourceResolver,
+}) {
+  const ask =
+    promptChoice ??
+    ((question) =>
+      numberedTtyChoice({
+        stdin,
+        stdout,
+        ...question,
+      }));
+  const sourceSkillRoot = path.resolve(skillRoot ?? DEFAULT_SKILL_ROOT);
+  const initialPlan = await thirdPartyPlanBuilder({
+    homeDir,
+    repoRoot: args.repoRoot,
+    skillRoot: sourceSkillRoot,
+    strictDataBoundary: args.strictDataBoundary,
+  });
+  if (args.statusOnly) {
+    return addonEvidence(
+      initialPlan,
+      { globalSkills: [], globalPlugins: [], mcpCli: [] },
+      "status",
+    );
+  }
+
+  if (!args.nonInteractive && !args.planOnly) {
+    args.thirdPartyGlobalSkills = [];
+    args.thirdPartyGlobalPlugins = [];
+    args.thirdPartyMcpCli = [];
+    const selectedIds = new Set();
+    for (const [, field] of ADDON_GROUPS) {
+      const groupId = ADDON_GROUPS.find(([, key]) => key === field)[0];
+      const group = initialPlan.groups.find((entry) => entry.id === groupId);
+      for (const candidate of group.candidates) {
+        const view = addonCandidateView(initialPlan, candidate, selectedIds);
+        const choice = await ask({
+          question:
+            `${thirdPartyCandidateQuestion(
+              candidate,
+              initialPlan.sourceManifestSha256,
+            )}\nAdd-on status: ${view.status}` +
+            `${view.reason ? ` — ${view.reason}` : ""}`,
+          options: view.selectable ? ["no", "yes"] : ["no"],
+          defaultOption: "no",
+          recommended: "no",
+        });
+        if (choice === "yes") {
+          args[field].push(candidate.id);
+          selectedIds.add(candidate.id);
+        }
+      }
+    }
+  }
+
+  let selections = addonSelectionsFromArgs(args);
+  let prepared = await prepareThirdPartyGlobalOperation({
+    homeDir,
+    repoRoot: args.repoRoot,
+    skillRoot: sourceSkillRoot,
+    strictDataBoundary: args.strictDataBoundary,
+    thirdPartyGlobalPlugins: selections.globalPlugins,
+    thirdPartyGlobalSkills: selections.globalSkills,
+    thirdPartyMcpCli: selections.mcpCli,
+    thirdPartyApprovalPlan: initialPlan,
+    thirdPartyPlanSha256: args.nonInteractive
+      ? args.thirdPartyPlanSha256
+      : initialPlan.planSha256,
+    thirdPartyPlanBuilder,
+    thirdPartySourceSha256: args.nonInteractive
+      ? args.thirdPartySourceSha256
+      : initialPlan.sourceManifestSha256,
+    requirePlanSha256: args.nonInteractive,
+    requireSourceSha256: args.nonInteractive,
+  });
+  let evidence = addonEvidence(
+    initialPlan,
+    selections,
+    args.planOnly ? "plan" : args.nonInteractive ? "apply" : "interactive",
+  );
+  assertAddonApprovalsApplicable(evidence, prepared.approvals);
+  if (args.planOnly) {
+    return { ...evidence, approvals: prepared.approvals };
+  }
+  if (!args.nonInteractive && addonSelectedIds(selections).size === 0) {
+    return { ...evidence, status: "skipped", approvals: prepared.approvals };
+  }
+
+  if (
+    evidence.networkCandidateIds.length > 0 &&
+    !args.allowThirdPartyNetwork
+  ) {
+    if (args.nonInteractive) {
+      throw new Error(
+        "Selected add-ons require --allow-third-party-network after separate approval.",
+      );
+    }
+    const networkApproval = await ask({
+      question:
+        "Approve network acquisition for these explicitly selected add-ons?\n" +
+        evidence.networkCandidateIds.map((id) => `- ${id}`).join("\n") +
+        `\nSource manifest SHA-256: ${initialPlan.sourceManifestSha256}`,
+      options: ["no", "yes"],
+      defaultOption: "no",
+      recommended: "no",
+    });
+    if (networkApproval !== "yes") {
+      const declined = new Set(evidence.networkCandidateIds);
+      for (const [, field] of ADDON_GROUPS) {
+        args[field] = args[field].filter((id) => !declined.has(id));
+      }
+      selections = addonSelectionsFromArgs(args);
+      prepared = await prepareThirdPartyGlobalOperation({
+        homeDir,
+        repoRoot: args.repoRoot,
+        skillRoot: sourceSkillRoot,
+        strictDataBoundary: args.strictDataBoundary,
+        thirdPartyGlobalPlugins: selections.globalPlugins,
+        thirdPartyGlobalSkills: selections.globalSkills,
+        thirdPartyMcpCli: selections.mcpCli,
+        thirdPartyApprovalPlan: initialPlan,
+        thirdPartyPlanBuilder,
+      });
+      evidence = addonEvidence(initialPlan, selections, "interactive");
+      assertAddonApprovalsApplicable(evidence, prepared.approvals);
+      if (addonSelectedIds(selections).size === 0) {
+        return {
+          ...evidence,
+          status: "skipped",
+          approvals: prepared.approvals,
+        };
+      }
+    } else {
+      args.allowThirdPartyNetwork = true;
+    }
+  }
+
+  if (!args.nonInteractive) {
+    const approval = await ask({
+      question:
+        `Approve installation of ${addonSelectedIds(selections).size} ` +
+        `explicitly selected add-ons for ${homeDir}?\n` +
+        thirdPartyExecutionApprovalSummary(initialPlan),
+      options: ["cancel", "approve"],
+      defaultOption: "cancel",
+      recommended: "cancel",
+    });
+    if (approval !== "approve") {
+      throw new Error("Add-on approval was declined; no state changed.");
+    }
+  }
+
+  const executionPlan = await thirdPartyPlanBuilder({
+    homeDir,
+    repoRoot: args.repoRoot,
+    skillRoot: sourceSkillRoot,
+    strictDataBoundary: args.strictDataBoundary,
+  });
+  if (
+    executionPlan.planSha256 !== initialPlan.planSha256 ||
+    executionPlan.sourceManifestSha256 !== initialPlan.sourceManifestSha256
+  ) {
+    throw new Error(
+      "Add-on approval plan drifted after presentation; no state changed.",
+    );
+  }
+  prepared = await prepareThirdPartyGlobalOperation({
+    homeDir,
+    repoRoot: args.repoRoot,
+    skillRoot: sourceSkillRoot,
+    strictDataBoundary: args.strictDataBoundary,
+    thirdPartyGlobalPlugins: selections.globalPlugins,
+    thirdPartyGlobalSkills: selections.globalSkills,
+    thirdPartyMcpCli: selections.mcpCli,
+    thirdPartyApprovalPlan: executionPlan,
+    thirdPartyPlanSha256: args.nonInteractive
+      ? args.thirdPartyPlanSha256
+      : executionPlan.planSha256,
+    thirdPartyPlanBuilder,
+    thirdPartySourceSha256: args.nonInteractive
+      ? args.thirdPartySourceSha256
+      : executionPlan.sourceManifestSha256,
+    requirePlanSha256: true,
+    requireSourceSha256: true,
+  });
+  evidence = addonEvidence(
+    executionPlan,
+    selections,
+    args.nonInteractive ? "apply" : "interactive",
+  );
+  assertAddonApprovalsApplicable(evidence, prepared.approvals);
+  const operation = await applyPreparedThirdPartyGlobals({
+    allowNetwork: args.allowThirdPartyNetwork,
+    approved: true,
+    execFileImpl,
+    homeDir,
+    prepared,
+    repoRoot: args.repoRoot,
+    strictDataBoundary: args.strictDataBoundary,
+    thirdPartyRunCommand,
+    thirdPartySourceResolver,
+  });
+  return {
+    ...evidence,
+    status: addonExecutionStatus(operation),
+    approvals: prepared.approvals,
+    operation,
+  };
+}
+
 async function numberedTtyChoice({
   stdin,
   stdout,
   question,
   options,
+  defaultOption,
   recommended,
 }) {
   if (!stdin?.isTTY || !stdout?.isTTY) {
@@ -6282,12 +6833,22 @@ async function numberedTtyChoice({
   const { createInterface } = await import("node:readline/promises");
   const terminal = createInterface({ input: stdin, output: stdout });
   try {
+    if (defaultOption !== undefined && !options.includes(defaultOption)) {
+      throw new Error("Interactive default must be one listed option.");
+    }
     stdout.write(`${question}\n`);
     options.forEach((option, index) => {
-      const suffix = option === recommended ? " (recommended)" : "";
+      const labels = [
+        option === recommended ? "recommended" : null,
+        option === defaultOption ? "default" : null,
+      ].filter(Boolean);
+      const suffix = labels.length ? ` (${labels.join(", ")})` : "";
       stdout.write(`  ${index + 1}. ${option}${suffix}\n`);
     });
     const answer = await terminal.question("Select one number: ");
+    if (answer.trim() === "" && defaultOption !== undefined) {
+      return defaultOption;
+    }
     const selected = Number(answer);
     if (
       !Number.isInteger(selected) ||
@@ -6384,6 +6945,7 @@ async function resolveInteractiveGlobalArgs(
           thirdPartyPlan.sourceManifestSha256,
         ),
         options: candidate.unavailableReason ? ["no"] : ["no", "yes"],
+        defaultOption: "no",
         recommended: "no",
       });
       if (choice === "yes") args[field].push(candidate.id);
@@ -6416,6 +6978,7 @@ async function resolveInteractiveGlobalArgs(
           .join("\n") +
         `\nSource manifest SHA-256: ${thirdPartyPlan.sourceManifestSha256}`,
       options: ["no", "yes"],
+      defaultOption: "no",
       recommended: "no",
     });
     if (approval === "yes") {
@@ -6476,7 +7039,19 @@ export async function runHarnessInitCli(
   const args = parseCliArgs(argv);
   const effectiveHomeDir = args.homeDir ?? homeDir;
   let result;
-  if (args.command === "global-init") {
+  if (args.command === "addons") {
+    result = await runAddons({
+      args,
+      homeDir: effectiveHomeDir,
+      promptChoice,
+      skillRoot,
+      stdin,
+      stdout,
+      thirdPartyPlanBuilder,
+      thirdPartyRunCommand,
+      thirdPartySourceResolver,
+    });
+  } else if (args.command === "global-init") {
     let providerStatusOverrides = null;
     let thirdPartyApprovalPlan = null;
     if (!args.nonInteractive) {
@@ -6509,6 +7084,7 @@ export async function runHarnessInitCli(
       providerActions: args.providerActions,
       providerRunCommand,
       providerStatusOverrides,
+      repoRoot: args.repoRoot,
       skillRoot,
       strictDataBoundary: args.strictDataBoundary,
       thirdPartyGlobalPlugins: args.thirdPartyGlobalPlugins ?? [],
@@ -6654,6 +7230,7 @@ export async function runHarnessInitCli(
               projectThirdPartyPlan.sourceManifestSha256,
             ),
             options: candidate.unavailableReason ? ["no"] : ["no", "yes"],
+            defaultOption: "no",
             recommended: "no",
           });
           if (choice === "yes") args.thirdPartyProjectSkills.push(candidate.id);
@@ -6684,6 +7261,7 @@ export async function runHarnessInitCli(
               .join("\n") +
             `\nSource manifest SHA-256: ${projectThirdPartyPlan.sourceManifestSha256}`,
           options: ["no", "yes"],
+          defaultOption: "no",
           recommended: "no",
         });
         if (networkApproval === "yes") {

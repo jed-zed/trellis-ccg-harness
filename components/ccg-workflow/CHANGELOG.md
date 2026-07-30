@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Companion add-on discovery** — Add the read-only `ccg addons [--json]`
+  catalog, a main-menu entry, a post-init default-skip recommendation, and an
+  `AI_INSTALL.md` contract for AI-assisted installation. Recommendations never
+  install, download, trust, or select third-party components.
+
 ### Security
 
 - **Loopback-only preview server** — Bind the local Web UI to
@@ -18,6 +25,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Verified wrapper distribution** — Bump the wrapper to `5.12.3`, remove VCS
   and host paths from release binaries, and refresh all six installer digests
   from two byte-identical Go 1.21.13 builds.
+
+## [3.4.3] - 2026-07-29
+
+### Added
+
+- **Automated ChatGPT Pro sidebar bridge** — Route `gptpro-plan`, `gptpro-review`, and
+  `gptpro-exc` through the installed `chatgpt-pro-sidebar` Skill so Codex Desktop submits prompts,
+  monitors long generations without model polling, resumes the same task through a Stop Hook, and
+  imports bounded response evidence without a normal copy/paste handoff.
+- **Exact-once sidebar evidence import** — Validate the bridge round, prompt/response/evidence
+  hashes, exact conversation URL, live watcher completion, Codex task binding, no-resend policy, and
+  sole-writer authority before accepting a response. Identical re-imports are idempotent; different
+  content cannot overwrite a completed round.
+- **Multi-conversation watcher fan-in contract** — Document separate bridge sessions for independent
+  workstreams and one watcher registration per conversation so multiple existing Codex Desktop
+  windows can generate concurrently while one Stop Hook aggregates terminal results.
+
+### Changed
+
+- **GPT Pro user boundary** — Only login, account selection, CAPTCHA, password, passkey, MFA,
+  recovery, billing, and entitlement remain manual. ChatGPT Pro stays untrusted read-only evidence;
+  Codex remains the sole workspace writer and final verification owner.
+- **Gemini evidence routing** — Plan/review sessions may omit Gemini when validated Base CCG Routing
+  Evidence exists, while calls without routed evidence retain the canonical Gemini gate.
 
 ## [3.4.2] - 2026-07-28
 

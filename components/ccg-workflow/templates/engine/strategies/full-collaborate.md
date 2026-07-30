@@ -402,5 +402,6 @@ For high-risk or release-blocking full-collaborate tasks, GPT Pro may be inserte
 manual evidence step before Phase 3 user approval. This does not replace user approval and does not
 give GPT Pro file-write authority.
 
-Use the manual bridge only after Gemini/Codex planning evidence exists, then set
-`gate=manual_gptpro_waiting` and pause until the user saves the response.
+Use the sidebar bridge only after Gemini/Codex planning evidence exists, then set
+`gate=gptpro_sidebar_running` and pause after the detached watcher is registered. Resume through the
+same-task Stop Hook and import the completed sidebar evidence before continuing.

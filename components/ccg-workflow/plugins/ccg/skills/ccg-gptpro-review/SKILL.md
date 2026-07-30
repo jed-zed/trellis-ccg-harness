@@ -1,11 +1,11 @@
 ---
 name: gptpro-review
-description: Create a manual ChatGPT Pro review second-opinion bridge. Use when the user invokes /ccg:gptpro-review.
+description: Create an automated ChatGPT Pro sidebar review second-opinion bridge. Use when the user invokes /ccg:gptpro-review.
 ---
 
 # CCG GPT Pro Review
 
-This is ordinary CCG review plus GPT Pro manual evidence. Review is GPT Pro's highest-value default
+This is ordinary CCG review plus GPT Pro sidebar evidence. Review is GPT Pro's highest-value default
 use case because concrete diffs, findings, and tests let it focus on missed risks.
 
 Load and follow `skills/ccg-gptpro-bridge/SKILL.md`.
@@ -36,24 +36,25 @@ Load and follow `skills/ccg-gptpro-bridge/SKILL.md`.
   ordinary-model false positives, and missed findings.
 - Require output sections: `Critical`, `Major`, `Minor`, `False Positives`, `Required Tests`.
 - Build a single-round review prompt by default.
-- Expected manual questions: 1.
-- Maximum manual questions: 2.
+- Expected questions: 1.
+- Maximum questions: 2.
 - Round 2 only after Codex fixes blocker findings.
-- Use `scripts/gptpro_bridge.py --mode review --detach-preview --open-preview --gemini-policy optional --gemini-evidence-role gate --routing-evidence-file <routing-evidence-file> --routing-summary-file <routing-summary-file> --require-routing-evidence [--gemini-response-file <CCG_GEMINI_RESPONSE_FILE> --gemini-summary-file <summary-file> when Gemini actually ran] [--require-external-intelligence --expected-intelligence-mode <route investigation_mode> --expected-intelligence-depth <route depth> when route status=valid and requirement=required]`; omit those three external-intelligence flags for `status=waived`.
-- After response is saved, classify Critical/Major/Minor findings, false positives, required tests,
+- Use `scripts/gptpro_bridge.py --mode review --gemini-policy optional --gemini-evidence-role gate --routing-evidence-file <routing-evidence-file> --routing-summary-file <routing-summary-file> --require-routing-evidence [--gemini-response-file <CCG_GEMINI_RESPONSE_FILE> --gemini-summary-file <summary-file> when Gemini actually ran] [--require-external-intelligence --expected-intelligence-mode <route investigation_mode> --expected-intelligence-depth <route depth> when route status=valid and requirement=required]`; omit those three external-intelligence flags for `status=waived`.
+- Delegate, monitor, wake, and import through the installed `chatgpt-pro-sidebar` Skill exactly as defined by the shared bridge Skill.
+- After the sidebar response import succeeds, classify Critical/Major/Minor findings, false positives, required tests,
   and Codex actions.
 - Report in Chinese and synthesize validated Grok external intelligence, ordinary review evidence,
   optional Gemini evidence when present, and GPT Pro findings.
 - The current CCG orchestrator remains final owner.
 - Do not automate ChatGPT web login.
 - Do not read ChatGPT web DOM.
-- Do not extract ChatGPT Output programmatically.
+- Do not use DOM extraction; only the installed sidebar Skill may capture bounded UIA output.
 
-## Manual Handoff Barrier
+## Sidebar Handoff
 
-- After creating the bridge artifacts, show only handoff metadata.
-- Do not paste the full generated prompt into chat.
-- Show the preview URL, session directory, prompt file path, response file path, and status file path.
-- Tell the user to open the preview page and use the preview page Copy Prompt button, then manually submit the prompt to ChatGPT Pro and manually save the response.
-- End the current assistant turn after the handoff. Do not continue the review analysis in the same turn.
-- Continue only after `status.json` shows `response_saved=true` and `response.md is non-empty`.
+- Create the bridge artifacts without launching the legacy preview.
+- Use the installed sidebar Skill to create the ChatGPT conversation and submit `prompt.md`.
+- Start the detached watcher and end the turn only after the watcher registration is durable.
+- Continue automatically in the same Codex Desktop task when the Stop Hook fires.
+- Import completed sidebar evidence with the exact Codex task binding; never ask the user to copy or
+  save the response.

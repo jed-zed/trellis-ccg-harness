@@ -1,11 +1,11 @@
 ---
 name: gptpro-plan
-description: Create a manual ChatGPT Pro planning second-opinion bridge. Use when the user invokes /ccg:gptpro-plan.
+description: Create an automated ChatGPT Pro sidebar planning second-opinion bridge. Use when the user invokes /ccg:gptpro-plan.
 ---
 
 # CCG GPT Pro Plan
 
-This is ordinary CCG planning plus GPT Pro manual evidence. GPT Pro acts as an adversarial plan
+This is ordinary CCG planning plus GPT Pro sidebar evidence. GPT Pro acts as an adversarial plan
 reviewer: it challenges an existing plan, but does not rewrite the whole plan or replace the current
 orchestrator's planning authority.
 
@@ -37,18 +37,19 @@ Load and follow `skills/ccg-gptpro-bridge/SKILL.md`.
   constraints, test gaps, and whether the plan is worth continuing.
 - Require output sections: `Blockers`, `Risks`, `Missing Evidence`, `Plan Adjustments`, `Go-NoGo`.
 - Build a single-round planning prompt by default.
-- Expected manual questions: 1.
-- Maximum manual questions: 2.
+- Expected questions: 1.
+- Maximum questions: 2.
 - Round 2 only for blocker re-check or revised plan comparison.
-- Use `scripts/gptpro_bridge.py --mode plan --detach-preview --open-preview --gemini-policy optional --gemini-evidence-role gate --routing-evidence-file <routing-evidence-file> --routing-summary-file <routing-summary-file> --require-routing-evidence [--gemini-response-file <CCG_GEMINI_RESPONSE_FILE> --gemini-summary-file <summary-file> when Gemini actually ran] [--require-external-intelligence --expected-intelligence-mode <route investigation_mode> --expected-intelligence-depth <route depth> when route status=valid and requirement=required]`; omit those three external-intelligence flags for `status=waived`.
-- Read the saved response file only after the user manually saves it.
+- Use `scripts/gptpro_bridge.py --mode plan --gemini-policy optional --gemini-evidence-role gate --routing-evidence-file <routing-evidence-file> --routing-summary-file <routing-summary-file> --require-routing-evidence [--gemini-response-file <CCG_GEMINI_RESPONSE_FILE> --gemini-summary-file <summary-file> when Gemini actually ran] [--require-external-intelligence --expected-intelligence-mode <route investigation_mode> --expected-intelligence-depth <route depth> when route status=valid and requirement=required]`; omit those three external-intelligence flags for `status=waived`.
+- Delegate, monitor, wake, and import through the installed `chatgpt-pro-sidebar` Skill exactly as defined by the shared bridge Skill.
+- Read the response only after `CCG_GPTPRO_SIDEBAR_IMPORTED=1`.
 - Summarize and synthesize validated Grok external intelligence, ordinary planning evidence,
   optional Gemini evidence when present, and GPT Pro findings in Chinese; the current orchestrator
   decides final plan edits.
 - The current CCG orchestrator remains final owner.
 - Do not automate ChatGPT web login.
 - Do not read ChatGPT web DOM.
-- Do not extract ChatGPT Output programmatically.
+- Do not use DOM extraction; only the installed sidebar Skill may capture bounded UIA output.
 
 ## Plan-only Boundary
 
@@ -56,16 +57,16 @@ Load and follow `skills/ccg-gptpro-bridge/SKILL.md`.
 - Do not execute implementation.
 - Do not apply code changes except writing or updating CCG plan artifacts and GPT Pro bridge artifacts.
 - Do not run implementation tasks, mutate product code, commit, push, create a pull request, or continue into `/ccg:execute` behavior.
-- After the user saves GPT Pro output, synthesize Codex, Gemini, and GPT Pro planning findings only.
+- After the sidebar response import succeeds, synthesize Codex, Gemini, and GPT Pro planning findings only.
 - Produce or revise the plan, report the plan location and key decisions in Chinese, then stop.
 - Stop after producing or updating the plan.
 - If the user wants execution, require a separate `/ccg:execute <plan>` or `/ccg:codex-exec <plan>` request.
 
-## Manual Handoff Barrier
+## Sidebar Handoff
 
-- After creating the bridge artifacts, show only handoff metadata.
-- Do not paste the full generated prompt into chat.
-- Show the preview URL, session directory, prompt file path, response file path, and status file path.
-- Tell the user to open the preview page and use the preview page Copy Prompt button, then manually submit the prompt to ChatGPT Pro and manually save the response.
-- End the current assistant turn after the handoff. Do not continue the planning analysis in the same turn.
-- Continue only after `status.json` shows `response_saved=true` and `response.md is non-empty`.
+- Create the bridge artifacts without launching the legacy preview.
+- Use the installed sidebar Skill to create the ChatGPT conversation and submit `prompt.md`.
+- Start the detached watcher and end the turn only after the watcher registration is durable.
+- Continue automatically in the same Codex Desktop task when the Stop Hook fires.
+- Import the completed sidebar evidence through `--import-session`, `--import-sidebar-evidence`, and
+  `--expected-codex-thread-id`; never ask the user to copy or save the response.

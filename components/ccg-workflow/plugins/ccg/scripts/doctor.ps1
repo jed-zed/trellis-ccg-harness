@@ -430,9 +430,9 @@ $gptproRequiredPaths = @(
 )
 $gptproMissing = @($gptproRequiredPaths | Where-Object { -not (Test-Path -LiteralPath $_) })
 if ($gptproMissing.Count -eq 0) {
-  Add-Check "GPT Pro manual bridge" "PASS" "Required command, skill, script, and template files are present."
+  Add-Check "GPT Pro sidebar bridge" "PASS" "Required command, skill, script, and template files are present."
 } else {
-  Add-Check "GPT Pro manual bridge" "FAIL" ("Missing: " + ($gptproMissing -join "; ")) "Restore the GPT Pro manual bridge files."
+  Add-Check "GPT Pro sidebar bridge" "FAIL" ("Missing: " + ($gptproMissing -join "; ")) "Restore the GPT Pro sidebar bridge files."
 }
 Add-Check "ChatGPT web automation" "PASS" "intentionally unsupported"
 

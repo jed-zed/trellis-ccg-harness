@@ -10,6 +10,7 @@ import { dirname, join } from 'pathe'
 import fs from 'fs-extra'
 import { parse as parseTOML } from 'smol-toml'
 import { version } from '../../package.json'
+import { showCompanionAddons } from './addons'
 import { configMcp } from './config-mcp'
 import { configRouting, readCodexRoutingConfig } from './config-routing'
 import { i18n } from '../i18n'
@@ -179,6 +180,7 @@ export async function showMainMenu(): Promise<void> {
         item('C', i18n.t('menu:options.installClaude'), isZh ? '安装/重装 CLI' : 'Install/reinstall CLI'),
 
         groupSep('CCG'),
+        item('A', i18n.t('menu:options.addons'), isZh ? '只读查看推荐组件与审批路径' : 'Read-only recommendations and approval paths'),
         item('H', i18n.t('menu:options.help'), isZh ? '查看全部斜杠命令' : 'View all slash commands'),
         item('-', i18n.t('menu:options.uninstall'), isZh ? '移除 CCG 配置' : 'Remove CCG config'),
 
@@ -214,6 +216,9 @@ export async function showMainMenu(): Promise<void> {
         break
       case 'C':
         await handleInstallClaude()
+        break
+      case 'A':
+        showCompanionAddons()
         break
       case '-':
         await uninstall()
