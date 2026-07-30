@@ -4,7 +4,8 @@
 
 This contract applies when changing project-contract validation, first-time
 installation into `.harness/`, managed `AGENTS.md` projection, ownership
-metadata, transaction recovery, or the `approved` to `ready` transition.
+metadata, transaction recovery, the `approved` to `ready` transition, or the
+approval-gated global addon discovery and installation workflow.
 
 The implementation is
 `.agents/skills/harness-init/scripts/harness-init-core.mjs`; the root
@@ -17,6 +18,23 @@ Supported commands:
 ```text
 node scripts/harness-init.mjs apply --contract <json-path> --repo-root <path>
 node scripts/harness-init.mjs mark-ready --repo-root <path>
+node scripts/harness-init.mjs addons --status --home-dir <path> --repo-root <path>
+node scripts/harness-init.mjs addons --plan-only \
+  --third-party-global-skills <ids-or-none> \
+  --third-party-global-plugins <ids-or-none> \
+  --third-party-mcp-cli <ids-or-none> \
+  --home-dir <path> \
+  --repo-root <path>
+node scripts/harness-init.mjs addons --non-interactive \
+  --third-party-global-skills <ids-or-none> \
+  --third-party-global-plugins <ids-or-none> \
+  --third-party-mcp-cli <ids-or-none> \
+  --third-party-source-sha256 <sha256> \
+  --third-party-plan-sha256 <sha256> \
+  --allow-third-party-network \
+  --approved \
+  --home-dir <path> \
+  --repo-root <path>
 ```
 
 Core readiness API:
@@ -65,6 +83,25 @@ and recovery tests; ordinary callers use only `repoRoot`.
   targets.
 - Provider credentials have no initializer fields or environment contract.
   Secret-looking contract keys or values are rejected before mutation.
+- `addons --status` is a read-only inventory of the nine global candidates in
+  the pinned third-party manifest. It never accepts selections, approvals, or
+  network authorization.
+- Interactive `addons` lists every candidate and defaults every selection,
+  network prompt, and final approval to skip or cancel.
+- Non-interactive addon planning requires all three selection groups, including
+  explicit empty groups, and returns the exact source-manifest and plan
+  digests without mutation.
+- Non-interactive addon apply requires those two exact digests plus explicit
+  final approval. Network candidates additionally require
+  `--allow-third-party-network`.
+- Addon apply rebuilds and compares the approved plan immediately before the
+  first mutation. Source or plan drift fails closed.
+- Candidate dependencies may be satisfied only by an exact installed candidate
+  bound into the current plan or by a dependency that remains approved after
+  policy and dependency resolution in the same transaction. A selected but
+  blocked dependency never satisfies its dependents.
+- Drifted or unowned targets are reported but are never selectable or
+  overwritten by the addon workflow.
 
 ## 4. Validation & Error Matrix
 
@@ -81,6 +118,12 @@ and recovery tests; ordinary callers use only `repoRoot`.
 | Legacy Schema formatting is noncanonical but semantically exact and ownership matches its bytes | Canonicalize Schema and ownership transactionally |
 | Failure after either ready target is installed | Restore both original files and clean transaction residue |
 | Intact contract is already `ready` | Return `status: unchanged` without writing |
+| `addons --status` receives a selection or approval flag | Refuse as a mixed read/write request |
+| Non-interactive addon planning omits a selection group | Refuse the ambiguous selection set |
+| Non-interactive addon apply omits either digest or final approval | Refuse before mutation |
+| A selected addon requires network and network approval is absent | Refuse before mutation |
+| Approved source or plan changes before apply | Refuse the stale approval before mutation |
+| An addon target is drifted or unowned | Report it as non-selectable and preserve its bytes |
 
 Errors propagate to `scripts/harness-init.mjs`, which writes one
 `Harness Init failed: <message>` line to stderr and exits non-zero.
@@ -97,6 +140,13 @@ Errors propagate to `scripts/harness-init.mjs`, which writes one
 - Bad: an approved contract gains a trailing newline after apply.
   `mark-ready` refuses because ownership binds exact bytes, not parsed JSON
   equivalence.
+- Good: an AI first calls `addons --status`, requests a complete `--plan-only`
+  result with all three groups, presents the effects, and applies the unchanged
+  plan only after explicit user approval.
+- Base: interactive `addons` receives only Enter responses. Every candidate is
+  skipped and the command exits without mutation.
+- Bad: an AI reuses an older addon digest after the manifest or installed state
+  changes. Apply refuses the stale plan.
 
 ## 6. Tests Required
 
@@ -114,6 +164,20 @@ Errors propagate to `scripts/harness-init.mjs`, which writes one
 - coordinated policy/ownership and schema/ownership drift still fail closed;
 - a fault after the first ready target rolls both targets back and leaves no
   transaction residue.
+
+`tests/harness-third-party-cli.test.mjs` must assert:
+
+- status is global-only, read-only, and reports all nine candidates;
+- planning requires explicit global selection groups and does not mutate;
+- interactive Enter defaults skip every candidate and cancel final approval;
+- Ponytail dependencies may be selected in one transaction but cannot bypass
+  missing, policy-blocked, drifted, or unowned prerequisites;
+- strict-boundary and network approval rules fail before mutation;
+- stale source or plan digests and a final pre-apply plan change fail closed.
+
+`tests/install-script.test.mjs` must assert that successful default setup keeps
+third-party installation optional and prints the `pnpm addons` re-entry path
+when recommended addons remain pending.
 
 Run `node --test tests/harness-init-cli.test.mjs` before the full
 `pnpm harness:test` gate.

@@ -10,6 +10,7 @@
   },
   "scripts": {
     "setup": "pwsh -NoProfile -File ./scripts/install.ps1",
+    "addons": "node ./scripts/harness-init.mjs addons",
     "bootstrap": "pwsh -NoProfile -File ./scripts/bootstrap.ps1",
     "doctor": "pwsh -NoProfile -File ./scripts/doctor.ps1",
     "verify:sources": "pwsh -NoProfile -File ./scripts/verify-sources.ps1",

@@ -1359,6 +1359,15 @@ export async function buildThirdPartyApprovalPlan({
   return plan;
 }
 
+function planHasExactCandidate(plan, id) {
+  return plan.groups
+    .flatMap((group) => group.candidates)
+    .some(
+      (candidate) =>
+        candidate.id === id && candidate.installed?.status === "exact",
+    );
+}
+
 /** Resolve only explicit choices; dependency choices are never inferred. */
 export function resolveThirdPartyApprovals({ plan, selections }) {
   if (!plan || !Array.isArray(plan.groups) || !selections || typeof selections !== "object") throw new Error("An approval plan and explicit selections are required.");
@@ -1373,17 +1382,47 @@ export function resolveThirdPartyApprovals({ plan, selections }) {
       selected.add(id);
     }
   }
-  const approvedActionIds = [];
   const skipped = [];
+  const validActionIds = new Set(selected);
   for (const group of plan.groups) {
     for (const candidate of group.candidates) {
       if (!selected.has(candidate.id)) continue;
-      if (candidate.unavailableReason) { skipped.push({ id: candidate.id, reason: candidate.unavailableReason }); continue; }
-      const missingDependencies = candidate.dependencies.filter((id) => !selected.has(id)).sort();
-      if (missingDependencies.length) { skipped.push({ id: candidate.id, reason: "Required dependency was not explicitly approved.", missingDependencies }); continue; }
-      approvedActionIds.push(candidate.id);
+      if (candidate.unavailableReason) {
+        validActionIds.delete(candidate.id);
+        skipped.push({
+          id: candidate.id,
+          reason: candidate.unavailableReason,
+        });
+      }
     }
   }
+  let dependenciesChanged;
+  do {
+    dependenciesChanged = false;
+    for (const group of plan.groups) {
+      for (const candidate of group.candidates) {
+        if (!validActionIds.has(candidate.id)) continue;
+        const missingDependencies = candidate.dependencies
+          .filter(
+            (id) =>
+              !validActionIds.has(id) && !planHasExactCandidate(plan, id),
+          )
+          .sort();
+        if (missingDependencies.length === 0) continue;
+        validActionIds.delete(candidate.id);
+        skipped.push({
+          id: candidate.id,
+          reason: "Required dependency was not approved or was blocked.",
+          missingDependencies,
+        });
+        dependenciesChanged = true;
+      }
+    }
+  } while (dependenciesChanged);
+  const approvedActionIds = plan.groups
+    .flatMap((group) => group.candidates)
+    .filter((candidate) => validActionIds.has(candidate.id))
+    .map((candidate) => candidate.id);
   return {
     schemaVersion: 1,
     owner: OWNER,
@@ -2551,7 +2590,11 @@ function normalizeApprovalRecord(
     }
     const missingDependencies = candidates
       .get(id)
-      .dependencies.filter((dependency) => !approvedActionIds.includes(dependency));
+      .dependencies.filter(
+        (dependency) =>
+          !approvedActionIds.includes(dependency) &&
+          !planHasExactCandidate(approvalPlan, dependency),
+      );
     if (missingDependencies.length) {
       throw new Error(`Approved action ${id} lacks explicitly approved dependencies: ${missingDependencies.sort().join(", ")}.`);
     }
@@ -3083,7 +3126,11 @@ export async function applyThirdPartyGlobalSkills({
   );
   if (!candidates.length) return { status: "skipped", installedSkills: [], approvedSkillIds: [] };
   for (const candidate of candidates) {
-    const missing = candidate.dependencies.filter((dependency) => !approvedIds.has(dependency));
+    const missing = candidate.dependencies.filter(
+      (dependency) =>
+        !approvedIds.has(dependency) &&
+        !planHasExactCandidate(approvalPlan, dependency),
+    );
     if (missing.length) throw new Error(`Global Skill ${candidate.id} has dependencies absent from explicit approvals: ${missing.sort().join(", ")}.`);
   }
   await recoverThirdPartyTransactions({ homeDir });
@@ -3545,7 +3592,11 @@ export async function applyThirdPartyProjectSkills({
   const candidates = loaded.manifest.candidates.filter((entry) => entry.group === "project-skills" && approvedIds.has(entry.id));
   if (!candidates.length) return { status: "skipped", installedSkills: [] };
   for (const candidate of candidates) {
-    const missing = candidate.dependencies.filter((dependency) => !approvedIds.has(dependency));
+    const missing = candidate.dependencies.filter(
+      (dependency) =>
+        !approvedIds.has(dependency) &&
+        !planHasExactCandidate(approvalPlan, dependency),
+    );
     if (missing.length) throw new Error(`Project Skill ${candidate.id} has dependencies absent from explicit approvals: ${missing.sort().join(", ")}.`);
   }
   await recoverThirdPartyProjectTransactions({ repoRoot, homeDir });

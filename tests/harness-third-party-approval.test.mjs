@@ -805,6 +805,40 @@ test("strict data boundaries reject fast-context without blocking other choices"
   }
 });
 
+test("a selected dependency blocked by policy also blocks its dependent", async () => {
+  const value = fixture();
+  try {
+    const manifest = JSON.parse(readFileSync(MANIFEST_PATH, "utf8"));
+    manifest.candidates.find(
+      (candidate) => candidate.id === "ponytail.hooks",
+    ).dependencies = ["fast-context"];
+    const plan = await buildThirdPartyApprovalPlan({
+      homeDir: value.homeDir,
+      manifest,
+      repoRoot: value.repoRoot,
+      strictDataBoundary: true,
+    });
+    const resolved = resolveThirdPartyApprovals({
+      plan,
+      selections: {
+        globalSkills: [],
+        globalPlugins: ["ponytail.hooks"],
+        projectSkills: [],
+        mcpCli: ["fast-context"],
+      },
+    });
+    assert.equal(resolved.approvedActionIds.includes("fast-context"), false);
+    assert.equal(resolved.approvedActionIds.includes("ponytail.hooks"), false);
+    assert.deepEqual(
+      resolved.skipped.find((entry) => entry.id === "ponytail.hooks")
+        .missingDependencies,
+      ["fast-context"],
+    );
+  } finally {
+    value.cleanup();
+  }
+});
+
 test("Skill installers reject forged approvedActionIds that lack explicit selections", async () => {
   const value = fixture();
   try {
