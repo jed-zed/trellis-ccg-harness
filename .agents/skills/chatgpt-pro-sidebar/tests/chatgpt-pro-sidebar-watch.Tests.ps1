@@ -208,6 +208,53 @@ Describe 'Token-free watcher state machine' {
         $result.FinalizeResult.ExitCode | Should -Be 28
     }
 
+    It 'keeps monitoring when queued generation has not started before finalization times out' {
+        $queue = [System.Collections.Queue]::new()
+        $queue.Enqueue((New-WatchProbe -Generating $false))
+        $queue.Enqueue((New-WatchProbe -Generating $false))
+        $queue.Enqueue((New-WatchProbe -Generating $true))
+        $queue.Enqueue((New-WatchProbe -Generating $false))
+        $queue.Enqueue((New-WatchProbe -Generating $false))
+        $finalizers = [System.Collections.Queue]::new()
+        $finalizers.Enqueue(
+            [pscustomobject]@{
+                ExitCode = 27
+                Payload = [pscustomobject]@{ ok = $false; category = 'ResponseTimeout' }
+            }
+        )
+        $finalizers.Enqueue(
+            [pscustomobject]@{
+                ExitCode = 0
+                Payload = [pscustomobject]@{ ok = $true; completed = $true }
+            }
+        )
+        $observed = [System.Collections.ArrayList]::new()
+        $now = [datetime]'2026-07-28T20:00:00Z'
+
+        $result = Invoke-WatchLoop `
+            -BoundConversationUrl $script:BoundUrl `
+            -StablePollCount 2 `
+            -FailureLimit 3 `
+            -OverallTimeoutSeconds 300 `
+            -SleepSeconds 5 `
+            -ProbeAction { $queue.Dequeue() } `
+            -FinalizeAction { $finalizers.Dequeue() } `
+            -SleepAction { param($seconds) } `
+            -NowAction { $now } `
+            -ObservationAction { param($record) $null = $observed.Add($record) }
+
+        $result.Status | Should -Be 'completed'
+        $result.Observations | Should -Be 5
+        $finalizers.Count | Should -Be 0
+        @(
+            $observed | Where-Object {
+                $_ -is [System.Collections.IDictionary] -and
+                $_.Contains('awaitingGeneration') -and
+                $_['awaitingGeneration']
+            }
+        ).Count | Should -Be 1
+    }
+
     It 'retries UI mutex contention while finalizing the stopped response' {
         $queue = [System.Collections.Queue]::new()
         $queue.Enqueue((New-WatchProbe -Generating $false))

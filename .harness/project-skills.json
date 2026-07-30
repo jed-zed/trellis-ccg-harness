@@ -6,8 +6,8 @@
   "repository": {
     "path": "I:\\ai\\.codex-task-cache\\019fa981-725e-7f02-93a7-bb1e1b7aefd3\\skill-revision-source-exact-20260730",
     "branch": "main",
-    "commit": "6b064f7ca51e5b34d9943ea5dab428cff39bfc1a",
-    "tree": "6acb48afba8ace00bb7137c864657f0f65a0130f",
+    "commit": "303f0811e1059b8e3963de8122f633826539ada2",
+    "tree": "a38c2a08efa05be98909ae8595986e706922093a",
     "clean": true,
     "remotes": [
       {
@@ -16,7 +16,7 @@
       }
     ]
   },
-  "installedAt": "2026-07-30T18:46:51.252Z",
+  "installedAt": "2026-07-30T19:39:05.915Z",
   "managedPaths": [
     ".harness/project-skills.json",
     ".agents/skills/chatgpt-pro-sidebar"
@@ -27,9 +27,9 @@
       "sourceRelativePath": "chatgpt-pro-sidebar",
       "targetPath": ".agents/skills/chatgpt-pro-sidebar",
       "skillSha256": "037f1a731bab097492d03e1192f229188f81b90392372059a6a77beae878c5f8",
-      "treeSha256": "ac84bbd1b30970c69265c4b92208610ae6052d538f9645ce1d16721a4c81e889",
+      "treeSha256": "edacce65a791d6b7a35bb54d292b1a4ee22147dd307056daf52c054a8dd68d43",
       "fileCount": 8,
-      "totalBytes": 333265
+      "totalBytes": 338153
     }
   ]
 }

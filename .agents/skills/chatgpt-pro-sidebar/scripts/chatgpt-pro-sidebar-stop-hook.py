@@ -509,9 +509,9 @@ def run_hook(
 
         if terminal:
             claimed: list[dict[str, Any]] = []
-            for entry, status, event_path, evidence_directory in terminal[
-                :MAX_REASON_REGISTRATIONS
-            ]:
+            for entry, status, event_path, evidence_directory in terminal:
+                if len(claimed) >= MAX_REASON_REGISTRATIONS:
+                    break
                 claimed_item = _claim_continuation(
                     registry_root=registry_root,
                     registration_path=entry["path"],

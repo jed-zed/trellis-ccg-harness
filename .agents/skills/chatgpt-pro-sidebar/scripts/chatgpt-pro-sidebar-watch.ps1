@@ -452,6 +452,7 @@ function Invoke-WatchLoop {
     $stableStopped = 0
     $consecutiveFailures = 0
     $observations = 0
+    $generationObserved = $false
 
     while ($true) {
         $now = & $NowAction
@@ -538,6 +539,7 @@ function Invoke-WatchLoop {
 
         $generating = [bool](Get-WatchProperty $payload 'generating' $false)
         if ($generating) {
+            $generationObserved = $true
             $stableStopped = 0
         }
         else {
@@ -550,6 +552,7 @@ function Invoke-WatchLoop {
             generating = $generating
             urlExact = $true
             matchedBoundUrl = $true
+            generationObserved = $generationObserved
             stableStoppedPolls = $stableStopped
         })
 
@@ -593,6 +596,21 @@ function Invoke-WatchLoop {
                     })
                     & $SleepAction $SleepSeconds
                     continue
+                }
+
+                if (-not $generationObserved -and $finalizeCategory -eq 'ResponseTimeout') {
+                    $stableStopped = 0
+                    & $ObservationAction ([ordered]@{
+                        atUtc = ([datetime]$finalizeNow).ToUniversalTime().ToString('o')
+                        phase = 'finalize'
+                        exitCode = $finalizeExitCode
+                        ok = $false
+                        category = $finalizeCategory
+                        deferred = $true
+                        awaitingGeneration = $true
+                        consecutiveFailures = 0
+                    })
+                    break
                 }
 
                 $status = 'stopped-unverified'

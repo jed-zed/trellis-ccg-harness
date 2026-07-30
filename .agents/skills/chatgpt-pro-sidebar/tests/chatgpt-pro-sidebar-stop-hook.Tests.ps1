@@ -279,6 +279,53 @@ Describe 'Codex Stop Hook helper' {
         }
     }
 
+    It 'fills the bounded fan-in batch after skipping conflicting claims' {
+        $registry = Join-Path $TestDrive 'registry-conflicting-fan-in'
+        $registrations = @(
+            foreach ($index in 1..9) {
+                $watcherId = '00000000-0000-0000-0000-{0:D12}' -f $index
+                $evidence = Join-Path $TestDrive ('evidence-conflicting-{0:D2}' -f $index)
+                New-TestRegistration `
+                    -Registry $registry `
+                    -Evidence $evidence `
+                    -WatcherId $watcherId
+                Write-TestJson -Path (Join-Path $evidence 'watch-event.json') -Value ([ordered]@{
+                    status = 'completed'
+                })
+                if ($index -le 8) {
+                    Write-TestJson -Path (Join-Path $evidence 'watch-stop-hook.claim') -Value ([ordered]@{
+                        schemaVersion = 1
+                        transport = 'codex-stop-hook'
+                        codexThreadId = 'ffffffff-ffff-ffff-ffff-ffffffffffff'
+                        watcherId = $watcherId
+                        terminalStatus = 'completed'
+                    })
+                }
+                [pscustomobject]@{
+                    WatcherId = $watcherId
+                    Evidence = $evidence
+                }
+            }
+        )
+
+        $result = Invoke-TestStopHook -Registry $registry
+        $decision = $result.Output[0] | ConvertFrom-Json
+
+        $result.ExitCode | Should -Be 0
+        $result.Output.Count | Should -Be 1
+        $decision.decision | Should -Be 'block'
+        $decision.reason | Should -Match '1 ChatGPT Pro watcher registration'
+        $decision.reason | Should -Match ([regex]::Escape($registrations[8].Evidence))
+        foreach ($registration in $registrations[0..7]) {
+            $decision.reason | Should -Not -Match ([regex]::Escape($registration.Evidence))
+        }
+        $claim = Get-Content -LiteralPath (
+            Join-Path $registrations[8].Evidence 'watch-stop-hook.claim'
+        ) -Raw | ConvertFrom-Json
+        $claim.codexThreadId | Should -Be $script:ThreadId
+        $claim.watcherId | Should -Be $registrations[8].WatcherId
+    }
+
     It 'skips a stale missing evidence directory and continues valid registrations' {
         $registry = Join-Path $TestDrive 'registry-stale-evidence'
         $missingEvidence = Join-Path $TestDrive 'evidence-no-longer-present'
