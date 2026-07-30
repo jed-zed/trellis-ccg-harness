@@ -416,4 +416,12 @@ Describe 'Codex Stop Hook installation guidance' {
         $skillDocument | Should -Match '\$stopHookCommand = ''python "'' \+ \$resolvedStopHook \+ ''"'''
         $skillDocument | Should -Match 'actual installed directory containing this `SKILL\.md`'
     }
+
+    It 'requires direct delegations to acknowledge every reviewed terminal result' {
+        $skillDocument = Get-Content -Raw -LiteralPath (Join-Path (Split-Path -Parent $PSScriptRoot) 'SKILL.md')
+
+        $skillDocument | Should -Match 'any direct-delegation terminal result, including `completed`'
+        $skillDocument | Should -Match 'run watcher `acknowledge`'
+        $skillDocument | Should -Match 'If no CCG importer ran, this acknowledgement is still required'
+    }
 }

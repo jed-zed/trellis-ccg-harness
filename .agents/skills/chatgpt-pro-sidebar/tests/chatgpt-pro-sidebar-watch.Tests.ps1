@@ -82,7 +82,12 @@ Describe 'Watcher binding validation' {
 
     It 'accepts only one exact ChatGPT conversation URL' {
         Test-WatchConversationUrl -Value $script:BoundUrl | Should -BeTrue
+        Test-WatchConversationUrl -Value 'https://chatgpt.com/c/conversation_123' | Should -BeTrue
+        Test-WatchConversationUrl -Value 'https://chatgpt.com/g/custom-gpt_1/c/conversation_123' | Should -BeTrue
         Test-WatchConversationUrl -Value 'https://chatgpt.com/' | Should -BeFalse
+        Test-WatchConversationUrl -Value 'https://chatgpt.com/g/custom-gpt_1' | Should -BeFalse
+        Test-WatchConversationUrl -Value 'https://chatgpt.com/c/short' | Should -BeFalse
+        Test-WatchConversationUrl -Value 'https://www.chatgpt.com/c/conversation_123' | Should -BeFalse
         Test-WatchConversationUrl -Value ($script:BoundUrl + '?leak=1') | Should -BeFalse
         Test-WatchConversationUrl -Value 'https://example.com/c/12345678-1234-1234-1234-123456789abc' | Should -BeFalse
     }

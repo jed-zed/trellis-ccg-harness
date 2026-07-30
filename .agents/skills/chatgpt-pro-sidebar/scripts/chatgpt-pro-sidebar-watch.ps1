@@ -169,17 +169,38 @@ function Test-WatchConversationUrl {
     if ([string]::IsNullOrWhiteSpace($Value)) {
         return $false
     }
-    try {
-        $uri = [uri]$Value
-        return $uri.Scheme -eq 'https' -and
-            $uri.Host -eq 'chatgpt.com' -and
-            $uri.AbsolutePath -match '^/c/[0-9a-fA-F-]{36}/?$' -and
-            [string]::IsNullOrEmpty($uri.Query) -and
-            [string]::IsNullOrEmpty($uri.Fragment)
-    }
-    catch {
+    $uri = $null
+    if (-not [System.Uri]::TryCreate($Value, [System.UriKind]::Absolute, [ref]$uri)) {
         return $false
     }
+    if (
+        $uri.Scheme -ne 'https' -or
+        -not $uri.IsDefaultPort -or
+        $uri.DnsSafeHost.ToLowerInvariant() -notin @('chatgpt.com', 'www.chatgpt.com') -or
+        -not [string]::IsNullOrEmpty($uri.UserInfo)
+    ) {
+        return $false
+    }
+
+    $path = $uri.AbsolutePath
+    if ($path.Length -gt 1) {
+        $path = $path.TrimEnd('/')
+    }
+    $conversationSegment = '[A-Za-z0-9_-]{8,128}'
+    $gptSegment = '[A-Za-z0-9_-]{1,128}'
+    if ($path -notmatch ('^/(?:g/' + $gptSegment + '/)?c/' + $conversationSegment + '$')) {
+        return $false
+    }
+
+    $builder = [System.UriBuilder]::new($uri)
+    $builder.Host = 'chatgpt.com'
+    $builder.Path = $path
+    $builder.Query = ''
+    $builder.Fragment = ''
+    $builder.UserName = ''
+    $builder.Password = ''
+    $builder.Port = -1
+    return $builder.Uri.AbsoluteUri -ceq $Value
 }
 
 function Get-WatchEvidenceBinding {
