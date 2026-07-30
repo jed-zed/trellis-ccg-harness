@@ -44,9 +44,28 @@ describe('companion add-on discovery', () => {
     const managed = new Map(report.candidates.map(candidate => [candidate.id, candidate]))
 
     expect(managed.get('fast-context')?.action.command).toBe('ccg init')
-    expect(managed.get('context7')?.action.command).toBe('ccg init')
+    expect(managed.get('context7')?.action.command).toBe('ccg config mcp')
+    expect(managed.get('playwright')?.action.command).toBe('ccg config mcp')
+    expect(managed.get('deepwiki')?.action.command).toBe('ccg config mcp')
+    expect(managed.get('exa')?.action.command).toBe('ccg config mcp')
     expect(managed.get('codegraph')?.action.command).toBe('ccg init')
     expect([...managed.values()].some(candidate => candidate.action.command?.includes('pnpm addons'))).toBe(false)
+  })
+
+  it('publishes the four auxiliary MCPs with official pinned or remote sources', () => {
+    const report = buildCompanionAddonReport()
+    const candidates = new Map(report.candidates.map(candidate => [candidate.id, candidate]))
+
+    expect(candidates.get('context7')?.source?.selector).toBe('@upstash/context7-mcp@3.2.4')
+    expect(candidates.get('playwright')?.source?.selector).toBe('@playwright/mcp@0.0.78')
+    expect(candidates.get('deepwiki')?.source?.endpoint).toBe('https://mcp.deepwiki.com/mcp')
+    expect(candidates.get('exa')?.source?.endpoint).toBe('https://mcp.exa.ai/mcp')
+    expect(candidates.get('exa')?.source?.apiKeys).toBe('https://dashboard.exa.ai/api-keys')
+
+    for (const id of ['context7', 'playwright', 'deepwiki', 'exa']) {
+      expect(candidates.get(id)?.recommended).toBe(true)
+      expect(candidates.get(id)?.selected).toBe(false)
+    }
   })
 
   it('renders deterministic human and JSON evidence with explicit default skip', () => {
@@ -57,6 +76,9 @@ describe('companion add-on discovery', () => {
     expect(human).toContain('Default: skip')
     expect(human).toContain('Ponytail plugin')
     expect(human).toContain('manual-pending')
+    expect(human).toContain('https://mcp.deepwiki.com/mcp')
+    expect(human).toContain('https://mcp.exa.ai/mcp')
+    expect(human).toContain('api-keys: https://dashboard.exa.ai/api-keys')
     expect(JSON.parse(json)).toEqual(report)
     expect(json.endsWith('\n')).toBe(true)
   })

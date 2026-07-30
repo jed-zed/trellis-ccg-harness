@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [Unreleased]
+## [3.4.4] - 2026-07-30
 
 ### Added
 
@@ -15,9 +15,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   catalog, a main-menu entry, a post-init default-skip recommendation, and an
   `AI_INSTALL.md` contract for AI-assisted installation. Recommendations never
   install, download, trust, or select third-party components.
+- **Auxiliary MCP recommendations** — Publish Context7, Playwright, official
+  DeepWiki, and Exa as recommended but unselected catalog entries with a
+  single `ccg config mcp` handoff.
+- **Native remote MCP configuration** — Configure allowlisted Streamable HTTP
+  endpoints as Claude `type=http`, Codex `url`, and Gemini `httpUrl` entries
+  while retaining per-target ownership, adoption, backup, and uninstall.
 
 ### Security
 
+- **Official DeepWiki endpoint** — Replace the obsolete unofficial
+  `mcp-deepwiki` executable with the exact no-auth
+  `https://mcp.deepwiki.com/mcp` endpoint; reject alternate hosts, legacy SSE,
+  URL credentials, queries, and fragments.
+- **Exa credential boundary** — Default to the official hosted free endpoint,
+  link the official API-key dashboard for higher limits, and keep the optional
+  local npm mode behind the existing owner-only secret launcher.
+- **Playwright disclosure** — Explain that Playwright MCP is not a security
+  boundary and that browser downloads, site access, and local profile reuse
+  require separate review.
 - **Loopback-only preview server** — Bind the local Web UI to
   `127.0.0.1` instead of every network interface, preventing LAN/public
   exposure and avoiding repeated Windows Firewall prompts from inbound

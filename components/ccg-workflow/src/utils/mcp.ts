@@ -12,7 +12,7 @@ import { getMcpCommand, isWindows } from './platform'
  * MCP Server Configuration interface
  */
 export interface McpServerConfig {
-  type: 'stdio' | 'sse'
+  type: 'stdio' | 'sse' | 'http'
   command?: string
   args?: string[]
   url?: string

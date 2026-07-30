@@ -38,7 +38,6 @@ describe('trusted executable source inventory', () => {
       '@colbymchenry/codegraph',
       '@upstash/context7-mcp',
       '@playwright/mcp',
-      'mcp-deepwiki',
       'exa-mcp-server',
       '@fission-ai/openspec',
       'ccusage',
@@ -47,6 +46,7 @@ describe('trusted executable source inventory', () => {
     ]
 
     expect(Object.keys(packages).sort()).toEqual(required.sort())
+    expect(packages).not.toHaveProperty('mcp-deepwiki')
     for (const [name, source] of Object.entries(packages) as Array<[string, any]>) {
       expect(source.package).toBe(name)
       expect(source.version).toMatch(/^\d+\.\d+\.\d+(?:[-+][0-9a-z.-]+)?$/i)

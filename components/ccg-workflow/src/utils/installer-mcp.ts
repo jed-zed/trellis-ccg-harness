@@ -45,6 +45,11 @@ export interface McpInstallOptions {
   homeDir?: string
 }
 
+const TRUSTED_REMOTE_MCP_ENDPOINTS: Readonly<Record<string, string>> = {
+  deepwiki: 'https://mcp.deepwiki.com/mcp',
+  exa: 'https://mcp.exa.ai/mcp',
+}
+
 function homeRelative(homeDir: string, path: string): string {
   const normalizedHome = homeDir.replace(/\\/g, '/').replace(/\/+$/u, '')
   const normalizedPath = path.replace(/\\/g, '/')
@@ -392,6 +397,47 @@ export async function installMcpServer(
 }
 
 /**
+ * Configure an allowlisted Streamable HTTP MCP server.
+ *
+ * Remote endpoints are intentionally exact: callers cannot add credentials,
+ * query parameters, fragments, alternate hosts, or legacy SSE paths.
+ */
+export async function installRemoteMcpServer(
+  id: string,
+  url: string,
+  options: McpInstallOptions = {},
+): Promise<McpInstallResult> {
+  try {
+    const expected = TRUSTED_REMOTE_MCP_ENDPOINTS[id]
+    if (!expected)
+      throw new Error(`No trusted remote MCP endpoint is allowlisted for ${id}.`)
+
+    const parsed = new URL(url)
+    if (parsed.protocol !== 'https:')
+      throw new Error('Remote MCP endpoints must use HTTPS.')
+    if (parsed.username || parsed.password)
+      throw new Error('Remote MCP endpoint credentials are forbidden.')
+    if (parsed.search || parsed.hash)
+      throw new Error('Remote MCP endpoint query parameters and fragments are forbidden.')
+    if (url !== expected || parsed.href !== expected)
+      throw new Error(`Remote MCP endpoint is not the trusted allowlist entry for ${id}.`)
+
+    return configureMcpInClaude(
+      id,
+      buildMcpServerConfig({ type: 'http', url: expected }),
+      `${id} remote MCP`,
+      options,
+    )
+  }
+  catch (error) {
+    return {
+      success: false,
+      message: `Failed to configure ${id} remote MCP: ${error}`,
+    }
+  }
+}
+
+/**
  * Uninstall a generic MCP server from Claude Code
  */
 export async function uninstallMcpServer(
@@ -450,6 +496,9 @@ export async function uninstallMcpServer(
 const CCG_MCP_IDS = new Set([
   'grok-search',
   'context7',
+  'playwright',
+  'deepwiki',
+  'exa',
   'ace-tool',
   'ace-tool-rs',
   'contextweaver',
@@ -514,6 +563,20 @@ export function filterSecretSafeMcpServers(
       safe[id] = config
   }
   return safe
+}
+
+function mcpServerForTarget(
+  target: 'codex' | 'gemini',
+  server: McpServerConfig,
+): JsonValue {
+  if (server.type !== 'http')
+    return JSON.parse(JSON.stringify(server)) as JsonValue
+  if (!server.url)
+    throw new Error('Streamable HTTP MCP configuration is missing its URL.')
+
+  return target === 'codex'
+    ? { url: server.url }
+    : { httpUrl: server.url }
 }
 
 function mirrorOwnedCcgServers(
@@ -618,8 +681,9 @@ export async function syncMcpToCodex(
     // Codex needs field-level copy (TOML compatibility: filter null/undefined)
     const codexServersToSync: Record<string, JsonValue> = {}
     for (const [id, server] of Object.entries(source.servers)) {
+      const targetServer = mcpServerForTarget('codex', server) as Record<string, any>
       const entry: Record<string, JsonValue> = {}
-      for (const [key, value] of Object.entries(server as Record<string, any>)) {
+      for (const [key, value] of Object.entries(targetServer)) {
         if (value !== null && value !== undefined) {
           entry[key] = value as JsonValue
         }
@@ -692,9 +756,13 @@ export async function syncMcpToGemini(
       geminiSettings.mcpServers = {}
     }
 
+    const geminiServersToSync: Record<string, JsonValue> = {}
+    for (const [id, server] of Object.entries(source.servers))
+      geminiServersToSync[id] = mcpServerForTarget('gemini', server)
+
     const mirrored = mirrorOwnedCcgServers(
       'gemini',
-      source.servers as unknown as Record<string, JsonValue>,
+      geminiServersToSync,
       geminiSettings.mcpServers as Record<string, JsonValue>,
       source.ledger,
       options.adoptExisting === true,

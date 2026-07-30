@@ -260,6 +260,15 @@ test("package and README expose the human and AI add-on entry points", () => {
   assert.match(aiInstall, /--third-party-mcp-cli/);
   assert.match(aiInstall, /--third-party-source-sha256/);
   assert.match(aiInstall, /--third-party-plan-sha256/);
+  for (const name of ["Context7", "Playwright", "DeepWiki", "Exa"]) {
+    assert.match(readme, new RegExp(name, "i"));
+    assert.match(aiInstall, new RegExp(name, "i"));
+  }
+  assert.match(readme, /https:\/\/mcp\.deepwiki\.com\/mcp/i);
+  assert.match(aiInstall, /https:\/\/mcp\.deepwiki\.com\/mcp/i);
+  assert.match(readme, /https:\/\/dashboard\.exa\.ai\/api-keys/i);
+  assert.match(aiInstall, /https:\/\/dashboard\.exa\.ai\/api-keys/i);
+  assert.match(aiInstall, /ccg config mcp/i);
 });
 
 test("addons status is read-only, global-only, and machine-readable", async () => {
@@ -291,6 +300,9 @@ test("addons status is read-only, global-only, and machine-readable", async () =
         "codegraph",
         "fast-context",
         "context7",
+        "playwright",
+        "deepwiki",
+        "exa",
         "ripgrep",
       ],
     );
@@ -308,6 +320,27 @@ test("addons status is read-only, global-only, and machine-readable", async () =
       result.candidates.find((candidate) => candidate.id === "ponytail.hooks")
         .status,
       "blocked",
+    );
+    for (const id of ["context7", "playwright", "deepwiki", "exa"]) {
+      const candidate = result.candidates.find((entry) => entry.id === id);
+      assert.equal(candidate.kind, "ccg-managed-mcp");
+      assert.deepEqual(candidate.action, {
+        status: "ccg-managed",
+        command: "ccg config mcp",
+        guidance: candidate.action.guidance,
+      });
+      assert.equal(candidate.selected, false);
+      assert.equal(candidate.recommended, true);
+    }
+    assert.equal(
+      result.candidates.find((candidate) => candidate.id === "deepwiki")
+        .source.endpoint,
+      "https://mcp.deepwiki.com/mcp",
+    );
+    assert.equal(
+      result.candidates.find((candidate) => candidate.id === "exa")
+        .source.accessGuide,
+      "https://dashboard.exa.ai/api-keys",
     );
     assert.equal(existsSync(path.join(value.homeDir, ".agents")), false);
     assert.equal(existsSync(path.join(value.repoRoot, ".codegraph")), false);
@@ -443,7 +476,7 @@ test("interactive addons recommends all candidates while defaulting every choice
     );
     assert.equal(result.status, "skipped");
     assert.equal(result.mode, "interactive");
-    assert.equal(questions.length, 9);
+    assert.equal(questions.length, 12);
     assert.equal(
       questions.every(
         (question) =>
@@ -872,7 +905,7 @@ test("interactive Global Init recommends every global candidate but keeps explic
         entry.question.startsWith("Approve ") &&
         !entry.question.startsWith("Approve Global Init"),
     );
-    assert.equal(candidateQuestions.length, 9);
+    assert.equal(candidateQuestions.length, 12);
     assert.equal(
       candidateQuestions.every(
         (entry) =>
@@ -912,13 +945,40 @@ test("interactive Global Init recommends every global candidate but keeps explic
       ),
       true,
     );
-    for (const name of ["CodeGraph", "fast-context", "Context7"]) {
+    for (const name of [
+      "CodeGraph",
+      "fast-context",
+      "Context7",
+      "Playwright",
+      "Exa",
+    ]) {
       const candidate = candidateQuestions.find((entry) =>
         entry.question.startsWith(`Approve ${name}`),
       );
       assert.match(candidate.question, /Source Git tree: [a-f0-9]{40}/i);
       assert.match(candidate.question, /Package SRI: sha512-/i);
     }
+    for (const name of ["Context7", "Playwright", "DeepWiki", "Exa"]) {
+      const candidate = candidateQuestions.find((entry) =>
+        entry.question.startsWith(`Approve ${name}`),
+      );
+      assert.match(
+        candidate.question,
+        /CCG handoff: status=ccg-managed; command=ccg config mcp/i,
+      );
+    }
+    assert.match(
+      candidateQuestions.find((entry) =>
+        entry.question.startsWith("Approve DeepWiki"),
+      ).question,
+      /Endpoint: https:\/\/mcp\.deepwiki\.com\/mcp.*remote-service-no-local-sri/is,
+    );
+    assert.match(
+      candidateQuestions.find((entry) =>
+        entry.question.startsWith("Approve Exa"),
+      ).question,
+      /API key page: https:\/\/dashboard\.exa\.ai\/api-keys/i,
+    );
     assert.match(
       candidateQuestions.find((entry) =>
         entry.question.startsWith("Approve ripgrep"),

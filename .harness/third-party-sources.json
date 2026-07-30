@@ -78,6 +78,52 @@
       "license": "MIT"
     },
     {
+      "id": "playwright",
+      "repository": "https://github.com/microsoft/playwright-mcp.git",
+      "commit": "5f8fc00210b27b4407c375b59cda4838045d429c",
+      "gitTree": "e8676023b878cf97400742026d429db0c5b632c8",
+      "release": "0.0.78",
+      "package": "@playwright/mcp",
+      "packageIntegrity": "sha512-XLTUeA6mEN9sQ+hJ4dfG8EIkDbxS0K3Trc2RBkUJuf02TgE2FQRNTMtq/aJfhyRMINsRl/Ybc4sxcWLtFn4/TQ==",
+      "packageLock": {
+        "path": "npm-locks/playwright.package-lock.json",
+        "sha256": "9b85e2aaa5efc083691bf9460422da762b4bd95d0da081b039b8699c6584bdd4",
+        "lockfileVersion": 3,
+        "packageCount": 4
+      },
+      "documentation": "https://github.com/microsoft/playwright-mcp",
+      "license": "Apache-2.0"
+    },
+    {
+      "id": "deepwiki",
+      "repository": "https://github.com/CognitionAI/deepwiki.git",
+      "commit": "10f554ce266db71f3679a3c37eb140490384a81b",
+      "gitTree": "42a2aea4b29f2d05599e7df304a327fc67a0645a",
+      "endpoint": "https://mcp.deepwiki.com/mcp",
+      "documentation": "https://docs.devin.ai/work-with-devin/deepwiki-mcp",
+      "artifactPolicy": "remote-service-no-local-sri",
+      "license": "Hosted service terms; repository has no declared license"
+    },
+    {
+      "id": "exa",
+      "repository": "https://github.com/exa-labs/exa-mcp-server.git",
+      "commit": "74438bc48ea9853e2e3e56f72535edc4f5c34bf6",
+      "gitTree": "3d2b3e16841ae8cc2d0a05593a751a16e0ffd2c1",
+      "release": "3.2.1",
+      "package": "exa-mcp-server",
+      "packageIntegrity": "sha512-JUcqdfvOh/szKM8iZk//Bm2De4eDiNOud3tZqHSOBK8EgMKJQoXRcLKzWzHLroTwVEfxGL1aB9UdFUiXibV/5A==",
+      "packageLock": {
+        "path": "npm-locks/exa.package-lock.json",
+        "sha256": "08336b202e9dcd7d75158c0d47df66653e2b02ad8b63e6e79c2a090691e7d260",
+        "lockfileVersion": 3,
+        "packageCount": 133
+      },
+      "endpoint": "https://mcp.exa.ai/mcp",
+      "documentation": "https://exa.ai/docs/reference/exa-mcp",
+      "accessGuide": "https://dashboard.exa.ai/api-keys",
+      "license": "MIT"
+    },
+    {
       "id": "ripgrep",
       "repository": "https://github.com/BurntSushi/ripgrep.git",
       "commit": "e89fff89ac9af12e8d4ce9d5fd07beb408ca730f",
@@ -683,7 +729,7 @@
     {
       "id": "context7",
       "name": "Context7 documentation MCP",
-      "kind": "mcp-cli",
+      "kind": "ccg-managed-mcp",
       "group": "mcp-cli",
       "purpose": "Retrieve current library, framework, SDK, CLI, and cloud-service documentation.",
       "sourceId": "context7",
@@ -695,21 +741,134 @@
       },
       "recommended": true,
       "writePaths": [
-        ".agents/harness/tools/context7/3.2.4",
-        ".codex MCP configuration"
+        "CCG-managed MCP host configuration"
       ],
       "dependencies": [],
       "effects": {
-        "scripts": false,
+        "scripts": true,
         "hooks": false,
         "executables": true,
         "network": true,
         "dataEgress": "Sends documentation lookup queries and library identifiers to the Context7 service when invoked."
       },
       "lifecycle": {
-        "update": "new-explicit-version-and-data-egress-approval",
-        "rollback": "restore-owned-tool-and-mcp-config",
-        "uninstall": "remove-only-owned-tool-and-mcp-config"
+        "update": "delegated-to-ccg-managed-mcp",
+        "rollback": "delegated-to-ccg-managed-mcp",
+        "uninstall": "delegated-to-ccg-managed-mcp"
+      },
+      "action": {
+        "status": "ccg-managed",
+        "command": "ccg config mcp",
+        "guidance": "Select Context7 after reviewing that documentation queries and library identifiers leave the machine."
+      },
+      "strictDataBoundaryAllowed": false
+    },
+    {
+      "id": "playwright",
+      "name": "Playwright MCP",
+      "kind": "ccg-managed-mcp",
+      "group": "mcp-cli",
+      "purpose": "Automate and inspect browser sessions for testing and development.",
+      "sourceId": "playwright",
+      "packageSelector": "@playwright/mcp@0.0.78",
+      "entrypoint": "playwright-mcp",
+      "scope": "global",
+      "approvalDefaults": {
+        "selected": false
+      },
+      "recommended": true,
+      "writePaths": [
+        "CCG-managed MCP host configuration"
+      ],
+      "dependencies": [],
+      "effects": {
+        "scripts": true,
+        "hooks": false,
+        "executables": true,
+        "network": true,
+        "dataEgress": "Browser pages, interactions, and selected local browser state may be exposed; browser downloads require separate approval."
+      },
+      "lifecycle": {
+        "update": "delegated-to-ccg-managed-mcp",
+        "rollback": "delegated-to-ccg-managed-mcp",
+        "uninstall": "delegated-to-ccg-managed-mcp"
+      },
+      "action": {
+        "status": "ccg-managed",
+        "command": "ccg config mcp",
+        "guidance": "Select Playwright only after reviewing browser, file, site, and download permissions."
+      },
+      "strictDataBoundaryAllowed": false
+    },
+    {
+      "id": "deepwiki",
+      "name": "DeepWiki MCP",
+      "kind": "ccg-managed-mcp",
+      "group": "mcp-cli",
+      "purpose": "Query official DeepWiki documentation for public repositories.",
+      "sourceId": "deepwiki",
+      "scope": "global",
+      "approvalDefaults": {
+        "selected": false
+      },
+      "recommended": true,
+      "writePaths": [
+        "CCG-managed MCP host configuration"
+      ],
+      "dependencies": [],
+      "effects": {
+        "scripts": false,
+        "hooks": false,
+        "executables": false,
+        "network": true,
+        "dataEgress": "Repository identifiers and DeepWiki queries are sent to the official public DeepWiki service."
+      },
+      "lifecycle": {
+        "update": "delegated-to-ccg-managed-mcp",
+        "rollback": "delegated-to-ccg-managed-mcp",
+        "uninstall": "delegated-to-ccg-managed-mcp"
+      },
+      "action": {
+        "status": "ccg-managed",
+        "command": "ccg config mcp",
+        "guidance": "Configure the official free, no-auth Streamable HTTP endpoint; the legacy SSE endpoint is not used."
+      },
+      "strictDataBoundaryAllowed": false
+    },
+    {
+      "id": "exa",
+      "name": "Exa MCP",
+      "kind": "ccg-managed-mcp",
+      "group": "mcp-cli",
+      "purpose": "Search and fetch web content through Exa.",
+      "sourceId": "exa",
+      "packageSelector": "exa-mcp-server@3.2.1",
+      "entrypoint": "exa-mcp-server",
+      "scope": "global",
+      "approvalDefaults": {
+        "selected": false
+      },
+      "recommended": true,
+      "writePaths": [
+        "CCG-managed MCP host configuration"
+      ],
+      "dependencies": [],
+      "effects": {
+        "scripts": true,
+        "hooks": false,
+        "executables": true,
+        "network": true,
+        "dataEgress": "Search queries and requested URLs are sent to Exa; local key mode stores only a secret-backed launcher reference."
+      },
+      "lifecycle": {
+        "update": "delegated-to-ccg-managed-mcp",
+        "rollback": "delegated-to-ccg-managed-mcp",
+        "uninstall": "delegated-to-ccg-managed-mcp"
+      },
+      "action": {
+        "status": "ccg-managed",
+        "command": "ccg config mcp",
+        "guidance": "Use the hosted free tier without a key, or obtain a key from the official dashboard for the local production mode."
       },
       "strictDataBoundaryAllowed": false
     },

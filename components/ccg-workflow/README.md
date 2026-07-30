@@ -233,8 +233,9 @@ Requires **Node.js 20+** and **Claude Code CLI**. Codex CLI, Gemini CLI, and Gro
 If you hand this repository URL to an AI agent, have it follow
 [`AI_INSTALL.md`](./AI_INSTALL.md). The repository URL is not installation
 approval. After CCG is installed, `ccg addons` or `ccg addons --json` shows the
-recommended Ponytail, Caveman, grill-me, and MCP companions without installing
-anything; the default is always skip.
+recommended Ponytail, Caveman, grill-me, Context7, Playwright, official
+DeepWiki, and Exa companions without installing anything; the default is always
+skip. Approved auxiliary MCPs are configured separately with `ccg config mcp`.
 
 ## CLI Commands
 
@@ -252,7 +253,7 @@ node bin/ccg.mjs codex-mode recover       # Recover an interrupted Codex transac
 node bin/ccg.mjs routing list              # Show three top-level role providers
 node bin/ccg.mjs routing set frontend claude # Change one role only
 node bin/ccg.mjs uninstall                # Uninstall CCG
-node bin/ccg.mjs config mcp               # Configure MCP tokens
+node bin/ccg.mjs config mcp               # Configure approved MCPs
 node bin/ccg.mjs diagnose-mcp             # Static MCP diagnosis
 node bin/ccg.mjs diagnose-mcp --smoke     # Opt-in bounded stdio handshake
 node bin/ccg.mjs grok login               # Direct official Grok browser login
@@ -306,6 +307,13 @@ Set in `~/.claude/settings.json` under `"env"`:
   strict ownership ledger. Same-name user entries require explicit adoption,
   retain their first exact structured baseline, and are restored on uninstall;
   post-install user edits are preserved and block mutation.
+- Official remote MCP endpoints are exact HTTPS allowlist entries. Streamable
+  HTTP is written in each host's native shape (`type=http`, `url`, or
+  `httpUrl`), and URL credentials, arbitrary queries, and legacy DeepWiki SSE
+  are rejected.
+- Exa's hosted free tier does not require a key. The CLI links
+  `https://dashboard.exa.ai/api-keys` for higher limits and keeps optional local
+  keys in the owner-only secret launcher.
 - Codex mode uses strict digest-bound ownership and transaction manifests.
   Install and uninstall reject linked/junction path components, preserve
   unrelated user files, and fail closed on malformed or modified state. A
@@ -367,4 +375,4 @@ MIT
 
 ---
 
-v3.4.3 | [Issues](https://github.com/jed-zed/ccg-gptpro-worflow/issues) | [Contributing](./CONTRIBUTING.md)
+v3.4.4 | [Issues](https://github.com/jed-zed/ccg-gptpro-worflow/issues) | [Contributing](./CONTRIBUTING.md)

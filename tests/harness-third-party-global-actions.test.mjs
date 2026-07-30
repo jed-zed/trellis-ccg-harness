@@ -1008,31 +1008,47 @@ test("an existing conflicting or exact-but-unowned MCP is never overwritten or c
   }
 });
 
-test("Context7 installs only after explicit approval and keeps MCP host mutation manual", async () => {
-  const value = fixture();
-  try {
-    const result = await applyThirdPartyGlobalActions({
-      manifest,
-      approvals: value.approvals(["context7"]),
-      homeDir: value.homeDir,
-      allowNetwork: true,
-      runCommand: value.runCommand,
-    });
-    assert.equal(result.status, "applied");
-    const npm = value.commands.find((entry) => entry.command === "npm");
-    assert.equal(npm.args[0], "ci");
-    assert.equal(npm.args.includes("--ignore-scripts"), true);
-    const source = manifest.sources.find((entry) => entry.id === "context7");
-    assert.equal(source.packageLock.sha256, "177549944f63b0186c070cf875c52737ab2842a8c943907e9e988186d8fea328");
-    assert.equal(result.actions[0].status, "manual-pending");
-    assert.equal(value.commands.some(
-      (entry) =>
-        entry.command === "codex" &&
-        entry.args.slice(0, 2).join(" ") === "mcp add",
-    ), false);
-    assert.doesNotMatch(JSON.stringify(value.commands), /(?:main|latest|npm view)/i);
-  } finally { value.cleanup(); }
-});
+for (const id of ["context7", "playwright", "deepwiki", "exa"]) {
+  test(`${id} approval returns the fixed CCG handoff without installing or configuring`, async () => {
+    const value = fixture();
+    try {
+      const result = await applyThirdPartyGlobalActions({
+        manifest,
+        approvals: value.approvals([id]),
+        homeDir: value.homeDir,
+        allowNetwork: true,
+        runCommand: value.runCommand,
+      });
+      assert.equal(result.status, "applied");
+      assert.equal(result.actions[0].status, "manual-pending");
+      assert.deepEqual(result.actions[0].handoff, {
+        status: "ccg-managed",
+        command: "ccg config mcp",
+        guidance: result.actions[0].handoff.guidance,
+      });
+      assert.match(result.actions[0].reason, /delegated.*CCG|CCG.*workflow/i);
+      assert.deepEqual(value.commands, []);
+      assert.doesNotMatch(
+        JSON.stringify(result),
+        /mcp-deepwiki|must-not-appear/i,
+      );
+      if (id === "deepwiki") {
+        assert.equal(
+          result.actions[0].source.endpoint,
+          "https://mcp.deepwiki.com/mcp",
+        );
+      }
+      if (id === "exa") {
+        assert.equal(
+          result.actions[0].source.accessGuide,
+          "https://dashboard.exa.ai/api-keys",
+        );
+      }
+    } finally {
+      value.cleanup();
+    }
+  });
+}
 
 test("an absent MCP remains manual across retries and is never added without create-only semantics", async () => {
   const value = fixture();
