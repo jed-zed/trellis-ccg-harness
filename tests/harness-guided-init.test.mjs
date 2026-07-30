@@ -1058,6 +1058,79 @@ test("ready Project Skill revision accepts a credential-free saved catalog remot
   }
 });
 
+test("ready Project Skill revision rejects ignored files that are absent from the claimed commit", async () => {
+  const value = fixture();
+  try {
+    const repository = path.join(value.root, "ignored-file-catalog");
+    mkdirSync(repository);
+    writeCatalogSkill(repository, "test-first", "Use when tests lead changes.");
+    writeCatalogSkill(
+      repository,
+      "docs-helper",
+      "Use when project documentation must stay current.",
+    );
+    writeFileSync(
+      path.join(repository, ".gitignore"),
+      "docs-helper/ignored-runtime.txt\n",
+    );
+    initializeGitRepository(repository);
+    await runGlobalInit({
+      approved: true,
+      catalogMode: "local",
+      catalogPath: repository,
+      homeDir: value.homeDir,
+      providerActions: PROVIDER_LATER,
+      providerStatusOverrides: {
+        codex: "authenticated",
+        gemini: "not-installed",
+        grok: "not-installed",
+        claude: "not-installed",
+      },
+      skillRoot: SKILL_ROOT,
+    });
+    const contractPath = approvedContract(value.repoRoot, ["test-first"]);
+    await applyProjectContract({
+      contractPath,
+      repoRoot: value.repoRoot,
+      skillRoot: SKILL_ROOT,
+    });
+    await markProjectReady({
+      repoRoot: value.repoRoot,
+      skillRoot: SKILL_ROOT,
+    });
+    writeFileSync(
+      path.join(repository, "docs-helper", "ignored-runtime.txt"),
+      "not committed\n",
+    );
+
+    await assert.rejects(
+      reviseReadyProjectSkills({
+        approved: true,
+        repoRoot: value.repoRoot,
+        homeDir: value.homeDir,
+        selectedSkills: ["test-first", "docs-helper"],
+        globalEssentialSkills: GLOBAL_PLATFORM_SKILLS,
+        skillRoot: SKILL_ROOT,
+      }),
+      /not fully tracked by repository commit/i,
+    );
+    assert.equal(
+      existsSync(
+        path.join(
+          value.repoRoot,
+          ".agents",
+          "skills",
+          "docs-helper",
+          "ignored-runtime.txt",
+        ),
+      ),
+      false,
+    );
+  } finally {
+    value.cleanup();
+  }
+});
+
 test("ready Project Skill revision recovers a hard kill after the journaled directory replacement", async () => {
   const value = fixture();
   let child;

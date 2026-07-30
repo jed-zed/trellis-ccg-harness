@@ -1308,6 +1308,75 @@ async function readCleanSkillRepositoryIdentity(repositoryPath) {
   });
 }
 
+async function assertSkillSnapshotBoundToRepositoryCommit({
+  repositoryPath,
+  repositoryCommit,
+  sourceRelativePath,
+  snapshot,
+}) {
+  const normalizedSource = sourceRelativePath
+    .split("/")
+    .filter(Boolean)
+    .join("/");
+  const { stdout } = await execFile(
+    "git",
+    [
+      "-C",
+      repositoryPath,
+      "ls-tree",
+      "-r",
+      "-z",
+      "--name-only",
+      repositoryCommit,
+      "--",
+      normalizedSource,
+    ],
+    {
+      encoding: "utf8",
+      maxBuffer: 64 * 1024 * 1024,
+      windowsHide: true,
+    },
+  );
+  const prefix = `${normalizedSource}/`;
+  const trackedFiles = String(stdout ?? "")
+    .split("\0")
+    .filter(Boolean)
+    .map((entry) => {
+      if (!entry.startsWith(prefix)) {
+        throw new Error(
+          `Project Skill repository returned an out-of-scope tree entry: ${entry}`,
+        );
+      }
+      return entry.slice(prefix.length);
+    })
+    .sort((left, right) => left.localeCompare(right));
+  const snapshotFiles = snapshot.files
+    .map((entry) => entry.path)
+    .sort((left, right) => left.localeCompare(right));
+  if (canonicalJson(trackedFiles) !== canonicalJson(snapshotFiles)) {
+    throw new Error(
+      `Project Skill snapshot is not fully tracked by repository commit ${repositoryCommit}.`,
+    );
+  }
+  for (const entry of snapshot.files) {
+    const repositoryFile = path.posix.join(normalizedSource, entry.path);
+    const { stdout: committedBytes } = await execFile(
+      "git",
+      ["-C", repositoryPath, "show", `${repositoryCommit}:${repositoryFile}`],
+      {
+        encoding: "buffer",
+        maxBuffer: 64 * 1024 * 1024,
+        windowsHide: true,
+      },
+    );
+    if (sha256(committedBytes) !== entry.sha256) {
+      throw new Error(
+        `Project Skill file differs from repository commit ${repositoryCommit}: ${repositoryFile}`,
+      );
+    }
+  }
+}
+
 function normalizeRepositoryIdentity(identity) {
   assertExactKeys(
     identity,
@@ -1547,6 +1616,12 @@ export async function reviseReadyProjectSkills({
       ...catalogEntry.relativePath.split("/"),
     );
     const snapshot = await snapshotSkillTree(sourcePath);
+    await assertSkillSnapshotBoundToRepositoryCommit({
+      repositoryPath: profile.repositoryPath,
+      repositoryCommit: identity.commit,
+      sourceRelativePath: catalogEntry.relativePath,
+      snapshot,
+    });
     const skillDefinition = snapshot.files.find(
       (entry) => entry.path === "SKILL.md",
     );
