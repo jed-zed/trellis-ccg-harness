@@ -388,6 +388,20 @@ describe('GPT Pro sidebar bridge', () => {
     }
   })
 
+  it('resolves the project sidebar Skill before the global fallback', () => {
+    for (const relativePath of [
+      'docs/gptpro-manual-bridge.md',
+      'plugins/ccg/skills/ccg-gptpro-bridge/SKILL.md',
+    ]) {
+      const content = readFileSync(join(PACKAGE_ROOT, ...relativePath.split('/')), 'utf-8')
+      const projectSkill = '<project-root>/.agents/skills/chatgpt-pro-sidebar/'
+      const globalSkill = '~/.codex/skills/chatgpt-pro-sidebar/'
+      expect(content, relativePath).toContain(projectSkill)
+      expect(content, relativePath).toContain(globalSkill)
+      expect(content.indexOf(projectSkill), relativePath).toBeLessThan(content.indexOf(globalSkill))
+    }
+  })
+
   it('requires automatic watcher completion and bridge import instead of a manual save gate', () => {
     const surfaces = [
       'templates/commands/gptpro-plan.md',
@@ -1266,6 +1280,31 @@ describe('GPT Pro sidebar bridge', () => {
     expect(status.routing_evidence).toMatchObject({
       required: true,
       available: true,
+    })
+  })
+
+  maybeIt.each([
+    ['engine', BRIDGE],
+    ['plugin', PLUGIN_BRIDGE],
+  ] as const)('defaults direct %s plan sessions to optional Gemini evidence', (_surface, bridge) => {
+    const root = join(TMP_ROOT, `direct-${_surface}-plan-without-gemini`)
+    fs.ensureDirSync(root)
+    const output = runPython(PYTHON!, [
+      bridge,
+      '--mode',
+      'plan',
+      '--workdir',
+      root,
+      '--output-root',
+      join(root, 'sessions'),
+      '--prompt',
+      'Review this direct bridge plan without requiring Gemini.',
+    ], root)
+    const status = fs.readJsonSync(parseOutputPath(output, 'CCG_GPTPRO_STATUS_FILE'))
+    expect(status.gemini_evidence).toMatchObject({
+      policy: 'optional',
+      role: 'gate',
+      available: false,
     })
   })
 

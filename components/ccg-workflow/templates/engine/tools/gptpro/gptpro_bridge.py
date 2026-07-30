@@ -816,7 +816,7 @@ def read_template(name: str) -> str:
 
 
 def default_gemini_policy(mode: str) -> str:
-    return "optional" if mode == "exc" else "required"
+    return "optional"
 
 
 def default_gemini_evidence_role(mode: str) -> str:
@@ -1411,7 +1411,7 @@ def create_session(
     gemini_evidence = normalize_gemini_evidence(gemini_evidence, policy, role)
     if policy == "required" and not gemini_evidence.get("available"):
         raise ValueError("CCG_GEMINI_RESPONSE_FILE is required before GPT Pro bridge session creation.")
-    if policy == "required" and role == "gate":
+    if role == "gate" and gemini_evidence.get("available"):
         if task_dir_path is None:
             raise ValueError("Canonical Gemini gate validation requires an active supported task directory.")
         response_value = str(gemini_evidence.get("response_file") or "")

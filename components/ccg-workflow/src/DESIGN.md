@@ -38,6 +38,20 @@ distribution with public upstream.
 - Wrapper platform, download, digest, or version failure is fatal. Initialization
   stops and returns failure until the pinned binary verifies.
 
+### Companion add-on discovery
+
+- `ccg addons` reads only the built-in catalog and the existing reviewed source
+  registry. It performs no install, download, command execution, configuration
+  write, hook trust, or network request.
+- Every candidate remains unselected and the default action is `skip`.
+  Recommendation metadata never grants installation authority.
+- Existing CCG-managed MCPs point back to the established `ccg init` flow.
+  External Skills, plugins, hook trust, and global defaults remain
+  `manual-pending` until an owner approves the exact action in a separate
+  installer with ownership and rollback controls.
+- `AI_INSTALL.md` applies the same authority boundary when an AI agent receives
+  only a repository URL or a broad installation request.
+
 ### Global ownership
 
 - Codex mode owns one marked AGENTS block, one structured hook group, and files
@@ -116,6 +130,19 @@ fails closed to Trellis-only guidance and never creates `.ccg/tasks`.
   scans exclude test fixtures and must have zero Critical/High findings.
 
 ## Change History
+
+### 2026-07-30 - Companion add-on discovery boundary
+
+**Change:** Added a read-only, default-skip companion catalog, post-init
+recommendation, main-menu entry, and AI-assisted installation contract.
+
+**Reason:** Ponytail and related integrations should be discoverable without
+silently converting a recommendation or repository link into installation
+authority.
+
+**Impact:** CLI command registration, init/menu output, source metadata
+presentation, package documentation, and regression tests. Existing installers
+and ownership state are unchanged.
 
 ### 2026-07-27 - Three-role provider routing
 

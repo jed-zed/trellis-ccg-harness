@@ -37,6 +37,7 @@
   "types": "dist/index.d.mts",
   "files": [
     "bin/ccg.mjs",
+    "AI_INSTALL.md",
     "third-party-sources.json",
     "dist",
     "templates/commands/",

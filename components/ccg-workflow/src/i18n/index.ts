@@ -35,6 +35,7 @@ const zhCN = {
       commandDescriptions: {
         showMenu: '显示交互式菜单（默认）',
         initConfig: '初始化 CCG 多模型协作系统',
+        addons: '只读查看推荐的伴生 Add-on',
         configMcp: '配置 MCP Token',
         diagnoseMcp: '诊断 MCP 配置问题',
         fixMcp: '修复 Windows MCP 配置',
@@ -381,6 +382,7 @@ const zhCN = {
       configApi: '配置 API',
       configStyle: '配置输出风格',
       configModel: '配置模型路由',
+      addons: '推荐 Add-on',
       tools: '实用工具',
       installClaude: '安装 Claude Code',
       uninstall: '卸载 CCG',
@@ -550,6 +552,7 @@ const en: typeof zhCN = {
       commandDescriptions: {
         showMenu: 'Show interactive menu (default)',
         initConfig: 'Initialize CCG multi-model collaboration system',
+        addons: 'Show recommended companion add-ons (read-only)',
         configMcp: 'Configure MCP Token',
         diagnoseMcp: 'Diagnose MCP configuration issues',
         fixMcp: 'Fix Windows MCP configuration',
@@ -896,6 +899,7 @@ const en: typeof zhCN = {
       configApi: 'Configure API',
       configStyle: 'Configure output style',
       configModel: 'Configure model routing',
+      addons: 'Recommended add-ons',
       tools: 'Tools',
       installClaude: 'Install Claude Code',
       uninstall: 'Uninstall CCG',

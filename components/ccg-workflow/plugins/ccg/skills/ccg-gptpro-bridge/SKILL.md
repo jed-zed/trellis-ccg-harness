@@ -15,9 +15,11 @@ implementation owner, or lifecycle authority.
 
 ## Required Transport
 
-Load and follow `~/.codex/skills/chatgpt-pro-sidebar/SKILL.md` before any ChatGPT interaction.
+Resolve and follow the active `chatgpt-pro-sidebar/SKILL.md` before any ChatGPT interaction.
+Prefer the approved project copy at `<project-root>/.agents/skills/chatgpt-pro-sidebar/SKILL.md`;
+fall back to `~/.codex/skills/chatgpt-pro-sidebar/SKILL.md` only when no project copy exists.
 
-- Fail closed if the installed Skill or its scripts are unavailable.
+- Fail closed if neither installed Skill location or its scripts are available.
 - Use `chatgpt-pro-sidebar.ps1` as the only ChatGPT side-panel UI entry point.
 - Use `chatgpt-pro-sidebar-watch.ps1` for detached token-free monitoring and same-task Stop Hook
   continuation.

@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Companion add-on discovery** — Add the read-only `ccg addons [--json]`
+  catalog, a main-menu entry, a post-init default-skip recommendation, and an
+  `AI_INSTALL.md` contract for AI-assisted installation. Recommendations never
+  install, download, trust, or select third-party components.
+
 ### Security
 
 - **Loopback-only preview server** — Bind the local Web UI to

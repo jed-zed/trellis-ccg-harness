@@ -230,11 +230,19 @@ node bin/ccg.mjs init
 
 Requires **Node.js 20+** and **Claude Code CLI**. Codex CLI, Gemini CLI, and Grok CLI are optional (enable multi-model features).
 
+If you hand this repository URL to an AI agent, have it follow
+[`AI_INSTALL.md`](./AI_INSTALL.md). The repository URL is not installation
+approval. After CCG is installed, `ccg addons` or `ccg addons --json` shows the
+recommended Ponytail, Caveman, grill-me, and MCP companions without installing
+anything; the default is always skip.
+
 ## CLI Commands
 
 ```bash
 node bin/ccg.mjs                          # Interactive menu
 node bin/ccg.mjs init                     # 4-step install wizard
+node bin/ccg.mjs addons                   # Read-only companion add-on catalog
+node bin/ccg.mjs addons --json            # Machine-readable catalog for AI agents
 node bin/ccg.mjs doctor                   # Environment health check
 node bin/ccg.mjs doctor --platform codex  # Explicit Codex ownership/version health check
 node bin/ccg.mjs status                   # Installation overview

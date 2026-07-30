@@ -230,11 +230,18 @@ node bin/ccg.mjs init
 
 需要 **Node.js 20+** 和 **Claude Code CLI**。Codex CLI、Gemini CLI 和 Grok CLI 为可选（启用多模型功能）。
 
+如果你把仓库链接直接交给 AI 安装，请让它先遵循
+[`AI_INSTALL.md`](./AI_INSTALL.md)。仓库链接本身不代表安装授权。CCG
+安装完成后，可运行 `ccg addons` 或 `ccg addons --json` 只读查看推荐的
+Ponytail、Caveman、grill-me 和 MCP 伴生组件；不会自动安装，默认始终跳过。
+
 ## CLI 命令大全
 
 ```bash
 node bin/ccg.mjs                          # 交互式菜单
 node bin/ccg.mjs init                     # 4 步安装向导
+node bin/ccg.mjs addons                   # 只读查看推荐的伴生 Add-on
+node bin/ccg.mjs addons --json            # 供 AI 使用的机器可读目录
 node bin/ccg.mjs doctor                   # 环境健康检查
 node bin/ccg.mjs doctor --platform codex  # 显式检查 Codex 所有权与版本健康状态
 node bin/ccg.mjs status                   # 安装概况

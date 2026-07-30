@@ -22,7 +22,13 @@ The Codex plugin copy is:
 plugins/ccg/skills/ccg-gptpro-bridge/
 ```
 
-The required personal Skill is installed at:
+Resolve the required personal Skill from the active project first:
+
+```text
+<project-root>/.agents/skills/chatgpt-pro-sidebar/
+```
+
+Only when the project copy is absent, fall back to:
 
 ```text
 ~/.codex/skills/chatgpt-pro-sidebar/
