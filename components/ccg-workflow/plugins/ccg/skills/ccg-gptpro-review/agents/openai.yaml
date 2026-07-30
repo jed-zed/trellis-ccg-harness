@@ -1,4 +1,4 @@
 interface:
   display_name: "CCG GPT Pro Review"
-  short_description: "Create a manual ChatGPT Pro review second-opinion bridge."
+  short_description: "Automate a ChatGPT Pro review second opinion."
   default_prompt: "Use $ccg-gptpro-review to run /ccg:gptpro-review."

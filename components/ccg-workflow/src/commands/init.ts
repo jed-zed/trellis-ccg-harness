@@ -11,6 +11,7 @@ import { createDefaultConfig, createDefaultRouting, ensureCcgDir, readCcgConfig,
 import { getAllCommandIds, getCoreCommandIds, installAceTool, installContextWeaver, installFastContext, installMcpServer, installWorkflows, showBinaryInstallFailure, syncMcpToCodex, syncMcpToGemini, writeFastContextPrompt } from '../utils/installer'
 import { migrateToV1_4_0, needsMigration } from '../utils/migration'
 import { gitExecutableSource, npmSelector } from '../utils/third-party-sources'
+import { printCompanionAddonRecommendation } from './addons'
 
 /**
  * Auto-approve codeagent-wrapper Bash commands in settings.json.
@@ -1445,6 +1446,7 @@ export async function init(options: InitOptions = {}): Promise<InitResult> {
         installDir,
       }
     }
+    printCompanionAddonRecommendation()
     return {
       success: true,
       cancelled: false,

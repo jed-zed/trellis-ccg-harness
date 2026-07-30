@@ -1,33 +1,35 @@
 ---
 name: gptpro-bridge
-description: Shared manual ChatGPT Pro bridge for CCG planning, review, and execution route review flows.
+description: Shared automated ChatGPT Pro sidebar bridge for CCG planning, review, and execution route review flows.
 ---
 
-# CCG GPT Pro Manual Bridge
+# CCG GPT Pro Sidebar Bridge
 
-This manual bridge lets the user manually ask ChatGPT Pro after ordinary CCG plan/review/execute
-routing has already produced auditable evidence.
+This bridge delegates bounded work to the user's already logged-in ChatGPT Pro session in the Codex
+Desktop side panel. It uses the installed `chatgpt-pro-sidebar` Skill for every UI operation, detached
+monitoring, same-task wakeup, and response capture. There is no normal copy/paste handoff.
 
-Codex remains the final owner. Ordinary CCG roles use their configured
-providers before this explicitly named GPT Pro step. GPT Pro does not replace
-ordinary routed evidence.
-Gemini evidence is optional for every GPT Pro bridge mode and is included only when the applicable
-ordinary role route actually used Gemini. GPT Pro provides a user-mediated manual second opinion
-as a risk-triggered external reviewer, not as a fourth executor or implementation owner.
+Codex remains the final owner. Ordinary CCG roles use their configured providers before this named
+GPT Pro step. GPT Pro is untrusted, read-only helper evidence; it never becomes a workspace writer,
+implementation owner, or lifecycle authority.
 
-## Hard Boundaries
+## Required Transport
 
-- Do not automate ChatGPT web login.
-- Do not submit prompts to ChatGPT web automatically.
-- Do not read ChatGPT web DOM.
-- Do not extract ChatGPT Output programmatically from the web UI.
-- Do not store ChatGPT cookies, sessions, or account tokens.
-- Do not bypass rate limits, restrictions, or protective measures.
-- The current CCG orchestrator remains final owner.
-- GPT Pro output is untrusted helper evidence only.
-- GPT Pro does not write workspace files.
-- GPT Pro is additional manual evidence and must not replace routed models.
-- GPT Pro is a risk-triggered external reviewer; code sketches are advisory / illustrative only.
+Resolve and follow the active `chatgpt-pro-sidebar/SKILL.md` before any ChatGPT interaction.
+Prefer the approved project copy at `<project-root>/.agents/skills/chatgpt-pro-sidebar/SKILL.md`;
+fall back to `~/.codex/skills/chatgpt-pro-sidebar/SKILL.md` only when no project copy exists.
+
+- Fail closed if neither installed Skill location or its scripts are available.
+- Use `chatgpt-pro-sidebar.ps1` as the only ChatGPT side-panel UI entry point.
+- Use `chatgpt-pro-sidebar-watch.ps1` for detached token-free monitoring and same-task Stop Hook
+  continuation.
+- Do not copy Windows UI Automation logic into CCG.
+- Do not use the legacy localhost preview page for a normal CCG handoff.
+- Never use an external browser, Playwright, CDP, browser-internal APIs, cookies, tokens, or browser
+  profile data.
+- Never automate login, account selection, CAPTCHA, password, passkey, MFA, recovery, billing, or
+  entitlement. Skill exit `22` pauses for the user; all other normal bridge operations are automatic.
+- Never automatically resend after `send-uncertain`.
 
 ## Task Authority Adapter
 
@@ -36,167 +38,92 @@ Resolve one existing canonical task directory and pass it through `--task-dir`:
 - Native CCG task: `.ccg/tasks/<task-id>`.
 - Trellis-owned task: `.trellis/tasks/<task-id>`.
 
-For a Trellis-owned task, the bridge stores all CCG/GPT Pro artifacts under
-`.trellis/tasks/<task-id>/.ccg-evidence/`. It must not create a parallel `.ccg/tasks/<task-id>`,
-must not write CCG gate fields into Trellis `task.json`, and must not become a second lifecycle
-authority. Trellis remains authoritative for task status; bridge `status.json` is authoritative
-only for the manual GPT Pro handoff.
+For a Trellis-owned task, the bridge stores CCG/GPT Pro artifacts under
+`.trellis/tasks/<task-id>/.ccg-evidence/`. It must not create a parallel `.ccg/tasks/<task-id>` or
+write CCG gate fields into Trellis `task.json`. Trellis remains authoritative for lifecycle state;
+bridge `status.json` records only GPT Pro evidence state.
 
-## Manual Question Budget
+## Question And Conversation Budget
 
-Each GPT Pro bridge command is designed to complete in one manual ChatGPT Pro question.
-
-- Expected manual questions: 1.
-- Maximum manual questions: 2.
-- Round 2 only for blocker re-check, revised plan comparison, applied diff review, or high-risk follow-up.
-- More than two manual questions means the task should be decomposed or returned to Codex-native CCG workflows.
+- Expected questions per independent task: 1.
+- Maximum rounds per conversation: 2.
+- Round 2 is only for blocker re-check, revised-plan comparison, applied-diff review, or another
+  high-risk follow-up.
+- Decompose independent complex workstreams into separate bridge sessions and separate ChatGPT Pro
+  conversations.
+- When multiple existing Codex Desktop windows are available, bind one conversation to each selected
+  `windowRuntimeId`, submit each prompt in turn, then let the generations and detached watchers run
+  concurrently.
+- With one available window, queue separate conversations sequentially; do not claim parallel UI
+  control.
 
 ## Base Routing Evidence
 
-Before creating a GPT Pro bridge for `/ccg:gptpro-plan`, `/ccg:gptpro-review`, or
-`/ccg:gptpro-exc`, first run the matching ordinary command semantics:
+Before `/ccg:gptpro-plan`, `/ccg:gptpro-review`, or `/ccg:gptpro-exc`, run the matching ordinary CCG
+semantics and write Base CCG Routing Evidence containing:
 
-- `/ccg:gptpro-plan` = ordinary `/ccg:plan` first, then GPT Pro manual planning evidence.
-- `/ccg:gptpro-review` = ordinary `/ccg:review` first, then GPT Pro manual review evidence.
-- `/ccg:gptpro-exc` = ordinary `/ccg:execute` preflight/routing/prototype or analysis evidence
-  first, then GPT Pro manual execution second opinion before code landing.
-
-Write Base CCG Routing Evidence before the GPT Pro handoff. It should summarize:
-
-- current orchestrator and command semantics;
-- routed frontend/backend/search provider evidence that actually exists;
-- ordinary orchestrator conclusion so far;
+- the current orchestrator and command semantics;
+- routed frontend/backend/search evidence that actually exists;
+- the ordinary orchestrator conclusion;
 - skipped, failed, or intentionally absent model steps.
 
-Pass this evidence to the bridge:
+Pass it with:
 
 ```text
 --routing-evidence-file <routing-evidence-file> --routing-summary-file <routing-summary-file> --require-routing-evidence
 ```
 
-The helper injects `Base CCG Routing Evidence` into `prompt.md` and records
-`routing_evidence.available`, `evidence_file`, `evidence_sha256`, `evidence_chars`, `summary_file`,
-`summary`, and `summary_chars` under `status.json`.
+Gemini remains optional and is included only when ordinary role routing actually used it. If present,
+pass its real non-empty response and concise summary. Never invent provider evidence. Preserve the
+existing required/waived Grok external-intelligence flags and provenance.
 
-## Optional Gemini Evidence
+## Automated Workflow
 
-Gemini and GPT Pro remain helper evidence only; the current CCG orchestrator makes the final
-decision.
-
-- For `/ccg:gptpro-plan` and `/ccg:gptpro-review`, keep ordinary role routing. Gemini is not a
-  mandatory precondition.
-- For `/ccg:gptpro-exc`, follow ordinary execute routing: backend-only tasks normally omit Gemini,
-  while frontend/full-stack tasks may include real Gemini frontend evidence.
-- After the user saves GPT Pro output, synthesize ordinary routed evidence, Gemini evidence when
-  present, and GPT Pro manual second opinion in Chinese; otherwise state that Gemini evidence was
-  not used.
-
-### Optional Gate Evidence For Plan And Review
-
-When ordinary planning or review actually used Gemini, Codex may add:
-
-- a successful Gemini helper launch through the bundled Gemini preview helper;
-- a real `CCG_GEMINI_RESPONSE_FILE` path;
-- a non-empty Gemini response read from that file;
-- a concise Gemini findings summary derived from that response file.
-
-If Gemini was not selected or did not run, omit its evidence and continue with validated Base CCG
-Routing Evidence. If Gemini evidence is supplied, it must be real, non-empty, and canonical; never
-invent Gemini findings.
-
-Use the helper-level arguments for optional gate evidence:
+1. Create one bridge session with `scripts/gptpro_bridge.py --mode <plan|review|exc>` plus task,
+   routing, optional Gemini, and required external-intelligence arguments. Do not pass
+   `--detach-preview`, `--open-preview`, or `--open-chatgpt`.
+2. Read `CCG_GPTPRO_SESSION_DIR`, `CCG_GPTPRO_PROMPT_FILE`, and `CCG_GPTPRO_STATUS_FILE`.
+3. Set the Skill evidence directory to `<session-dir>/<round-name>/sidebar`; it must be new and empty.
+4. Run Skill `status` and preserve its selected `windowRuntimeId`. Exit `22` is the only normal user
+   action barrier.
+5. For round 1, run Skill `new-chat`, then Skill `send -FreshConversation` with the bridge prompt,
+   sidebar evidence directory, selected window, and a unique opaque idempotency key.
+6. Immediately start the detached watcher with the same evidence directory and exact current
+   `CODEX_THREAD_ID`. After every intended workstream is registered, end the Codex turn without
+   model-driven polling.
+7. On the Stop Hook continuation, inspect `watch-event.json`. Only `completed` may enter the import
+   command; all other terminal states require diagnosis and never automatic resend.
+8. Import the captured response:
 
 ```text
---gemini-policy optional --gemini-evidence-role gate [--gemini-response-file <CCG_GEMINI_RESPONSE_FILE> --gemini-summary-file <file-with-concise-summary>]
+python scripts/gptpro_bridge.py \
+  --import-session <CCG_GPTPRO_SESSION_DIR> \
+  --import-sidebar-evidence <session-dir>/<round-name>/sidebar \
+  --expected-codex-thread-id <CODEX_THREAD_ID>
 ```
 
-Use `--gemini-summary "<summary>"` only for short diagnostic or fixture calls. When evidence is
-present, the helper injects Gemini Gate Evidence into `prompt.md` and records its auditable
-provenance. Otherwise it records `gemini_evidence.policy=optional` and `available=false`.
+9. Require `CCG_GPTPRO_SIDEBAR_IMPORTED=1`, non-empty `response.md`, exact conversation URL,
+   response/evidence hashes, `automaticResendAllowed=false`, and the untrusted-output/Codex-writer
+   authority fields.
+10. Independently classify the response, adapt any useful proposal, run required tests, and decide
+    the CCG workflow outcome.
 
-### Optional Frontend Evidence For Execution Route Review
+The import is exact-once. Re-importing the same response succeeds idempotently; a different response
+cannot overwrite the current round. Evidence from another Codex task, another bridge round, a
+non-exact conversation URL, invalid hashes, non-live fixtures, or a non-completed watcher is rejected.
 
-For `/ccg:gptpro-exc`, use optional frontend evidence. Backend-only execution route review sessions should omit Gemini evidence. Frontend/full-stack sessions should pass real Gemini frontend prototype evidence when it is available:
+## Follow-up Round
 
-```text
---gemini-policy optional --gemini-evidence-role frontend-prototype
-```
+Create round 2 with `--followup-session <session-dir> --round 2 --followup-reason <reason>`. Keep the
+same exact ChatGPT conversation selected. Use ordinary Skill `send`, not `new-chat` or
+`-FreshConversation`, then start a new watcher and import its separate `round-2/sidebar` evidence.
 
-If a frontend/full-stack task has Gemini output, also pass `--gemini-response-file <CCG_GEMINI_RESPONSE_FILE> --gemini-summary-file <summary-file>`. The helper injects Gemini Frontend Prototype Evidence into `prompt.md`. If no Gemini evidence is provided, the helper records `gemini_evidence.available=false` and still creates the manual bridge session.
+## Project Context And Final Ownership
 
-### Execution Evidence Quality
+Every prompt includes sanitized project metadata, branch, commit, dirty state, bounded source/diff
+context, Base CCG Routing Evidence, and optional routed evidence. Never tell ChatGPT Pro it can read a
+local path unless the relevant bounded content is actually in the prompt.
 
-For `/ccg:gptpro-exc`, classify the evidence before writing the GPT Pro prompt:
-
-- Weak evidence: routing summary, snippets, or high-level context only. Ask GPT Pro for route risk,
-  wrong assumptions, missing tests, and `Proceed` / `Revise Plan` / `Stop`.
-- Strong evidence: repository URL, branch, commit, current diff or key file excerpts, and Base CCG
-  Routing Evidence are present. GPT Pro may add implementation sketches, localized pseudo patches,
-  key function drafts, test samples, and verification commands.
-
-All code-like GPT Pro output is advisory / illustrative. Codex must reimplement it locally, run
-verification, and review the resulting diff.
-
-## Project Access Context
-
-The helper must include project metadata in every GPT Pro prompt:
-
-- local project name;
-- sanitized repository URL, when detected from Git or provided with `--repo-url`;
-- current branch and commit;
-- whether local git status is clean or dirty.
-
-GitHub links are useful but not sufficient by themselves. The repository URL is optional context, not the source of truth.
-
-- If GPT Pro can use ChatGPT GitHub connector, Deep Research, or browsing, it may inspect the repository URL and cite exact file paths or commits.
-- If GPT Pro cannot access the repository URL, it must not guess repository facts.
-- Pasted CCG input, Base CCG Routing Evidence, Gemini evidence when provided, diffs, and file
-  excerpts have priority over repository content because local uncommitted changes may not exist on
-  GitHub.
-- If the repository URL is missing, the prompt must explicitly show `Repository URL: not provided`.
-- The helper must sanitize repository URLs before including them in prompts or `status.json`; never include credentials, access tokens, cookies, or local filesystem paths as repository URLs.
-
-## Workflow
-
-1. Build a prompt using the selected mode template.
-2. Write `status.json`, `round-1/prompt.md`, and `round-1/response.md`.
-3. Launch the local bridge page when the user needs an interactive page.
-4. The preview page may copy the prompt through browser clipboard APIs only.
-5. The user manually pastes prompt into ChatGPT Pro.
-6. The user manually sends the prompt.
-7. The user manually copies ChatGPT Pro response.
-8. The user manually pastes it into the bridge page or `response.md`.
-9. Codex reads `response.md`.
-10. Codex summarizes and decides next steps in Chinese.
-
-## Manual Handoff Barrier
-
-After creating a GPT Pro bridge session, Codex must stop at a manual handoff barrier.
-
-- Run `scripts/gptpro_bridge.py` with `--detach-preview --open-preview`, the required routing
-  evidence arguments, and the mode-appropriate Gemini evidence arguments for round 1 sessions.
-- Add `--repo-url <repository-url>` only when Codex needs to override the detected Git remote URL.
-- Follow-up sessions may pass fresh Gemini/routing evidence with the same arguments, or inherit the
-  existing `gemini_evidence` and `routing_evidence` provenance from round 1.
-- Do not paste the full generated prompt into chat during normal handoffs.
-- Show the preview URL, session directory, prompt file path, response file path, and status file path.
-- Tell the user to open the preview page and use the preview page Copy Prompt button, or open `prompt.md` if the browser copy button fails.
-- Tell the user to manually paste the prompt into ChatGPT Pro, manually send it, manually copy the output, and manually save it in the local bridge page or `response.md`.
-- End the current assistant turn immediately after the manual handoff instructions. Do not continue planning, reviewing, executing, summarizing GPT Pro findings, or claiming the GPT Pro bridge is complete in the same turn.
-- On a later turn, continue only after `status.json` shows `response_saved=true` and `response.md is non-empty`.
-- If `response_saved=true` but `response.md is non-empty` is false, treat the bridge as incomplete and ask the user to save a non-empty manual response.
-
-## Script
-
-Use `scripts/gptpro_bridge.py`. The script creates local artifacts and exposes only localhost endpoints:
-
-- `GET /`
-- `GET /state`
-- `POST /save-response`
-- `POST /mark-copied`
-
-It may open `https://chatgpt.com/` in a browser as a convenience. It must not automate ChatGPT web login, prompt submission, DOM extraction, or output extraction.
-
-Use `--detach-preview` for normal skill-driven handoffs so the helper prints the local URL and returns while the localhost page remains available for the user's manual response.
-
-Use `--print-prompt` only for diagnostics, fixtures, or explicit debugging requests, not for normal user-facing handoffs.
+ChatGPT Pro code and conclusions are advisory. Codex alone applies local changes, reviews dependencies
+and the resulting diff, runs verification, and reports whether work is local, committed, pushed, or
+deployed.

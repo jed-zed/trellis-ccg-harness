@@ -95,6 +95,7 @@ function normalizeEvidenceItem(item) {
     artifactFile: String(source.artifactFile || source.response_file || ''),
     artifactSha256: String(source.artifactSha256 || source.response_sha256 || ''),
     artifactChars: Number(source.artifactChars ?? source.response_chars ?? 0),
+    artifactBytes: Number(source.artifactBytes ?? source.response_bytes ?? 0),
     summary: String(source.summary || ''),
     sessionId: source.sessionId ? String(source.sessionId) : null,
     round: Number(source.round || 1),

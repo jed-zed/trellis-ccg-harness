@@ -52,6 +52,7 @@
 |------|------|------|----------|
 | `ccg` (默认) | — | 显示交互式菜单 | `commands/menu.ts:showMainMenu()` |
 | `ccg init` | `ccg i` | 4 步交互安装向导 | `commands/init.ts:init()` |
+| `ccg addons [--json]` | — | 只读展示推荐伴生组件、固定来源、影响和审批路径 | `commands/addons.ts:showCompanionAddons()` |
 | `ccg diagnose-mcp [--smoke]` | — | 静态诊断 MCP；显式 `--smoke` 执行有界 stdio 初始化握手 | `commands/diagnose-mcp.ts:diagnoseMcp()` |
 | `ccg fix-mcp` | — | 修复 Windows MCP 配置 | `commands/diagnose-mcp.ts:fixMcp()` |
 | `ccg config mcp` | — | 配置 MCP Token | `commands/config-mcp.ts:configMcp()` |
@@ -66,6 +67,7 @@
 ```typescript
 // 类型
 export * from './types'
+export * from './commands/addons'
 
 // 命令
 export { init } from './commands/init'
@@ -94,6 +96,7 @@ export { getCurrentVersion, checkForUpdates, compareVersions } from './utils/ver
 
 | 文件 | 核心函数 | 职责 |
 |------|----------|------|
+| `addons.ts` | `showCompanionAddons()` | 只读伴生组件目录；默认跳过，不执行安装或网络请求 |
 | `init.ts` | `init(options)` | 4 步安装向导（API 提供方→模型路由→MCP 工具→性能模式），orchestrate installWorkflows |
 | `menu.ts` | `showMainMenu()` | ASCII Art 主菜单，CJK 宽度感知对齐，6 功能选项循环 |
 | `update.ts` | `update()` | 拒绝公开 npm 自更新，要求由 Harness 使用个人仓库完整 commit 事务式更新 |

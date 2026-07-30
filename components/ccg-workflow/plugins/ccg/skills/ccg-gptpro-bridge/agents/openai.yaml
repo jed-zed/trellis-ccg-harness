@@ -1,4 +1,4 @@
 interface:
   display_name: "CCG GPT Pro Bridge"
-  short_description: "Shared manual ChatGPT Pro bridge for CCG workflows."
-  default_prompt: "Use $ccg-gptpro-bridge to run /ccg:gptpro-plan Add a manual second-opinion planning bridge."
+  short_description: "Automate ChatGPT Pro through the Codex side panel."
+  default_prompt: "Use $ccg-gptpro-bridge to run /ccg:gptpro-plan through the installed sidebar Skill."
