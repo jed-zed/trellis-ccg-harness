@@ -256,10 +256,10 @@ function Register-WatchStopHook {
         [Parameter(Mandatory = $true)][int]$FinalizeTimeout
     )
 
-    $boundedWaitSeconds = [Math]::Min(
-        $Script:MaximumStopHookWaitSeconds,
-        $WatcherTimeoutSeconds + $FinalizeTimeout + 120
-    )
+    $boundedWaitSeconds = $WatcherTimeoutSeconds + $FinalizeTimeout + 120
+    if ($boundedWaitSeconds -gt $Script:MaximumStopHookWaitSeconds) {
+        throw "Watcher timeout exceeds the $($Script:MaximumStopHookWaitSeconds)-second Stop Hook horizon."
+    }
     $registrationPath = Get-WatchStopHookRegistrationPath -ThreadId $ThreadId -WatcherId $WatcherId
     $registration = [ordered]@{
         schemaVersion = $Script:WatcherSchemaVersion
@@ -280,6 +280,12 @@ function Register-WatchStopHook {
 }
 
 function Assert-WatchConfiguration {
+    param(
+        [switch]$DisableStopHookHorizon,
+        [int]$ConfiguredTimeoutSeconds = $TimeoutSeconds,
+        [int]$ConfiguredFinalizeTimeoutSeconds = $FinalizeTimeoutSeconds
+    )
+
     if ($PollSeconds -lt 1 -or $PollSeconds -gt 60) {
         throw 'PollSeconds must be between 1 and 60.'
     }
@@ -289,11 +295,17 @@ function Assert-WatchConfiguration {
     if ($MaxProbeFailures -lt 1 -or $MaxProbeFailures -gt 20) {
         throw 'MaxProbeFailures must be between 1 and 20.'
     }
-    if ($TimeoutSeconds -lt 30 -or $TimeoutSeconds -gt 86400) {
+    if ($ConfiguredTimeoutSeconds -lt 30 -or $ConfiguredTimeoutSeconds -gt 86400) {
         throw 'TimeoutSeconds must be between 30 and 86400.'
     }
-    if ($FinalizeTimeoutSeconds -lt 5 -or $FinalizeTimeoutSeconds -gt 300) {
+    if ($ConfiguredFinalizeTimeoutSeconds -lt 5 -or $ConfiguredFinalizeTimeoutSeconds -gt 300) {
         throw 'FinalizeTimeoutSeconds must be between 5 and 300.'
+    }
+    if (-not $DisableStopHookHorizon) {
+        $maximumWatcherTimeoutSeconds = $Script:MaximumStopHookWaitSeconds - $ConfiguredFinalizeTimeoutSeconds - 120
+        if ($ConfiguredTimeoutSeconds -gt $maximumWatcherTimeoutSeconds) {
+            throw "TimeoutSeconds must be between 30 and $maximumWatcherTimeoutSeconds for the Stop Hook horizon."
+        }
     }
 }
 
@@ -473,26 +485,60 @@ function Invoke-WatchLoop {
         })
 
         if ($stableStopped -ge $StablePollCount) {
-            $finalize = $null
-            try {
-                $finalize = & $FinalizeAction
-            }
-            catch {
-                $finalize = [pscustomobject]@{ ExitCode = 99; Payload = $null }
-            }
-            $finalizeExitCode = [int](Get-WatchProperty $finalize 'ExitCode' 99)
-            $status = 'stopped-unverified'
-            $reason = 'generation-stopped-but-response-not-finalized'
-            if ($finalizeExitCode -eq 0 -and [bool](Get-WatchProperty (Get-WatchProperty $finalize 'Payload' $null) 'ok' $false)) {
-                $status = 'completed'
-                $reason = 'stable-stop-and-response-finalized'
-            }
-            return [pscustomobject]@{
-                Status = $status
-                Reason = $reason
-                Observations = $observations
-                ConsecutiveProbeFailures = 0
-                FinalizeResult = $finalize
+            $lastFinalize = $null
+            $finalizeAttempted = $false
+            while ($true) {
+                $finalizeNow = & $NowAction
+                if ($finalizeAttempted -and ($finalizeNow - $started).TotalSeconds -ge $OverallTimeoutSeconds) {
+                    return [pscustomobject]@{
+                        Status = 'timeout'
+                        Reason = 'overall-timeout'
+                        Observations = $observations
+                        ConsecutiveProbeFailures = 0
+                        FinalizeResult = $lastFinalize
+                    }
+                }
+
+                $finalize = $null
+                $finalizeAttempted = $true
+                try {
+                    $finalize = & $FinalizeAction
+                }
+                catch {
+                    $finalize = [pscustomobject]@{ ExitCode = 99; Payload = $null }
+                }
+                $lastFinalize = $finalize
+                $finalizeExitCode = [int](Get-WatchProperty $finalize 'ExitCode' 99)
+                $finalizePayload = Get-WatchProperty $finalize 'Payload' $null
+                $finalizeCategory = [string](Get-WatchProperty $finalizePayload 'category' '')
+                if ($finalizeExitCode -eq 32 -and $finalizeCategory -eq 'ConcurrentUiOperation') {
+                    $observations++
+                    & $ObservationAction ([ordered]@{
+                        atUtc = ([datetime]$finalizeNow).ToUniversalTime().ToString('o')
+                        phase = 'finalize'
+                        exitCode = $finalizeExitCode
+                        ok = $false
+                        category = $finalizeCategory
+                        deferred = $true
+                        consecutiveFailures = 0
+                    })
+                    & $SleepAction $SleepSeconds
+                    continue
+                }
+
+                $status = 'stopped-unverified'
+                $reason = 'generation-stopped-but-response-not-finalized'
+                if ($finalizeExitCode -eq 0 -and [bool](Get-WatchProperty $finalizePayload 'ok' $false)) {
+                    $status = 'completed'
+                    $reason = 'stable-stop-and-response-finalized'
+                }
+                return [pscustomobject]@{
+                    Status = $status
+                    Reason = $reason
+                    Observations = $observations
+                    ConsecutiveProbeFailures = 0
+                    FinalizeResult = $finalize
+                }
             }
         }
 
@@ -665,7 +711,10 @@ function Start-WatchProcess {
         [switch]$DisableContinuation
     )
 
-    Assert-WatchConfiguration
+    Assert-WatchConfiguration `
+        -DisableStopHookHorizon:$DisableContinuation `
+        -ConfiguredTimeoutSeconds $TimeoutSeconds `
+        -ConfiguredFinalizeTimeoutSeconds $FinalizeTimeoutSeconds
     $binding = Get-WatchEvidenceBinding -EvidenceDirectory $EvidenceDirectory -ThreadId $ThreadId
     $statePath = Join-Path $EvidenceDirectory $Script:StateFileName
     $eventPath = Join-Path $EvidenceDirectory $Script:EventFileName

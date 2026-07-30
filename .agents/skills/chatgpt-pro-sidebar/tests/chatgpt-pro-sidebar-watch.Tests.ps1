@@ -87,6 +87,36 @@ Describe 'Watcher binding validation' {
         Test-WatchConversationUrl -Value 'https://example.com/c/12345678-1234-1234-1234-123456789abc' | Should -BeFalse
     }
 
+    It 'rejects launcher durations that outlive the Stop Hook registration' {
+        $output = @(
+            & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $watcherPath `
+                start `
+                -EvidenceDir $TestDrive `
+                -CodexThreadId $script:ThreadId `
+                -TimeoutSeconds 7300 `
+                -FinalizeTimeoutSeconds 45 2>&1
+        )
+        $LASTEXITCODE | Should -Be 1
+        $payload = $output[-1] | ConvertFrom-Json
+        $payload.category | Should -Be 'WatcherError'
+        $payload.message | Should -Match 'Stop Hook horizon'
+    }
+
+    It 'keeps the legacy timeout range when Stop Hook continuation is disabled' {
+        {
+            Assert-WatchConfiguration `
+                -DisableStopHookHorizon `
+                -ConfiguredTimeoutSeconds 8000 `
+                -ConfiguredFinalizeTimeoutSeconds 45
+        } | Should -Not -Throw
+
+        {
+            Assert-WatchConfiguration `
+                -ConfiguredTimeoutSeconds 8000 `
+                -ConfiguredFinalizeTimeoutSeconds 45
+        } | Should -Throw '*Stop Hook horizon*'
+    }
+
     It 'loads the post-send evidence binding' {
         $directory = Join-Path $TestDrive 'binding'
         New-WatchFixtureEvidence -Directory $directory
@@ -171,6 +201,119 @@ Describe 'Token-free watcher state machine' {
 
         $result.Status | Should -Be 'stopped-unverified'
         $result.FinalizeResult.ExitCode | Should -Be 28
+    }
+
+    It 'retries UI mutex contention while finalizing the stopped response' {
+        $queue = [System.Collections.Queue]::new()
+        $queue.Enqueue((New-WatchProbe -Generating $false))
+        $finalizers = [System.Collections.Queue]::new()
+        1..2 | ForEach-Object {
+            $finalizers.Enqueue(
+                [pscustomobject]@{
+                    ExitCode = 32
+                    Payload = [pscustomobject]@{ ok = $false; category = 'ConcurrentUiOperation' }
+                }
+            )
+        }
+        $finalizers.Enqueue(
+            [pscustomobject]@{
+                ExitCode = 0
+                Payload = [pscustomobject]@{ ok = $true; completed = $true }
+            }
+        )
+        $observed = [System.Collections.ArrayList]::new()
+        $sleepCounter = [pscustomobject]@{ Value = 0 }
+        $now = [datetime]'2026-07-28T20:00:00Z'
+
+        $result = Invoke-WatchLoop `
+            -BoundConversationUrl $script:BoundUrl `
+            -StablePollCount 1 `
+            -FailureLimit 3 `
+            -OverallTimeoutSeconds 300 `
+            -SleepSeconds 5 `
+            -ProbeAction { $queue.Dequeue() } `
+            -FinalizeAction { $finalizers.Dequeue() } `
+            -SleepAction { param($seconds) $sleepCounter.Value++ } `
+            -NowAction { $now } `
+            -ObservationAction { param($record) $null = $observed.Add($record) }
+
+        $result.Status | Should -Be 'completed'
+        $result.Observations | Should -Be 3
+        $finalizers.Count | Should -Be 0
+        $sleepCounter.Value | Should -Be 2
+        @(
+            $observed | Where-Object {
+                $_ -is [System.Collections.IDictionary] -and
+                $_.Contains('phase') -and
+                $_['phase'] -eq 'finalize' -and
+                $_['deferred']
+            }
+        ).Count | Should -Be 2
+    }
+
+    It 'bounds repeated finalizer contention by the overall watcher timeout' {
+        $queue = [System.Collections.Queue]::new()
+        $queue.Enqueue((New-WatchProbe -Generating $false))
+        $times = [System.Collections.Queue]::new()
+        $times.Enqueue([datetime]'2026-07-28T20:00:00Z')
+        $times.Enqueue([datetime]'2026-07-28T20:00:00Z')
+        $times.Enqueue([datetime]'2026-07-28T20:00:00Z')
+        $times.Enqueue([datetime]'2026-07-28T20:00:00Z')
+        $times.Enqueue([datetime]'2026-07-28T20:00:31Z')
+        $finalizeCounter = [pscustomobject]@{ Value = 0 }
+
+        $result = Invoke-WatchLoop `
+            -BoundConversationUrl $script:BoundUrl `
+            -StablePollCount 1 `
+            -FailureLimit 3 `
+            -OverallTimeoutSeconds 30 `
+            -SleepSeconds 5 `
+            -ProbeAction { $queue.Dequeue() } `
+            -FinalizeAction {
+                $finalizeCounter.Value++
+                [pscustomobject]@{
+                    ExitCode = 32
+                    Payload = [pscustomobject]@{ ok = $false; category = 'ConcurrentUiOperation' }
+                }
+            } `
+            -SleepAction { param($seconds) } `
+            -NowAction { $times.Dequeue() }
+
+        $result.Status | Should -Be 'timeout'
+        $result.FinalizeResult.ExitCode | Should -Be 32
+        $result.Observations | Should -Be 2
+        $finalizeCounter.Value | Should -Be 1
+    }
+
+    It 'finalizes the first stable-stop probe admitted before the overall deadline' {
+        $queue = [System.Collections.Queue]::new()
+        $queue.Enqueue((New-WatchProbe -Generating $false))
+        $times = [System.Collections.Queue]::new()
+        $times.Enqueue([datetime]'2026-07-28T20:00:00Z')
+        $times.Enqueue([datetime]'2026-07-28T20:00:29Z')
+        $times.Enqueue([datetime]'2026-07-28T20:00:31Z')
+        $times.Enqueue([datetime]'2026-07-28T20:00:31Z')
+        $finalizeCounter = [pscustomobject]@{ Value = 0 }
+
+        $result = Invoke-WatchLoop `
+            -BoundConversationUrl $script:BoundUrl `
+            -StablePollCount 1 `
+            -FailureLimit 3 `
+            -OverallTimeoutSeconds 30 `
+            -SleepSeconds 5 `
+            -ProbeAction { $queue.Dequeue() } `
+            -FinalizeAction {
+                $finalizeCounter.Value++
+                [pscustomobject]@{
+                    ExitCode = 0
+                    Payload = [pscustomobject]@{ ok = $true; completed = $true }
+                }
+            } `
+            -SleepAction { param($seconds) } `
+            -NowAction { $times.Dequeue() }
+
+        $result.Status | Should -Be 'completed'
+        $finalizeCounter.Value | Should -Be 1
     }
 
     It 'returns one abnormal event after bounded consecutive probe failures' {
@@ -367,6 +510,22 @@ Describe 'Codex Stop Hook continuation contract' {
         $registration.evidenceDirectory | Should -Be ([System.IO.Path]::GetFullPath($directory))
         $registration.claimFile | Should -Be 'watch-stop-hook.claim'
         ([datetime]$registration.hookDeadlineUtc) | Should -BeLessThan ([datetime]::UtcNow.AddSeconds(7401))
+    }
+
+    It 'rejects watcher durations beyond the Stop Hook horizon' {
+        $directory = Join-Path $TestDrive 'registration-too-long'
+        New-WatchFixtureEvidence -Directory $directory
+
+        {
+            Register-WatchStopHook `
+                -EvidenceDirectory $directory `
+                -ThreadId $script:ThreadId `
+                -WatcherId ([guid]::NewGuid().ToString()) `
+                -WatcherTimeoutSeconds 7300 `
+                -FinalizeTimeout 45
+        } | Should -Throw '*Stop Hook horizon*'
+        @(Get-ChildItem -LiteralPath $Script:StopHookRegistryRootOverride -Recurse -File -ErrorAction SilentlyContinue).Count |
+            Should -Be 0
     }
 
     It 'keeps two watcher registrations for the same Codex task' {
