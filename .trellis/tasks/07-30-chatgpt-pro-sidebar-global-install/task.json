@@ -15,7 +15,7 @@
   "branch": "codex/chatgpt-pro-sidebar-global",
   "base_branch": "main",
   "worktree_path": "I:\\ai\\trellis-ccg-harness-chatgpt-pro-global",
-  "commit": null,
+  "commit": "b08093876fce320b16a0bbe33080deb3b3caf8f1",
   "pr_url": "https://github.com/jed-zed/trellis-ccg-harness/pull/21",
   "subtasks": [],
   "children": [],
@@ -31,6 +31,7 @@
   "notes": "The explicit 2026-07-30 user requirements supersede the prior project-only sidebar packaging constraint and add the pinned upstream grill-with-docs adaptation.",
   "meta": {
     "upstream": "https://github.com/mattpocock/skills/tree/2ab958093e83e0ec752e6c1c5932da465bf23e0c",
-    "localGrillMeBackup": "C:\\Users\\29933\\.agents\\harness\\backups\\2026-07-30T23-45-00Z-grill-me-upstream-refresh\\grill-me"
+    "localGrillMeBackup": "C:\\Users\\29933\\.agents\\harness\\backups\\2026-07-30T23-45-00Z-grill-me-upstream-refresh\\grill-me",
+    "implementationCommit": "b08093876fce320b16a0bbe33080deb3b3caf8f1"
   }
 }
