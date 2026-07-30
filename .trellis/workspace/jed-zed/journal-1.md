@@ -192,3 +192,25 @@ Decoupled installed personal CCG CLI/plugin versions from source snapshot proven
 ### Status
 
 [OK] **Completed**
+
+
+## Session 7: Stop automation side effects
+
+**Date**: 2026-07-30
+**Task**: Stop automation side effects
+**Branch**: `codex/fix-test-browser-popups`
+
+### Summary
+
+Made developer help and invalid arguments side-effect free, isolated CCG test browser launch, synchronized the verified personal CCG 3.4.3 source and managed runtime, and passed final Harness/CCG/Go gates.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `6002cba0d10d035682246b5229b263c39dbdcd58` | (see git log) |
+| `ae6239b8bba086df599d9e6d3477621afd91c479` | (see git log) |
+
+### Status
+
+[OK] **Completed**
