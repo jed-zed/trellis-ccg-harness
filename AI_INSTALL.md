@@ -73,6 +73,27 @@ status, recommendation, dependencies, scripts, hooks, executable, network, and
 data-egress effects. `recommended: true` is display metadata; it is never a
 selection.
 
+Before asking for approval, explicitly present these recommended CCG-managed
+MCP candidates:
+
+- Context7: pinned `@upstash/context7-mcp@3.2.4`; documentation queries and
+  library identifiers leave the machine.
+- Playwright: pinned `@playwright/mcp@0.0.78`; browser pages, interactions,
+  files, profile state, site permissions, and browser downloads require
+  careful review. Recommendation does not authorize browser acquisition.
+- DeepWiki: official remote endpoint `https://mcp.deepwiki.com/mcp` and
+  official documentation; it is a remote service with no local artifact SRI.
+  Never substitute the obsolete unofficial `mcp-deepwiki` package.
+- Exa: hosted endpoint `https://mcp.exa.ai/mcp`, with the reviewed local
+  fallback `exa-mcp-server@3.2.1`. Basic hosted use can avoid a key. For higher
+  limits, production use, or local mode, direct the user to
+  `https://dashboard.exa.ai/api-keys`.
+
+All four remain unselected by default. A repository URL, recommendation, or
+request to install Harness does not authorize these MCPs, network access,
+browser downloads, login, or credentials. Never ask the user to paste an Exa
+key into chat, a plan, a command argument, a URL, a repository file, or a log.
+
 Choose only candidates the user is considering, then generate a read-only
 plan. Every group must be explicit; use `none` for an empty group:
 
@@ -113,6 +134,14 @@ Omit `--allow-third-party-network` only when the reviewed plan has no network
 candidates. The command reconstructs the canonical plan before mutation and
 fails if the manifest, plan, target, command binding, strict-data-boundary
 policy, dependency state, or candidate state changed.
+
+For Context7, Playwright, DeepWiki, and Exa, a successful approved Harness
+apply intentionally returns `manual-pending` with the fixed handoff command
+`ccg config mcp`. Harness does not run npm, mutate an MCP host, call a provider,
+or read credentials for these four. Show the handoff, explain its effects, and
+wait for separate authorization before entering CCG's interactive MCP
+configuration. CCG owns conflict detection, three-host synchronization,
+rollback, and owner-only secret handling.
 
 Never retry by removing digest, approval, ownership, drift, dependency, or
 data-boundary checks. Drifted targets require separate manual remediation.

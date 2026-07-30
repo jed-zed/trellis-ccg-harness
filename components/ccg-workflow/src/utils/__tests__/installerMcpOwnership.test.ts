@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   installMcpServer,
+  installRemoteMcpServer,
   syncMcpToCodex,
   syncMcpToGemini,
   uninstallMcpServer,
@@ -175,6 +176,55 @@ describe('MCP ownership integration', () => {
     expect(result.success).toBe(false)
     expect(result.message).toMatch(/ownership|schema|entry/i)
     expect(await readFile(configPath, 'utf8')).toBe(original)
+  })
+
+  it.each([
+    ['deepwiki', 'https://mcp.deepwiki.com/mcp'],
+    ['exa', 'https://mcp.exa.ai/mcp'],
+  ])('installs allowlisted %s and mirrors each host-native shape', async (serverId, url) => {
+    const homeDir = await isolatedHome()
+
+    const installed = await installRemoteMcpServer(
+      serverId,
+      url,
+      { homeDir },
+    )
+    expect(installed.success).toBe(true)
+
+    const claude = JSON.parse(await readFile(join(homeDir, '.claude.json'), 'utf8'))
+    expect(claude.mcpServers[serverId]).toEqual({
+      type: 'http',
+      url,
+    })
+
+    expect((await syncMcpToCodex({ homeDir })).success).toBe(true)
+    expect((await syncMcpToGemini({ homeDir })).success).toBe(true)
+
+    const codex = await readFile(join(homeDir, '.codex', 'config.toml'), 'utf8')
+    expect(codex).toContain(`[mcp_servers.${serverId}]`)
+    expect(codex).toContain(`url = "${url}"`)
+    expect(codex).not.toContain('type = "http"')
+
+    const gemini = JSON.parse(await readFile(join(homeDir, '.gemini', 'settings.json'), 'utf8'))
+    expect(gemini.mcpServers[serverId]).toEqual({
+      httpUrl: url,
+    })
+  })
+
+  it.each([
+    ['deepwiki', 'http://mcp.deepwiki.com/mcp'],
+    ['deepwiki', 'https://user@mcp.deepwiki.com/mcp'],
+    ['deepwiki', 'https://mcp.deepwiki.com/mcp?token=secret'],
+    ['deepwiki', 'https://mcp.deepwiki.com/sse'],
+    ['deepwiki', 'https://example.com/mcp'],
+    ['unknown', 'https://mcp.deepwiki.com/mcp'],
+  ])('rejects an untrusted remote MCP endpoint for %s', async (serverId, url) => {
+    const homeDir = await isolatedHome()
+    const result = await installRemoteMcpServer(serverId, url, { homeDir })
+
+    expect(result.success).toBe(false)
+    expect(result.message).toMatch(/allowlist|trusted|https|credential|query|endpoint/i)
+    await expect(readFile(join(homeDir, '.claude.json'), 'utf8')).rejects.toThrow()
   })
 
   it.each([

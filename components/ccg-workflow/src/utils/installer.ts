@@ -33,6 +33,7 @@ export {
   installContextWeaver,
   installFastContext,
   installMcpServer,
+  installRemoteMcpServer,
   syncMcpToCodex,
   syncMcpToGemini,
   uninstallAceTool,

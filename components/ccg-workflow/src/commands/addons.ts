@@ -13,6 +13,9 @@ export interface CompanionAddonSource {
   version?: string
   selector?: string
   integrity?: string
+  endpoint?: string
+  documentation?: string
+  apiKeys?: string
 }
 
 export interface CompanionAddonEffects {
@@ -241,8 +244,85 @@ const CANDIDATES: readonly CompanionAddonCandidate[] = [
     },
     action: {
       status: 'ccg-managed',
-      command: 'ccg init',
-      guidance: 'Select Context7 in the existing CCG MCP step after reviewing its network behavior.',
+      command: 'ccg config mcp',
+      guidance: 'Select Context7 after reviewing that documentation queries and library identifiers leave the machine.',
+    },
+  },
+  {
+    id: 'playwright',
+    name: 'Playwright MCP',
+    kind: 'mcp',
+    purpose: 'Automate and inspect browser sessions for testing and development.',
+    recommended: true,
+    selected: false,
+    source: catalogNpmSource('@playwright/mcp'),
+    dependencies: [],
+    effects: {
+      writes: true,
+      scripts: true,
+      hooks: false,
+      executables: true,
+      network: true,
+      dataEgress: 'Browser pages, interactions, and selected local browser state may be exposed; browser downloads require separate approval.',
+    },
+    action: {
+      status: 'ccg-managed',
+      command: 'ccg config mcp',
+      guidance: 'Select Playwright only after reviewing browser, file, site, and download permissions.',
+    },
+  },
+  {
+    id: 'deepwiki',
+    name: 'DeepWiki MCP',
+    kind: 'remote-mcp',
+    purpose: 'Query official DeepWiki documentation for public repositories.',
+    recommended: true,
+    selected: false,
+    source: {
+      endpoint: 'https://mcp.deepwiki.com/mcp',
+      documentation: 'https://docs.devin.ai/work-with-devin/deepwiki-mcp',
+    },
+    dependencies: [],
+    effects: {
+      writes: true,
+      scripts: false,
+      hooks: false,
+      executables: false,
+      network: true,
+      dataEgress: 'Repository identifiers and DeepWiki queries are sent to the official public DeepWiki service.',
+    },
+    action: {
+      status: 'ccg-managed',
+      command: 'ccg config mcp',
+      guidance: 'Configure the official free, no-auth Streamable HTTP endpoint; the legacy SSE endpoint is not used.',
+    },
+  },
+  {
+    id: 'exa',
+    name: 'Exa MCP',
+    kind: 'remote-or-local-mcp',
+    purpose: 'Search and fetch web content through Exa.',
+    recommended: true,
+    selected: false,
+    source: {
+      ...catalogNpmSource('exa-mcp-server'),
+      endpoint: 'https://mcp.exa.ai/mcp',
+      documentation: 'https://exa.ai/docs/reference/exa-mcp',
+      apiKeys: 'https://dashboard.exa.ai/api-keys',
+    },
+    dependencies: [],
+    effects: {
+      writes: true,
+      scripts: true,
+      hooks: false,
+      executables: true,
+      network: true,
+      dataEgress: 'Search queries and requested URLs are sent to Exa; local key mode stores only a secret-backed launcher reference.',
+    },
+    action: {
+      status: 'ccg-managed',
+      command: 'ccg config mcp',
+      guidance: 'Use the hosted free tier without a key, or obtain a key from the official dashboard for the local production mode.',
     },
   },
   {
@@ -312,14 +392,20 @@ export function formatCompanionAddonReport(
   ]
 
   for (const candidate of report.candidates) {
-    const source = candidate.source?.selector
-      || (candidate.source?.commit ? `${candidate.source.repository}@${candidate.source.commit}` : 'built-in guidance')
+    const sources = [
+      candidate.source?.endpoint,
+      candidate.source?.selector,
+      candidate.source?.commit ? `${candidate.source.repository}@${candidate.source.commit}` : undefined,
+    ].filter((source): source is string => Boolean(source))
+    const source = sources.length > 0 ? sources.join(' | ') : 'built-in guidance'
     const dependencies = candidate.dependencies.length > 0
       ? candidate.dependencies.join(', ')
       : (isZh ? '无' : 'none')
     lines.push(`${candidate.recommended ? '★' : ' '} ${candidate.name} [${candidate.action.status}]`)
     lines.push(`  id: ${candidate.id}`)
     lines.push(`  source: ${source}`)
+    if (candidate.source?.apiKeys)
+      lines.push(`  api-keys: ${candidate.source.apiKeys}`)
     lines.push(`  dependencies: ${dependencies}`)
     lines.push([
       `  effects: writes=${candidate.effects.writes}`,

@@ -3,7 +3,7 @@ import inquirer from 'inquirer'
 import fs from 'fs-extra'
 import { homedir } from 'node:os'
 import { join } from 'pathe'
-import { installAceTool, installAceToolRs, installContextWeaver, installFastContext, installMcpServer, removeFastContextPrompt, syncMcpToCodex, syncMcpToGemini, uninstallAceTool, uninstallContextWeaver, uninstallFastContext, uninstallMcpServer, writeFastContextPrompt } from '../utils/installer'
+import { installAceTool, installAceToolRs, installContextWeaver, installFastContext, installMcpServer, installRemoteMcpServer, removeFastContextPrompt, syncMcpToCodex, syncMcpToGemini, uninstallAceTool, uninstallContextWeaver, uninstallFastContext, uninstallMcpServer, writeFastContextPrompt } from '../utils/installer'
 import { gitExecutableSource, npmSelector } from '../utils/third-party-sources'
 
 type McpActionResult = { success: boolean, message: string }
@@ -370,11 +370,73 @@ async function handleGrokSearch(): Promise<void> {
 }
 
 // 辅助工具 MCP 配置
-const AUXILIARY_MCPS = [
-  { id: 'context7', name: 'Context7', desc: '获取最新库文档', command: 'npx', args: ['-y', npmSelector('@upstash/context7-mcp')] },
-  { id: 'Playwright', name: 'Playwright', desc: '浏览器自动化/测试', command: 'npx', args: ['-y', npmSelector('@playwright/mcp')] },
-  { id: 'mcp-deepwiki', name: 'DeepWiki', desc: '知识库查询', command: 'npx', args: ['-y', npmSelector('mcp-deepwiki')] },
-  { id: 'exa', name: 'Exa', desc: '搜索引擎（需 API Key）', command: 'npx', args: ['-y', npmSelector('exa-mcp-server')], requiresApiKey: true, apiKeyEnv: 'EXA_API_KEY' },
+interface AuxiliaryStdioMcp {
+  id: string
+  name: string
+  desc: string
+  transport: 'stdio'
+  command: string
+  args: string[]
+}
+
+interface AuxiliaryHttpMcp {
+  id: string
+  name: string
+  desc: string
+  transport: 'http'
+  url: string
+  apiKeyUrl?: string
+  local?: {
+    command: string
+    args: string[]
+    apiKeyEnv: string
+  }
+}
+
+export type AuxiliaryMcp = AuxiliaryStdioMcp | AuxiliaryHttpMcp
+
+export const AUXILIARY_MCPS: readonly AuxiliaryMcp[] = [
+  {
+    id: 'context7',
+    name: 'Context7',
+    desc: '获取最新库文档（查询和库标识会发送到 Context7）',
+    transport: 'stdio',
+    command: 'npx',
+    args: ['-y', npmSelector('@upstash/context7-mcp')],
+  },
+  {
+    id: 'playwright',
+    name: 'Playwright',
+    desc: '浏览器自动化/测试（不是安全边界，浏览器组件另行下载）',
+    transport: 'stdio',
+    command: 'npx',
+    args: ['-y', npmSelector('@playwright/mcp')],
+  },
+  {
+    id: 'deepwiki',
+    name: 'DeepWiki',
+    desc: '官方免费远程公共仓库知识库（无需 API Key）',
+    transport: 'http',
+    url: 'https://mcp.deepwiki.com/mcp',
+  },
+  {
+    id: 'exa',
+    name: 'Exa',
+    desc: '官方托管搜索（基础额度无需 Key；生产使用可配置自有 Key）',
+    transport: 'http',
+    url: 'https://mcp.exa.ai/mcp',
+    apiKeyUrl: 'https://dashboard.exa.ai/api-keys',
+    local: {
+      command: 'npx',
+      args: ['-y', npmSelector('exa-mcp-server')],
+      apiKeyEnv: 'EXA_API_KEY',
+    },
+  },
+]
+
+const LEGACY_AUXILIARY_MCPS = [
+  { name: 'Playwright（旧版大写 ID）', value: 'Playwright' },
+  { name: 'DeepWiki（旧版非官方 npm）', value: 'mcp-deepwiki' },
 ]
 
 async function handleAuxiliary(): Promise<void> {
@@ -400,12 +462,36 @@ async function handleAuxiliary(): Promise<void> {
   for (const id of selected) {
     const mcp = AUXILIARY_MCPS.find(m => m.id === id)!
     const env: Record<string, string> = {}
+    let useLocalExa = false
 
-    if (mcp.requiresApiKey) {
-      console.log(ansis.cyan(`📖 获取 ${mcp.name} API Key：`))
-      console.log(`   访问 ${ansis.underline('https://exa.ai/')} 注册获取（有免费额度）`)
+    if (mcp.id === 'playwright') {
+      console.log(ansis.yellow('⚠ Playwright MCP 不是安全边界，可能访问浏览器页面和本地浏览器配置。'))
+      console.log(ansis.yellow('  浏览器组件下载和配置复用需要另行确认。'))
+      console.log()
+    }
+
+    if (mcp.id === 'exa' && mcp.transport === 'http' && mcp.local) {
+      console.log(ansis.cyan('📖 Exa API Key（提高限额/生产使用）：'))
+      console.log(`   ${ansis.underline(mcp.apiKeyUrl!)}`)
       console.log()
 
+      const { exaMode } = await inquirer.prompt([{
+        type: 'list',
+        name: 'exaMode',
+        message: '选择 Exa 模式',
+        choices: [
+          { name: '官方托管基础模式（无需 API Key，推荐）', value: 'hosted' },
+          { name: '本地 npm 模式（使用自有 API Key）', value: 'local' },
+          { name: '跳过 Exa', value: 'cancel' },
+        ],
+        default: 'hosted',
+      }])
+      if (exaMode === 'cancel')
+        continue
+      useLocalExa = exaMode === 'local'
+    }
+
+    if (useLocalExa && mcp.transport === 'http' && mcp.local) {
       const { apiKey } = await inquirer.prompt([{
         type: 'password',
         name: 'apiKey',
@@ -413,19 +499,32 @@ async function handleAuxiliary(): Promise<void> {
         mask: '*',
         validate: (v: string) => v.trim() !== '' || '请输入 API Key',
       }])
-      env[mcp.apiKeyEnv!] = apiKey.trim()
+      env[mcp.local.apiKeyEnv] = apiKey.trim()
     }
 
     console.log(ansis.yellow(`⏳ 正在安装 ${mcp.name}...`))
     const result = await installWithOwnershipPrompt(
       `${mcp.name} MCP`,
-      adoptExisting => installMcpServer(
-        mcp.id,
-        mcp.command,
-        mcp.args,
-        env,
-        { adoptExisting },
-      ),
+      (adoptExisting) => {
+        if (mcp.transport === 'http' && useLocalExa && mcp.local) {
+          return installMcpServer(
+            mcp.id,
+            mcp.local.command,
+            mcp.local.args,
+            env,
+            { adoptExisting },
+          )
+        }
+        if (mcp.transport === 'http')
+          return installRemoteMcpServer(mcp.id, mcp.url, { adoptExisting })
+        return installMcpServer(
+          mcp.id,
+          mcp.command,
+          mcp.args,
+          env,
+          { adoptExisting },
+        )
+      },
     )
 
     if (result.success) {
@@ -450,6 +549,7 @@ async function handleUninstall(): Promise<void> {
     { name: 'ContextWeaver', value: 'contextweaver' },
     { name: 'grok-search', value: 'grok-search' },
     ...AUXILIARY_MCPS.map(m => ({ name: m.name, value: m.id })),
+    ...LEGACY_AUXILIARY_MCPS,
   ]
 
   const { targets } = await inquirer.prompt([{

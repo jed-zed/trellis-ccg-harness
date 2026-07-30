@@ -17,10 +17,10 @@ $trustedCommandResolverPath = Join-Path $RepoRoot $trustedCommandResolverRelativ
 # This is the SHA-256 of the validated manifest serialized as canonical two-space
 # JSON with one trailing LF. It is deliberately independent from the CCG source
 # provenance so a candidate/source edit cannot silently alter the public baseline.
-$expectedThirdPartyManifestSha256 = "7d4bbe9812e2400f86fed2fcdcf28f47a0cae476e1e849d944ce624013080085"
+$expectedThirdPartyManifestSha256 = "8176e5526fbb4d953047ecf110a503983c98dae6db71dfd31fed8b5064225903"
 # Canonical UTF-8 SHA-256 (CRLF normalized to LF) of the shared validator.
 # `-Index` must execute this exact staged source, never a mutable worktree copy.
-$expectedThirdPartyValidatorSha256 = "dca450d70c38021c9f131c8d226786778b6f28aeb7e9667e76ff6c8cc89b3156"
+$expectedThirdPartyValidatorSha256 = "f8e3b359f15df4e261bada30ba73e4a61deeb0cb914e22d459a8729e51e722ec"
 # Canonical UTF-8 SHA-256 of the validator's trusted command dependency.
 $expectedTrustedCommandResolverSha256 = "febf8675ace4cf0ce353c8680aa4e3e606e424844704a85877efd7610f420d2e"
 

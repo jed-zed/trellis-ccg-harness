@@ -233,7 +233,9 @@ node bin/ccg.mjs init
 如果你把仓库链接直接交给 AI 安装，请让它先遵循
 [`AI_INSTALL.md`](./AI_INSTALL.md)。仓库链接本身不代表安装授权。CCG
 安装完成后，可运行 `ccg addons` 或 `ccg addons --json` 只读查看推荐的
-Ponytail、Caveman、grill-me 和 MCP 伴生组件；不会自动安装，默认始终跳过。
+Ponytail、Caveman、grill-me、Context7、Playwright、官方 DeepWiki 和 Exa
+伴生组件；不会自动安装，默认始终跳过。批准后的辅助 MCP 再通过
+`ccg config mcp` 逐项配置。
 
 ## CLI 命令大全
 
@@ -250,7 +252,7 @@ node bin/ccg.mjs codex-mode uninstall     # 卸载 Codex 主导模式
 node bin/ccg.mjs routing list             # 查看三个大角色的 Provider
 node bin/ccg.mjs routing set frontend claude # 只切换一个职责
 node bin/ccg.mjs uninstall                # 卸载 CCG
-node bin/ccg.mjs config mcp               # 配置 MCP Token
+node bin/ccg.mjs config mcp               # 配置已批准的 MCP
 node bin/ccg.mjs diagnose-mcp             # 静态 MCP 诊断
 node bin/ccg.mjs diagnose-mcp --smoke     # 显式、有界的 stdio 握手
 node bin/ccg.mjs grok login               # 直接进行官方 Grok 浏览器登录
@@ -294,6 +296,12 @@ Codex 模式只分别设置 `frontend`、`backend`、`search` 三个大角色，
 - Wrapper 二进制只从个人 Release 下载，并在 `chmod` 或执行前校验固定 SHA-256。
 - 可执行 npm/Git 依赖都以精确版本或完整 commit 记录在 `third-party-sources.json`，不使用可变的 `@latest`。
 - MCP 密钥放在仅所有者可读的文件中，由本地启动器加载，不进入进程参数，也不镜像到其他运行时。
+- 官方远程 MCP 仅允许精确 HTTPS 地址，并分别使用 Claude 的 `type=http`、
+  Codex 的 `url` 和 Gemini 的 `httpUrl`；拒绝 URL 凭据、任意 query 和旧版
+  DeepWiki SSE。
+- Exa 托管基础额度无需 Key；更高限额会引导到
+  `https://dashboard.exa.ai/api-keys`，本地 Key 仍只进入所有者可读的
+  secret launcher。
 - Codex 模式使用摘要绑定的所有权清单和托管区块；安装、更新和卸载会保留无关用户文件，并对损坏配置或被修改的托管状态关闭式失败。
 - `diagnose-mcp --smoke` 必须显式启用，仅支持 stdio，限制时间与输出，脱敏诊断并终止完整子进程树。
 
@@ -346,4 +354,4 @@ MIT
 
 ---
 
-v3.4.1 | [Issues](https://github.com/jed-zed/ccg-gptpro-worflow/issues) | [Contributing](./CONTRIBUTING.md)
+v3.4.4 | [Issues](https://github.com/jed-zed/ccg-gptpro-worflow/issues) | [Contributing](./CONTRIBUTING.md)
