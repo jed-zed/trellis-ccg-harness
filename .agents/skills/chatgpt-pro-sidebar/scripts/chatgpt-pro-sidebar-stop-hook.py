@@ -416,6 +416,18 @@ def _load_registrations(
     return registrations
 
 
+def _has_matching_claim(entry: dict[str, Any], thread_id: str) -> bool:
+    claim = _read_json(entry["evidenceDirectory"] / CLAIM_FILE_NAME)
+    if claim is None:
+        return False
+    registration = entry["registration"]
+    return (
+        str(claim.get("codexThreadId") or "").lower() == thread_id
+        and str(claim.get("watcherId") or "").lower()
+        == str(registration.get("watcherId") or "").lower()
+    )
+
+
 def _terminal_registration(
     entry: dict[str, Any],
 ) -> tuple[str, Path, Path] | None:
@@ -450,13 +462,6 @@ def run_hook(
     thread_id = _thread_id(payload)
     if not thread_id:
         return 0
-    if bool(payload.get("stop_hook_active")):
-        _append_log(
-            registry_root,
-            "continued_stop_ignored",
-            codexThreadId=thread_id,
-        )
-        return 0
 
     registrations = _load_registrations(
         registry_root,
@@ -465,6 +470,25 @@ def run_hook(
     )
     if not registrations:
         return 0
+    if bool(payload.get("stop_hook_active")):
+        registrations = [
+            entry
+            for entry in registrations
+            if not _has_matching_claim(entry, thread_id)
+        ]
+        if not registrations:
+            _append_log(
+                registry_root,
+                "continued_stop_no_pending_watchers",
+                codexThreadId=thread_id,
+            )
+            return 0
+        _append_log(
+            registry_root,
+            "continued_stop_waiting_for_pending_watchers",
+            codexThreadId=thread_id,
+            registrationCount=len(registrations),
+        )
 
     _append_log(
         registry_root,

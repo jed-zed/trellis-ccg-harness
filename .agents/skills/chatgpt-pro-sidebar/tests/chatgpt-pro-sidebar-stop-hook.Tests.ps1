@@ -193,6 +193,23 @@ Describe 'Codex Stop Hook helper' {
         Test-Path -LiteralPath (Join-Path $secondEvidence 'watch-stop-hook.claim') | Should -BeTrue
         Test-Path -LiteralPath (Join-Path $pendingEvidence 'watch-stop-hook.claim') | Should -BeFalse
         Test-Path -LiteralPath (Join-Path $pendingEvidence 'watch-callback.json') | Should -BeFalse
+
+        Write-TestJson -Path (Join-Path $pendingEvidence 'watch-event.json') -Value ([ordered]@{
+            status = 'completed'
+        })
+        $continued = Invoke-TestStopHook -Registry $registry -Payload @{
+            session_id = $script:ThreadId
+            stop_hook_active = $true
+        }
+        $continuedDecision = $continued.Output[0] | ConvertFrom-Json
+
+        $continued.ExitCode | Should -Be 0
+        $continued.Output.Count | Should -Be 1
+        $continuedDecision.decision | Should -Be 'block'
+        $continuedDecision.reason | Should -Match ([regex]::Escape($pendingEvidence))
+        $continuedDecision.reason | Should -Not -Match ([regex]::Escape($firstEvidence))
+        $continuedDecision.reason | Should -Not -Match ([regex]::Escape($secondEvidence))
+        Test-Path -LiteralPath (Join-Path $pendingEvidence 'watch-stop-hook.claim') | Should -BeTrue
     }
 
     It 'claims only the bounded batch that is fully reported and leaves the rest for a later hook' {
@@ -353,7 +370,7 @@ Describe 'Codex Stop Hook helper' {
         Test-Path -LiteralPath (Join-Path $evidence 'watch-callback.json') | Should -BeTrue
     }
 
-    It 'ignores the continuation turn marked stop_hook_active' {
+    It 'does not replay an already claimed watcher on the continuation boundary' {
         $registry = Join-Path $TestDrive 'registry-active'
         $evidence = Join-Path $TestDrive 'evidence-active'
         New-TestRegistration -Registry $registry -Evidence $evidence
@@ -361,14 +378,16 @@ Describe 'Codex Stop Hook helper' {
             status = 'completed'
         })
 
+        $first = Invoke-TestStopHook -Registry $registry
         $result = Invoke-TestStopHook -Registry $registry -Payload @{
             session_id = $script:ThreadId
             stop_hook_active = $true
         }
 
+        $first.Output.Count | Should -Be 1
         $result.ExitCode | Should -Be 0
         $result.Output.Count | Should -Be 0
-        Test-Path -LiteralPath (Join-Path $evidence 'watch-stop-hook.claim') | Should -BeFalse
+        Test-Path -LiteralPath (Join-Path $evidence 'watch-stop-hook.claim') | Should -BeTrue
     }
 
     It 'continues review when the watcher launch failed without an event' {
