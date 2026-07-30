@@ -2957,6 +2957,7 @@ function Complete-Evidence {
     Write-Utf8NoBomAtomic -Path $urlPath -Text ($ConversationUrl + [Environment]::NewLine)
 
     $responseSha = Get-Sha256File -Path $responsePath
+    $responseBytes = [System.IO.File]::ReadAllBytes($responsePath).LongLength
     $urlSha = Get-Sha256File -Path $urlPath
     $completedAt = [DateTime]::UtcNow.ToString('o')
     $submissionAcknowledged = [bool](Get-ObjectProperty $State 'submissionAcknowledged' ($phaseBeforeCompletion -eq 'sent'))
@@ -2979,6 +2980,7 @@ function Complete-Evidence {
             file = 'response.md'
             sha256 = $responseSha
             characters = $responseText.Length
+            bytes = $responseBytes
         }
         extractor = [ordered]@{
             version = [string](Get-ObjectProperty $Response 'ExtractorVersion' (Get-ObjectProperty $State 'extractorVersion' $Script:ExtractorVersion))
@@ -3030,6 +3032,7 @@ function Complete-Evidence {
     Set-ObjectProperty -InputObject $State -Name 'completedAtUtc' -Value $completedAt
     Set-ObjectProperty -InputObject $State -Name 'responseFile' -Value 'response.md'
     Set-ObjectProperty -InputObject $State -Name 'responseSha256' -Value $responseSha
+    Set-ObjectProperty -InputObject $State -Name 'responseBytes' -Value $responseBytes
     Set-ObjectProperty -InputObject $State -Name 'urlFile' -Value 'url.txt'
     Set-ObjectProperty -InputObject $State -Name 'conversationUrl' -Value $ConversationUrl
     Set-ObjectProperty -InputObject $State -Name 'urlSha256' -Value $urlSha
@@ -3055,16 +3058,18 @@ function Invoke-LiveWait {
     }
     $phase = [string](Get-ObjectProperty $state 'phase' '')
     if ($phase -eq 'completed') {
+        $completedResponse = Get-CompletedResponseResult -EvidenceDirectory $EvidenceDirectory
         return [ordered]@{
             ok = $true
             command = 'wait'
             live = $true
             completed = $true
             reusedCompletedEvidence = $true
-            responseSha256 = [string](Get-ObjectProperty $state 'responseSha256' '')
-            conversationUrl = [string](Get-ObjectProperty $state 'conversationUrl' '')
-            submissionAcknowledged = [bool](Get-ObjectProperty $state 'submissionAcknowledged' $false)
-            observationalRecovery = ([string](Get-ObjectProperty $state 'phaseBeforeCompletion' 'sent') -ne 'sent')
+            responseSha256 = $completedResponse.responseSha256
+            responseBytes = $completedResponse.responseBytes
+            conversationUrl = $completedResponse.conversationUrl
+            submissionAcknowledged = $completedResponse.submissionAcknowledged
+            observationalRecovery = $completedResponse.observationalRecovery
         }
     }
 
@@ -3125,6 +3130,7 @@ function Invoke-LiveWait {
         responseSha256 = $evidence.response.sha256
         evidenceSha256 = [string](Get-ObjectProperty $state 'evidenceSha256' '')
         responseCharacters = $evidence.response.characters
+        responseBytes = $evidence.response.bytes
         conversationUrl = $evidence.conversation.url
         submissionAcknowledged = $evidence.submission.acknowledged
         observationalRecovery = $observationalRecovery
@@ -3162,6 +3168,7 @@ function Get-CompletedResponseResult {
 
     $promptSha = Get-Sha256File -Path $promptPath
     $responseSha = Get-Sha256File -Path $responsePath
+    $responseBytes = [System.IO.File]::ReadAllBytes($responsePath).LongLength
     $urlSha = Get-Sha256File -Path $urlPath
     $evidenceSha = Get-Sha256File -Path $evidencePath
     if ($promptSha -ne [string](Get-ObjectProperty $state 'promptSha256' '')) {
@@ -3169,6 +3176,10 @@ function Get-CompletedResponseResult {
     }
     if ($responseSha -ne [string](Get-ObjectProperty $state 'responseSha256' '')) {
         Throw-SidebarError -ExitCode $Script:ExitCodes.Evidence -Category 'ResponseEvidenceHashMismatch' -Message 'The response evidence hash no longer matches state.json.'
+    }
+    $recordedStateResponseBytes = Get-ObjectProperty $state 'responseBytes' $null
+    if ($null -ne $recordedStateResponseBytes -and $responseBytes -ne [long]$recordedStateResponseBytes) {
+        Throw-SidebarError -ExitCode $Script:ExitCodes.Evidence -Category 'ResponseEvidenceByteCountMismatch' -Message 'The response evidence byte count no longer matches state.json.'
     }
     if ($urlSha -ne [string](Get-ObjectProperty $state 'urlSha256' '')) {
         Throw-SidebarError -ExitCode $Script:ExitCodes.Evidence -Category 'UrlEvidenceHashMismatch' -Message 'The URL evidence hash no longer matches state.json.'
@@ -3192,9 +3203,11 @@ function Get-CompletedResponseResult {
     $evidencePrompt = Get-ObjectProperty $evidence 'prompt' $null
     $evidenceResponse = Get-ObjectProperty $evidence 'response' $null
     $evidenceConversation = Get-ObjectProperty $evidence 'conversation' $null
+    $recordedEvidenceResponseBytes = Get-ObjectProperty $evidenceResponse 'bytes' $null
     $boundConversationUrl = Get-BoundConversationUrlFromState -State $state
     if ([string](Get-ObjectProperty $evidencePrompt 'sha256' '') -ne $promptSha -or
         [string](Get-ObjectProperty $evidenceResponse 'sha256' '') -ne $responseSha -or
+        ($null -ne $recordedEvidenceResponseBytes -and [long]$recordedEvidenceResponseBytes -ne $responseBytes) -or
         [string](Get-ObjectProperty $evidenceConversation 'sha256' '') -ne $urlSha -or
         [string](Get-ObjectProperty $evidenceConversation 'url' '') -ne $conversationUrl -or
         [string](Get-ObjectProperty $evidenceConversation 'boundAtSend' '') -ne $boundConversationUrl -or
@@ -3210,6 +3223,7 @@ function Get-CompletedResponseResult {
         response = $responseText
         promptSha256 = $promptSha
         responseSha256 = $responseSha
+        responseBytes = $responseBytes
         evidenceSha256 = $evidenceSha
         conversationUrl = $conversationUrl
         idempotencyKey = [string](Get-ObjectProperty $state 'idempotencyKey' '')
@@ -3323,6 +3337,7 @@ function Invoke-MainCommand {
                     promptSha256 = $sendResult.promptSha256
                     response = $responseResult.response
                     responseSha256 = $responseResult.responseSha256
+                    responseBytes = $responseResult.responseBytes
                     conversationUrl = $responseResult.conversationUrl
                     clipboardUsed = $false
                 }

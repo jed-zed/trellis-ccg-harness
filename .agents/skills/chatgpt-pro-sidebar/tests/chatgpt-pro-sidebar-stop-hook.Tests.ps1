@@ -413,7 +413,13 @@ Describe 'Codex Stop Hook installation guidance' {
 
         $skillDocument | Should -Not -Match 'C:/Users/29933'
         $skillDocument | Should -Match '\$resolvedStopHook = \(Resolve-Path -LiteralPath \$stopHook\)'
-        $skillDocument | Should -Match '\$stopHookCommand = ''python "'' \+ \$resolvedStopHook \+ ''"'''
+        $skillDocument | Should -Match '\$pythonCandidates = @\('
+        $skillDocument | Should -Match '\[pscustomobject\]@\{ Name = ''py''; Prefix = @\(''-3''\) \}'
+        $skillDocument | Should -Match '\[pscustomobject\]@\{ Name = ''python''; Prefix = @\(\) \}'
+        $skillDocument | Should -Match '\[pscustomobject\]@\{ Name = ''python3''; Prefix = @\(\) \}'
+        $skillDocument | Should -Match '\$stopHookCommand = \('
+        $skillDocument | Should -Match '@\(''-X'', ''utf8''\)'
+        $skillDocument | Should -Match 'Python 3\.9\+ is required'
         $skillDocument | Should -Match 'actual installed directory containing this `SKILL\.md`'
     }
 

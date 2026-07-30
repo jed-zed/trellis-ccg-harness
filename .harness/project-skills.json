@@ -2,12 +2,12 @@
   "schemaVersion": 2,
   "status": "ready",
   "owner": "trellis-ccg-harness",
-  "profileSha256": "726b9f507fd56133ac708547f43e9cc7dfa8514f7d85a8f8872f817b0d711cb5",
+  "profileSha256": "2300a5fc9892d59add6f570cdc376925c96e8128b3a1988605617a32fcb786f3",
   "repository": {
-    "path": "I:\\ai\\.codex-task-cache\\019fa981-725e-7f02-93a7-bb1e1b7aefd3\\skill-repository-main-lf",
+    "path": "I:\\ai\\.codex-task-cache\\019fa981-725e-7f02-93a7-bb1e1b7aefd3\\skill-revision-source-f6d573a",
     "branch": "main",
-    "commit": "c29ecff43eb803a6737909b9bc44249ba98e97b1",
-    "tree": "93ab1456a452241bd104d8ca75e2d2b9be49c8fb",
+    "commit": "f6d573a0edd83bf1e041dd50e66ac7f622a710c1",
+    "tree": "18e6e06705374105fae64d3ca45ff3b241072d3a",
     "clean": true,
     "remotes": [
       {
@@ -16,7 +16,7 @@
       }
     ]
   },
-  "installedAt": "2026-07-30T15:36:43.002Z",
+  "installedAt": "2026-07-30T16:40:32.877Z",
   "managedPaths": [
     ".harness/project-skills.json",
     ".agents/skills/chatgpt-pro-sidebar"
@@ -26,10 +26,10 @@
       "name": "chatgpt-pro-sidebar",
       "sourceRelativePath": "chatgpt-pro-sidebar",
       "targetPath": ".agents/skills/chatgpt-pro-sidebar",
-      "skillSha256": "09026d92a805eb1c8b93e923160625489c2580da7d08ec62197f8d8ccb91bfa3",
-      "treeSha256": "2eec996b67d09a8d600de8b047f6029d26bd65579d7dc962f78ac32eac0d9843",
+      "skillSha256": "8607b9b2be5e2ef460fc3534c62921f13a9a79ac40ee5db65ae2b6bdab580b74",
+      "treeSha256": "53b69a026de8ef738ead07d114873a2fb41b37b4809c9509826dfd17d0d9060b",
       "fileCount": 8,
-      "totalBytes": 318073
+      "totalBytes": 330574
     }
   ]
 }

@@ -940,7 +940,8 @@ Describe 'Evidence hashes and durable idempotency' {
             Assert-IdempotencyAvailable -ExistingState $loaded -IdempotencyKey 'task-round-1'
         }
 
-        $response = New-TestResponse -Text 'harmless live answer'
+        $responseText = 'harmless 中文 answer'
+        $response = New-TestResponse -Text $responseText
         $evidenceArguments = @{
             EvidenceDirectory = $directory
             State = $loaded
@@ -951,6 +952,7 @@ Describe 'Evidence hashes and durable idempotency' {
         $evidence = Complete-Evidence @evidenceArguments
 
         $evidence.response.sha256 | Should -Be (Get-Sha256File -Path (Join-Path $directory 'response.md'))
+        $evidence.response.bytes | Should -Be $Script:Utf8NoBom.GetByteCount($responseText)
         $evidence.extractor.version | Should -Be $Script:ExtractorVersion
         $evidence.extractor.windowRuntimeId | Should -Be '42.100'
         $evidence.extractor.stabilityScope | Should -Be 'same-extractor-same-visible-ui-state'
@@ -960,10 +962,12 @@ Describe 'Evidence hashes and durable idempotency' {
         $evidence.authority.codexIsSoleWorkspaceWriter | Should -BeTrue
         $completedState = Read-EvidenceState -Directory $directory
         $completedState.phase | Should -Be 'completed'
+        $completedState.responseBytes | Should -Be $Script:Utf8NoBom.GetByteCount($responseText)
         $completedState.evidenceSha256 | Should -Be (Get-Sha256File -Path (Join-Path $directory 'evidence.json'))
 
         $result = Get-CompletedResponseResult -EvidenceDirectory $directory
-        $result.response | Should -Be 'harmless live answer'
+        $result.response | Should -Be $responseText
+        $result.responseBytes | Should -Be $Script:Utf8NoBom.GetByteCount($responseText)
         $result.evidenceSha256 | Should -Be $completedState.evidenceSha256
     }
 
@@ -981,6 +985,35 @@ Describe 'Evidence hashes and durable idempotency' {
         Assert-ThrowsCategory -Category 'EvidenceManifestHashMismatch' -ExitCode 30 -Action {
             Get-CompletedResponseResult -EvidenceDirectory $directory
         }
+    }
+
+    It 'derives response bytes for completed version-1 evidence created before byte counts were recorded' {
+        $directory = Join-Path $TestDrive 'legacy-response-bytes'
+        $null = New-Item -ItemType Directory -Path $directory
+        $prompt = 'safe prompt'
+        $promptSha = Get-Sha256Text -Text $prompt
+        Write-Utf8NoBomAtomic -Path (Join-Path $directory 'prompt.md') -Text $prompt
+        $state = New-SendIntentState -PromptSha256 $promptSha -IdempotencyKeyValue 'legacy-byte-test' -BaselineHashes @() -ConversationUrlBeforeSend 'https://chatgpt.com/c/conversation_123'
+        Set-ObjectProperty -InputObject $state -Name 'phase' -Value 'sent'
+        $responseText = '历史 response'
+        Complete-Evidence -EvidenceDirectory $directory -State $state -Response (New-TestResponse -Text $responseText) -ConversationUrl 'https://chatgpt.com/c/conversation_123' -TransientObservationCount 0 | Out-Null
+
+        $legacyEvidence = [System.IO.File]::ReadAllText((Join-Path $directory 'evidence.json'), $Script:Utf8NoBom) | ConvertFrom-Json
+        $legacyEvidence.response.PSObject.Properties.Remove('bytes')
+        Write-JsonAtomic -Path (Join-Path $directory 'evidence.json') -Value $legacyEvidence
+
+        $legacyState = Read-EvidenceState -Directory $directory
+        $legacyState.PSObject.Properties.Remove('responseBytes')
+        Set-ObjectProperty -InputObject $legacyState -Name 'evidenceSha256' -Value (Get-Sha256File -Path (Join-Path $directory 'evidence.json'))
+        Write-EvidenceState -Directory $directory -State $legacyState
+
+        $result = Get-CompletedResponseResult -EvidenceDirectory $directory
+        $result.response | Should -Be $responseText
+        $result.responseBytes | Should -Be $Script:Utf8NoBom.GetByteCount($responseText)
+
+        $waitResult = Invoke-LiveWait -EvidenceDirectory $directory -TimeoutSecondsValue 1 -PollMillisecondsValue 10
+        $waitResult.reusedCompletedEvidence | Should -BeTrue
+        $waitResult.responseBytes | Should -Be $Script:Utf8NoBom.GetByteCount($responseText)
     }
 
     It 'marks completion from an uncertain send as observational, not acknowledged' {
