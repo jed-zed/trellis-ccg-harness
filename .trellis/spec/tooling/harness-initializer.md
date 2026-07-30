@@ -3,9 +3,10 @@
 ## 1. Scope / Trigger
 
 This contract applies when changing project-contract validation, first-time
-installation into `.harness/`, managed `AGENTS.md` projection, ownership
-metadata, transaction recovery, the `approved` to `ready` transition, or the
-approval-gated global addon discovery and installation workflow.
+installation into `.harness/`, ready-project Skill revision, managed
+`AGENTS.md` projection, ownership metadata, transaction recovery, the
+`approved` to `ready` transition, or the approval-gated global addon discovery
+and installation workflow.
 
 The implementation is
 `.agents/skills/harness-init/scripts/harness-init-core.mjs`; the root
@@ -18,6 +19,8 @@ Supported commands:
 ```text
 node scripts/harness-init.mjs apply --contract <json-path> --repo-root <path>
 node scripts/harness-init.mjs mark-ready --repo-root <path>
+node scripts/harness-init.mjs revise-project-skills --repo-root <path> \
+  --home-dir <profile-home> --skills <names> [--replace-existing] --approved
 node scripts/harness-init.mjs addons --status --home-dir <path> --repo-root <path>
 node scripts/harness-init.mjs addons --plan-only \
   --third-party-global-skills <ids-or-none> \
@@ -78,6 +81,16 @@ and recovery tests; ordinary callers use only `repoRoot`.
 - `mark-ready` accepts only `status: approved` or an intact `status: ready`.
   Successful promotion changes only the contract status and corresponding
   ownership digest.
+- `revise-project-skills` accepts only a ready, ownership-valid project and a
+  clean, immutable Git catalog identity from the saved Skill profile.
+- The revision's global essentials must exactly match the saved 13-Skill
+  profile. `grill-me` remains an externally owned optional Skill and must not
+  enter the project contract's global-essential baseline.
+- Replacing an already owned Project Skill requires `--replace-existing`.
+  The transaction verifies and claims the old owned tree, stages the complete
+  new tree, and atomically updates the copied Skill, project contract, Project
+  Skill manifest, and ownership digests. A failure restores the previous
+  complete projection.
 - The contract, schema, policy, block, and ownership files are transaction
   inputs. The ready contract and ownership manifest are atomic transaction
   targets.
@@ -125,6 +138,10 @@ and recovery tests; ordinary callers use only `repoRoot`.
 | Legacy Schema formatting is noncanonical but semantically exact and ownership matches its bytes | Canonicalize Schema and ownership transactionally |
 | Failure after either ready target is installed | Restore both original files and clean transaction residue |
 | Intact contract is already `ready` | Return `status: unchanged` without writing |
+| Ready-project Skill source is a dirty checkout or has a credential-bearing remote | Refuse before mutation |
+| Existing Project Skill differs from its ownership record | Refuse replacement and preserve all bytes |
+| Replacement is requested without `--replace-existing` | Refuse without mutation |
+| Replacement fails after any target is claimed or published | Restore the previous Skill, contract, manifest, and ownership |
 | `addons --status` receives a selection or approval flag | Refuse as a mixed read/write request |
 | Non-interactive addon planning omits a selection group | Refuse the ambiguous selection set |
 | Non-interactive addon apply omits either digest or final approval | Refuse before mutation |
@@ -171,6 +188,9 @@ Errors propagate to `scripts/harness-init.mjs`, which writes one
 - coordinated policy/ownership and schema/ownership drift still fail closed;
 - a fault after the first ready target rolls both targets back and leaves no
   transaction residue.
+- ready-project Skill revision preserves the 13-core global baseline, binds a
+  clean credential-free catalog commit, requires `--replace-existing` for an
+  owned revision, and rolls back the whole projection on failure.
 
 `tests/harness-third-party-cli.test.mjs` must assert:
 

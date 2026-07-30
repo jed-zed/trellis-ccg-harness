@@ -57,10 +57,32 @@ WINDOWS_DRIVE_PATTERN = re.compile(r"^[A-Za-z]:[\\/]")
 SCP_LIKE_REMOTE_PATTERN = re.compile(r"^(?:([^@/:\\]+)@)?([A-Za-z0-9.-]+):(.+)$")
 LOCAL_PREVIEW_HOSTS = {"127.0.0.1", "localhost", "::1"}
 TASK_ROOTS = ((".ccg", "tasks"), (".trellis", "tasks"))
+CHATGPT_CONVERSATION_PATH_PATTERN = re.compile(
+    r"/(?:g/[A-Za-z0-9_-]{1,128}/)?c/[A-Za-z0-9_-]{8,128}"
+)
 
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+def is_chatgpt_conversation_url(value: str) -> bool:
+    try:
+        parsed = urlsplit(value)
+        port = parsed.port
+    except ValueError:
+        return False
+    return (
+        parsed.scheme == "https"
+        and parsed.netloc == "chatgpt.com"
+        and parsed.hostname == "chatgpt.com"
+        and port is None
+        and parsed.username is None
+        and parsed.password is None
+        and parsed.query == ""
+        and parsed.fragment == ""
+        and CHATGPT_CONVERSATION_PATH_PATTERN.fullmatch(parsed.path) is not None
+    )
 
 
 def slugify(value: str) -> str:
@@ -1741,10 +1763,7 @@ def import_sidebar_evidence(
         raise ValueError("ChatGPT Pro sidebar response cannot be empty.")
 
     conversation_url = url_path.read_text(encoding="utf-8").strip()
-    if not re.fullmatch(
-        r"https://chatgpt\.com/c/[0-9a-fA-F-]{36}",
-        conversation_url,
-    ):
+    if not is_chatgpt_conversation_url(conversation_url):
         raise ValueError("ChatGPT Pro sidebar evidence lacks one exact conversation URL.")
     if (
         conversation_entry.get("url") != conversation_url

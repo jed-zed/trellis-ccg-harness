@@ -207,7 +207,7 @@ function adapterContract() {
       },
       gptpro: {
         enabled: true,
-        manualOnly: true,
+        manualOnly: false,
         workspaceWrite: false,
       },
     },
@@ -242,8 +242,10 @@ function adapterContract() {
       },
       gptPro: {
         enabled: true,
-        manualOnly: true,
-        apiKeyEnv: "HARNESS_GPTPRO_API_KEY",
+        manualOnly: false,
+        protocol: "chatgpt-pro-sidebar",
+        skill: "chatgpt-pro-sidebar",
+        continuation: "codex-stop-hook",
       },
     },
     conflicts: {
@@ -855,6 +857,94 @@ test("source, runtime state, provider, and Claude drift are blocking", async () 
     }
   } finally {
     fixture.cleanup();
+  }
+});
+
+test("GPT Pro model and sidebar provider drift are blocking", async () => {
+  const cases = [
+    {
+      name: "disabled model",
+      findingId: "model-policy",
+      mutate: (contract) => {
+        contract.models.gptpro.enabled = false;
+      },
+    },
+    {
+      name: "manual-only model",
+      findingId: "model-policy",
+      mutate: (contract) => {
+        contract.models.gptpro.manualOnly = true;
+      },
+    },
+    {
+      name: "workspace-writing model",
+      findingId: "model-policy",
+      mutate: (contract) => {
+        contract.models.gptpro.workspaceWrite = true;
+      },
+    },
+    {
+      name: "disabled provider",
+      findingId: "provider-separation",
+      mutate: (contract) => {
+        contract.providers.gptPro.enabled = false;
+      },
+    },
+    {
+      name: "manual-only provider",
+      findingId: "provider-separation",
+      mutate: (contract) => {
+        contract.providers.gptPro.manualOnly = true;
+      },
+    },
+    {
+      name: "wrong protocol",
+      findingId: "provider-separation",
+      mutate: (contract) => {
+        contract.providers.gptPro.protocol = "manual-browser";
+      },
+    },
+    {
+      name: "wrong Skill",
+      findingId: "provider-separation",
+      mutate: (contract) => {
+        contract.providers.gptPro.skill = "other-skill";
+      },
+    },
+    {
+      name: "wrong continuation",
+      findingId: "provider-separation",
+      mutate: (contract) => {
+        contract.providers.gptPro.continuation = "cli-resume";
+      },
+    },
+  ];
+
+  for (const testCase of cases) {
+    const fixture = createFixture();
+    try {
+      const contractPath = path.join(
+        fixture.repoRoot,
+        ".harness",
+        "adapter.json",
+      );
+      const contract = JSON.parse(readFileSync(contractPath, "utf8"));
+      testCase.mutate(contract);
+      writeJson(contractPath, contract);
+
+      const report = await auditConflicts(fixture.repoRoot, {
+        runner: fixture.runner,
+        homeDir: fixture.homeDir,
+      });
+      assert.equal(
+        report.findings.find((item) => item.id === testCase.findingId).status,
+        "conflict",
+        testCase.name,
+      );
+      assert.equal(conflictExitCode(report), 2, testCase.name);
+    } finally {
+      fixture.cleanup();
+    }
   }
 });
 

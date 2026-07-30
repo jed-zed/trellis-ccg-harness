@@ -99,7 +99,7 @@
     },
     "gptpro": {
       "enabled": true,
-      "manualOnly": true,
+      "manualOnly": false,
       "workspaceWrite": false
     }
   },
@@ -147,11 +147,10 @@
     },
     "gptPro": {
       "enabled": true,
-      "manualOnly": true,
-      "protocol": "ccg-gptpro-bridge",
-      "baseUrlEnv": "HARNESS_GPTPRO_BASE_URL",
-      "apiKeyEnv": "HARNESS_GPTPRO_API_KEY",
-      "modelEnv": "HARNESS_GPTPRO_MODEL"
+      "manualOnly": false,
+      "protocol": "chatgpt-pro-sidebar",
+      "skill": "chatgpt-pro-sidebar",
+      "continuation": "codex-stop-hook"
     }
   },
   "conflicts": {

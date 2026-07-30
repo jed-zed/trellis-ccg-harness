@@ -31,7 +31,7 @@ Trellis 生命周期层
 Harness 内部适配器
   ↓ context / policy / conflict audit / provider boundary
 CCG 智能层
-  Codex / Gemini / optional Grok / manual GPT Pro / quality gates
+  Codex / Gemini / optional Grok / automated sidebar GPT Pro / quality gates
 ```
 
 `.harness/adapter.json` 是无密钥的权责契约，`scripts/harness-adapter.mjs`
@@ -375,9 +375,10 @@ pnpm --dir .\components\ccg-workflow build
 
 1. Trellis 创建任务并沉淀 `prd.md`、`design.md` 和 `implement.md`。
 2. Codex 作为主编排器在当前会话 inline 执行。
-3. CCG 可按项目策略调用只读 Gemini 或手动 GPT Pro；Claude 仅可作为显式选择的只读
-   产品经理 Provider。GPT Pro
-   证据直接写入 Trellis task 内的 `.ccg-evidence/`，不会创建第二套 `.ccg/tasks` 生命周期。
+3. CCG 可按项目策略调用只读 Gemini，或通过已批准的 `chatgpt-pro-sidebar` Skill
+   自动与用户已登录的侧边浏览器 GPT Pro 交接；Claude 仅可作为显式选择的只读产品经理
+   Provider。GPT Pro 证据直接写入 Trellis task 内的 `.ccg-evidence/`，不会创建第二套
+   `.ccg/tasks` 生命周期。
 4. Grok 当前是默认关闭的可选提供方，不阻塞普通工作；将来重新启用时，联网证据仍需 fail-closed。
 5. CCG 质量门禁与 Trellis check 共同验证。
 6. Trellis 更新规范、提交并归档任务。
@@ -394,7 +395,7 @@ pnpm --dir .\components\ccg-workflow build
 | Codex | 启用 | 唯一工作区写入者，inline 执行 |
 | Gemini | 启用 | 只读分析与复审 |
 | Claude | 可选启用 | 仅限显式授权的产品经理评审；无工具、无工作区写入、无会话持久化 |
-| GPT Pro | 启用 | 仅通过 CCG 的手动证据命令 |
+| GPT Pro | 启用 | 仅通过 CCG 与 `chatgpt-pro-sidebar` Skill 自动交接；仍是只读证据 |
 | Grok | 禁用、可选 | 未配置或不可用时不阻塞 |
 
 OpenAI 兼容 Grok 探针只读取以下进程环境变量：

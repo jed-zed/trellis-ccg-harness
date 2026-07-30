@@ -130,7 +130,7 @@
     },
     "gptPro": {
       "enabled": false,
-      "manualOnly": true,
+      "manualOnly": false,
       "workspaceWrite": false
     }
   },

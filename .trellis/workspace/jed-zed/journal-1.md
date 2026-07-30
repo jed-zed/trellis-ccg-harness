@@ -194,7 +194,34 @@ Decoupled installed personal CCG CLI/plugin versions from source snapshot proven
 [OK] **Completed**
 
 
-## Session 7: Add approval-gated addon discovery
+## Session 7: Automate GPT Pro side-panel bridge
+
+**Date**: 2026-07-29
+**Task**: Automate GPT Pro side-panel bridge
+**Branch**: `codex/integrate-gptpro-sidebar-automation`
+
+### Summary
+
+Published the ChatGPT Pro sidebar Skill, automated all CCG GPT Pro bridges with exact-once import and Stop Hook acknowledgement replay, refreshed and installed CCG 3.4.3, fixed plugin-only owned upgrades, completed a real same-task Pro wake/import review, and passed all local gates.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `49bc626` | (see git log) |
+| `d017293` | (see git log) |
+| `2f3db6a` | (see git log) |
+| `91ba27c` | (see git log) |
+| `1316cc8` | (see git log) |
+| `bcb3acf` | (see git log) |
+| `f33678d` | (see git log) |
+
+### Status
+
+[OK] **Completed**
+
+
+## Session 8: Add approval-gated addon discovery
 
 **Date**: 2026-07-30
 **Task**: Add approval-gated addon discovery

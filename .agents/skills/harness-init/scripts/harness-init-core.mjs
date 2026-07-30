@@ -146,6 +146,8 @@ const PROJECT_TRANSACTION_TARGETS = new Set([
   THIRD_PARTY_SOURCE_RELATIVE_PATH,
   THIRD_PARTY_INSTALLATIONS_RELATIVE_PATH,
 ]);
+const PROJECT_SKILL_TRANSACTION_TARGET =
+  /^\.agents\/skills\/[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$/;
 
 async function exists(target) {
   try {
@@ -853,6 +855,13 @@ function normalizeCredentialFreeRepositoryRemotes(remotes) {
   );
 }
 
+export function isPortableAbsolutePath(value) {
+  return (
+    typeof value === "string" &&
+    (path.posix.isAbsolute(value) || path.win32.isAbsolute(value))
+  );
+}
+
 function validateProjectSkillManifest(manifest) {
   const allowedKeys = [
     "schemaVersion",
@@ -879,7 +888,7 @@ function validateProjectSkillManifest(manifest) {
       "Project Skill repository identity",
     );
     if (
-      !path.isAbsolute(manifest.repository.path) ||
+      !isPortableAbsolutePath(manifest.repository.path) ||
       manifest.repository.branch !== "main" ||
       !/^[a-f0-9]{40,64}$/.test(manifest.repository.commit) ||
       !/^[a-f0-9]{40,64}$/.test(manifest.repository.tree) ||
@@ -1299,6 +1308,75 @@ async function readCleanSkillRepositoryIdentity(repositoryPath) {
   });
 }
 
+async function assertSkillSnapshotBoundToRepositoryCommit({
+  repositoryPath,
+  repositoryCommit,
+  sourceRelativePath,
+  snapshot,
+}) {
+  const normalizedSource = sourceRelativePath
+    .split("/")
+    .filter(Boolean)
+    .join("/");
+  const { stdout } = await execFile(
+    "git",
+    [
+      "-C",
+      repositoryPath,
+      "ls-tree",
+      "-r",
+      "-z",
+      "--name-only",
+      repositoryCommit,
+      "--",
+      normalizedSource,
+    ],
+    {
+      encoding: "utf8",
+      maxBuffer: 64 * 1024 * 1024,
+      windowsHide: true,
+    },
+  );
+  const prefix = `${normalizedSource}/`;
+  const trackedFiles = String(stdout ?? "")
+    .split("\0")
+    .filter(Boolean)
+    .map((entry) => {
+      if (!entry.startsWith(prefix)) {
+        throw new Error(
+          `Project Skill repository returned an out-of-scope tree entry: ${entry}`,
+        );
+      }
+      return entry.slice(prefix.length);
+    })
+    .sort((left, right) => left.localeCompare(right));
+  const snapshotFiles = snapshot.files
+    .map((entry) => entry.path)
+    .sort((left, right) => left.localeCompare(right));
+  if (canonicalJson(trackedFiles) !== canonicalJson(snapshotFiles)) {
+    throw new Error(
+      `Project Skill snapshot is not fully tracked by repository commit ${repositoryCommit}.`,
+    );
+  }
+  for (const entry of snapshot.files) {
+    const repositoryFile = path.posix.join(normalizedSource, entry.path);
+    const { stdout: committedBytes } = await execFile(
+      "git",
+      ["-C", repositoryPath, "show", `${repositoryCommit}:${repositoryFile}`],
+      {
+        encoding: "buffer",
+        maxBuffer: 64 * 1024 * 1024,
+        windowsHide: true,
+      },
+    );
+    if (sha256(committedBytes) !== entry.sha256) {
+      throw new Error(
+        `Project Skill file differs from repository commit ${repositoryCommit}: ${repositoryFile}`,
+      );
+    }
+  }
+}
+
 function normalizeRepositoryIdentity(identity) {
   assertExactKeys(
     identity,
@@ -1338,6 +1416,7 @@ export async function reviseReadyProjectSkills({
   isProcessAlive,
   readProcessIdentity,
   provenanceKeyPath,
+  replaceExisting = false,
 }) {
   if (approved !== true) {
     throw new Error("Ready project Skill revision requires explicit approval.");
@@ -1402,6 +1481,25 @@ export async function reviseReadyProjectSkills({
     throw new Error(
       "Project Skill repository identity differs from the saved profile.",
     );
+  }
+
+  const provenanceKey = await loadProjectProvenanceKey(
+    root,
+    provenanceKeyPath,
+  );
+  const recoveryLock = await acquireProjectLock(root, {
+    isProcessAlive,
+    readProcessIdentity,
+    provenanceKey,
+  });
+  try {
+    await recoverProjectTransactions(root, {
+      isProcessAlive,
+      readProcessIdentity,
+      provenanceKey,
+    });
+  } finally {
+    await recoveryLock.release();
   }
 
   const [
@@ -1518,6 +1616,12 @@ export async function reviseReadyProjectSkills({
       ...catalogEntry.relativePath.split("/"),
     );
     const snapshot = await snapshotSkillTree(sourcePath);
+    await assertSkillSnapshotBoundToRepositoryCommit({
+      repositoryPath: profile.repositoryPath,
+      repositoryCommit: identity.commit,
+      sourceRelativePath: catalogEntry.relativePath,
+      snapshot,
+    });
     const skillDefinition = snapshot.files.find(
       (entry) => entry.path === "SKILL.md",
     );
@@ -1585,6 +1689,42 @@ export async function reviseReadyProjectSkills({
     canonicalJson(candidateContract),
   );
   const manifestBytes = Buffer.from(canonicalJson(readyManifest));
+  const existingManifestFingerprint = await readFileFingerprint(
+    manifestPath,
+    "Project Skill manifest",
+  );
+  let existingManifest = null;
+  if (
+    currentOwnership.schemaVersion ===
+      PROJECT_SKILL_OWNERSHIP_SCHEMA_VERSION ||
+    existingManifestFingerprint.exists
+  ) {
+    if (
+      currentOwnership.schemaVersion !==
+        PROJECT_SKILL_OWNERSHIP_SCHEMA_VERSION ||
+      !existingManifestFingerprint.exists ||
+      existingManifestFingerprint.sha256 !==
+        currentOwnership.projectSkillsManifestSha256
+    ) {
+      throw new Error("Owned Project Skill manifest is missing or modified.");
+    }
+    existingManifest = validateProjectSkillManifest(
+      JSON.parse(existingManifestFingerprint.bytes.toString("utf8")),
+    );
+    for (const skill of existingManifest.skills) {
+      if (!currentOwnership.managedPaths.includes(skill.targetPath)) {
+        throw new Error(`Managed Project Skill ownership is missing: ${skill.name}`);
+      }
+      const target = path.join(root, ...skill.targetPath.split("/"));
+      const snapshot = await snapshotSkillTree(target);
+      if (snapshot.treeSha256 !== skill.treeSha256) {
+        throw new Error(`Managed Project Skill drifted: ${skill.name}`);
+      }
+    }
+  }
+  const previousSkillPaths = new Set(
+    existingManifest?.skills.map((entry) => entry.targetPath) ?? [],
+  );
   const nextOwnership = {
     ...currentOwnership,
     schemaVersion: PROJECT_SKILL_OWNERSHIP_SCHEMA_VERSION,
@@ -1595,7 +1735,9 @@ export async function reviseReadyProjectSkills({
     projectSkillsManifestSha256: sha256(manifestBytes),
     managedPaths: [
       ...new Set([
-        ...currentOwnership.managedPaths,
+        ...currentOwnership.managedPaths.filter(
+          (entry) => !previousSkillPaths.has(entry),
+        ),
         ".harness/product-manager.schema.json",
         ...managedSkillPaths,
       ]),
@@ -1603,74 +1745,36 @@ export async function reviseReadyProjectSkills({
   };
   const nextOwnershipBytes = Buffer.from(canonicalJson(nextOwnership));
 
-  if (
+  const sameContractAndSchema =
     projectFingerprint.sha256 === sha256(candidateContractBytes) &&
     schemaFingerprint.sha256 === sourceSchemaSha256 &&
     currentOwnership.schemaVersion ===
-      PROJECT_SKILL_OWNERSHIP_SCHEMA_VERSION
-  ) {
-    const existingManifestFingerprint = await readFileFingerprint(
-      manifestPath,
-      "Project Skill manifest",
-    );
+      PROJECT_SKILL_OWNERSHIP_SCHEMA_VERSION;
+  if (sameContractAndSchema && existingManifest !== null) {
     if (
-      !existingManifestFingerprint.exists ||
-      existingManifestFingerprint.sha256 !==
-        currentOwnership.projectSkillsManifestSha256
-    ) {
-      throw new Error("Owned Project Skill manifest is missing or modified.");
-    }
-    const existingManifest = validateProjectSkillManifest(
-      JSON.parse(existingManifestFingerprint.bytes.toString("utf8")),
-    );
-    if (
-      projectSkillManifestIdentity(existingManifest) !==
+      projectSkillManifestIdentity(existingManifest) ===
       projectSkillManifestIdentity(readyManifest)
     ) {
-      throw new Error(
-        "Existing Project Skill manifest differs from the approved revision.",
-      );
+      return {
+        status: "unchanged",
+        projectPath,
+        manifestPath,
+        installedSkills: skills.map((entry) => entry.name),
+      };
     }
-    for (const skill of skills) {
-      const target = path.join(root, ...skill.targetPath.split("/"));
-      const snapshot = await snapshotSkillTree(target);
-      if (snapshot.treeSha256 !== skill.treeSha256) {
-        throw new Error(`Managed Project Skill drifted: ${skill.name}`);
-      }
-    }
-    return {
-      status: "unchanged",
-      projectPath,
-      manifestPath,
-      installedSkills: skills.map((entry) => entry.name),
-    };
   }
-  if (
-    currentOwnership.schemaVersion ===
-      PROJECT_SKILL_OWNERSHIP_SCHEMA_VERSION ||
-    (await pathEntryExists(manifestPath))
-  ) {
+  if (existingManifest !== null && replaceExisting !== true) {
     throw new Error(
-      "Ready project already has a different owned Skill revision; explicit replacement is required.",
+      "Ready project already has a different owned Skill revision; rerun with explicit replacement approval.",
     );
   }
 
-  const provenanceKey = await loadProjectProvenanceKey(
-    root,
-    provenanceKeyPath,
-  );
   const lock = await acquireProjectLock(root, {
     isProcessAlive,
     readProcessIdentity,
     provenanceKey,
     faultInjector,
   });
-  const targetParent = path.join(root, ".agents", "skills");
-  const stage = path.join(
-    targetParent,
-    `.harness-skill-revision-${randomUUID()}`,
-  );
-  const installedTargets = [];
   try {
     await recoverProjectTransactions(root, {
       isProcessAlive,
@@ -1707,42 +1811,52 @@ export async function reviseReadyProjectSkills({
       sourceSchemaFingerprint,
       "Harness project contract schema asset",
     );
-    await ensureSafeDirectoryChain(
-      root,
-      targetParent,
-      "Project Skill directory",
-      { create: true },
-    );
-    await mkdir(stage, { mode: 0o700 });
     for (const skill of skills) {
       const target = path.join(root, ...skill.targetPath.split("/"));
-      if (await pathEntryExists(target)) {
+      if (
+        await pathEntryExists(target) &&
+        !previousSkillPaths.has(skill.targetPath)
+      ) {
         throw new Error(
           `Project Skill target is user-owned; refusing collision: ${skill.targetPath}`,
         );
       }
-      const source = path.join(
-        profile.repositoryPath,
-        ...skill.sourceRelativePath.split("/"),
-      );
-      const staged = path.join(stage, skill.name);
-      const copied = await snapshotSkillTree(source, { copyTo: staged });
-      if (copied.treeSha256 !== skill.treeSha256) {
-        throw new Error(
-          `Project Skill source changed while staging: ${skill.name}`,
-        );
-      }
-      await rename(staged, target);
-      installedTargets.push(target);
-      if (faultInjector) {
-        await faultInjector(`after-project-skill:${skill.name}`);
-      }
     }
+    const existingSkillsByPath = new Map(
+      (existingManifest?.skills ?? []).map((skill) => [
+        skill.targetPath,
+        skill,
+      ]),
+    );
+    const nextSkillsByPath = new Map(
+      skills.map((skill) => [skill.targetPath, skill]),
+    );
+    const directoryTargets = [
+      ...new Set([
+        ...existingSkillsByPath.keys(),
+        ...nextSkillsByPath.keys(),
+      ]),
+    ].sort((left, right) => left.localeCompare(right)).map((targetPath) => {
+      const original = existingSkillsByPath.get(targetPath);
+      const next = nextSkillsByPath.get(targetPath);
+      return {
+        path: targetPath,
+        expectedOriginalTreeSha256: original?.treeSha256 ?? null,
+        expectedNextTreeSha256: next?.treeSha256 ?? null,
+        sourceDirectory: next
+          ? path.join(
+            profile.repositoryPath,
+            ...next.sourceRelativePath.split("/"),
+          )
+          : null,
+      };
+    });
     await runProjectTransaction({
       root,
       lock,
       provenanceKey,
       faultInjector,
+      directoryTargets,
       preconditions: [
         { path: PROJECT_POLICY_RELATIVE_PATH, expected: policyFingerprint },
         { path: "AGENTS.md", expected: agentsFingerprint },
@@ -1791,13 +1905,7 @@ export async function reviseReadyProjectSkills({
       projectSkillsManifestSha256: sha256(manifestBytes),
       installedSkills: skills.map((entry) => entry.name),
     };
-  } catch (error) {
-    for (const target of installedTargets.reverse()) {
-      await rm(target, { recursive: true, force: true });
-    }
-    throw error;
   } finally {
-    await rm(stage, { recursive: true, force: true });
     await lock.release();
   }
 }
@@ -1886,12 +1994,15 @@ function assertProviders(providers) {
     }
   }
   for (const provider of ["grok", "gptPro"]) {
-    if (
-      providers[provider].enabled &&
-      providers[provider].manualOnly !== true
-    ) {
-      throw new Error(`${provider} must remain manual-only when enabled.`);
+    if (typeof providers[provider].manualOnly !== "boolean") {
+      throw new Error(`providers.${provider}.manualOnly must be boolean.`);
     }
+  }
+  if (providers.grok.enabled && providers.grok.manualOnly !== true) {
+    throw new Error("grok must remain manual-only when enabled.");
+  }
+  if (providers.gptPro.manualOnly !== false) {
+    throw new Error("gptPro must use the automated sidebar transport.");
   }
 }
 
@@ -2282,6 +2393,24 @@ function projectTargetPath(root, relativePath, label = "Project target") {
     !PROJECT_TRANSACTION_TARGETS.has(relativePath)
   ) {
     throw new Error(`${label} is outside the Harness-owned project surface.`);
+  }
+  const target = path.join(root, ...relativePath.split("/"));
+  assertInside(root, target, label);
+  return target;
+}
+
+function projectSkillTransactionTargetPath(
+  root,
+  relativePath,
+  label = "Project Skill transaction target",
+) {
+  if (
+    typeof relativePath !== "string" ||
+    !PROJECT_SKILL_TRANSACTION_TARGET.test(relativePath)
+  ) {
+    throw new Error(
+      `${label} is outside the Harness-owned Project Skill surface.`,
+    );
   }
   const target = path.join(root, ...relativePath.split("/"));
   assertInside(root, target, label);
@@ -2820,10 +2949,23 @@ async function writeStagedFile(stageDirectory, target, bytes, mode) {
   await writeFile(target, bytes, { flag: "wx", mode });
 }
 
-async function collectMissingTargetDirectories(root, targets) {
+async function collectMissingTargetDirectories(
+  root,
+  targets,
+  directoryTargets = [],
+) {
   const candidates = new Set();
   for (const target of targets) {
     let current = path.dirname(projectTargetPath(root, target.path));
+    while (normalizeResolvedPath(current) !== normalizeResolvedPath(root)) {
+      candidates.add(current);
+      current = path.dirname(current);
+    }
+  }
+  for (const target of directoryTargets) {
+    let current = path.dirname(
+      projectSkillTransactionTargetPath(root, target.path),
+    );
     while (normalizeResolvedPath(current) !== normalizeResolvedPath(root)) {
       candidates.add(current);
       current = path.dirname(current);
@@ -2853,6 +2995,7 @@ async function prepareProjectTransaction({
   root,
   lock,
   targets,
+  directoryTargets = [],
   preconditions = [],
   provenanceKey,
 }) {
@@ -2876,6 +3019,13 @@ async function prepareProjectTransaction({
   );
 
   const targetPaths = new Set(targets.map((target) => target.path));
+  const directoryTargetPaths = new Set();
+  if (
+    targetPaths.size !== targets.length ||
+    (directoryTargets.length === 0 && targets.length === 0)
+  ) {
+    throw new Error("Harness transaction targets must be unique and non-empty.");
+  }
   const preconditionPaths = new Set();
   const journalPreconditions = [];
   for (const precondition of preconditions) {
@@ -2979,6 +3129,80 @@ async function prepareProjectTransaction({
     });
   }
 
+  const journalDirectoryTargets = [];
+  for (const target of directoryTargets) {
+    if (
+      !target ||
+      directoryTargetPaths.has(target.path) ||
+      (
+        typeof target.expectedOriginalTreeSha256 !== "string" &&
+        target.expectedOriginalTreeSha256 !== null
+      ) ||
+      (
+        typeof target.expectedNextTreeSha256 !== "string" &&
+        target.expectedNextTreeSha256 !== null
+      )
+    ) {
+      throw new Error("Harness Project Skill transaction target is invalid.");
+    }
+    const absolute = projectSkillTransactionTargetPath(root, target.path);
+    const originalExists = await pathEntryExists(absolute);
+    let originalTreeSha256 = null;
+    if (originalExists) {
+      originalTreeSha256 = (await snapshotSkillTree(absolute)).treeSha256;
+    }
+    if (
+      originalTreeSha256 !== target.expectedOriginalTreeSha256
+    ) {
+      throw new Error(
+        `${target.path} drifted before the Project Skill transaction was journaled.`,
+      );
+    }
+
+    let nextTreeSha256 = null;
+    if (target.expectedNextTreeSha256 !== null) {
+      assertString(
+        target.sourceDirectory,
+        `${target.path} source directory`,
+      );
+      const stagedNext = transactionStagePath(
+        stageDirectory,
+        "next-directories",
+        target.path,
+      );
+      const copied = await snapshotSkillTree(
+        path.resolve(target.sourceDirectory),
+        { copyTo: stagedNext },
+      );
+      nextTreeSha256 = copied.treeSha256;
+      if (nextTreeSha256 !== target.expectedNextTreeSha256) {
+        throw new Error(
+          `Project Skill source changed while staging: ${target.path}.`,
+        );
+      }
+    }
+    if (
+      originalTreeSha256 === null &&
+      nextTreeSha256 === null
+    ) {
+      throw new Error(
+        `Project Skill transaction target has no current or next tree: ${target.path}.`,
+      );
+    }
+    directoryTargetPaths.add(target.path);
+    journalDirectoryTargets.push({
+      path: target.path,
+      original: {
+        exists: originalTreeSha256 !== null,
+        treeSha256: originalTreeSha256,
+      },
+      next: {
+        exists: nextTreeSha256 !== null,
+        treeSha256: nextTreeSha256,
+      },
+    });
+  }
+
   const journal = authenticateProjectRecord(provenanceKey, "journal", {
     schemaVersion: PROJECT_JOURNAL_SCHEMA_VERSION,
     operation: "project-policy-apply",
@@ -2986,9 +3210,14 @@ async function prepareProjectTransaction({
     repoRoot: root,
     lockToken: lock.owner.token,
     createdAt: new Date().toISOString(),
-    createdDirectories: await collectMissingTargetDirectories(root, targets),
+    createdDirectories: await collectMissingTargetDirectories(
+      root,
+      targets,
+      directoryTargets,
+    ),
     preconditions: journalPreconditions,
     targets: journalTargets,
+    directoryTargets: journalDirectoryTargets,
   });
   const journalBytes = canonicalJson(journal);
   await writeFile(
@@ -3045,7 +3274,11 @@ function validateProjectTransactionJournal(
     normalizeResolvedPath(journal.repoRoot) !== normalizeResolvedPath(root) ||
     path.basename(stageDirectory) !== `${PROJECT_TRANSACTION_PREFIX}${journal.id}` ||
     !Array.isArray(journal.targets) ||
-    journal.targets.length === 0 ||
+    (
+      journal.directoryTargets !== undefined &&
+      !Array.isArray(journal.directoryTargets)
+    ) ||
+    journal.targets.length + (journal.directoryTargets?.length ?? 0) === 0 ||
     !Array.isArray(journal.createdDirectories) ||
     !Array.isArray(journal.preconditions)
   ) {
@@ -3065,6 +3298,34 @@ function validateProjectTransactionJournal(
     }
     seen.add(target.path);
   }
+  const directoryPaths = new Set();
+  for (const target of journal.directoryTargets ?? []) {
+    if (
+      !target ||
+      !PROJECT_SKILL_TRANSACTION_TARGET.test(String(target.path ?? "")) ||
+      directoryPaths.has(target.path) ||
+      typeof target.original?.exists !== "boolean" ||
+      typeof target.next?.exists !== "boolean" ||
+      target.original.exists !==
+        (typeof target.original.treeSha256 === "string") ||
+      target.next.exists !==
+        (typeof target.next.treeSha256 === "string") ||
+      (
+        target.original.exists &&
+        !/^[a-f0-9]{64}$/.test(target.original.treeSha256)
+      ) ||
+      (
+        target.next.exists &&
+        !/^[a-f0-9]{64}$/.test(target.next.treeSha256)
+      ) ||
+      (!target.original.exists && !target.next.exists)
+    ) {
+      throw new Error(
+        "Harness Project Skill transaction target is invalid.",
+      );
+    }
+    directoryPaths.add(target.path);
+  }
   const preconditionPaths = new Set();
   for (const precondition of journal.preconditions ?? []) {
     if (
@@ -3081,7 +3342,9 @@ function validateProjectTransactionJournal(
   for (const relative of journal.createdDirectories) {
     if (
       relative !== ".harness" &&
-      relative !== ".harness/policies"
+      relative !== ".harness/policies" &&
+      relative !== ".agents" &&
+      relative !== ".agents/skills"
     ) {
       throw new Error("Harness transaction directory journal is invalid.");
     }
@@ -3195,6 +3458,81 @@ async function installTransactionTarget(root, stageDirectory, target) {
   }
 }
 
+async function projectSkillTreeSha256(root, target) {
+  const destination = projectSkillTransactionTargetPath(root, target.path);
+  if (!(await pathEntryExists(destination))) return null;
+  return (await snapshotSkillTree(destination)).treeSha256;
+}
+
+async function installTransactionDirectoryTarget(
+  root,
+  stageDirectory,
+  target,
+) {
+  const destination = projectSkillTransactionTargetPath(root, target.path);
+  const currentTreeSha256 = await projectSkillTreeSha256(root, target);
+  if (currentTreeSha256 !== target.original.treeSha256) {
+    throw new Error(
+      `${target.path} drifted before final Project Skill replacement.`,
+    );
+  }
+  const displaced = transactionStagePath(
+    stageDirectory,
+    "displaced-directories",
+    target.path,
+  );
+  await ensureSafeDirectoryChain(
+    stageDirectory,
+    path.dirname(displaced),
+    "Transaction displaced Project Skill parent",
+    { create: true },
+  );
+  if (target.original.exists) {
+    await rename(destination, displaced);
+    const displacedTreeSha256 = (
+      await snapshotSkillTree(displaced)
+    ).treeSha256;
+    if (displacedTreeSha256 !== target.original.treeSha256) {
+      if (!(await pathEntryExists(destination))) {
+        await rename(displaced, destination);
+      }
+      throw new Error(
+        `${target.path} changed during final Project Skill compare-and-swap.`,
+      );
+    }
+  }
+  if (!target.next.exists) return;
+
+  const stagedNext = transactionStagePath(
+    stageDirectory,
+    "next-directories",
+    target.path,
+  );
+  try {
+    await rename(stagedNext, destination);
+  } catch (error) {
+    if (
+      target.original.exists &&
+      !(await pathEntryExists(destination)) &&
+      await pathEntryExists(displaced)
+    ) {
+      await rename(displaced, destination);
+    }
+    if (error?.code === "EEXIST") {
+      throw new Error(
+        `${target.path} was created concurrently; both Project Skill trees were preserved.`,
+      );
+    }
+    throw error;
+  }
+  const installedTreeSha256 = await projectSkillTreeSha256(root, target);
+  if (installedTreeSha256 !== target.next.treeSha256) {
+    throw new Error(
+      `Installed Project Skill ${target.path} failed digest verification.`,
+    );
+  }
+}
+
 async function removeCreatedTransactionDirectories(root, journal) {
   for (const relative of [...journal.createdDirectories].reverse()) {
     const directory = path.join(root, ...relative.split("/"));
@@ -3284,6 +3622,55 @@ async function rollbackProjectTransaction(
     // The target drifted before this transaction reached it. Preserve that
     // concurrent content while rolling back targets already installed.
   }
+  for (const target of [...(journal.directoryTargets ?? [])].reverse()) {
+    const destination = projectSkillTransactionTargetPath(root, target.path);
+    const currentTreeSha256 = await projectSkillTreeSha256(root, target);
+    const displaced = transactionStagePath(
+      stageDirectory,
+      "displaced-directories",
+      target.path,
+    );
+    const displacedTreeSha256 = await pathEntryExists(displaced)
+      ? (await snapshotSkillTree(displaced)).treeSha256
+      : null;
+    const currentIsNext =
+      target.next.exists &&
+      currentTreeSha256 === target.next.treeSha256;
+    const currentIsOriginal =
+      target.original.exists &&
+      currentTreeSha256 === target.original.treeSha256;
+
+    if (currentTreeSha256 === null || currentIsNext) {
+      if (currentIsNext) {
+        await rm(destination, { recursive: true, force: true });
+      }
+      if (target.original.exists) {
+        if (displacedTreeSha256 !== target.original.treeSha256) {
+          throw new Error(
+            `Cannot recover ${target.path}: verified Project Skill backup is invalid.`,
+          );
+        }
+        await ensureSafeDirectoryChain(
+          root,
+          path.dirname(destination),
+          `Recovery parent for ${target.path}`,
+          { create: true },
+        );
+        await rename(displaced, destination);
+      }
+      continue;
+    }
+    if (currentIsOriginal) continue;
+    if (displacedTreeSha256 !== null) {
+      throw new Error(
+        `${target.path} changed after Project Skill replacement; ` +
+          "current and original trees were preserved in " +
+          `${stageDirectory}.`,
+      );
+    }
+    // This target drifted before the transaction reached it. Preserve it while
+    // rolling back the Project Skill targets already installed.
+  }
   await removeCreatedTransactionDirectories(root, journal);
   await terminalizeOwnedDirectory(
     root,
@@ -3314,6 +3701,14 @@ async function verifyCommittedProjectTransaction(
     ) {
       throw new Error(
         `Committed Harness transaction target ${target.path} drifted; preserving recovery evidence.`,
+      );
+    }
+  }
+  for (const target of journal.directoryTargets ?? []) {
+    const currentTreeSha256 = await projectSkillTreeSha256(root, target);
+    if (currentTreeSha256 !== target.next.treeSha256) {
+      throw new Error(
+        `Committed Project Skill transaction target ${target.path} drifted; preserving recovery evidence.`,
       );
     }
   }
@@ -3427,6 +3822,7 @@ async function runProjectTransaction({
   root,
   lock,
   targets,
+  directoryTargets = [],
   preconditions = [],
   provenanceKey,
   faultInjector,
@@ -3438,12 +3834,26 @@ async function runProjectTransaction({
       root,
       lock,
       targets,
+      directoryTargets,
       preconditions,
       provenanceKey,
     });
     if (faultInjector) await faultInjector("after-journal");
     await verifyProjectTransactionPreconditions(root, prepared.journal);
     await createTransactionTargetDirectories(root, prepared.journal);
+    for (const target of prepared.journal.directoryTargets ?? []) {
+      if (faultInjector) {
+        await faultInjector(`before-directory:${target.path}`);
+      }
+      await installTransactionDirectoryTarget(
+        root,
+        prepared.stageDirectory,
+        target,
+      );
+      if (faultInjector) {
+        await faultInjector(`after-directory:${target.path}`);
+      }
+    }
     for (const target of prepared.journal.targets) {
       if (faultInjector) {
         await faultInjector(`before-target:${target.path}`);
@@ -5885,6 +6295,7 @@ function parseCliArgs(argv) {
     statusOnly: false,
     planOnly: false,
     noProjectSkills: false,
+    replaceExistingProjectSkills: false,
     selectedSkillsExplicit: false,
     approved: false,
   };
@@ -5941,6 +6352,8 @@ function parseCliArgs(argv) {
     } else if (option === "--no-project-skills") {
       result.noProjectSkills = true;
       result.selectedSkillsExplicit = true;
+    } else if (option === "--replace-existing") {
+      result.replaceExistingProjectSkills = true;
     } else if (option === "--catalog-mode") {
       result.catalogMode = requireOption(args, index, option);
       index++;
@@ -6065,6 +6478,12 @@ function parseCliArgs(argv) {
     !result.approved
   ) {
     throw new Error(`${command} requires --approved.`);
+  }
+  if (
+    result.replaceExistingProjectSkills &&
+    command !== "revise-project-skills"
+  ) {
+    throw new Error("--replace-existing is only valid for revise-project-skills.");
   }
   if (
     command === "skill-migration-apply" &&
@@ -7526,6 +7945,7 @@ export async function runHarnessInitCli(
       now,
       skillRoot,
       selectedSkills: args.selectedSkills,
+      replaceExisting: args.replaceExistingProjectSkills,
       globalEssentialSkills:
         args.globalEssentialSkills.length > 0
           ? args.globalEssentialSkills

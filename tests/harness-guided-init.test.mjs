@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
+import { once } from "node:events";
 import {
   copyFileSync,
   cpSync,
@@ -15,7 +16,7 @@ import { realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import {
   applyProjectContract,
@@ -58,6 +59,19 @@ const THIRD_PARTY_SOURCE_SHA256 = createHash("sha256")
     )}\n`,
   )
   .digest("hex");
+
+async function waitForFixtureFile(target, child) {
+  for (let attempt = 0; attempt < 500; attempt++) {
+    if (existsSync(target)) return;
+    if (child.exitCode !== null) {
+      throw new Error(
+        `Child exited before writing ${target} (exit ${child.exitCode}).`,
+      );
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error(`Timed out waiting for ${target}.`);
+}
 
 function testCommandRoots(homeDir) {
   const root = path.join(path.dirname(homeDir), "trusted-test-commands");
@@ -983,7 +997,266 @@ test("ready Project Skill revision accepts a credential-free saved catalog remot
       },
     ]);
     assert.equal(JSON.stringify(contract).includes("Caveman"), false);
+
+    writeCatalogSkill(
+      repository,
+      "docs-helper",
+      "Use when revised project documentation must stay current.",
+    );
+    execFileSync("git", ["-C", repository, "add", "."], { stdio: "ignore" });
+    execFileSync(
+      "git",
+      [
+        "-C",
+        repository,
+        "-c",
+        "user.name=Harness Tests",
+        "-c",
+        "user.email=harness-tests@example.invalid",
+        "commit",
+        "-m",
+        "revise docs helper",
+      ],
+      { stdio: "ignore" },
+    );
+    await assert.rejects(
+      reviseReadyProjectSkills({
+        approved: true,
+        repoRoot: value.repoRoot,
+        homeDir: value.homeDir,
+        selectedSkills: ["test-first", "docs-helper"],
+        globalEssentialSkills: GLOBAL_PLATFORM_SKILLS,
+        skillRoot: SKILL_ROOT,
+      }),
+      /explicit replacement approval/i,
+    );
+    const replacement = await reviseReadyProjectSkills({
+      approved: true,
+      replaceExisting: true,
+      repoRoot: value.repoRoot,
+      homeDir: value.homeDir,
+      selectedSkills: ["test-first", "docs-helper"],
+      globalEssentialSkills: GLOBAL_PLATFORM_SKILLS,
+      skillRoot: SKILL_ROOT,
+    });
+    assert.equal(replacement.status, "revised");
+    assert.match(
+      readFileSync(
+        path.join(
+          value.repoRoot,
+          ".agents",
+          "skills",
+          "docs-helper",
+          "SKILL.md",
+        ),
+        "utf8",
+      ),
+      /revised project documentation/,
+    );
   } finally {
+    value.cleanup();
+  }
+});
+
+test("ready Project Skill revision rejects ignored files that are absent from the claimed commit", async () => {
+  const value = fixture();
+  try {
+    const repository = path.join(value.root, "ignored-file-catalog");
+    mkdirSync(repository);
+    writeCatalogSkill(repository, "test-first", "Use when tests lead changes.");
+    writeCatalogSkill(
+      repository,
+      "docs-helper",
+      "Use when project documentation must stay current.",
+    );
+    writeFileSync(
+      path.join(repository, ".gitignore"),
+      "docs-helper/ignored-runtime.txt\n",
+    );
+    initializeGitRepository(repository);
+    await runGlobalInit({
+      approved: true,
+      catalogMode: "local",
+      catalogPath: repository,
+      homeDir: value.homeDir,
+      providerActions: PROVIDER_LATER,
+      providerStatusOverrides: {
+        codex: "authenticated",
+        gemini: "not-installed",
+        grok: "not-installed",
+        claude: "not-installed",
+      },
+      skillRoot: SKILL_ROOT,
+    });
+    const contractPath = approvedContract(value.repoRoot, ["test-first"]);
+    await applyProjectContract({
+      contractPath,
+      repoRoot: value.repoRoot,
+      skillRoot: SKILL_ROOT,
+    });
+    await markProjectReady({
+      repoRoot: value.repoRoot,
+      skillRoot: SKILL_ROOT,
+    });
+    writeFileSync(
+      path.join(repository, "docs-helper", "ignored-runtime.txt"),
+      "not committed\n",
+    );
+
+    await assert.rejects(
+      reviseReadyProjectSkills({
+        approved: true,
+        repoRoot: value.repoRoot,
+        homeDir: value.homeDir,
+        selectedSkills: ["test-first", "docs-helper"],
+        globalEssentialSkills: GLOBAL_PLATFORM_SKILLS,
+        skillRoot: SKILL_ROOT,
+      }),
+      /not fully tracked by repository commit/i,
+    );
+    assert.equal(
+      existsSync(
+        path.join(
+          value.repoRoot,
+          ".agents",
+          "skills",
+          "docs-helper",
+          "ignored-runtime.txt",
+        ),
+      ),
+      false,
+    );
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("ready Project Skill revision recovers a hard kill after the journaled directory replacement", async () => {
+  const value = fixture();
+  let child;
+  try {
+    const repository = path.join(value.root, "recoverable-catalog");
+    mkdirSync(repository);
+    writeCatalogSkill(repository, "test-first", "Use when tests lead changes.");
+    initializeGitRepository(repository);
+    await runGlobalInit({
+      approved: true,
+      catalogMode: "local",
+      catalogPath: repository,
+      homeDir: value.homeDir,
+      providerActions: PROVIDER_LATER,
+      providerStatusOverrides: {
+        codex: "authenticated",
+        gemini: "not-installed",
+        grok: "not-installed",
+        claude: "not-installed",
+      },
+      skillRoot: SKILL_ROOT,
+    });
+    const contractPath = approvedContract(value.repoRoot, ["test-first"]);
+    await applyProjectContract({
+      contractPath,
+      repoRoot: value.repoRoot,
+      skillRoot: SKILL_ROOT,
+    });
+    await markProjectReady({
+      repoRoot: value.repoRoot,
+      skillRoot: SKILL_ROOT,
+    });
+
+    writeCatalogSkill(
+      repository,
+      "test-first",
+      "Use when revised tests lead changes.",
+    );
+    execFileSync("git", ["-C", repository, "add", "."], { stdio: "ignore" });
+    execFileSync(
+      "git",
+      [
+        "-C",
+        repository,
+        "-c",
+        "user.name=Harness Tests",
+        "-c",
+        "user.email=harness-tests@example.invalid",
+        "commit",
+        "-m",
+        "revise test-first",
+      ],
+      { stdio: "ignore" },
+    );
+
+    const marker = path.join(value.root, "directory-replaced.marker");
+    const coreModule = pathToFileURL(
+      path.join(
+        ROOT,
+        ".agents",
+        "skills",
+        "harness-init",
+        "scripts",
+        "harness-init-core.mjs",
+      ),
+    ).href;
+    const source = `
+      const api = await import(${JSON.stringify(coreModule)});
+      await api.reviseReadyProjectSkills({
+        approved: true,
+        replaceExisting: true,
+        repoRoot: ${JSON.stringify(value.repoRoot)},
+        homeDir: ${JSON.stringify(value.homeDir)},
+        selectedSkills: ["test-first"],
+        globalEssentialSkills: api.GLOBAL_PLATFORM_SKILLS,
+        skillRoot: ${JSON.stringify(SKILL_ROOT)},
+        faultInjector: async (phase) => {
+          if (phase === "after-directory:.agents/skills/test-first") {
+            await (await import("node:fs/promises")).writeFile(
+              ${JSON.stringify(marker)},
+              "ready\\n",
+            );
+            setInterval(() => {}, 1000);
+            await new Promise(() => {});
+          }
+        },
+      });
+    `;
+    child = spawn(
+      process.execPath,
+      ["--input-type=module", "-e", source],
+      { stdio: ["ignore", "pipe", "pipe"] },
+    );
+    await waitForFixtureFile(marker, child);
+    child.kill("SIGKILL");
+    await once(child, "exit");
+    child = null;
+
+    const recovered = await reviseReadyProjectSkills({
+      approved: true,
+      replaceExisting: true,
+      repoRoot: value.repoRoot,
+      homeDir: value.homeDir,
+      selectedSkills: ["test-first"],
+      globalEssentialSkills: GLOBAL_PLATFORM_SKILLS,
+      skillRoot: SKILL_ROOT,
+    });
+    assert.equal(recovered.status, "revised");
+    assert.match(
+      readFileSync(
+        path.join(
+          value.repoRoot,
+          ".agents",
+          "skills",
+          "test-first",
+          "SKILL.md",
+        ),
+        "utf8",
+      ),
+      /revised tests lead changes/,
+    );
+  } finally {
+    if (child && child.exitCode === null) {
+      child.kill("SIGKILL");
+      await once(child, "exit");
+    }
     value.cleanup();
   }
 });

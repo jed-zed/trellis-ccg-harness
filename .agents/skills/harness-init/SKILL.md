@@ -209,6 +209,12 @@ decision is `skip` or no optional project Skill is selected. A successful
 `mark-ready` command. Run that command only after every approved required gate
 passes; do not treat Project Init itself as readiness evidence.
 
+For a ready project, revise its approved copied Skills with
+`revise-project-skills`. If the project already owns a different revision,
+review the clean catalog commit and add `--replace-existing`; the transaction
+verifies the old owned trees, stages every new tree, and restores the previous
+copies if the revision fails.
+
 ## Phase 0: First-Run Skill Profile
 
 Start every trigger with read-only `inspect`. Its `skillRepository` result
