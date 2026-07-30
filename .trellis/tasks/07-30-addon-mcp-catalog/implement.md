@@ -69,9 +69,14 @@ Validation evidence:
 
 ## 5. Delivery
 
-- [ ] 只在用户另行授权后提交、推送并创建 Harness PR。
-- [ ] 先合并 CCG PR，再确认 Harness PR 引用的 commit/tree 与合并结果一致。
+- [x] 只在用户另行授权后提交、推送并创建 Harness PR。
+- [x] 先合并 CCG PR，再确认 Harness PR 引用的 commit/tree 与合并结果一致。
 - [ ] 两个 PR 的远端 CI 均通过后才报告可合并。
+
+Harness delivery: implementation commit
+`cdf9c04079df12d1316cf74cfcd4414a9e9f06c1`, draft PR
+https://github.com/jed-zed/trellis-ccg-harness/pull/20. CCG PR #21 remote
+CI passed before merge; Harness PR CI remains pending.
 
 ## Risky Files / Rollback Points
 
