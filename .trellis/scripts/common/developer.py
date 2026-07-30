@@ -4,12 +4,14 @@ Developer management utilities.
 
 Provides:
     init_developer     - Initialize developer
+    validate_developer_name - Validate a portable workspace path component
     ensure_developer   - Ensure developer is initialized (exit if not)
     show_developer_info - Show developer information
 """
 
 from __future__ import annotations
 
+import re
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -30,6 +32,40 @@ from .paths import (
 # Developer Initialization
 # =============================================================================
 
+_INVALID_DEVELOPER_NAME_CHARS = re.compile(r'[\x00-\x1f<>:"/\\|?*\x7f]')
+_WINDOWS_RESERVED_NAMES = {
+    "CON",
+    "PRN",
+    "AUX",
+    "NUL",
+    *(f"COM{number}" for number in range(1, 10)),
+    *(f"LPT{number}" for number in range(1, 10)),
+}
+
+
+def validate_developer_name(name: str) -> str | None:
+    """Return an error message when a developer name is not path-safe."""
+    checks = (
+        (not name or not name.strip(), "a developer name is required"),
+        (name != name.strip(), "leading or trailing whitespace is not allowed"),
+        (name.startswith("-"), "names must not start with '-'"),
+        (name in {".", ".."}, "'.' and '..' are not allowed"),
+        (
+            bool(_INVALID_DEVELOPER_NAME_CHARS.search(name)),
+            "control characters and <>:\"/\\|?* are not allowed",
+        ),
+        (name.endswith((".", " ")), "names must not end with a dot or space"),
+        (
+            name.split(".", 1)[0].upper() in _WINDOWS_RESERVED_NAMES,
+            "reserved Windows device names are not allowed",
+        ),
+    )
+    for invalid, message in checks:
+        if invalid:
+            return message
+    return None
+
+
 def init_developer(name: str, repo_root: Path | None = None) -> bool:
     """Initialize developer.
 
@@ -45,8 +81,9 @@ def init_developer(name: str, repo_root: Path | None = None) -> bool:
     Returns:
         True on success, False on error.
     """
-    if not name:
-        print("Error: developer name is required", file=sys.stderr)
+    validation_error = validate_developer_name(name)
+    if validation_error:
+        print(f"Error: invalid developer name: {validation_error}", file=sys.stderr)
         return False
 
     if repo_root is None:
