@@ -8,6 +8,7 @@ param(
     [string]$EvidenceDir,
     [string]$CodexThreadId = $env:CODEX_THREAD_ID,
     [string]$WorkerToken,
+    [string]$WatcherId,
 
     [int]$PollSeconds = 5,
     [int]$StableStopPolls = 2,
@@ -688,42 +689,76 @@ function Invoke-WatchWorker {
     param(
         [Parameter(Mandatory = $true)][string]$EvidenceDirectory,
         [Parameter(Mandatory = $true)][string]$ThreadId,
-        [Parameter(Mandatory = $true)][string]$Token
+        [Parameter(Mandatory = $true)][string]$Token,
+        [string]$ExpectedWatcherId = '',
+        [switch]$DisableWake
     )
 
     $statePath = Join-Path $EvidenceDirectory $Script:StateFileName
     $eventPath = Join-Path $EvidenceDirectory $Script:EventFileName
-    $state = Read-WatchJson -Path $statePath -Required
-    $expectedTokenHash = [string](Get-WatchProperty $state 'workerTokenSha256' '')
-    if ([string]::IsNullOrWhiteSpace($Token) -or (Get-WatchSha256Text -Text $Token) -ne $expectedTokenHash) {
-        throw 'Worker token does not match the launcher state.'
+    $state = [pscustomobject]@{
+        watcherId = $ExpectedWatcherId
+        phase = 'running'
+        processId = $PID
+        evidenceDirectory = $EvidenceDirectory
+        conversationUrl = ''
+        windowRuntimeId = ''
+        codexThreadId = $ThreadId
+        noWake = [bool]$DisableWake
     }
-    $state = Wait-WatchLauncherState -StatePath $statePath -ExpectedWatcherId ([string](Get-WatchProperty $state 'watcherId' ''))
-
-    $adapterPath = Get-WatchAdapterPath
-    $boundUrl = [string](Get-WatchProperty $state 'conversationUrl' '')
-    $runtimeId = [string](Get-WatchProperty $state 'windowRuntimeId' '')
     $loopResult = $null
+    $stateReadFailure = $null
     try {
-        $loopResult = Invoke-WatchLoop `
-            -BoundConversationUrl $boundUrl `
-            -StablePollCount ([int](Get-WatchProperty $state 'stableStopPolls' 2)) `
-            -FailureLimit ([int](Get-WatchProperty $state 'maxProbeFailures' 3)) `
-            -OverallTimeoutSeconds ([int](Get-WatchProperty $state 'timeoutSeconds' 7200)) `
-            -SleepSeconds ([int](Get-WatchProperty $state 'pollSeconds' 5)) `
-            -ProbeAction { Invoke-WatchAdapterStatus -AdapterPath $adapterPath -WindowRuntimeId $runtimeId } `
-            -FinalizeAction {
-                Invoke-WatchAdapterFinalize `
-                    -AdapterPath $adapterPath `
-                    -EvidenceDirectory $EvidenceDirectory `
-                    -WindowRuntimeId $runtimeId `
-                    -FinalizeTimeout ([int](Get-WatchProperty $state 'finalizeTimeoutSeconds' 45))
-            } `
-            -SleepAction { param($seconds) Start-Sleep -Seconds $seconds } `
-            -NowAction { [datetime]::UtcNow } `
-            -ObservationAction { param($record) Write-WatchLog -EvidenceDirectory $EvidenceDirectory -Record $record }
+        $state = Read-WatchJson -Path $statePath -Required
     }
     catch {
+        $stateReadFailure = $_
+    }
+
+    if ($null -eq $stateReadFailure) {
+        $stateWatcherId = [string](Get-WatchProperty $state 'watcherId' '')
+        if (-not [string]::IsNullOrWhiteSpace($ExpectedWatcherId) -and $stateWatcherId -ne $ExpectedWatcherId) {
+            throw 'Worker watcher id does not match the launcher state.'
+        }
+        $ExpectedWatcherId = $stateWatcherId
+        $expectedTokenHash = [string](Get-WatchProperty $state 'workerTokenSha256' '')
+        if ([string]::IsNullOrWhiteSpace($Token) -or (Get-WatchSha256Text -Text $Token) -ne $expectedTokenHash) {
+            throw 'Worker token does not match the launcher state.'
+        }
+        try {
+            $state = Wait-WatchLauncherState -StatePath $statePath -ExpectedWatcherId $ExpectedWatcherId
+            $adapterPath = Get-WatchAdapterPath
+            $boundUrl = [string](Get-WatchProperty $state 'conversationUrl' '')
+            $runtimeId = [string](Get-WatchProperty $state 'windowRuntimeId' '')
+            $loopResult = Invoke-WatchLoop `
+                -BoundConversationUrl $boundUrl `
+                -StablePollCount ([int](Get-WatchProperty $state 'stableStopPolls' 2)) `
+                -FailureLimit ([int](Get-WatchProperty $state 'maxProbeFailures' 3)) `
+                -OverallTimeoutSeconds ([int](Get-WatchProperty $state 'timeoutSeconds' 7200)) `
+                -SleepSeconds ([int](Get-WatchProperty $state 'pollSeconds' 5)) `
+                -ProbeAction { Invoke-WatchAdapterStatus -AdapterPath $adapterPath -WindowRuntimeId $runtimeId } `
+                -FinalizeAction {
+                    Invoke-WatchAdapterFinalize `
+                        -AdapterPath $adapterPath `
+                        -EvidenceDirectory $EvidenceDirectory `
+                        -WindowRuntimeId $runtimeId `
+                        -FinalizeTimeout ([int](Get-WatchProperty $state 'finalizeTimeoutSeconds' 45))
+                } `
+                -SleepAction { param($seconds) Start-Sleep -Seconds $seconds } `
+                -NowAction { [datetime]::UtcNow } `
+                -ObservationAction { param($record) Write-WatchLog -EvidenceDirectory $EvidenceDirectory -Record $record }
+        }
+        catch {
+            $loopResult = [pscustomobject]@{
+                Status = 'worker-crashed'
+                Reason = 'unexpected-worker-failure'
+                Observations = 0
+                ConsecutiveProbeFailures = 0
+                FinalizeResult = $null
+            }
+        }
+    }
+    else {
         $loopResult = [pscustomobject]@{
             Status = 'worker-crashed'
             Reason = 'unexpected-worker-failure'
@@ -735,7 +770,7 @@ function Invoke-WatchWorker {
 
     $event = New-WatchEvent -WatchState $state -LoopResult $loopResult
     Write-WatchJsonAtomic -Path $eventPath -Value $event
-    $state.phase = 'terminal'
+    $state | Add-Member -NotePropertyName phase -NotePropertyValue 'terminal' -Force
     $state | Add-Member -NotePropertyName terminalStatus -NotePropertyValue $event.status -Force
     $state | Add-Member -NotePropertyName terminalAtUtc -NotePropertyValue $event.terminalAtUtc -Force
     Write-WatchJsonAtomic -Path $statePath -Value $state
@@ -764,6 +799,7 @@ function ConvertTo-EncodedWorkerCommand {
         [Parameter(Mandatory = $true)][string]$EvidenceDirectory,
         [Parameter(Mandatory = $true)][string]$ThreadId,
         [Parameter(Mandatory = $true)][string]$Token,
+        [Parameter(Mandatory = $true)][string]$ExpectedWatcherId,
         [switch]$DisableWake
     )
 
@@ -778,6 +814,7 @@ function ConvertTo-EncodedWorkerCommand {
         '-EvidenceDir ' + (Quote-PowerShellLiteral -Value $EvidenceDirectory),
         '-CodexThreadId ' + (Quote-PowerShellLiteral -Value $ThreadId),
         '-WorkerToken ' + (Quote-PowerShellLiteral -Value $Token),
+        '-WatcherId ' + (Quote-PowerShellLiteral -Value $ExpectedWatcherId),
         '-PollSeconds ' + $PollSeconds,
         '-StableStopPolls ' + $StableStopPolls,
         '-MaxProbeFailures ' + $MaxProbeFailures,
@@ -888,6 +925,7 @@ function Start-WatchProcessExclusive {
         -EvidenceDirectory $EvidenceDirectory `
         -ThreadId $ThreadId `
         -Token $token `
+        -ExpectedWatcherId $watcherId `
         -DisableWake:$DisableContinuation
 
     try {
@@ -1042,7 +1080,12 @@ function Invoke-WatchMain {
             return Start-WatchProcess -EvidenceDirectory $directory -ThreadId $CodexThreadId -DisableContinuation:$NoWake
         }
         'worker' {
-            return Invoke-WatchWorker -EvidenceDirectory $directory -ThreadId $CodexThreadId -Token $WorkerToken
+            return Invoke-WatchWorker `
+                -EvidenceDirectory $directory `
+                -ThreadId $CodexThreadId `
+                -Token $WorkerToken `
+                -ExpectedWatcherId $WatcherId `
+                -DisableWake:$NoWake
         }
         'status' {
             return Get-WatchStatus -EvidenceDirectory $directory

@@ -794,6 +794,55 @@ Describe 'Codex Stop Hook continuation contract' {
         $event.automaticResendAllowed | Should -BeFalse
         Test-Path -LiteralPath (Join-Path $directory $Script:CallbackFileName) | Should -BeFalse
     }
+
+    It 'records a terminal worker crash when adapter setup fails before polling' {
+        $directory = Join-Path $TestDrive 'worker-setup-failure'
+        New-WatchFixtureEvidence -Directory $directory
+        $token = [guid]::NewGuid().ToString('N')
+        New-WorkerState -Directory $directory -Token $token -DisableWake $false
+        $state = Read-WatchJson -Path (Join-Path $directory $Script:StateFileName) -Required
+
+        Mock Get-WatchAdapterPath {
+            throw 'adapter unavailable'
+        }
+
+        $result = Invoke-WatchWorker `
+            -EvidenceDirectory $directory `
+            -ThreadId $script:ThreadId `
+            -Token $token `
+            -ExpectedWatcherId $state.watcherId
+        $event = Read-WatchJson -Path (Join-Path $directory $Script:EventFileName) -Required
+        $terminalState = Read-WatchJson -Path (Join-Path $directory $Script:StateFileName) -Required
+
+        $result.terminalStatus | Should -Be 'worker-crashed'
+        $event.status | Should -Be 'worker-crashed'
+        $event.watcherId | Should -Be $state.watcherId
+        $terminalState.phase | Should -Be 'terminal'
+        $terminalState.terminalStatus | Should -Be 'worker-crashed'
+    }
+
+    It 'records a bound terminal event when launcher state is unreadable' {
+        $directory = Join-Path $TestDrive 'worker-state-unreadable'
+        $null = [System.IO.Directory]::CreateDirectory($directory)
+        $watcherId = [guid]::NewGuid().ToString()
+        [System.IO.File]::WriteAllText(
+            (Join-Path $directory $Script:StateFileName),
+            '{invalid',
+            $Script:Utf8NoBom
+        )
+
+        $result = Invoke-WatchWorker `
+            -EvidenceDirectory $directory `
+            -ThreadId $script:ThreadId `
+            -Token ([guid]::NewGuid().ToString('N')) `
+            -ExpectedWatcherId $watcherId
+        $event = Read-WatchJson -Path (Join-Path $directory $Script:EventFileName) -Required
+
+        $result.terminalStatus | Should -Be 'worker-crashed'
+        $event.status | Should -Be 'worker-crashed'
+        $event.watcherId | Should -Be $watcherId
+        $event.codexThreadId | Should -Be $script:ThreadId
+    }
 }
 
 Describe 'Detached launcher behavior' {

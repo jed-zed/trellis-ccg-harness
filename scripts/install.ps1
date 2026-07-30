@@ -1230,6 +1230,14 @@ if ($PreviewOnly) {
   return
 }
 
+if ($PluginOnly -and $currentCcgVersion -ne $requiredCcgVersion) {
+  throw (
+    "Plugin-only setup requires the existing CCG CLI to match " +
+    "$requiredCcgVersion before plugin mutation; current: " +
+    "$($currentCcgVersion ?? 'missing'). Run full setup to upgrade both together."
+  )
+}
+
 if (-not $NonInteractive) {
   if ($PluginOnly) {
     Confirm-SetupItem "Codex plugin $pluginId from the local snapshot" `

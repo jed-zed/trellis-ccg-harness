@@ -74,7 +74,7 @@ const versionForRoot = (state, root) =>
 if (command === "trellis" && args[0] === "--version") {
   console.log("trellis 0.6.9");
 } else if (command === "ccg" && args[0] === "--version") {
-  console.log("${CCG_VERSION}");
+  console.log(readState().ccgVersion ?? "${CCG_VERSION}");
 } else if (command === "ccg" && args.join(" ") === "codex-mode install") {
   const state = readState();
   if (state.codexModeBehavior === "fail-create-claude") {
@@ -1164,6 +1164,50 @@ test("plugin-only setup upgrades an exact Harness-owned Codex plugin", () => {
         "ccg",
       )),
     );
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("plugin-only setup rejects an older CCG CLI before plugin mutation", () => {
+  const value = fixture();
+  try {
+    installOwnedPreviousPlugin(value);
+    const state = JSON.parse(readFileSync(value.statePath, "utf8"));
+    state.ccgVersion = "3.3.1";
+    writeJson(value.statePath, state);
+
+    const result = runPluginOnlySetup(value);
+    assert.notEqual(result.status, 0);
+    assert.match(
+      setupDiagnostic(result),
+      /Plugin-only setup requires the existing CCG CLI to match 3\.3\.2 before plugin mutation/,
+    );
+    const calls = commandLog(value);
+    assert.equal(
+      calls.some(
+        ({ command, args = [] }) =>
+          command === "codex" &&
+          (args.slice(0, 2).join(" ") === "plugin add" ||
+            args.slice(0, 2).join(" ") === "plugin remove"),
+      ),
+      false,
+    );
+    assert.equal(
+      calls.some(
+        ({ command, args = [] }) =>
+          command === "ccg" &&
+          args.slice(0, 2).join(" ") === "codex-mode install",
+      ),
+      false,
+    );
+    const ownership = JSON.parse(
+      readFileSync(
+        path.join(value.homeDir, ".agents", "harness", "codex-plugin.json"),
+        "utf8",
+      ),
+    );
+    assert.equal(ownership.plugin.version, "3.3.1+codex.1");
   } finally {
     value.cleanup();
   }
