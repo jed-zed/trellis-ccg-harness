@@ -64,8 +64,8 @@ function writeSidebarEvidence(
   prompt: string,
   response: string,
   threadId = '019fa981-725e-7f02-93a7-bb1e1b7aefd3',
+  conversationUrl = 'https://chatgpt.com/c/6a6a1d6a-5df4-83ea-8685-43559f3e47e8',
 ): void {
-  const conversationUrl = 'https://chatgpt.com/c/6a6a1d6a-5df4-83ea-8685-43559f3e47e8'
   fs.ensureDirSync(sidebarDir)
   const promptBytes = Buffer.from(prompt, 'utf-8')
   const responseBytes = Buffer.from(response, 'utf-8')
@@ -501,6 +501,56 @@ describe('GPT Pro sidebar bridge', () => {
     const overwriteError = runPythonFailure(PYTHON!, importArgs, root)
     expect(overwriteError).toMatch(/already saved with different content/i)
     expect(readFileSync(join(dirname(promptFile), 'response.md'), 'utf-8')).toBe(response)
+  })
+
+  maybeIt('imports a custom-GPT conversation with a non-UUID conversation id', () => {
+    const root = join(TMP_ROOT, 'sidebar-custom-gpt-import')
+    const taskDir = join(root, '.ccg', 'tasks', 'sidebar-custom-gpt-task')
+    fs.ensureDirSync(taskDir)
+    fs.writeJsonSync(join(taskDir, 'task.json'), { id: 'sidebar-custom-gpt-task', status: 'in_progress' })
+    const createOutput = runPython(PYTHON!, [
+      BRIDGE,
+      '--mode',
+      'review',
+      '--workdir',
+      root,
+      '--task-dir',
+      '.ccg/tasks/sidebar-custom-gpt-task',
+      '--prompt',
+      'Import a custom GPT conversation.',
+    ], root)
+    const sessionDir = parseOutputPath(createOutput, 'CCG_GPTPRO_SESSION_DIR')
+    const promptFile = parseOutputPath(createOutput, 'CCG_GPTPRO_PROMPT_FILE')
+    const sidebarDir = join(dirname(promptFile), 'sidebar')
+    const conversationUrl = 'https://chatgpt.com/g/custom-gpt_1/c/conversation_123'
+    const prompt = readFileSync(promptFile, 'utf-8')
+      .replace(/\r\n/g, '\n')
+      .replace(/\r/g, '\n')
+      .replace(/[\r\n]+$/, '')
+    writeSidebarEvidence(
+      sidebarDir,
+      prompt,
+      'Custom GPT response.\n',
+      '019fa981-725e-7f02-93a7-bb1e1b7aefd3',
+      conversationUrl,
+    )
+
+    const output = runPython(PYTHON!, [
+      BRIDGE,
+      '--import-session',
+      sessionDir,
+      '--import-sidebar-evidence',
+      sidebarDir,
+      '--expected-codex-thread-id',
+      '019fa981-725e-7f02-93a7-bb1e1b7aefd3',
+    ], root)
+
+    expect(output).toContain('CCG_GPTPRO_SIDEBAR_IMPORTED=1')
+    const evidence = fs.readJsonSync(join(taskDir, 'evidence.json'))
+    expect(evidence.items.at(-1)).toMatchObject({
+      provider: 'gptpro',
+      conversationUrl,
+    })
   })
 
   maybeIt('rejects sidebar evidence from another Codex task', () => {

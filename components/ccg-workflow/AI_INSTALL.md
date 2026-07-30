@@ -32,7 +32,7 @@ action is `skip`.
 The catalog distinguishes:
 
 - `ccg-managed`: optional MCP components already available through the existing
-  `ccg init` flow.
+  `ccg init` or `ccg config mcp` flow.
 - `manual-pending`: external Skills, plugins, hook trust, or global defaults
   that require a separate owner-approved installer or transaction.
 
@@ -44,6 +44,26 @@ completed and its result has been verified.
 
 Do not replace pinned commits, versions, selectors, trees, or integrity values
 with mutable branches, tags, or `latest`.
+
+## Recommended auxiliary MCPs
+
+Context7, Playwright, DeepWiki, and Exa are recommendations, not selections.
+Show all four and obtain item-by-item approval before running `ccg config mcp`.
+
+- Context7 sends documentation queries and library identifiers to its service.
+- Playwright is not a security boundary. Browser downloads, site access, local
+  files, and browser-profile reuse need separate disclosure and approval.
+- DeepWiki uses only the official, free, no-auth
+  `https://mcp.deepwiki.com/mcp` Streamable HTTP endpoint.
+- Exa defaults to the official `https://mcp.exa.ai/mcp` hosted free tier. For
+  higher limits or production use, direct the user to
+  `https://dashboard.exa.ai/api-keys`. Only request a key if the user chooses
+  the local npm mode; never place it in a URL, command arguments, logs, this
+  repository, or an AI prompt.
+
+An approval to inspect the catalog is not approval to configure any MCP.
+Approval for one candidate does not authorize another candidate, browser
+downloads, provider login, paid use, or credential creation.
 
 ## Verification
 

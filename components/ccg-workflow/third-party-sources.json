@@ -51,13 +51,6 @@
       "integrity": "sha512-XLTUeA6mEN9sQ+hJ4dfG8EIkDbxS0K3Trc2RBkUJuf02TgE2FQRNTMtq/aJfhyRMINsRl/Ybc4sxcWLtFn4/TQ==",
       "bin": "playwright-mcp"
     },
-    "mcp-deepwiki": {
-      "package": "mcp-deepwiki",
-      "version": "0.0.10",
-      "selector": "mcp-deepwiki@0.0.10",
-      "integrity": "sha512-EV+qPuFnAusuwmaTMJKmUfdaIxcgoCCVbkji6Q8UbUE0zOZPt1+QtMEnu38Pj7VDQj5kYYl6gBIuQ9DVXpsB1A==",
-      "bin": "mcp-instruct"
-    },
     "exa-mcp-server": {
       "package": "exa-mcp-server",
       "version": "3.2.1",

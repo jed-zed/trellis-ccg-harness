@@ -2,15 +2,23 @@
 
 > [根目录](../CLAUDE.md) > **skills-v2**
 
-**Last Updated**: 2026-07-29 (v3.4.3)
+**Last Updated**: 2026-07-30 (v3.4.4)
 
-> 本文档已同步 v3.4.3 的 ChatGPT Pro 侧边栏自动桥接、v3.4.2 的 product-manager、v3.4.0 的独立职责路由、Codex 原生分发边界和显式 Codex doctor；较早章节仍保留历史架构背景，完整历史见 [CHANGELOG.md](./CHANGELOG.md)。
+> 本文档已同步 v3.4.4 的辅助 MCP 推荐与安全远程配置、v3.4.3 的 ChatGPT Pro 侧边栏自动桥接、v3.4.2 的 product-manager、v3.4.0 的独立职责路由、Codex 原生分发边界和显式 Codex doctor；较早章节仍保留历史架构背景，完整历史见 [CHANGELOG.md](./CHANGELOG.md)。
 
 ---
 
 ## 变更记录 (Changelog)
 
 > 完整变更历史请查看 [CHANGELOG.md](./CHANGELOG.md)
+
+### 2026-07-30 (v3.4.4)
+
+- Context7、Playwright、官方 DeepWiki 和 Exa 进入只读推荐目录，默认不选，
+  统一由 `ccg config mcp` 承接逐项配置。
+- DeepWiki 与 Exa 的官方 Streamable HTTP 端点按 Claude、Codex、Gemini
+  原生字段镜像；远程 URL 严格 allowlist，Exa Key 继续使用 owner-only
+  secret launcher。
 
 ### 2026-07-29 (v3.4.3)
 
