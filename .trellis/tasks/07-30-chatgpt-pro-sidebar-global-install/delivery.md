@@ -11,7 +11,9 @@
   project audit and backup identity.
 - Legacy managed-block verification treats LF and CRLF as the same owned text
   while still rejecting any content change, and preserves the installed file's
-  line-ending style during replacement.
+  line-ending style during replacement. When an older renderer used a different
+  block boundary, the exact whole-file ownership digest provides the equivalent
+  fail-closed proof before replacement.
 - Verified legacy direct-install and schema-v2 migration ownership may contain
   older Harness-owned Skill trees. The upgrade now stages and transactionally
   replaces those trees, updates their ownership fingerprints, and preserves

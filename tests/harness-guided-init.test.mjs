@@ -1280,8 +1280,10 @@ test("Global Init transactionally upgrades a former Skill-platform migration bas
           path: agentsPath,
           startMarker: "<!-- HARNESS-SKILL-REPOSITORY:START -->",
           endMarker: "<!-- HARNESS-SKILL-REPOSITORY:END -->",
+          // Older renderers could bind the terminating newline while the
+          // whole-file ownership digest still bound the exact installed file.
           renderedBlockSha256: createHash("sha256")
-            .update(oldBlock)
+            .update(`${oldBlock}\n`)
             .digest("hex"),
           installedFileSha256: createHash("sha256")
             .update(agentsBytes)

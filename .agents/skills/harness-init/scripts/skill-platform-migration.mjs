@@ -891,18 +891,29 @@ export async function upgradeLegacySkillPlatformDefaults({
   );
   const currentAgents = agentsState.bytes.toString("utf8");
   const currentBlock = findGlobalBlock(currentAgents);
+  const blockDigestMatches =
+    currentBlock !== null &&
+    matchesTextDigestAcrossLineEndings(
+      currentBlock,
+      blockOwnership?.renderedBlockSha256,
+    );
+  const installedFileDigestMatches =
+    /^[a-f0-9]{64}$/.test(
+      String(blockOwnership?.installedFileSha256 ?? ""),
+    ) &&
+    agentsState.sha256 === blockOwnership.installedFileSha256;
   if (
     !blockOwnership ||
     currentBlock === null ||
-    !matchesTextDigestAcrossLineEndings(
-      currentBlock,
-      blockOwnership.renderedBlockSha256,
-    )
+    (!blockDigestMatches && !installedFileDigestMatches)
   ) {
     throw new Error(
       "Legacy global Skill repository block is missing or was edited.",
     );
   }
+  const replacementBlockDigest = blockDigestMatches
+    ? blockOwnership.renderedBlockSha256
+    : sha256(currentBlock);
 
   const upgradedAt = now().toISOString();
   const profileCandidate = {
@@ -917,7 +928,7 @@ export async function upgradeLegacySkillPlatformDefaults({
   const agentsCandidate = replaceOrAppendGlobalBlock(
     currentAgents,
     nextBlock,
-    blockOwnership.renderedBlockSha256,
+    replacementBlockDigest,
   );
   const agentsBytes = Buffer.from(agentsCandidate);
   const sourceByName = new Map(
