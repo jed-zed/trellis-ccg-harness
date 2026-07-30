@@ -307,7 +307,7 @@ test("Global Init installs all bundled platform Skills into an isolated home and
       skillRoot: SKILL_ROOT,
     });
     assert.equal(first.status, "initialized");
-    assert.equal(first.platform.installedSkills.length, 14);
+    assert.equal(first.platform.installedSkills.length, 15);
     assert.equal(
       first.platform.installedSkills.includes("chatgpt-pro-sidebar"),
       true,
@@ -706,12 +706,21 @@ test("Global Init upgrades the former 13-Skill manifest without overwriting an u
       "skills",
       "chatgpt-pro-sidebar",
     );
+    const docsTarget = path.join(
+      value.homeDir,
+      ".agents",
+      "skills",
+      "grill-with-docs",
+    );
     const previous = JSON.parse(readFileSync(manifestPath, "utf8"));
     previous.managedPlatformSkills =
       previous.managedPlatformSkills.filter(
-        (entry) => entry.name !== "chatgpt-pro-sidebar",
+        (entry) =>
+          !["chatgpt-pro-sidebar", "grill-with-docs"].includes(entry.name),
       );
-    rmSync(sidebarTarget, { recursive: true });
+    for (const target of [sidebarTarget, docsTarget]) {
+      rmSync(target, { recursive: true });
+    }
     writeFileSync(manifestPath, `${JSON.stringify(previous, null, 2)}\n`);
 
     mkdirSync(sidebarTarget);
@@ -759,10 +768,88 @@ test("Global Init upgrades the former 13-Skill manifest without overwriting an u
     assert.equal(upgraded.status, "initialized");
     assert.equal(upgraded.platform.status, "upgraded");
     assert.equal(existsSync(path.join(sidebarTarget, "SKILL.md")), true);
+    assert.equal(existsSync(path.join(docsTarget, "SKILL.md")), true);
     assert.equal(
       JSON.parse(readFileSync(manifestPath, "utf8"))
         .managedPlatformSkills.length,
-      14,
+      15,
+    );
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("Global Init upgrades the former 14-Skill sidebar baseline by adding grill-with-docs", async () => {
+  const value = fixture();
+  try {
+    await runGlobalInit({
+      approved: true,
+      catalogMode: "skip",
+      homeDir: value.homeDir,
+      providerActions: PROVIDER_LATER,
+      providerStatusOverrides: {
+        codex: "not-installed",
+        gemini: "not-installed",
+        grok: "not-installed",
+        claude: "not-installed",
+      },
+      skillRoot: SKILL_ROOT,
+    });
+    const manifestPath = path.join(
+      value.homeDir,
+      ".agents",
+      "harness",
+      "global-skills.json",
+    );
+    const sidebarDefinitionPath = path.join(
+      value.homeDir,
+      ".agents",
+      "skills",
+      "chatgpt-pro-sidebar",
+      "SKILL.md",
+    );
+    const originalSidebarDefinition = readFileSync(
+      sidebarDefinitionPath,
+      "utf8",
+    );
+    const docsBundleNames = ["grill-with-docs"];
+    const docsBundleTargets = docsBundleNames.map((name) =>
+      path.join(value.homeDir, ".agents", "skills", name),
+    );
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    manifest.managedPlatformSkills = manifest.managedPlatformSkills.filter(
+      (entry) => !docsBundleNames.includes(entry.name),
+    );
+    writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+    for (const target of docsBundleTargets) {
+      rmSync(target, { recursive: true });
+    }
+
+    const upgraded = await runGlobalInit({
+      approved: true,
+      catalogMode: "skip",
+      homeDir: value.homeDir,
+      providerActions: PROVIDER_LATER,
+      providerStatusOverrides: {
+        codex: "not-installed",
+        gemini: "not-installed",
+        grok: "not-installed",
+        claude: "not-installed",
+      },
+      skillRoot: SKILL_ROOT,
+    });
+    assert.equal(upgraded.platform.status, "upgraded");
+    for (const target of docsBundleTargets) {
+      assert.equal(existsSync(path.join(target, "SKILL.md")), true);
+    }
+    assert.equal(
+      readFileSync(sidebarDefinitionPath, "utf8"),
+      originalSidebarDefinition,
+    );
+    assert.equal(
+      JSON.parse(readFileSync(manifestPath, "utf8"))
+        .managedPlatformSkills.length,
+      15,
     );
   } finally {
     value.cleanup();
@@ -792,16 +879,19 @@ test("Global Init upgrades the former 14-Skill legacy manifest and preserves gri
       "global-skills.json",
     );
     const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
-    const sidebarTarget = path.join(
-      value.homeDir,
-      ".agents",
-      "skills",
+    const addedPlatformTargets = [
       "chatgpt-pro-sidebar",
+      "grill-with-docs",
+    ].map((name) =>
+      path.join(value.homeDir, ".agents", "skills", name),
     );
-    rmSync(sidebarTarget, { recursive: true });
+    for (const target of addedPlatformTargets) {
+      rmSync(target, { recursive: true });
+    }
     manifest.managedPlatformSkills =
       manifest.managedPlatformSkills.filter(
-        (entry) => entry.name !== "chatgpt-pro-sidebar",
+        (entry) =>
+          !["chatgpt-pro-sidebar", "grill-with-docs"].includes(entry.name),
       );
 
     const legacySkill = path.join(
@@ -854,7 +944,7 @@ test("Global Init upgrades the former 14-Skill legacy manifest and preserves gri
   }
 });
 
-test("Global Init accepts the legacy 15-Skill ownership manifest without replacing grill-me", async () => {
+test("Global Init accepts the legacy 16-Skill ownership manifest without replacing grill-me", async () => {
   const value = fixture();
   try {
     await runGlobalInit({
@@ -1006,6 +1096,183 @@ test("Global Init preserves an intact legacy Skill-platform migration manifest",
   }
 });
 
+test("Global Init transactionally upgrades a former Skill-platform migration baseline", async () => {
+  const value = fixture();
+  try {
+    await runGlobalInit({
+      approved: true,
+      catalogMode: "skip",
+      homeDir: value.homeDir,
+      providerActions: PROVIDER_LATER,
+      providerStatusOverrides: {
+        codex: "not-installed",
+        gemini: "not-installed",
+        grok: "not-installed",
+        claude: "not-installed",
+      },
+      skillRoot: SKILL_ROOT,
+    });
+    const harnessRoot = path.join(value.homeDir, ".agents", "harness");
+    const manifestPath = path.join(harnessRoot, "global-skills.json");
+    const profilePath = path.join(harnessRoot, "skill-repository.json");
+    const agentsPath = path.join(value.homeDir, ".codex", "AGENTS.md");
+    const catalogPath = path.join(value.root, "catalog");
+    mkdirSync(catalogPath);
+    const previousPlatform = GLOBAL_PLATFORM_SKILLS.filter(
+      (name) => !["chatgpt-pro-sidebar", "grill-with-docs"].includes(name),
+    );
+    const profile = {
+      schemaVersion: 1,
+      repositoryPath: catalogPath,
+      globalEssentialSkills: [...previousPlatform, "grill-me"],
+      selection: {
+        approvalRequired: true,
+        installMode: "copy",
+        guidance: ["Keep prior guidance."],
+        excludedSkills: [],
+      },
+      refinedAt: "2026-07-26T16:00:09.825Z",
+    };
+    const profileBytes = Buffer.from(`${JSON.stringify(profile, null, 2)}\n`);
+    writeFileSync(profilePath, profileBytes);
+    const oldBlock = [
+      "<!-- HARNESS-SKILL-REPOSITORY:START -->",
+      "# Harness Skill Repository",
+      "",
+      `- Canonical machine profile: \`${profilePath}\``,
+      `- Personal Skill repository: \`${catalogPath}\``,
+      `- Global platform Skills: ${[...previousPlatform, "grill-me"]
+        .map((name) => `\`${name}\``)
+        .join(", ")}`,
+      "- Personal Skills require project approval.",
+      "<!-- HARNESS-SKILL-REPOSITORY:END -->",
+    ].join("\n");
+    const agentsBytes = Buffer.from(`# Existing global rules\n\n${oldBlock}\n`);
+    mkdirSync(path.dirname(agentsPath), { recursive: true });
+    writeFileSync(agentsPath, agentsBytes);
+    const direct = JSON.parse(readFileSync(manifestPath, "utf8"));
+    for (const name of ["chatgpt-pro-sidebar", "grill-with-docs"]) {
+      rmSync(path.join(value.homeDir, ".agents", "skills", name), {
+        recursive: true,
+      });
+    }
+    const projectSentinel = {
+      repoRoot: "I:\\preserved-project",
+      contractSha256: "1".repeat(64),
+      ownershipSha256: "2".repeat(64),
+      manifestSha256: "3".repeat(64),
+      skills: [],
+    };
+    const legacy = {
+      schemaVersion: 1,
+      owner: "trellis-ccg-harness",
+      profileSha256: createHash("sha256").update(profileBytes).digest("hex"),
+      repository: {
+        path: catalogPath,
+        branch: "main",
+        commit: "b".repeat(40),
+        tree: "c".repeat(40),
+        clean: true,
+        remotes: [],
+      },
+      managedPlatformSkills: direct.managedPlatformSkills
+        .filter((entry) => previousPlatform.includes(entry.name))
+        .map((entry) => ({
+          ...entry,
+          sourcePath: path.join(SKILL_ROOT, entry.name),
+        })),
+      preservedExternalSkills: [],
+      catalogSkills: [],
+      preservedPaths: [],
+      untouchedPaths: [],
+      managedBlocks: [
+        {
+          path: agentsPath,
+          startMarker: "<!-- HARNESS-SKILL-REPOSITORY:START -->",
+          endMarker: "<!-- HARNESS-SKILL-REPOSITORY:END -->",
+          renderedBlockSha256: createHash("sha256")
+            .update(oldBlock)
+            .digest("hex"),
+          installedFileSha256: createHash("sha256")
+            .update(agentsBytes)
+            .digest("hex"),
+        },
+      ],
+      project: projectSentinel,
+      backupId: "legacy-backup",
+      completedAt: "2026-07-26T16:00:10.962Z",
+    };
+    writeFileSync(manifestPath, `${JSON.stringify(legacy, null, 2)}\n`);
+
+    const upgraded = await runGlobalInit({
+      approved: true,
+      catalogMode: "skip",
+      homeDir: value.homeDir,
+      providerActions: PROVIDER_LATER,
+      providerStatusOverrides: {
+        codex: "not-installed",
+        gemini: "not-installed",
+        grok: "not-installed",
+        claude: "not-installed",
+      },
+      skillRoot: SKILL_ROOT,
+    });
+    assert.equal(upgraded.platform.status, "upgraded");
+    assert.equal(
+      upgraded.platform.ownershipMode,
+      "skill-platform-migration",
+    );
+    const upgradedProfile = JSON.parse(readFileSync(profilePath, "utf8"));
+    assert.deepEqual(
+      [...upgradedProfile.globalEssentialSkills].sort(),
+      [...GLOBAL_PLATFORM_SKILLS].sort(),
+    );
+    assert.deepEqual(upgradedProfile.selection.guidance, [
+      "Keep prior guidance.",
+    ]);
+    const upgradedManifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    assert.equal(upgradedManifest.managedPlatformSkills.length, 15);
+    assert.deepEqual(upgradedManifest.project, projectSentinel);
+    assert.equal(upgradedManifest.backupId, "legacy-backup");
+    assert.equal(
+      upgradedManifest.profileSha256,
+      createHash("sha256")
+        .update(readFileSync(profilePath))
+        .digest("hex"),
+    );
+    for (const name of ["chatgpt-pro-sidebar", "grill-with-docs"]) {
+      assert.equal(
+        existsSync(
+          path.join(value.homeDir, ".agents", "skills", name, "SKILL.md"),
+        ),
+        true,
+      );
+    }
+    const upgradedAgents = readFileSync(agentsPath, "utf8");
+    assert.match(upgradedAgents, /`chatgpt-pro-sidebar`/);
+    assert.match(upgradedAgents, /`grill-with-docs`/);
+    assert.match(upgradedAgents, /# Existing global rules/);
+    const beforeRepeat = readFileSync(manifestPath);
+    const repeated = await runGlobalInit({
+      approved: true,
+      catalogMode: "skip",
+      homeDir: value.homeDir,
+      providerActions: PROVIDER_LATER,
+      providerStatusOverrides: {
+        codex: "not-installed",
+        gemini: "not-installed",
+        grok: "not-installed",
+        claude: "not-installed",
+      },
+      skillRoot: SKILL_ROOT,
+    });
+    assert.equal(repeated.platform.status, "unchanged");
+    assert.deepEqual(readFileSync(manifestPath), beforeRepeat);
+  } finally {
+    value.cleanup();
+  }
+});
+
 test("Global Init records local catalog paths canonically and supports skip", async () => {
   const value = fixture();
   try {
@@ -1130,7 +1397,8 @@ test("Global Init upgrades a former 13-Skill local-catalog profile with its owne
     );
     const profile = JSON.parse(readFileSync(profilePath, "utf8"));
     profile.globalEssentialSkills = profile.globalEssentialSkills.filter(
-      (name) => name !== "chatgpt-pro-sidebar",
+      (name) =>
+        !["chatgpt-pro-sidebar", "grill-with-docs"].includes(name),
     );
     writeFileSync(profilePath, `${JSON.stringify(profile, null, 2)}\n`);
 
@@ -1143,18 +1411,19 @@ test("Global Init upgrades a former 13-Skill local-catalog profile with its owne
     const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
     manifest.managedPlatformSkills =
       manifest.managedPlatformSkills.filter(
-        (entry) => entry.name !== "chatgpt-pro-sidebar",
+        (entry) =>
+          !["chatgpt-pro-sidebar", "grill-with-docs"].includes(entry.name),
       );
     writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
-    rmSync(
-      path.join(
-        value.homeDir,
-        ".agents",
-        "skills",
-        "chatgpt-pro-sidebar",
-      ),
-      { recursive: true },
-    );
+    for (const name of [
+      "chatgpt-pro-sidebar",
+      "grill-with-docs",
+    ]) {
+      rmSync(
+        path.join(value.homeDir, ".agents", "skills", name),
+        { recursive: true },
+      );
+    }
 
     const upgraded = await runGlobalInit({
       approved: true,

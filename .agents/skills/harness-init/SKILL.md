@@ -36,8 +36,9 @@ unresolved decision per turn. Each question must
 6. **Preserve existing ownership.** Treat every existing project or global file
    as user-owned until an ownership manifest or managed block proves otherwise.
    Merge or back up approved changes; never silently replace valid content.
-7. **Keep the Harness platform global.** The global baseline is all 14
-   built-in Harness/Trellis platform Skills: `chatgpt-pro-sidebar`, `harness-init`,
+7. **Keep the Harness platform global.** The global baseline is all 15
+   built-in Harness/Trellis platform Skills: `chatgpt-pro-sidebar`,
+   `grill-with-docs`, `harness-init`,
    `trellis-before-dev`, `trellis-brainstorm`, `trellis-break-loop`,
    `trellis-channel`, `trellis-check`, `trellis-continue`,
    `trellis-finish-work`, `trellis-meta`, `trellis-session-insight`,
@@ -78,7 +79,7 @@ Initialization has three explicit, independently resumable commands:
   required. It rebuilds the plan before mutation and rejects drifted, blocked,
   boundary-forbidden, or dependency-incomplete selections. Project Skills
   remain under `project-init`.
-- `global-init` installs the 13 bundled platform Skills as link-free owned
+- `global-init` installs the 15 bundled platform Skills as link-free owned
   copies under an explicit or current user home, records the `skip`/`local`/
   `clone` catalog decision, and performs read-only Codex, Gemini, and Grok
   CLI/authentication status checks. Claude Code installation and login remain
@@ -225,7 +226,7 @@ decides the branch:
   a time directly to refine the initialization Skill:
 1. the absolute, explicitly approved Skill catalog path (not an active global
      `.agents/skills` or `.codex/skills` tree);
-  2. the fixed 14-Skill global Harness platform baseline listed above;
+  2. the fixed 15-Skill global Harness platform baseline listed above;
   3. reusable selection guidance and explicit exclusions;
   4. confirmation that project Skills use approved copy snapshots rather than
      links.
@@ -240,7 +241,7 @@ approval may the profile be saved:
 ```powershell
 node scripts/harness-init.mjs configure-skills `
   --repository "<absolute-skill-repository>" `
-  --global-essential "harness-init,trellis-before-dev,trellis-brainstorm,trellis-break-loop,trellis-channel,trellis-check,trellis-continue,trellis-finish-work,trellis-meta,trellis-session-insight,trellis-spec-bootstrap,trellis-start,trellis-update-spec" `
+  --global-essential "chatgpt-pro-sidebar,grill-with-docs,harness-init,trellis-before-dev,trellis-brainstorm,trellis-break-loop,trellis-channel,trellis-check,trellis-continue,trellis-finish-work,trellis-meta,trellis-session-insight,trellis-spec-bootstrap,trellis-start,trellis-update-spec" `
   --guidance "<approved-selection-guidance>" `
   --exclude "<approved-exclusions>" `
   --approved

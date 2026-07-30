@@ -17,7 +17,8 @@ import { promisify } from "node:util";
 
 import {
   GLOBAL_PLATFORM_SKILLS,
-  PREVIOUS_GLOBAL_PLATFORM_SKILLS,
+  PREVIOUS_GLOBAL_PLATFORM_SKILL_SETS,
+  upgradeLegacySkillPlatformDefaults,
 } from "./skill-platform-migration.mjs";
 import {
   assertTrustedCommandUnchanged,
@@ -246,18 +247,23 @@ function validateGlobalManifest(manifest) {
   const legacyExpected = [...expected, "grill-me"].sort((left, right) =>
     left.localeCompare(right),
   );
-  const previousExpected = [...PREVIOUS_GLOBAL_PLATFORM_SKILLS].sort(
-    (left, right) => left.localeCompare(right),
-  );
-  const previousLegacyExpected = [...previousExpected, "grill-me"].sort(
-    (left, right) => left.localeCompare(right),
-  );
   const current =
     canonicalJson(names) === canonicalJson(expected) ||
     canonicalJson(names) === canonicalJson(legacyExpected);
-  const upgradeRequired =
-    canonicalJson(names) === canonicalJson(previousExpected) ||
-    canonicalJson(names) === canonicalJson(previousLegacyExpected);
+  const upgradeRequired = PREVIOUS_GLOBAL_PLATFORM_SKILL_SETS.some(
+    (previous) => {
+      const previousExpected = [...previous].sort((left, right) =>
+        left.localeCompare(right),
+      );
+      const previousLegacyExpected = [...previous, "grill-me"].sort(
+        (left, right) => left.localeCompare(right),
+      );
+      return (
+        canonicalJson(names) === canonicalJson(previousExpected) ||
+        canonicalJson(names) === canonicalJson(previousLegacyExpected)
+      );
+    },
+  );
   if (!current && !upgradeRequired) {
     throw new Error("Global Skill ownership manifest has an invalid Skill set.");
   }
@@ -346,9 +352,12 @@ export async function installBundledPlatformSkills({
     }
     if (upgradeRequired) {
       if (validated.mode !== "global-init") {
-        throw new Error(
-          "Legacy Skill-platform migration ownership requires the explicit skill-migration upgrade path.",
-        );
+        return upgradeLegacySkillPlatformDefaults({
+          approved,
+          homeDir: home,
+          now,
+          platformSkillsRoot,
+        });
       }
       const addedSources = sources.skills.filter(
         (source) => !ownedNames.has(source.name),

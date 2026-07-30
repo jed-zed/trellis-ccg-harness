@@ -1,0 +1,36 @@
+{
+  "id": "chatgpt-pro-sidebar-global-install",
+  "name": "chatgpt-pro-sidebar-global-install",
+  "title": "Install sidebar and grill-with-docs globally by default",
+  "description": "Promote the bundled sidebar and documentation grilling Skills into the Harness global platform Skill set.",
+  "status": "in_progress",
+  "dev_type": "tooling",
+  "scope": "Harness global Skill initialization and local grill-me refresh",
+  "package": null,
+  "priority": "P1",
+  "creator": "jed-zed",
+  "assignee": "jed-zed",
+  "createdAt": "2026-07-30",
+  "completedAt": null,
+  "branch": "codex/chatgpt-pro-sidebar-global",
+  "base_branch": "main",
+  "worktree_path": "I:\\ai\\trellis-ccg-harness-chatgpt-pro-global",
+  "commit": null,
+  "pr_url": "https://github.com/jed-zed/trellis-ccg-harness/pull/21",
+  "subtasks": [],
+  "children": [],
+  "parent": "chatgpt-pro-background-watcher",
+  "relatedFiles": [
+    ".agents/skills/chatgpt-pro-sidebar",
+    ".agents/skills/grill-with-docs",
+    ".agents/skills/harness-init/scripts/skill-platform-migration.mjs",
+    ".agents/skills/harness-init/scripts/guided-init.mjs",
+    ".agents/skills/harness-init/scripts/harness-init-core.mjs",
+    ".agents/skills/harness-init/assets/project-contract.template.json"
+  ],
+  "notes": "The explicit 2026-07-30 user requirements supersede the prior project-only sidebar packaging constraint and add the pinned upstream grill-with-docs adaptation.",
+  "meta": {
+    "upstream": "https://github.com/mattpocock/skills/tree/2ab958093e83e0ec752e6c1c5932da465bf23e0c",
+    "localGrillMeBackup": "C:\\Users\\29933\\.agents\\harness\\backups\\2026-07-30T23-45-00Z-grill-me-upstream-refresh\\grill-me"
+  }
+}

@@ -25,8 +25,7 @@ import { promisify } from "node:util";
 
 const execFile = promisify(execFileCallback);
 
-export const GLOBAL_PLATFORM_SKILLS = Object.freeze([
-  "chatgpt-pro-sidebar",
+const ORIGINAL_GLOBAL_PLATFORM_SKILLS = Object.freeze([
   "harness-init",
   "trellis-before-dev",
   "trellis-brainstorm",
@@ -42,9 +41,24 @@ export const GLOBAL_PLATFORM_SKILLS = Object.freeze([
   "trellis-update-spec",
 ]);
 
-export const PREVIOUS_GLOBAL_PLATFORM_SKILLS = Object.freeze(
-  GLOBAL_PLATFORM_SKILLS.filter((name) => name !== "chatgpt-pro-sidebar"),
-);
+export const GLOBAL_PLATFORM_SKILLS = Object.freeze([
+  "chatgpt-pro-sidebar",
+  "grill-with-docs",
+  ...ORIGINAL_GLOBAL_PLATFORM_SKILLS,
+]);
+
+// Accept the released or previewed direct Global Init baselines that can
+// precede the current one: the original 13 Skills and the 14-Skill sidebar
+// baseline.
+export const PREVIOUS_GLOBAL_PLATFORM_SKILLS =
+  ORIGINAL_GLOBAL_PLATFORM_SKILLS;
+export const PREVIOUS_GLOBAL_PLATFORM_SKILL_SETS = Object.freeze([
+  ORIGINAL_GLOBAL_PLATFORM_SKILLS,
+  Object.freeze([
+    "chatgpt-pro-sidebar",
+    ...ORIGINAL_GLOBAL_PLATFORM_SKILLS,
+  ]),
+]);
 
 export const HARNESS_PROJECTED_SKILLS = GLOBAL_PLATFORM_SKILLS;
 
@@ -145,6 +159,23 @@ async function atomicWrite(target, bytes, mode = 0o600) {
   const stage = path.join(parent, `.${path.basename(target)}.${randomUUID()}.tmp`);
   try {
     await writeFile(stage, bytes, { flag: "wx", mode });
+    await chmod(stage, mode);
+    await rename(stage, target);
+  } catch (error) {
+    await rm(stage, { force: true });
+    throw error;
+  }
+}
+
+async function replaceRegularFileCas(target, expectedBytes, nextBytes, mode) {
+  const parent = path.dirname(target);
+  const stage = path.join(parent, `.${path.basename(target)}.${randomUUID()}.tmp`);
+  await writeFile(stage, nextBytes, { flag: "wx", mode });
+  try {
+    const current = await readFile(target);
+    if (!current.equals(expectedBytes)) {
+      throw new Error(`Managed file changed concurrently: ${target}`);
+    }
     await chmod(stage, mode);
     await rename(stage, target);
   } catch (error) {
@@ -695,7 +726,7 @@ function renderGlobalBlock(profilePath, repositoryPath) {
     `- Approved Skill catalog: \`${repositoryPath}\``,
     `- Global platform Skills: ${GLOBAL_PLATFORM_SKILLS.map((name) => `\`${name}\``).join(", ")}`,
     "- Catalog Skills are copied into each project only after explicit project approval.",
-    "- Only the listed 14 global platform Skill projections are Harness-owned; pre-existing third-party Skills, including legacy `grill-me`, remain user-owned unless separately approved.",
+    "- Only the listed 15 global platform Skill projections are Harness-owned; pre-existing third-party Skills, including legacy `grill-me`, remain user-owned unless separately approved.",
     GLOBAL_BLOCK_END,
   ].join("\n");
 }
@@ -716,6 +747,275 @@ function replaceOrAppendGlobalBlock(content, nextBlock, ownedDigest = null) {
     throw new Error("Global Skill repository block was edited; refusing overwrite.");
   }
   return content.replace(current, nextBlock);
+}
+
+function matchesPlatformSkillSet(values, expected) {
+  return (
+    canonicalJson(
+      [...values].sort((left, right) => left.localeCompare(right)),
+    ) ===
+    canonicalJson([...expected].sort((left, right) => left.localeCompare(right)))
+  );
+}
+
+function isPreviousPlatformSkillSet(values) {
+  return PREVIOUS_GLOBAL_PLATFORM_SKILL_SETS.some(
+    (previous) =>
+      matchesPlatformSkillSet(values, previous) ||
+      matchesPlatformSkillSet(values, [...previous, "grill-me"]),
+  );
+}
+
+export async function upgradeLegacySkillPlatformDefaults({
+  approved,
+  homeDir = homedir(),
+  platformSkillsRoot,
+  now = () => new Date(),
+}) {
+  if (approved !== true) {
+    throw new Error("Legacy Skill platform upgrade requires explicit approval.");
+  }
+  const home = await assertRealDirectory(path.resolve(homeDir), "User home");
+  const sourceRoot = await assertRealDirectory(
+    path.resolve(platformSkillsRoot),
+    "Harness Skill source root",
+  );
+  const manifestPath = globalManifestPathFor(home);
+  const profilePath = profilePathFor(home);
+  const agentsPath = path.join(home, ".codex", "AGENTS.md");
+  const [manifestState, profileState, agentsState] = await Promise.all([
+    readFileState(manifestPath, "Global Skill ownership manifest"),
+    readFileState(profilePath, "Skill repository profile"),
+    readFileState(agentsPath, "Global AGENTS.md"),
+  ]);
+  if (!manifestState.exists || !profileState.exists || !agentsState.exists) {
+    throw new Error(
+      "Legacy Skill platform upgrade requires its manifest, profile, and global AGENTS.md.",
+    );
+  }
+  const manifest = JSON.parse(manifestState.bytes.toString("utf8"));
+  const profile = JSON.parse(profileState.bytes.toString("utf8"));
+  const managedNames = (manifest.managedPlatformSkills ?? []).map(
+    (entry) => entry?.name,
+  );
+  if (
+    manifest.schemaVersion !== 1 ||
+    manifest.owner !== OWNER ||
+    manifest.installMode !== undefined ||
+    !isPreviousPlatformSkillSet(managedNames) ||
+    manifest.profileSha256 !== profileState.sha256 ||
+    profile.schemaVersion !== 1 ||
+    !isPreviousPlatformSkillSet(profile.globalEssentialSkills ?? []) ||
+    path.resolve(profile.repositoryPath ?? "") !==
+      path.resolve(manifest.repository?.path ?? "")
+  ) {
+    throw new Error("Legacy Skill platform ownership is not eligible for upgrade.");
+  }
+
+  const targetRoot = path.join(home, ".agents", "skills");
+  for (const entry of manifest.managedPlatformSkills) {
+    const target = path.join(targetRoot, entry.name);
+    if (
+      path.resolve(entry.targetPath ?? "") !== path.resolve(target) ||
+      !/^[a-f0-9]{64}$/.test(String(entry.treeSha256 ?? ""))
+    ) {
+      throw new Error(`Legacy platform ownership is invalid: ${entry.name}`);
+    }
+    const current = await snapshotTree(target);
+    if (current.treeSha256 !== entry.treeSha256) {
+      throw new Error(`Managed global platform Skill drifted: ${entry.name}`);
+    }
+  }
+  for (const entry of manifest.preservedExternalSkills ?? []) {
+    const current = await snapshotTree(entry.path);
+    if (current.treeSha256 !== entry.observedTreeSha256) {
+      throw new Error(`Preserved external Skill changed: ${entry.name}`);
+    }
+  }
+
+  const ownedNames = new Set(managedNames);
+  const additions = [];
+  for (const name of GLOBAL_PLATFORM_SKILLS) {
+    if (ownedNames.has(name)) continue;
+    const source = await describeSkill(sourceRoot, name, name, "harness");
+    const targetPath = path.join(targetRoot, name);
+    if (await pathExists(targetPath)) {
+      throw new Error(
+        `Legacy global Skill upgrade target collision is user-owned: ${targetPath}`,
+      );
+    }
+    additions.push({ ...source, targetPath });
+  }
+  if (additions.length === 0) {
+    return {
+      status: "unchanged",
+      manifestPath,
+      installedSkills: [...GLOBAL_PLATFORM_SKILLS],
+      ownershipMode: "skill-platform-migration",
+    };
+  }
+
+  const blockOwnership = (manifest.managedBlocks ?? []).find(
+    (entry) =>
+      path.resolve(entry?.path ?? "") === path.resolve(agentsPath) &&
+      entry.startMarker === GLOBAL_BLOCK_START &&
+      entry.endMarker === GLOBAL_BLOCK_END,
+  );
+  const currentAgents = agentsState.bytes.toString("utf8");
+  const currentBlock = findGlobalBlock(currentAgents);
+  if (
+    !blockOwnership ||
+    currentBlock === null ||
+    sha256(currentBlock) !== blockOwnership.renderedBlockSha256
+  ) {
+    throw new Error(
+      "Legacy global Skill repository block is missing or was edited.",
+    );
+  }
+
+  const upgradedAt = now().toISOString();
+  const profileCandidate = {
+    ...profile,
+    globalEssentialSkills: [...GLOBAL_PLATFORM_SKILLS].sort((left, right) =>
+      left.localeCompare(right),
+    ),
+    refinedAt: upgradedAt,
+  };
+  const profileBytes = Buffer.from(canonicalJson(profileCandidate));
+  const nextBlock = renderGlobalBlock(profilePath, profile.repositoryPath);
+  const agentsCandidate = replaceOrAppendGlobalBlock(
+    currentAgents,
+    nextBlock,
+    blockOwnership.renderedBlockSha256,
+  );
+  const agentsBytes = Buffer.from(agentsCandidate);
+  const manifestCandidate = {
+    ...manifest,
+    profileSha256: sha256(profileBytes),
+    managedPlatformSkills: [
+      ...manifest.managedPlatformSkills,
+      ...additions.map((entry) => ({
+        name: entry.name,
+        sourcePath: entry.sourcePath,
+        targetPath: entry.targetPath,
+        treeSha256: entry.treeSha256,
+        fileCount: entry.fileCount,
+        totalBytes: entry.totalBytes,
+      })),
+    ],
+    managedBlocks: manifest.managedBlocks.map((entry) =>
+      entry === blockOwnership
+        ? {
+            ...entry,
+            renderedBlockSha256: sha256(findGlobalBlock(agentsCandidate)),
+            installedFileSha256: sha256(agentsBytes),
+          }
+        : entry,
+    ),
+    upgradedAt,
+  };
+  const manifestBytes = Buffer.from(canonicalJson(manifestCandidate));
+  const harnessRoot = path.dirname(manifestPath);
+  const stageRoot = path.join(
+    harnessRoot,
+    `.legacy-platform-upgrade-${randomUUID()}`,
+  );
+  await mkdir(stageRoot, { mode: 0o700 });
+  const installed = [];
+  let profileReplaced = false;
+  let agentsReplaced = false;
+  let manifestReplaced = false;
+  try {
+    for (const entry of additions) {
+      const staged = path.join(stageRoot, entry.name);
+      const snapshot = await snapshotTree(entry.sourcePath, { copyTo: staged });
+      if (snapshot.treeSha256 !== entry.treeSha256) {
+        throw new Error(`Bundled platform Skill changed while staging: ${entry.name}`);
+      }
+    }
+    for (const entry of additions) {
+      if (await pathExists(entry.targetPath)) {
+        throw new Error(`Global Skill target appeared during upgrade: ${entry.name}`);
+      }
+      await rename(path.join(stageRoot, entry.name), entry.targetPath);
+      installed.push(entry);
+    }
+    await replaceRegularFileCas(
+      profilePath,
+      profileState.bytes,
+      profileBytes,
+      profileState.mode,
+    );
+    profileReplaced = true;
+    await replaceRegularFileCas(
+      agentsPath,
+      agentsState.bytes,
+      agentsBytes,
+      agentsState.mode,
+    );
+    agentsReplaced = true;
+    await replaceRegularFileCas(
+      manifestPath,
+      manifestState.bytes,
+      manifestBytes,
+      manifestState.mode,
+    );
+    manifestReplaced = true;
+  } catch (error) {
+    const rollbackErrors = [];
+    for (const [target, expected, original, mode, active] of [
+      [
+        manifestPath,
+        manifestBytes,
+        manifestState.bytes,
+        manifestState.mode,
+        manifestReplaced,
+      ],
+      [agentsPath, agentsBytes, agentsState.bytes, agentsState.mode, agentsReplaced],
+      [
+        profilePath,
+        profileBytes,
+        profileState.bytes,
+        profileState.mode,
+        profileReplaced,
+      ],
+    ]) {
+      if (!active) continue;
+      try {
+        await replaceRegularFileCas(target, expected, original, mode);
+      } catch (rollbackError) {
+        rollbackErrors.push(rollbackError);
+      }
+    }
+    for (const entry of installed.reverse()) {
+      try {
+        const current = await snapshotTree(entry.targetPath);
+        if (current.treeSha256 !== entry.treeSha256) {
+          throw new Error(
+            `Installed global Skill changed before rollback: ${entry.name}`,
+          );
+        }
+        await rm(entry.targetPath, { recursive: true });
+      } catch (rollbackError) {
+        rollbackErrors.push(rollbackError);
+      }
+    }
+    if (rollbackErrors.length > 0) {
+      throw new AggregateError(
+        [error, ...rollbackErrors],
+        "Legacy Skill platform upgrade failed and could not be fully rolled back.",
+      );
+    }
+    throw error;
+  } finally {
+    await rm(stageRoot, { recursive: true, force: true });
+  }
+  return {
+    status: "upgraded",
+    manifestPath,
+    installedSkills: [...GLOBAL_PLATFORM_SKILLS],
+    ownershipMode: "skill-platform-migration",
+  };
 }
 
 async function verifyInventorySources(inventory) {
@@ -1369,7 +1669,7 @@ export async function auditSkillPlatformMigration({
     canonicalJson(managedPlatformNames) !== canonicalJson(expectedPlatformNames) &&
     canonicalJson(managedPlatformNames) !== canonicalJson(legacyPlatformNames)
   ) {
-    issues.push("Global Skill ownership manifest does not bind the 14 built-in platform Skills (or the supported 15-Skill legacy set).");
+    issues.push("Global Skill ownership manifest does not bind the 15 built-in platform Skills (or the supported 16-Skill legacy set).");
   }
   let repository = null;
   try {

@@ -30,6 +30,7 @@ const PUBLIC_BASELINE_CONTRACT = path.join(
 );
 const GLOBAL_PLATFORM_SKILLS = [
   "chatgpt-pro-sidebar",
+  "grill-with-docs",
   "harness-init",
   "trellis-before-dev",
   "trellis-brainstorm",

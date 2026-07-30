@@ -43,8 +43,8 @@ decisions that remain unresolved.
   profile already available?
 - What explicit Git catalog path or approved clone source contains reusable task
   and domain Skills, if any?
-- Does the global baseline contain exactly the 14 built-in Harness/Trellis
-  platform Skills, with ownership-managed projections only for those 14
+- Does the global baseline contain exactly the 15 built-in Harness/Trellis
+  platform Skills, with ownership-managed projections only for those 15
   sources? `grill-me`, Caveman, Ponytail, Context7, CodeGraph, and fast-context
   are third-party candidates: recommend the relevant group, keep it unselected
   by default, and require an explicit yes before installation.
@@ -61,7 +61,7 @@ decisions that remain unresolved.
   project contract?
 - Does project installation use bounded, link-free copies with a digest
   manifest rather than mutable links?
-- If global cleanup is desired, does a read-only inventory bind the 14 built-in
+- If global cleanup is desired, does a read-only inventory bind the 15 built-in
   platform Skills, preserve any legacy third-party Skills, and record the explicit catalog identity and user-approved project
   Skill subset (which may be empty) before an ownership-aware migration?
 - Is the selected catalog an explicit Git working tree with recorded branch,

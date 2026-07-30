@@ -35,7 +35,7 @@ import {
   GLOBAL_PLATFORM_SKILLS,
   HARNESS_PROJECTED_SKILLS,
   planSkillPlatformMigration,
-  PREVIOUS_GLOBAL_PLATFORM_SKILLS,
+  PREVIOUS_GLOBAL_PLATFORM_SKILL_SETS,
   rollbackSkillPlatformMigration,
   seedPersonalSkillRepository,
 } from "./skill-platform-migration.mjs";
@@ -400,9 +400,10 @@ function matchesSkillSet(values, expected) {
 }
 
 function isPreviousGlobalSkillSet(values) {
-  return (
-    matchesSkillSet(values, PREVIOUS_GLOBAL_PLATFORM_SKILLS) ||
-    matchesSkillSet(values, [...PREVIOUS_GLOBAL_PLATFORM_SKILLS, "grill-me"])
+  return PREVIOUS_GLOBAL_PLATFORM_SKILL_SETS.some(
+    (previous) =>
+      matchesSkillSet(values, previous) ||
+      matchesSkillSet(values, [...previous, "grill-me"]),
   );
 }
 
@@ -1561,7 +1562,7 @@ export async function reviseReadyProjectSkills({
     );
   }
   const contract = JSON.parse(projectFingerprint.bytes.toString("utf8"));
-  validateProjectContract(contract);
+  validateProjectContract(contract, { allowPreviousGlobalSkills: true });
   if (contract.status !== "ready") {
     throw new Error("Project contract must remain ready during Skill revision.");
   }
@@ -2180,7 +2181,11 @@ function assertContractWorkflow(contract) {
   }
 }
 
-function assertContractSkills(skills, workflow) {
+function assertContractSkills(
+  skills,
+  workflow,
+  { allowPreviousGlobalSkills = false } = {},
+) {
   assertExactKeys(
     skills,
     [
@@ -2209,9 +2214,16 @@ function assertContractSkills(skills, workflow) {
     "skills.globalEssential",
     { skillNames: true },
   );
-  for (const required of REQUIRED_GLOBAL_SKILLS) {
-    if (!globalEssential.includes(required)) {
-      throw new Error(`skills.globalEssential must include ${required}.`);
+  if (
+    !(
+      allowPreviousGlobalSkills &&
+      isPreviousGlobalSkillSet(globalEssential)
+    )
+  ) {
+    for (const required of REQUIRED_GLOBAL_SKILLS) {
+      if (!globalEssential.includes(required)) {
+        throw new Error(`skills.globalEssential must include ${required}.`);
+      }
     }
   }
   if (!Array.isArray(skills.projectSelection)) {
@@ -2368,7 +2380,10 @@ function assertDraftProjectFields(contract) {
 
 export function validateProjectContract(
   contract,
-  { requireApproved = false } = {},
+  {
+    requireApproved = false,
+    allowPreviousGlobalSkills = false,
+  } = {},
 ) {
   assertObject(contract, "Project contract");
   assertNoCredentials(contract);
@@ -2382,7 +2397,9 @@ export function validateProjectContract(
   assertContractObjects(contract);
   assertContractAuthorities(contract.authorities);
   assertContractWorkflow(contract);
-  assertContractSkills(contract.skills, contract.workflow);
+  assertContractSkills(contract.skills, contract.workflow, {
+    allowPreviousGlobalSkills,
+  });
   assertContractThirdParty(contract);
   assertProviders(contract.providers);
   assertProductManager(contract.productManager);
@@ -5614,6 +5631,24 @@ export async function runGlobalInit({
           repositoryPath: canonicalRepository,
           selectionGuidance: existingProfile.selection.guidance,
         });
+        profileStatus = "upgraded";
+      } else if (
+        previousGlobalSkills &&
+        platform.status === "upgraded" &&
+        platform.ownershipMode === "skill-platform-migration"
+      ) {
+        const upgradedProfile = await loadSkillRepositoryProfile({ homeDir });
+        if (
+          !upgradedProfile ||
+          !matchesSkillSet(
+            upgradedProfile.globalEssentialSkills,
+            GLOBAL_PLATFORM_SKILLS,
+          )
+        ) {
+          throw new Error(
+            "Legacy Skill-platform migration did not upgrade its profile.",
+          );
+        }
         profileStatus = "upgraded";
       } else {
         throw new Error(
