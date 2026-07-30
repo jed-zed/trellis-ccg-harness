@@ -92,6 +92,17 @@ function normalizePath(value) {
   return process.platform === "win32" ? resolved.toLowerCase() : resolved;
 }
 
+async function sameExistingPath(left, right) {
+  try {
+    return (
+      normalizePath(await realpath(left)) ===
+      normalizePath(await realpath(right))
+    );
+  } catch {
+    return false;
+  }
+}
+
 function isInside(root, target) {
   const relative = path.relative(path.resolve(root), path.resolve(target));
   return (
@@ -883,12 +894,17 @@ export async function upgradeLegacySkillPlatformDefaults({
     };
   }
 
-  const blockOwnership = (manifest.managedBlocks ?? []).find(
-    (entry) =>
-      normalizePath(entry?.path ?? "") === normalizePath(agentsPath) &&
+  let blockOwnership = null;
+  for (const entry of manifest.managedBlocks ?? []) {
+    if (
       entry.startMarker === GLOBAL_BLOCK_START &&
-      entry.endMarker === GLOBAL_BLOCK_END,
-  );
+      entry.endMarker === GLOBAL_BLOCK_END &&
+      (await sameExistingPath(entry?.path ?? "", agentsPath))
+    ) {
+      blockOwnership = entry;
+      break;
+    }
+  }
   const currentAgents = agentsState.bytes.toString("utf8");
   const currentBlock = findGlobalBlock(currentAgents);
   const blockDigestMatches =

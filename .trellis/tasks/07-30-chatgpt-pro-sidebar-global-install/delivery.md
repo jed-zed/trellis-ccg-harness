@@ -13,7 +13,9 @@
   while still rejecting any content change, and preserves the installed file's
   line-ending style during replacement. When an older renderer used a different
   block boundary, the exact whole-file ownership digest provides the equivalent
-  fail-closed proof before replacement.
+  fail-closed proof before replacement. Managed-block path identity is compared
+  through `realpath`, so Windows temporary-directory aliases do not create a
+  false ownership mismatch.
 - Verified legacy direct-install and schema-v2 migration ownership may contain
   older Harness-owned Skill trees. The upgrade now stages and transactionally
   replaces those trees, updates their ownership fingerprints, and preserves
