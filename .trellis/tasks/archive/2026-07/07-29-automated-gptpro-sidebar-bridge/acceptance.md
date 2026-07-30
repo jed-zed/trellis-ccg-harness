@@ -12,13 +12,19 @@ Desktop side panel, woke this same Codex task through the Stop Hook, and was
 imported into canonical CCG evidence. No CLI `resume` process and no automatic
 resend were used.
 
+A later live follow-up opened two real Codex Desktop windows, submitted two
+different GPT Pro workstreams to two different conversations, and observed
+both generations overlapping. Both responses were persisted and the repaired
+Stop Hook fanned both terminal registrations into one new round in this same
+Codex Desktop task. No CLI `resume` process and no automatic resend were used.
+
 ## Git and source provenance
 
 | Repository | Branch | Commit / tree |
 | --- | --- | --- |
-| `jed-zed/codex-skill-repository` | `codex/publish-chatgpt-pro-sidebar` | `38c4fd3ce54913175b884419bdc8a40d72297e37` / `5487f8205c5c6e94e51c84e8ad79129ee0b474fb` |
-| `jed-zed/ccg-gptpro-worflow` | `codex/automate-gptpro-sidebar-bridge` | `59ef05f7496fa9659d7df5d82bcecbdcd7a3ebd0` / `bb4a9a927879ee59185fa297855f462d41a00571` |
-| `jed-zed/trellis-ccg-harness` | `codex/integrate-gptpro-sidebar-automation` | source snapshot through `bcb3acf` |
+| `jed-zed/codex-skill-repository` | `codex/publish-chatgpt-pro-sidebar` | `4537cf0a149f238d17cc82d1b424a3359dc06315` / `5baada96f039aa48cf5299a2db4f4d248722fbaa` |
+| `jed-zed/ccg-gptpro-worflow` | `codex/automate-gptpro-sidebar-bridge` | `d168feaf6eba953feaaf16c6d9867b00ffd3faad` / `e0e280b942282092cbc4ed3d73ac0f697353f2f4` |
+| `jed-zed/trellis-ccg-harness` | `codex/integrate-gptpro-sidebar-automation` | `156d26f1fd33e82f62c39e74a1a80cc621215a60` / `3bcf5482eeef4e38827f4de49caff902f0ca7b26` before this report-only follow-up |
 
 The personal Skill and CCG branches were pushed before final Harness closeout.
 The Harness branch was first pushed through acceptance commit `91ba27c`; the
@@ -44,10 +50,39 @@ performed.
 - Import acknowledgement:
   `round-1/sidebar/watch-continuation-ack.json`
 
-Only one eligible Codex Desktop side-panel window was available, so live
-multi-window parallel generation was not claimed. Multi-registration,
-terminal/pending fan-in, legacy-v1 compatibility, claim replay, and
-acknowledgement behavior are covered by deterministic Pester tests.
+During the original acceptance run only one eligible Codex Desktop side-panel
+window was available, so multi-window parallel generation was not claimed at
+that time. Multi-registration, terminal/pending fan-in, legacy-v1
+compatibility, claim replay, and acknowledgement behavior were covered by
+deterministic Pester tests before the later live follow-up below.
+
+### Two-window live parallel follow-up
+
+Two new Codex Desktop windows were opened from the same task and bound to
+different side-panel runtime IDs. Workstream A was submitted while workstream B
+was still reporting `generating=true`, proving that the two real ChatGPT
+generations overlapped rather than running as a sequential queue.
+
+| Workstream | Window runtime ID | Conversation | Prompt SHA-256 | Response SHA-256 | Characters |
+| --- | --- | --- | --- | --- | ---: |
+| A | `42.5311372` | `https://chatgpt.com/c/6a6accc2-ba4c-83ea-b2c5-fc1b22a07495` | `ca0b4965cab6d779b9ebc700ce0921bef3fda87bad74706b42b5fb6cde51f89a` | `c90d9ce6386185d5b2a12ea9b52bf9d71cfdaf219e667064b3af38d7b78c23fc` | 10137 |
+| B | `42.3082742` | `https://chatgpt.com/c/6a6acc5b-5724-83ea-99bc-77548d11d1c6` | `9d0667c8511b9eee3742892105afff50affd3627c5ba41ea456e378986d8e397` | `b98d7cee89bb9ef11a96f2e36c9517b018d7372d6f89941df5a29d5565acffb0` | 9620 |
+
+Workstream B finalized normally. Workstream A first recorded
+`probe-failed` after one successful stopped observation because three
+`ConcurrentUiOperation` mutex-contention results were incorrectly counted as
+probe failures. Codex performed the allowed read-only recovery on the exact
+bound conversation and finalized A without resubmitting anything. Both
+response file hashes match their recorded `state.json` hashes.
+
+The first real fan-in attempt at `2026-07-30T04:06:53Z` also exposed a separate
+Stop Hook defect: one stale registration pointed at an evidence directory that
+had already been removed, causing `FileNotFoundError` before A and B could be
+claimed. The repaired handler skipped the unavailable registration, claimed A
+and B together, and the official Codex Desktop Stop lifecycle then created the
+next task round with both watcher IDs. Both continuations were acknowledged in
+`watch-continuation-ack.json`; no Desktop composer automation or CLI resume was
+used.
 
 ## GPT Pro findings and corrections
 
@@ -76,11 +111,28 @@ passes the ownership state into the existing transactional installer and adds
 a regression that upgrades an exact previous plugin. The real upgrade then
 completed and Codex Desktop's plugin inventory reported `3.4.3+codex.1`.
 
+The later two-window live run and its cleanup found three additional
+implementation defects, delivered in personal Skill commits `e9d07c9` and
+`4537cf0`:
+
+3. The detached watcher now treats exit `32` with
+   `ConcurrentUiOperation` as bounded mutex contention. It preserves the prior
+   stopped observation and retries instead of converting three normal
+   serialization collisions into `probe-failed`.
+4. The Stop Hook now logs and skips a registration whose evidence directory is
+   unavailable, then continues claiming other valid registrations. A stale
+   historical registration can no longer abort the whole fan-in batch.
+5. The watcher acknowledgement path now recognizes a matching historical v1
+   claim that predates `watcherId`, but only when its v1 registration path,
+   Codex task UUID, and terminal status all match. The old live test
+   registration was acknowledged through this path, and a subsequent Hook
+   check returned no continuation output.
+
 ## Validation
 
 | Gate | Result |
 | --- | --- |
-| Personal Skill Pester suite | `111 passed, 0 failed` |
+| Personal Skill Pester suite | `114 passed, 0 failed` |
 | CCG focused GPT Pro bridge tests | `39 passed, 0 failed` |
 | CCG lint | passed |
 | CCG typecheck | passed |
@@ -96,6 +148,11 @@ completed and Codex Desktop's plugin inventory reported `3.4.3+codex.1`.
 | Go module tests | passed from `components/ccg-workflow/codeagent-wrapper` |
 | Go module build | passed from `components/ccg-workflow/codeagent-wrapper` |
 | `git diff --check` | passed |
+| Skill remote CI, initial workflow | passed, run [`30512985204`](https://github.com/jed-zed/codex-skill-repository/actions/runs/30512985204) |
+| Skill remote CI, parallel-watcher fix | passed, run [`30514946535`](https://github.com/jed-zed/codex-skill-repository/actions/runs/30514946535) |
+| Skill remote CI, legacy-claim acknowledgement | passed, run [`30515322358`](https://github.com/jed-zed/codex-skill-repository/actions/runs/30515322358) |
+| CCG remote CI | passed on Windows, Linux, and Go jobs, run [`30513024223`](https://github.com/jed-zed/ccg-gptpro-worflow/actions/runs/30513024223) |
+| Harness remote CI | passed on Windows, Linux, macOS bootstrap, and Go jobs, run [`30513024050`](https://github.com/jed-zed/trellis-ccg-harness/actions/runs/30513024050) |
 
 One resource-saturated parallel CCG test run reported a Vitest worker RPC
 timeout after all 552 tests passed. It was not accepted as green. A later
@@ -124,11 +181,11 @@ security review was performed or claimed.
 
 ## Remaining limits
 
-- Live parallelism across two Pro conversations was not exercised because
-  only one eligible Codex Desktop side-panel window was present.
-- Cross-platform remote CI is not claimed; the work was validated locally on
-  Windows and pushed to feature branches without creating PRs.
-- The current Codex Desktop process may require a reload before its in-memory
-  Skill catalog uses the newly installed CCG `3.4.3` plugin. The live plugin
-  inventory, global CCG CLI, stable personal Skill, Stop Hook, and plugin cache
-  are already synchronized.
+- The live parallel run proves two side-panel conversations in this one
+  Windows Desktop session. It does not prove an arbitrary number of windows,
+  other display configurations, or future Codex/ChatGPT UI revisions.
+- Remote CI proves deterministic code, packaging, and cross-platform
+  contracts; it cannot prove a logged-in live side panel or Desktop Stop Hook.
+  Those were verified separately in the current Windows Desktop session.
+- All changes remain on pushed feature branches. No pull request, merge,
+  deployment, release, package publication, or production change was made.
