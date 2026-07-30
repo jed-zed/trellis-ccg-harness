@@ -12,6 +12,7 @@ This creates:
 
 from __future__ import annotations
 
+import argparse
 import sys
 
 from common.paths import (
@@ -22,16 +23,23 @@ from common.paths import (
 from common.developer import init_developer
 
 
+def build_parser() -> argparse.ArgumentParser:
+    """Build the command-line parser."""
+    parser = argparse.ArgumentParser(
+        description="Initialize the Trellis developer workspace.",
+    )
+    parser.add_argument(
+        "developer_name",
+        metavar="developer-name",
+        help="portable name used for the developer workspace directory",
+    )
+    return parser
+
+
 def main() -> None:
     """CLI entry point."""
-    if len(sys.argv) < 2:
-        print(f"Usage: {sys.argv[0]} <developer-name>")
-        print()
-        print("Example:")
-        print(f"  {sys.argv[0]} john")
-        sys.exit(1)
-
-    name = sys.argv[1]
+    args = build_parser().parse_args()
+    name = args.developer_name
 
     # Check if already initialized
     existing = get_developer()
