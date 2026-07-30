@@ -678,6 +678,182 @@ test("Global Init fails closed on a fresh platform Skill collision", async () =>
   }
 });
 
+test("Global Init upgrades the former 13-Skill manifest without overwriting an unowned sidebar target", async () => {
+  const value = fixture();
+  try {
+    await runGlobalInit({
+      approved: true,
+      catalogMode: "skip",
+      homeDir: value.homeDir,
+      providerActions: PROVIDER_LATER,
+      providerStatusOverrides: {
+        codex: "not-installed",
+        gemini: "not-installed",
+        grok: "not-installed",
+        claude: "not-installed",
+      },
+      skillRoot: SKILL_ROOT,
+    });
+    const manifestPath = path.join(
+      value.homeDir,
+      ".agents",
+      "harness",
+      "global-skills.json",
+    );
+    const sidebarTarget = path.join(
+      value.homeDir,
+      ".agents",
+      "skills",
+      "chatgpt-pro-sidebar",
+    );
+    const previous = JSON.parse(readFileSync(manifestPath, "utf8"));
+    previous.managedPlatformSkills =
+      previous.managedPlatformSkills.filter(
+        (entry) => entry.name !== "chatgpt-pro-sidebar",
+      );
+    rmSync(sidebarTarget, { recursive: true });
+    writeFileSync(manifestPath, `${JSON.stringify(previous, null, 2)}\n`);
+
+    mkdirSync(sidebarTarget);
+    writeFileSync(path.join(sidebarTarget, "SKILL.md"), "user-owned\n");
+    await assert.rejects(
+      runGlobalInit({
+        approved: true,
+        catalogMode: "skip",
+        homeDir: value.homeDir,
+        providerActions: PROVIDER_LATER,
+        providerStatusOverrides: {
+          codex: "not-installed",
+          gemini: "not-installed",
+          grok: "not-installed",
+          claude: "not-installed",
+        },
+        skillRoot: SKILL_ROOT,
+      }),
+      /upgrade target collision is user-owned/i,
+    );
+    assert.equal(
+      readFileSync(path.join(sidebarTarget, "SKILL.md"), "utf8"),
+      "user-owned\n",
+    );
+    assert.equal(
+      JSON.parse(readFileSync(manifestPath, "utf8"))
+        .managedPlatformSkills.length,
+      13,
+    );
+
+    rmSync(sidebarTarget, { recursive: true });
+    const upgraded = await runGlobalInit({
+      approved: true,
+      catalogMode: "skip",
+      homeDir: value.homeDir,
+      providerActions: PROVIDER_LATER,
+      providerStatusOverrides: {
+        codex: "not-installed",
+        gemini: "not-installed",
+        grok: "not-installed",
+        claude: "not-installed",
+      },
+      skillRoot: SKILL_ROOT,
+    });
+    assert.equal(upgraded.status, "initialized");
+    assert.equal(upgraded.platform.status, "upgraded");
+    assert.equal(existsSync(path.join(sidebarTarget, "SKILL.md")), true);
+    assert.equal(
+      JSON.parse(readFileSync(manifestPath, "utf8"))
+        .managedPlatformSkills.length,
+      14,
+    );
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("Global Init upgrades the former 14-Skill legacy manifest and preserves grill-me", async () => {
+  const value = fixture();
+  try {
+    await runGlobalInit({
+      approved: true,
+      catalogMode: "skip",
+      homeDir: value.homeDir,
+      providerActions: PROVIDER_LATER,
+      providerStatusOverrides: {
+        codex: "not-installed",
+        gemini: "not-installed",
+        grok: "not-installed",
+        claude: "not-installed",
+      },
+      skillRoot: SKILL_ROOT,
+    });
+    const manifestPath = path.join(
+      value.homeDir,
+      ".agents",
+      "harness",
+      "global-skills.json",
+    );
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    const sidebarTarget = path.join(
+      value.homeDir,
+      ".agents",
+      "skills",
+      "chatgpt-pro-sidebar",
+    );
+    rmSync(sidebarTarget, { recursive: true });
+    manifest.managedPlatformSkills =
+      manifest.managedPlatformSkills.filter(
+        (entry) => entry.name !== "chatgpt-pro-sidebar",
+      );
+
+    const legacySkill = path.join(
+      value.homeDir,
+      ".agents",
+      "skills",
+      "grill-me",
+    );
+    mkdirSync(legacySkill);
+    const legacyDefinition =
+      "---\nname: grill-me\ndescription: \"Legacy user-owned workflow.\"\n---\n";
+    writeFileSync(path.join(legacySkill, "SKILL.md"), legacyDefinition);
+    manifest.managedPlatformSkills.push({
+      name: "grill-me",
+      targetPath: legacySkill,
+      treeSha256: "legacy-user-owned",
+      fileCount: 1,
+      totalBytes: Buffer.byteLength(legacyDefinition),
+    });
+    writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+
+    const upgraded = await runGlobalInit({
+      approved: true,
+      catalogMode: "skip",
+      homeDir: value.homeDir,
+      providerActions: PROVIDER_LATER,
+      providerStatusOverrides: {
+        codex: "not-installed",
+        gemini: "not-installed",
+        grok: "not-installed",
+        claude: "not-installed",
+      },
+      skillRoot: SKILL_ROOT,
+    });
+    assert.equal(upgraded.platform.status, "upgraded");
+    assert.equal(
+      readFileSync(path.join(legacySkill, "SKILL.md"), "utf8"),
+      legacyDefinition,
+    );
+    assert.deepEqual(
+      JSON.parse(readFileSync(manifestPath, "utf8"))
+        .managedPlatformSkills.map((entry) => entry.name)
+        .sort((left, right) => left.localeCompare(right)),
+      [...GLOBAL_PLATFORM_SKILLS, "grill-me"].sort((left, right) =>
+        left.localeCompare(right),
+      ),
+    );
+  } finally {
+    value.cleanup();
+  }
+});
+
 test("Global Init accepts the legacy 15-Skill ownership manifest without replacing grill-me", async () => {
   const value = fixture();
   try {
@@ -920,6 +1096,88 @@ test("Global Init records local catalog paths canonically and supports skip", as
       skillRoot: SKILL_ROOT,
     });
     assert.equal(readiness.status, "ready");
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("Global Init upgrades a former 13-Skill local-catalog profile with its ownership manifest", async () => {
+  const value = fixture();
+  try {
+    const repository = path.join(value.root, "catalog");
+    mkdirSync(repository);
+    writeCatalogSkill(repository, "test-first", "Use when tests lead changes.");
+    initializeGitRepository(repository);
+    await runGlobalInit({
+      approved: true,
+      catalogMode: "local",
+      catalogPath: repository,
+      homeDir: value.homeDir,
+      providerActions: PROVIDER_LATER,
+      providerStatusOverrides: {
+        codex: "authenticated",
+        gemini: "not-installed",
+        grok: "not-installed",
+        claude: "not-installed",
+      },
+      skillRoot: SKILL_ROOT,
+    });
+    const profilePath = path.join(
+      value.homeDir,
+      ".agents",
+      "harness",
+      "skill-repository.json",
+    );
+    const profile = JSON.parse(readFileSync(profilePath, "utf8"));
+    profile.globalEssentialSkills = profile.globalEssentialSkills.filter(
+      (name) => name !== "chatgpt-pro-sidebar",
+    );
+    writeFileSync(profilePath, `${JSON.stringify(profile, null, 2)}\n`);
+
+    const manifestPath = path.join(
+      value.homeDir,
+      ".agents",
+      "harness",
+      "global-skills.json",
+    );
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    manifest.managedPlatformSkills =
+      manifest.managedPlatformSkills.filter(
+        (entry) => entry.name !== "chatgpt-pro-sidebar",
+      );
+    writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+    rmSync(
+      path.join(
+        value.homeDir,
+        ".agents",
+        "skills",
+        "chatgpt-pro-sidebar",
+      ),
+      { recursive: true },
+    );
+
+    const upgraded = await runGlobalInit({
+      approved: true,
+      catalogMode: "local",
+      catalogPath: repository,
+      homeDir: value.homeDir,
+      providerActions: PROVIDER_LATER,
+      providerStatusOverrides: {
+        codex: "authenticated",
+        gemini: "not-installed",
+        grok: "not-installed",
+        claude: "not-installed",
+      },
+      skillRoot: SKILL_ROOT,
+    });
+    assert.equal(upgraded.platform.status, "upgraded");
+    assert.equal(upgraded.profileStatus, "upgraded");
+    assert.deepEqual(
+      JSON.parse(readFileSync(profilePath, "utf8")).globalEssentialSkills,
+      [...GLOBAL_PLATFORM_SKILLS].sort((left, right) =>
+        left.localeCompare(right),
+      ),
+    );
   } finally {
     value.cleanup();
   }

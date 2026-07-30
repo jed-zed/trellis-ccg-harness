@@ -74,9 +74,12 @@ Standalone `harness-init` export applies the same real-directory-chain checks to
 and rechecks the target before rename. Project-contract idempotence requires an
 exact ownership schema plus matching contract and schema digests.
 
-All 14 built-in bundled Harness platform Skills are required global defaults. Removing
-or moving other pre-existing global Skills is deliberately outside
-initialization and requires a separate ownership-aware migration.
+All 14 built-in bundled Harness platform Skills are required global defaults.
+Global Init transactionally upgrades its intact former 13-Skill ownership
+manifest by adding `chatgpt-pro-sidebar`; it preserves a legacy `grill-me`
+entry and refuses an unowned target collision. Removing or moving other
+pre-existing global Skills is deliberately outside initialization and requires
+a separate ownership-aware migration.
 
 Third-party Skills, plugins, and MCP/CLI actions are outside this baseline.
 Their fixed source identity, effects, and user-approved selections are tracked

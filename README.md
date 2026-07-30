@@ -78,7 +78,7 @@ pnpm setup
 
 1. 在任何写入前预览并检查精确 Trellis 版本、来源清单记录的当前 CCG 快照指纹、首次
    `ccg codex-mode install` 或已有 Codex mode 的只读 doctor、当前 Harness snapshot 的本地 Codex marketplace /
-   CCG 插件、13 个 bundled platform Skills、个人 catalog 选择和 provider
+   CCG 插件、14 个 bundled platform Skills、个人 catalog 选择和 provider
    状态；
 2. 交互模式逐项确认核心动作，随后执行 Global Init；自动化模式必须给出
    完整 flags 和所有批准开关；
@@ -95,9 +95,12 @@ pnpm setup
 6. 每个 Harness-owned 步骤后比较用户级和项目级 `.claude` 状态；已有内容
    保持不变，任何创建或修改都会立即停止后续步骤。
 
-如果 13 个平台 Skill 已由早期 Skill-platform migration 管理，Global Init
+如果 14 个平台 Skill 已由 Skill-platform migration 管理，Global Init
 只在旧清单、目标路径和每个 Skill tree digest 全部匹配时接受该状态；它不会
 重写旧清单、备份链、保留的外部 Skill 或项目迁移记录。
+由旧版 Global Init 直接管理的 13-Skill 清单会在所有既有目标摘要仍匹配时，
+事务式补装 `chatgpt-pro-sidebar`；旧 `grill-me` 投影保持原样。若新目标已存在
+但不受旧清单管理，升级会拒绝覆盖。
 
 尚未发布到权威远端的当前 CCG 快照只能从明确给出的干净源码 checkout 联动安装：
 
@@ -105,7 +108,7 @@ pnpm setup
 pnpm setup -- -CcgSourceCheckout I:\path\to\clean-ccg-checkout
 ```
 
-第三方 Skill、插件和 MCP/CLI 不属于这 13 个核心项。先运行
+第三方 Skill、插件和 MCP/CLI 不属于这 14 个核心项。先运行
 `node .\scripts\harness-init.mjs third-party-plan --home-dir <absolute-user-home>`
 查看固定来源、许可、写入范围、hook、网络与数据外发影响；四个分组默认全部
 不选，只有用户对具体候选明确批准后才继续。初始化器会明确推荐适用候选，
@@ -125,7 +128,7 @@ secret 边界。Harness 不读取、收集或保存该 key。`fast-context` 会�
 明确的 `none` 公共基线。
 选中需要下载的候选后，交互初始化还会单独询问第三方网络授权，列出候选、
 固定仓库/提交和 source manifest 摘要，默认 `no`。拒绝网络只跳过这些候选，
-不阻塞 13 个 core Skills/Trellis/CCG。私人 catalog clone 使用另一项
+不阻塞 14 个 core Skills/Trellis/CCG。私人 catalog clone 使用另一项
 `AllowCatalogNetwork`，不会与第三方下载共用授权；自动化若确需下载第三方，
 必须显式传 `AllowThirdPartyNetwork`/`--allow-third-party-network`。
 CodeGraph 与 `fast-context` 等 Harness-owned 本地 launcher 仍会在每次启动前
@@ -226,7 +229,7 @@ pwsh -NoProfile -File .\scripts\clean-install-acceptance.ps1 `
 ## Global Init 与 Project Init
 
 - **Global Init**：由 `pnpm setup` 调用，管理用户级 Trellis/CCG runtime、
-  Codex plugin、13 个公开 bundled platform Skills、provider 状态与个人
+  Codex plugin、14 个公开 bundled platform Skills、provider 状态与个人
   catalog 决策。
 - **Project Init**：每个项目单独执行，先只读发现仓库，再批准项目约束与
   项目 Skill 选择，最后写入该项目的 Harness contract 并运行 gates。
@@ -273,7 +276,7 @@ Harness 的运行前提。
    `mark-ready` 原子推进合同状态和摘要。
 
 Project Init 默认不调用 Grok、Claude、GPT Pro、付费模型或联网服务，
-也不会读取密钥值。13 个公开 platform Skills 已由 Global Init 安装；
+也不会读取密钥值。14 个公开 platform Skills 已由 Global Init 安装；
 Project Init 只从已明确选择的私人/本地 catalog 安装项目相关 Skills。
 第三方项目 Skill 同样必须在项目合同中记录固定来源摘要和逐项批准，不能从
 `main`、`latest` 或 `@latest` 安装。

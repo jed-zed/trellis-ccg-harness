@@ -42,6 +42,10 @@ export const GLOBAL_PLATFORM_SKILLS = Object.freeze([
   "trellis-update-spec",
 ]);
 
+export const PREVIOUS_GLOBAL_PLATFORM_SKILLS = Object.freeze(
+  GLOBAL_PLATFORM_SKILLS.filter((name) => name !== "chatgpt-pro-sidebar"),
+);
+
 export const HARNESS_PROJECTED_SKILLS = GLOBAL_PLATFORM_SKILLS;
 
 // Compatibility exports for callers from the pre-catalog migration API. The
