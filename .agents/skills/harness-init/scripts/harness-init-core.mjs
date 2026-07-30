@@ -855,6 +855,13 @@ function normalizeCredentialFreeRepositoryRemotes(remotes) {
   );
 }
 
+export function isPortableAbsolutePath(value) {
+  return (
+    typeof value === "string" &&
+    (path.posix.isAbsolute(value) || path.win32.isAbsolute(value))
+  );
+}
+
 function validateProjectSkillManifest(manifest) {
   const allowedKeys = [
     "schemaVersion",
@@ -881,7 +888,7 @@ function validateProjectSkillManifest(manifest) {
       "Project Skill repository identity",
     );
     if (
-      !path.isAbsolute(manifest.repository.path) ||
+      !isPortableAbsolutePath(manifest.repository.path) ||
       manifest.repository.branch !== "main" ||
       !/^[a-f0-9]{40,64}$/.test(manifest.repository.commit) ||
       !/^[a-f0-9]{40,64}$/.test(manifest.repository.tree) ||

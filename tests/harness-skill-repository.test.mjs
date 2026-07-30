@@ -24,6 +24,7 @@ import {
   HARNESS_PROJECTED_SKILLS,
   inspectProject,
   installProjectSkills,
+  isPortableAbsolutePath,
   loadSkillRepositoryProfile,
   markProjectReady,
   planSkillPlatformMigration,
@@ -49,6 +50,12 @@ const THIRD_PARTY_SOURCE = JSON.parse(
 const THIRD_PARTY_SOURCE_SHA256 = createHash("sha256")
   .update(`${JSON.stringify(THIRD_PARTY_SOURCE, null, 2)}\n`)
   .digest("hex");
+
+test("Project Skill manifest paths remain recognizable across host platforms", () => {
+  assert.equal(isPortableAbsolutePath("I:\\skills\\catalog"), true);
+  assert.equal(isPortableAbsolutePath("/opt/skills/catalog"), true);
+  assert.equal(isPortableAbsolutePath("skills/catalog"), false);
+});
 
 function fixture() {
   const root = mkdtempSync(path.join(tmpdir(), "harness-skill-profile-"));
