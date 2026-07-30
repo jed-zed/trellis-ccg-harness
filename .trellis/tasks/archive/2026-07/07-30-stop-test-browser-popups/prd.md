@@ -44,21 +44,30 @@ browser preview for real non-lite CCG executions.
 
 ## Acceptance Criteria
 
-- [ ] Running `go test -short ./...` under `codeagent-wrapper` opens no browser
+- [x] Running `go test -short ./...` under `codeagent-wrapper` opens no browser
       tab and executes no platform browser-launch command.
-- [ ] A focused unit test proves the production browser opener remains wired
+- [x] A focused unit test proves the production browser opener remains wired
       into `WebServer.Start()` when enabled.
-- [ ] A focused unit test proves a test-disabled opener is not invoked.
-- [ ] `go test -short ./...` and `go build ./...` pass in the authoritative CCG
+- [x] A focused unit test proves a test-disabled opener is not invoked.
+- [x] `go test -short ./...` and `go build ./...` pass in the authoritative CCG
       source worktree.
-- [ ] The authoritative CCG source diff is limited to the browser-launch hook
+- [x] The authoritative CCG source diff is limited to the browser-launch hook
       and its regression coverage.
-- [ ] After approved source commits, `pnpm harness:update` imports the exact
+- [x] After approved source commits, `pnpm harness:update` imports the exact
       tracked tree and updates `harness.sources.json` provenance.
-- [ ] Harness source verification, focused Harness tests, CCG lint/typecheck/
+- [x] Harness source verification, focused Harness tests, CCG lint/typecheck/
       test/build, Go tests/build, doctor, and conflict checks pass without
       creating `fake-cmd` browser tabs.
-- [ ] Normal real CCG/Gemini Live Output preview behavior remains enabled.
+- [x] Normal real CCG/Gemini Live Output preview behavior remains enabled.
+
+## Completion Note
+
+The first source commit was created from the originally pinned `3.4.2`
+snapshot. Formal update preflight then found the already managed CLI/plugin at
+`3.4.3`, so the same four-file fix was applied to the current personal
+`gptpro/main` baseline and committed as
+`38178138cea22688ef9d34c2128eaeb1c5e43518`. The formal transaction imported
+that exact commit and Git tree `9cef20db20dc4e75a01c6ec01711166074fcdcbb`.
 
 ## Out of Scope
 
