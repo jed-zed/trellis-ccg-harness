@@ -9,6 +9,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -59,6 +60,41 @@ const THIRD_PARTY_SOURCE_SHA256 = createHash("sha256")
     )}\n`,
   )
   .digest("hex");
+
+function snapshotSkillTree(root) {
+  const files = [];
+  let totalBytes = 0;
+  const visit = (directory, relativeDirectory) => {
+    const entries = readdirSync(directory, { withFileTypes: true });
+    entries.sort((left, right) => left.name.localeCompare(right.name));
+    for (const entry of entries) {
+      const target = path.join(directory, entry.name);
+      const relative = relativeDirectory
+        ? path.posix.join(relativeDirectory, entry.name)
+        : entry.name;
+      if (entry.isDirectory()) {
+        visit(target, relative);
+        continue;
+      }
+      assert.equal(entry.isFile(), true);
+      const bytes = readFileSync(target);
+      totalBytes += bytes.length;
+      files.push({
+        path: relative,
+        size: bytes.length,
+        sha256: createHash("sha256").update(bytes).digest("hex"),
+      });
+    }
+  };
+  visit(root, "");
+  return {
+    treeSha256: createHash("sha256")
+      .update(`${JSON.stringify(files, null, 2)}\n`)
+      .digest("hex"),
+    fileCount: files.length,
+    totalBytes,
+  };
+}
 
 async function waitForFixtureFile(target, child) {
   for (let attempt = 0; attempt < 500; attempt++) {
@@ -713,6 +749,30 @@ test("Global Init upgrades the former 13-Skill manifest without overwriting an u
       "grill-with-docs",
     );
     const previous = JSON.parse(readFileSync(manifestPath, "utf8"));
+    const legacyHarnessTarget = path.join(
+      value.homeDir,
+      ".agents",
+      "skills",
+      "harness-init",
+    );
+    const legacyHarnessDefinition = path.join(
+      legacyHarnessTarget,
+      "SKILL.md",
+    );
+    const currentHarnessDefinition = readFileSync(
+      path.join(SKILL_ROOT, "SKILL.md"),
+      "utf8",
+    );
+    writeFileSync(
+      legacyHarnessDefinition,
+      `${currentHarnessDefinition}\n<!-- previous Harness release -->\n`,
+    );
+    Object.assign(
+      previous.managedPlatformSkills.find(
+        (entry) => entry.name === "harness-init",
+      ),
+      snapshotSkillTree(legacyHarnessTarget),
+    );
     previous.managedPlatformSkills =
       previous.managedPlatformSkills.filter(
         (entry) =>
@@ -769,6 +829,10 @@ test("Global Init upgrades the former 13-Skill manifest without overwriting an u
     assert.equal(upgraded.platform.status, "upgraded");
     assert.equal(existsSync(path.join(sidebarTarget, "SKILL.md")), true);
     assert.equal(existsSync(path.join(docsTarget, "SKILL.md")), true);
+    assert.equal(
+      readFileSync(legacyHarnessDefinition, "utf8"),
+      currentHarnessDefinition,
+    );
     assert.equal(
       JSON.parse(readFileSync(manifestPath, "utf8"))
         .managedPlatformSkills.length,
@@ -1153,6 +1217,30 @@ test("Global Init transactionally upgrades a former Skill-platform migration bas
     mkdirSync(path.dirname(agentsPath), { recursive: true });
     writeFileSync(agentsPath, agentsBytes);
     const direct = JSON.parse(readFileSync(manifestPath, "utf8"));
+    const legacyHarnessTarget = path.join(
+      value.homeDir,
+      ".agents",
+      "skills",
+      "harness-init",
+    );
+    const legacyHarnessDefinition = path.join(
+      legacyHarnessTarget,
+      "SKILL.md",
+    );
+    const currentHarnessDefinition = readFileSync(
+      path.join(SKILL_ROOT, "SKILL.md"),
+      "utf8",
+    );
+    writeFileSync(
+      legacyHarnessDefinition,
+      `${currentHarnessDefinition}\n<!-- previous migration release -->\n`,
+    );
+    Object.assign(
+      direct.managedPlatformSkills.find(
+        (entry) => entry.name === "harness-init",
+      ),
+      snapshotSkillTree(legacyHarnessTarget),
+    );
     for (const name of ["chatgpt-pro-sidebar", "grill-with-docs"]) {
       rmSync(path.join(value.homeDir, ".agents", "skills", name), {
         recursive: true,
@@ -1166,7 +1254,7 @@ test("Global Init transactionally upgrades a former Skill-platform migration bas
       skills: [],
     };
     const legacy = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       owner: "trellis-ccg-harness",
       profileSha256: createHash("sha256").update(profileBytes).digest("hex"),
       repository: {
@@ -1236,6 +1324,10 @@ test("Global Init transactionally upgrades a former Skill-platform migration bas
     assert.equal(upgradedManifest.managedPlatformSkills.length, 15);
     assert.deepEqual(upgradedManifest.project, projectSentinel);
     assert.equal(upgradedManifest.backupId, "legacy-backup");
+    assert.equal(
+      readFileSync(legacyHarnessDefinition, "utf8"),
+      currentHarnessDefinition,
+    );
     assert.equal(
       upgradedManifest.profileSha256,
       createHash("sha256")

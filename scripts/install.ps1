@@ -863,12 +863,50 @@ function Assert-GlobalSkillProjection {
     [string]$manifest.profileSha256 -match "^[a-f0-9]{64}$" -and
     [string]$manifest.backupId -match "^[A-Za-z0-9_.:-]+$"
   )
+  $requiredSkills = @(
+    "chatgpt-pro-sidebar",
+    "grill-with-docs",
+    "harness-init",
+    "trellis-before-dev",
+    "trellis-brainstorm",
+    "trellis-break-loop",
+    "trellis-channel",
+    "trellis-check",
+    "trellis-continue",
+    "trellis-finish-work",
+    "trellis-meta",
+    "trellis-session-insight",
+    "trellis-spec-bootstrap",
+    "trellis-start",
+    "trellis-update-spec"
+  )
+  $skillNames = @($skills | ForEach-Object { [string]$_.name })
+  $missingOrDuplicate = @(
+    $requiredSkills |
+      Where-Object {
+        $requiredName = $_
+        @($skillNames | Where-Object { $_ -eq $requiredName }).Count -ne 1
+      }
+  )
+  $unexpected = @(
+    $skillNames |
+      Where-Object { $_ -notin $requiredSkills -and $_ -ne "grill-me" }
+  )
+  $legacyGrillMeCount = @(
+    $skillNames | Where-Object { $_ -eq "grill-me" }
+  ).Count
   if (
     $manifest.owner -ne "trellis-ccg-harness" -or
     (-not $directOwnership -and -not $migrationOwnership) -or
-    $skills.Count -ne 15
+    $missingOrDuplicate.Count -gt 0 -or
+    $unexpected.Count -gt 0 -or
+    $legacyGrillMeCount -gt 1 -or
+    $skills.Count -notin @(15, 16)
   ) {
-    throw "Global Init did not verify exactly 15 owned platform Skills."
+    throw (
+      "Global Init did not verify the 15 required platform Skills " +
+      "(plus at most one supported legacy grill-me projection)."
+    )
   }
   foreach ($skill in $skills) {
     if (-not (Test-Path -LiteralPath $skill.targetPath -PathType Container)) {

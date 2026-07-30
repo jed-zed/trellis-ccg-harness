@@ -814,15 +814,15 @@ export async function upgradeLegacySkillPlatformDefaults({
     (entry) => entry?.name,
   );
   if (
-    manifest.schemaVersion !== 1 ||
+    ![1, 2].includes(manifest.schemaVersion) ||
     manifest.owner !== OWNER ||
     manifest.installMode !== undefined ||
     !isPreviousPlatformSkillSet(managedNames) ||
     manifest.profileSha256 !== profileState.sha256 ||
     profile.schemaVersion !== 1 ||
     !isPreviousPlatformSkillSet(profile.globalEssentialSkills ?? []) ||
-    path.resolve(profile.repositoryPath ?? "") !==
-      path.resolve(manifest.repository?.path ?? "")
+    normalizePath(profile.repositoryPath ?? "") !==
+      normalizePath(manifest.repository?.path ?? "")
   ) {
     throw new Error("Legacy Skill platform ownership is not eligible for upgrade.");
   }
@@ -831,7 +831,7 @@ export async function upgradeLegacySkillPlatformDefaults({
   for (const entry of manifest.managedPlatformSkills) {
     const target = path.join(targetRoot, entry.name);
     if (
-      path.resolve(entry.targetPath ?? "") !== path.resolve(target) ||
+      normalizePath(entry.targetPath ?? "") !== normalizePath(target) ||
       !/^[a-f0-9]{64}$/.test(String(entry.treeSha256 ?? ""))
     ) {
       throw new Error(`Legacy platform ownership is invalid: ${entry.name}`);
@@ -849,19 +849,32 @@ export async function upgradeLegacySkillPlatformDefaults({
   }
 
   const ownedNames = new Set(managedNames);
+  const platformSources = [];
   const additions = [];
+  const replacements = [];
   for (const name of GLOBAL_PLATFORM_SKILLS) {
-    if (ownedNames.has(name)) continue;
     const source = await describeSkill(sourceRoot, name, name, "harness");
     const targetPath = path.join(targetRoot, name);
+    const candidate = { ...source, targetPath };
+    platformSources.push(candidate);
+    if (ownedNames.has(name)) {
+      const owned = manifest.managedPlatformSkills.find(
+        (entry) => entry.name === name,
+      );
+      if (owned.treeSha256 !== source.treeSha256) {
+        replacements.push({ ...candidate, owned });
+      }
+      continue;
+    }
     if (await pathExists(targetPath)) {
       throw new Error(
         `Legacy global Skill upgrade target collision is user-owned: ${targetPath}`,
       );
     }
-    additions.push({ ...source, targetPath });
+    additions.push(candidate);
   }
-  if (additions.length === 0) {
+  const changes = [...replacements, ...additions];
+  if (changes.length === 0) {
     return {
       status: "unchanged",
       manifestPath,
@@ -907,11 +920,26 @@ export async function upgradeLegacySkillPlatformDefaults({
     blockOwnership.renderedBlockSha256,
   );
   const agentsBytes = Buffer.from(agentsCandidate);
+  const sourceByName = new Map(
+    platformSources.map((entry) => [entry.name, entry]),
+  );
   const manifestCandidate = {
     ...manifest,
     profileSha256: sha256(profileBytes),
     managedPlatformSkills: [
-      ...manifest.managedPlatformSkills,
+      ...manifest.managedPlatformSkills.map((entry) => {
+        const source = sourceByName.get(entry.name);
+        return source
+          ? {
+              ...entry,
+              sourcePath: source.sourcePath,
+              targetPath: source.targetPath,
+              treeSha256: source.treeSha256,
+              fileCount: source.fileCount,
+              totalBytes: source.totalBytes,
+            }
+          : entry;
+      }),
       ...additions.map((entry) => ({
         name: entry.name,
         sourcePath: entry.sourcePath,
@@ -938,25 +966,56 @@ export async function upgradeLegacySkillPlatformDefaults({
     harnessRoot,
     `.legacy-platform-upgrade-${randomUUID()}`,
   );
-  await mkdir(stageRoot, { mode: 0o700 });
-  const installed = [];
+  const stagedRoot = path.join(stageRoot, "staged");
+  const previousRoot = path.join(stageRoot, "previous");
+  await mkdir(stagedRoot, { recursive: true, mode: 0o700 });
+  await mkdir(previousRoot, { recursive: true, mode: 0o700 });
+  const mutations = [];
+  let retainStage = false;
   let profileReplaced = false;
   let agentsReplaced = false;
   let manifestReplaced = false;
   try {
-    for (const entry of additions) {
-      const staged = path.join(stageRoot, entry.name);
+    for (const entry of changes) {
+      const staged = path.join(stagedRoot, entry.name);
       const snapshot = await snapshotTree(entry.sourcePath, { copyTo: staged });
       if (snapshot.treeSha256 !== entry.treeSha256) {
         throw new Error(`Bundled platform Skill changed while staging: ${entry.name}`);
       }
     }
-    for (const entry of additions) {
-      if (await pathExists(entry.targetPath)) {
-        throw new Error(`Global Skill target appeared during upgrade: ${entry.name}`);
+    for (const entry of changes) {
+      if (!entry.owned) {
+        if (await pathExists(entry.targetPath)) {
+          throw new Error(`Global Skill target appeared during upgrade: ${entry.name}`);
+        }
+        await rename(path.join(stagedRoot, entry.name), entry.targetPath);
+        mutations.push({ kind: "added", entry });
+        continue;
       }
-      await rename(path.join(stageRoot, entry.name), entry.targetPath);
-      installed.push(entry);
+
+      const current = await snapshotTree(entry.targetPath);
+      if (current.treeSha256 !== entry.owned.treeSha256) {
+        throw new Error(
+          `Managed global platform Skill changed during upgrade: ${entry.name}`,
+        );
+      }
+      const previous = path.join(previousRoot, entry.name);
+      await rename(entry.targetPath, previous);
+      try {
+        await rename(path.join(stagedRoot, entry.name), entry.targetPath);
+      } catch (error) {
+        try {
+          await rename(previous, entry.targetPath);
+        } catch (restoreError) {
+          retainStage = true;
+          throw new AggregateError(
+            [error, restoreError],
+            `Legacy Skill replacement failed and recovery data remains at ${stageRoot}.`,
+          );
+        }
+        throw error;
+      }
+      mutations.push({ kind: "replaced", entry, previous });
     }
     await replaceRegularFileCas(
       profilePath,
@@ -1005,7 +1064,8 @@ export async function upgradeLegacySkillPlatformDefaults({
         rollbackErrors.push(rollbackError);
       }
     }
-    for (const entry of installed.reverse()) {
+    for (const mutation of mutations.reverse()) {
+      const entry = mutation.entry;
       try {
         const current = await snapshotTree(entry.targetPath);
         if (current.treeSha256 !== entry.treeSha256) {
@@ -1014,19 +1074,25 @@ export async function upgradeLegacySkillPlatformDefaults({
           );
         }
         await rm(entry.targetPath, { recursive: true });
+        if (mutation.kind === "replaced") {
+          await rename(mutation.previous, entry.targetPath);
+        }
       } catch (rollbackError) {
         rollbackErrors.push(rollbackError);
       }
     }
     if (rollbackErrors.length > 0) {
+      retainStage = true;
       throw new AggregateError(
         [error, ...rollbackErrors],
-        "Legacy Skill platform upgrade failed and could not be fully rolled back.",
+        `Legacy Skill platform upgrade failed and recovery data remains at ${stageRoot}.`,
       );
     }
     throw error;
   } finally {
-    await rm(stageRoot, { recursive: true, force: true });
+    if (!retainStage) {
+      await rm(stageRoot, { recursive: true, force: true });
+    }
   }
   return {
     status: "upgraded",

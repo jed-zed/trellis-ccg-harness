@@ -12,6 +12,12 @@
 - Legacy managed-block verification treats LF and CRLF as the same owned text
   while still rejecting any content change, and preserves the installed file's
   line-ending style during replacement.
+- Verified legacy direct-install and schema-v2 migration ownership may contain
+  older Harness-owned Skill trees. The upgrade now stages and transactionally
+  replaces those trees, updates their ownership fingerprints, and preserves
+  recoverable prior trees until the manifest commit succeeds.
+- Public Global Setup verifies all 15 required names and also accepts the one
+  supported legacy `grill-me` projection instead of rejecting it by raw count.
 - The local `grill-me` and required `grilling` trees were refreshed through the
   existing third-party ownership flow and match the pinned upstream trees.
 
@@ -66,6 +72,12 @@
 The first remote Windows matrix run exposed a line-ending-only mismatch in the
 legacy managed-block digest check. The correction is covered by a CRLF
 regression fixture and the full local Harness suite above.
+
+The latest automated review also identified three cross-version gaps hidden by
+head-generated fixtures: changed legacy Harness-owned trees, schema-v2
+migration ownership, and the 16-entry legacy `grill-me` postcondition. The
+regressions now model changed owned tree fingerprints, use schema v2, and run
+the public setup assertion with the supported legacy projection.
 
 ## Remote Delivery
 

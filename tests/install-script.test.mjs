@@ -256,6 +256,19 @@ const managedPlatformSkills = names.map((name) => {
     totalBytes: name.length + 3,
   };
 });
+if (process.env.MOCK_INCLUDE_LEGACY_GRILL_ME === "1") {
+  const name = "grill-me";
+  const targetPath = path.join(skillRoot, name);
+  mkdirSync(targetPath, { recursive: true });
+  writeFileSync(path.join(targetPath, "SKILL.md"), "# " + name + "\\n");
+  managedPlatformSkills.push({
+    name,
+    targetPath,
+    treeSha256: "1".repeat(64),
+    fileCount: 1,
+    totalBytes: name.length + 3,
+  });
+}
 const harnessRoot = path.join(homeDir, ".agents", "harness");
 mkdirSync(harnessRoot, { recursive: true });
 writeFileSync(
@@ -446,7 +459,7 @@ function setupArgs(value, extra = []) {
   ];
 }
 
-function runSetup(value, extra = []) {
+function runSetup(value, extra = [], env = {}) {
   return spawnSync("pwsh", setupArgs(value, extra), {
     cwd: REPO_ROOT,
     encoding: "utf8",
@@ -455,6 +468,7 @@ function runSetup(value, extra = []) {
       PATH: `${value.binDir}${path.delimiter}${process.env.PATH ?? ""}`,
       MOCK_CODEX_STATE: value.statePath,
       MOCK_COMMAND_LOG: value.logPath,
+      ...env,
     },
   });
 }
@@ -717,6 +731,28 @@ test("non-interactive Global Setup is explicit, exact, provider-safe, and idempo
     ]) {
       assert.equal(existsSync(path.join(value.homeDir, relativePath)), false);
     }
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("Global Setup accepts the supported legacy grill-me projection", () => {
+  const value = fixture({ createClaudeTrees: false });
+  try {
+    const result = runSetup(value, [], {
+      MOCK_INCLUDE_LEGACY_GRILL_ME: "1",
+    });
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+    const manifest = JSON.parse(
+      readFileSync(
+        path.join(value.homeDir, ".agents", "harness", "global-skills.json"),
+        "utf8",
+      ),
+    );
+    assert.deepEqual(
+      manifest.managedPlatformSkills.map((entry) => entry.name),
+      [...PLATFORM_SKILLS, "grill-me"],
+    );
   } finally {
     value.cleanup();
   }
