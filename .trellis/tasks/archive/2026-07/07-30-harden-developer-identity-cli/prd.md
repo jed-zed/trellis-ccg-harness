@@ -38,19 +38,26 @@ expected workspace.
 
 ## Acceptance Criteria
 
-- [ ] `init_developer.py -h` and `--help` exit `0`, show usage, and create no
+- [x] `init_developer.py -h` and `--help` exit `0`, show usage, and create no
       `.developer` file or workspace directory.
-- [ ] No name exits nonzero with usage and creates no state.
-- [ ] Extra arguments exit nonzero and create no state.
-- [ ] `--help`, `../escape`, `a/b`, `a\b`, control characters, and
+- [x] No name exits nonzero with usage and creates no state.
+- [x] Extra arguments exit nonzero and create no state.
+- [x] `--help`, `../escape`, `a/b`, `a\b`, control characters, and
       platform-invalid path components are rejected without state changes.
-- [ ] A valid Unicode name with an internal space initializes once and produces
+- [x] A valid Unicode name with an internal space initializes once and produces
       the expected `.developer`, journal, and index files.
-- [ ] Direct `init_developer()` calls enforce the same validation.
-- [ ] Existing normal initialization and "already initialized" behavior remain
+- [x] Direct `init_developer()` calls enforce the same validation.
+- [x] Existing normal initialization and "already initialized" behavior remain
       compatible.
-- [ ] The Harness test suite and Trellis candidate-update verification pass
+- [x] The Harness test suite and Trellis candidate-update verification pass
       without unresolved template-conflict sidecars.
+
+## Completion Evidence
+
+`tests/trellis-developer-init.test.mjs` passes all four subprocess/library
+regressions. The complete Harness suite passes with 410 tests and three
+host-capability skips, including the managed Trellis update and overlay
+preservation paths. `.trellis/.template-hashes.json` remains unchanged.
 
 ## Out of Scope
 
