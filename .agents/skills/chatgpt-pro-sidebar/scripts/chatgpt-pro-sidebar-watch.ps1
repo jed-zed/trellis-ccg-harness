@@ -943,7 +943,7 @@ function Acknowledge-WatchContinuation {
         throw 'CodexThreadId must be the exact current Codex thread UUID.'
     }
     $state = Read-WatchJson -Path (Join-Path $EvidenceDirectory $Script:StateFileName) -Required
-    $event = Read-WatchJson -Path (Join-Path $EvidenceDirectory $Script:EventFileName) -Required
+    $event = Read-WatchJson -Path (Join-Path $EvidenceDirectory $Script:EventFileName)
     $claim = Read-WatchJson -Path (Join-Path $EvidenceDirectory $Script:StopHookClaimFileName) -Required
     $watcherId = [string](Get-WatchProperty $state 'watcherId' '')
     $expectedThreadId = $ThreadId.ToLowerInvariant()
@@ -951,11 +951,8 @@ function Acknowledge-WatchContinuation {
         [string](Get-WatchProperty $claim 'codexThreadId' '') -ne $expectedThreadId) {
         throw 'Continuation evidence belongs to another Codex task.'
     }
-    $status = [string](Get-WatchProperty $event 'status' '')
-    if ([string]::IsNullOrWhiteSpace($status)) {
-        throw 'A terminal watch event is required before acknowledgement.'
-    }
     $claimWatcherId = [string](Get-WatchProperty $claim 'watcherId' '')
+    $claimStatus = [string](Get-WatchProperty $claim 'terminalStatus' '')
     $registrationPath = [string](Get-WatchProperty $state 'stopHookRegistrationPath' '')
     $registrationParent = if ([string]::IsNullOrWhiteSpace($registrationPath)) {
         ''
@@ -966,9 +963,32 @@ function Acknowledge-WatchContinuation {
     $isLegacyClaim = (
         [string]::IsNullOrWhiteSpace($claimWatcherId) -and
         -not [string]::IsNullOrWhiteSpace($registrationParent) -and
-        (Split-Path -Leaf $registrationParent) -eq $Script:LegacyStopHookRegistryDirectoryName -and
-        [string](Get-WatchProperty $claim 'terminalStatus' '') -eq $status
+        (Split-Path -Leaf $registrationParent) -eq $Script:LegacyStopHookRegistryDirectoryName
     )
+    $isSynthesizedStatus = @('worker-crashed', 'timeout') -contains $claimStatus
+    if ($isSynthesizedStatus) {
+        $callback = Read-WatchJson -Path (Join-Path $EvidenceDirectory $Script:CallbackFileName) -Required
+        $callbackWatcherId = [string](Get-WatchProperty $callback 'watcherId' '')
+        $isLegacyCallback = $isLegacyClaim -and [string]::IsNullOrWhiteSpace($callbackWatcherId)
+        if (
+            [string](Get-WatchProperty $callback 'codexThreadId' '') -ne $expectedThreadId -or
+            ($callbackWatcherId -ne $watcherId -and -not $isLegacyCallback) -or
+            [string](Get-WatchProperty $callback 'terminalStatus' '') -ne $claimStatus -or
+            [bool](Get-WatchProperty $callback 'continuationRequested' $false) -ne $true
+        ) {
+            throw 'Synthesized continuation callback does not match the reviewed claim.'
+        }
+        $status = $claimStatus
+    }
+    else {
+        $status = if ($null -eq $event) { '' } else { [string](Get-WatchProperty $event 'status' '') }
+        if ([string]::IsNullOrWhiteSpace($status)) {
+            throw 'A terminal watch event or matching synthesized claim is required before acknowledgement.'
+        }
+        if ($claimStatus -ne $status) {
+            throw 'Continuation claim terminal status does not match the reviewed result.'
+        }
+    }
     if ($claimWatcherId -ne $watcherId -and -not $isLegacyClaim) {
         throw 'Continuation claim belongs to another watcher.'
     }

@@ -463,6 +463,101 @@ Describe 'Codex Stop Hook continuation contract' {
         $acknowledgement.terminalStatus | Should -Be 'probe-failed'
     }
 
+    It 'acknowledges an eventless worker crash only when claim and callback match' {
+        $directory = Join-Path $TestDrive 'acknowledge-eventless-worker-crash'
+        $watcherId = [guid]::NewGuid().ToString()
+        $null = New-Item -ItemType Directory -Path $directory -Force
+        Write-WatchJsonAtomic -Path (Join-Path $directory $Script:StateFileName) -Value ([ordered]@{
+            schemaVersion = 1
+            watcherId = $watcherId
+            codexThreadId = $script:ThreadId
+            phase = 'launch-failed'
+        })
+        Write-WatchJsonAtomic -Path (Join-Path $directory $Script:StopHookClaimFileName) -Value ([ordered]@{
+            schemaVersion = 1
+            codexThreadId = $script:ThreadId
+            watcherId = $watcherId
+            terminalStatus = 'worker-crashed'
+        })
+        Write-WatchJsonAtomic -Path (Join-Path $directory $Script:CallbackFileName) -Value ([ordered]@{
+            schemaVersion = 1
+            continuationRequested = $true
+            codexThreadId = $script:ThreadId
+            watcherId = $watcherId
+            terminalStatus = 'worker-crashed'
+        })
+
+        $result = Acknowledge-WatchContinuation -EvidenceDirectory $directory -ThreadId $script:ThreadId
+        $acknowledgement = Read-WatchJson -Path (Join-Path $directory $Script:ContinuationAckFileName) -Required
+
+        $result.acknowledged | Should -BeTrue
+        $acknowledgement.watcherId | Should -Be $watcherId
+        $acknowledgement.terminalStatus | Should -Be 'worker-crashed'
+        [System.IO.File]::Exists((Join-Path $directory $Script:EventFileName)) | Should -BeFalse
+    }
+
+    It 'rejects an eventless continuation when its callback does not match' {
+        $directory = Join-Path $TestDrive 'reject-eventless-callback-mismatch'
+        $watcherId = [guid]::NewGuid().ToString()
+        $null = New-Item -ItemType Directory -Path $directory -Force
+        Write-WatchJsonAtomic -Path (Join-Path $directory $Script:StateFileName) -Value ([ordered]@{
+            schemaVersion = 1
+            watcherId = $watcherId
+            codexThreadId = $script:ThreadId
+        })
+        Write-WatchJsonAtomic -Path (Join-Path $directory $Script:StopHookClaimFileName) -Value ([ordered]@{
+            schemaVersion = 1
+            codexThreadId = $script:ThreadId
+            watcherId = $watcherId
+            terminalStatus = 'timeout'
+        })
+        Write-WatchJsonAtomic -Path (Join-Path $directory $Script:CallbackFileName) -Value ([ordered]@{
+            schemaVersion = 1
+            continuationRequested = $true
+            codexThreadId = $script:ThreadId
+            watcherId = [guid]::NewGuid().ToString()
+            terminalStatus = 'timeout'
+        })
+
+        { Acknowledge-WatchContinuation -EvidenceDirectory $directory -ThreadId $script:ThreadId } |
+            Should -Throw '*callback does not match*'
+    }
+
+    It 'preserves a synthesized timeout when a terminal event arrives before acknowledgement' {
+        $directory = Join-Path $TestDrive 'acknowledge-timeout-with-late-event'
+        $watcherId = [guid]::NewGuid().ToString()
+        $null = New-Item -ItemType Directory -Path $directory -Force
+        Write-WatchJsonAtomic -Path (Join-Path $directory $Script:StateFileName) -Value ([ordered]@{
+            schemaVersion = 1
+            watcherId = $watcherId
+            codexThreadId = $script:ThreadId
+        })
+        Write-WatchJsonAtomic -Path (Join-Path $directory $Script:EventFileName) -Value ([ordered]@{
+            schemaVersion = 1
+            status = 'completed'
+        })
+        Write-WatchJsonAtomic -Path (Join-Path $directory $Script:StopHookClaimFileName) -Value ([ordered]@{
+            schemaVersion = 1
+            codexThreadId = $script:ThreadId
+            watcherId = $watcherId
+            terminalStatus = 'timeout'
+        })
+        Write-WatchJsonAtomic -Path (Join-Path $directory $Script:CallbackFileName) -Value ([ordered]@{
+            schemaVersion = 1
+            continuationRequested = $true
+            codexThreadId = $script:ThreadId
+            watcherId = $watcherId
+            terminalStatus = 'timeout'
+        })
+
+        $result = Acknowledge-WatchContinuation -EvidenceDirectory $directory -ThreadId $script:ThreadId
+        $acknowledgement = Read-WatchJson -Path (Join-Path $directory $Script:ContinuationAckFileName) -Required
+
+        $result.acknowledged | Should -BeTrue
+        $result.terminalStatus | Should -Be 'timeout'
+        $acknowledgement.terminalStatus | Should -Be 'timeout'
+    }
+
     It 'acknowledges one matching legacy v1 claim without a watcher id' {
         $directory = Join-Path $TestDrive 'acknowledge-legacy-terminal'
         $watcherId = [guid]::NewGuid().ToString()
@@ -492,6 +587,39 @@ Describe 'Codex Stop Hook continuation contract' {
         $result.acknowledged | Should -BeTrue
         $acknowledgement.watcherId | Should -Be $watcherId
         $acknowledgement.terminalStatus | Should -Be 'completed'
+    }
+
+    It 'acknowledges a synthesized legacy v1 timeout when claim and callback omit watcher ids' {
+        $directory = Join-Path $TestDrive 'acknowledge-legacy-timeout'
+        $watcherId = [guid]::NewGuid().ToString()
+        $legacyRegistrationPath = Join-Path (
+            Join-Path $TestDrive $Script:LegacyStopHookRegistryDirectoryName
+        ) ($script:ThreadId + '.json')
+        $null = New-Item -ItemType Directory -Path $directory -Force
+        Write-WatchJsonAtomic -Path (Join-Path $directory $Script:StateFileName) -Value ([ordered]@{
+            schemaVersion = 1
+            watcherId = $watcherId
+            codexThreadId = $script:ThreadId
+            stopHookRegistrationPath = $legacyRegistrationPath
+        })
+        Write-WatchJsonAtomic -Path (Join-Path $directory $Script:StopHookClaimFileName) -Value ([ordered]@{
+            schemaVersion = 1
+            codexThreadId = $script:ThreadId
+            terminalStatus = 'timeout'
+        })
+        Write-WatchJsonAtomic -Path (Join-Path $directory $Script:CallbackFileName) -Value ([ordered]@{
+            schemaVersion = 1
+            continuationRequested = $true
+            codexThreadId = $script:ThreadId
+            terminalStatus = 'timeout'
+        })
+
+        $result = Acknowledge-WatchContinuation -EvidenceDirectory $directory -ThreadId $script:ThreadId
+        $acknowledgement = Read-WatchJson -Path (Join-Path $directory $Script:ContinuationAckFileName) -Required
+
+        $result.acknowledged | Should -BeTrue
+        $result.watcherId | Should -Be $watcherId
+        $acknowledgement.terminalStatus | Should -Be 'timeout'
     }
 
     It 'registers one exact thread and bounded evidence directory' {
