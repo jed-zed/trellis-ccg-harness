@@ -671,7 +671,7 @@ test("third-party source manifest rejects mutable selectors through the shared v
     assert.notEqual(result.status, 0);
     assert.match(
       `${result.stdout}\n${result.stderr}`,
-      /full immutable 40-character commit|mutable selector/i,
+      /must not pin commit|resolve the latest channel/i,
     );
   } finally {
     value.cleanup();
