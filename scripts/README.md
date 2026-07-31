@@ -29,7 +29,7 @@ runtime model policy, and provider boundaries deterministic.
   without trusting unreadable working-tree files.
 - `install.ps1`: public, user-facing Global Setup. It previews and obtains
   explicit approval for exact Trellis/CCG installation, Codex mode, the
-  snapshot-local Codex plugin, all 13 bundled platform Skills, catalog choice,
+  snapshot-local Codex plugin, all 15 bundled platform Skills, catalog choice,
   and Global Init. Provider CLI install/login selections remain unexecuted
   guidance that needs a separate approval. Installation is always manual from
   official documentation. A later `provider-action-plan` plus interactive,
@@ -42,7 +42,7 @@ runtime model policy, and provider boundaries deterministic.
   updating only the snapshot-local Codex CCG marketplace/plugin registration
   and its matching Codex Mode projection.
 
-Third-party Skills, plugins, and MCP/CLI candidates are not part of those 13
+Third-party Skills, plugins, and MCP/CLI candidates are not part of those 15
 bundled copies. `harness-init.mjs third-party-plan` presents four groups with
 no candidate selected by default; a fixed source digest and an explicit
 per-candidate approval are required before installation. It recommends
@@ -126,7 +126,7 @@ node .\scripts\harness-init.mjs provider-action-plan --home-dir <absolute-user-h
 node .\scripts\harness-init.mjs provider-action-run --home-dir <absolute-user-home> --repo-root <absolute-project> --provider codex --action login --plan-sha256 <reviewed-planSha256> --approved
 node .\scripts\harness-init.mjs inspect --repo-root .
 node .\scripts\harness-init.mjs project-init --repo-root . --home-dir <absolute-user-home> --contract <approved-contract.json> --no-project-skills --third-party-project-skills none --third-party-source-sha256 <sha256-from-third-party-plan> --non-interactive --approved
-node .\scripts\harness-init.mjs configure-skills --repository <absolute-path> --global-essential "harness-init,trellis-before-dev,trellis-brainstorm,trellis-break-loop,trellis-channel,trellis-check,trellis-continue,trellis-finish-work,trellis-meta,trellis-session-insight,trellis-spec-bootstrap,trellis-start,trellis-update-spec" --approved
+node .\scripts\harness-init.mjs configure-skills --repository <absolute-path> --global-essential "chatgpt-pro-sidebar,grill-with-docs,harness-init,trellis-before-dev,trellis-brainstorm,trellis-break-loop,trellis-channel,trellis-check,trellis-continue,trellis-finish-work,trellis-meta,trellis-session-insight,trellis-spec-bootstrap,trellis-start,trellis-update-spec" --approved
 node .\scripts\harness-init.mjs catalog-skills
 node .\scripts\harness-init.mjs install-skills --repo-root . --skills "<approved-names>" --approved
 node .\scripts\harness-init.mjs skill-migration-plan --repo-root . --repository <absolute-path> --skills "<approved-names>"
@@ -196,7 +196,7 @@ plugin identity during the install transition, and runs strict doctor again
 after the target plugin and Codex mode are installed.
 
 An existing schema-v1/v2 Skill-platform migration ownership file is a separate
-supported Global Init identity. It is accepted read-only only when all 13
+supported Global Init identity. It is accepted read-only only when all 15
 managed target paths and tree digests remain intact; Global Init does not
 rewrite its backup chain, preserved external Skills, or project audit fields.
 
@@ -225,16 +225,20 @@ credential-free catalog remotes, preserves existing approved selection
 reasons, and uses a neutral project-specific reason for newly selected Skills.
 
 The platform migration seeds or validates a user-selected, credential-free Git
-catalog of any bounded size, keeps all 13 built-in Harness platform Skills global,
+catalog of any bounded size, keeps all 15 built-in Harness platform Skills global,
 projects the repository path into an independently owned global `AGENTS.md`
 block, revises an intact `ready` project through schema-v3 ownership when
 project Skills are selected, and moves old globals only into a recoverable
 backup. Planning and status are read-only; apply and rollback require explicit
 approval and fail closed on digest drift.
 
-Legacy global `grill-me` directories are not part of the 13-core projection:
+Legacy global `grill-me` directories are not part of the 15-core projection:
 the migration leaves them untouched. A new `grill-me` install is instead an
 explicitly approved third-party bundle with pinned source and ownership record.
+An intact schema-v1 Skill-platform migration with a former 13- or 14-Skill
+baseline upgrades in place: Global Init adds only the missing platform trees,
+updates the matching profile and global AGENTS managed block, and preserves
+its project audit and backup identity.
 
 Lifecycle operations never fetch from the public CCG upstream or a mutable npm
 selector. CCG update accepts only the personal repository, a clean

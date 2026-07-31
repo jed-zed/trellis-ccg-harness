@@ -7,6 +7,12 @@ import { fileURLToPath } from 'node:url'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const SKILL_ROOT = path.join(ROOT, '.agents', 'skills', 'harness-init')
+const GRILL_WITH_DOCS_ROOT = path.join(
+  ROOT,
+  '.agents',
+  'skills',
+  'grill-with-docs',
+)
 
 async function readSkillFile(...parts) {
   return readFile(path.join(SKILL_ROOT, ...parts), 'utf8')
@@ -30,6 +36,41 @@ test('harness-init is a discoverable project-start skill', async () => {
   assert.match(openai, /display_name: "Harness Init"/)
   assert.match(openai, /default_prompt: "Use \$harness-init /)
   assert.match(openai, /allow_implicit_invocation: true/)
+})
+
+test('grill-with-docs is self-contained and preserves its pinned MIT provenance', async () => {
+  const [skill, grilling, domainModeling, contextFormat, adrFormat, license] =
+    await Promise.all([
+      readFile(path.join(GRILL_WITH_DOCS_ROOT, 'SKILL.md'), 'utf8'),
+      readFile(
+        path.join(GRILL_WITH_DOCS_ROOT, 'references', 'grilling.md'),
+        'utf8',
+      ),
+      readFile(
+        path.join(GRILL_WITH_DOCS_ROOT, 'references', 'domain-modeling.md'),
+        'utf8',
+      ),
+      readFile(
+        path.join(GRILL_WITH_DOCS_ROOT, 'references', 'CONTEXT-FORMAT.md'),
+        'utf8',
+      ),
+      readFile(
+        path.join(GRILL_WITH_DOCS_ROOT, 'references', 'ADR-FORMAT.md'),
+        'utf8',
+      ),
+      readFile(path.join(GRILL_WITH_DOCS_ROOT, 'LICENSE.md'), 'utf8'),
+    ])
+
+  assert.match(skill, /^name: grill-with-docs$/m)
+  assert.match(skill, /references\/grilling\.md/)
+  assert.match(skill, /references\/domain-modeling\.md/)
+  assert.match(grilling, /one at a time/i)
+  assert.match(domainModeling, /CONTEXT-FORMAT\.md/)
+  assert.match(domainModeling, /ADR-FORMAT\.md/)
+  assert.match(contextFormat, /_Avoid_/)
+  assert.match(adrFormat, /Hard to reverse|costly to reverse|meaningfully costly/i)
+  assert.match(license, /MIT License/)
+  assert.match(license, /2ab958093e83e0ec752e6c1c5932da465bf23e0c/)
 })
 
 test('harness-init discovers evidence before asking one grill-me question', async () => {
@@ -110,7 +151,7 @@ test('harness-init delegates contract mutation to the executable validator', asy
   assert.ok(schema.required.includes('thirdParty'))
 })
 
-test('harness-init refines and reuses the 13-Skill global platform profile', async () => {
+test('harness-init refines and reuses the 15-Skill global platform profile', async () => {
   const skill = await readSkillFile('SKILL.md')
   const template = JSON.parse(
     await readSkillFile('assets', 'project-contract.template.json'),
@@ -131,6 +172,8 @@ test('harness-init refines and reuses the 13-Skill global platform profile', asy
   assert.deepEqual(template.skills, {
     globalPolicy: 'minimal-essential-only',
     globalEssential: [
+      'chatgpt-pro-sidebar',
+      'grill-with-docs',
       'harness-init',
       'trellis-before-dev',
       'trellis-brainstorm',
@@ -184,7 +227,7 @@ test('root AGENTS projects the canonical collaboration policy', async () => {
   assert.equal(pinnedPolicy, policy)
 })
 
-test('root Harness contract pins the 13-core and reject-all third-party baseline', async () => {
+test('root Harness contract pins the 15-core and reject-all third-party baseline', async () => {
   const contractText = await readFile(
     path.join(ROOT, '.harness', 'project.json'),
     'utf8',
@@ -219,7 +262,15 @@ test('root Harness contract pins the 13-core and reject-all third-party baseline
   const contract = JSON.parse(contractText)
   const sourceSha256 = sha256(canonicalJson(JSON.parse(sourceText)))
 
-  assert.equal(contract.skills.globalEssential.length, 13)
+  assert.equal(contract.skills.globalEssential.length, 15)
+  assert.equal(
+    contract.skills.globalEssential.includes('chatgpt-pro-sidebar'),
+    true,
+  )
+  assert.equal(
+    contract.skills.globalEssential.includes('grill-with-docs'),
+    true,
+  )
   assert.equal(contract.skills.globalEssential.includes('grill-me'), false)
   assert.deepEqual(contract.thirdParty, {
     sourceManifestSha256: sourceSha256,

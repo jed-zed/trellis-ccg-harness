@@ -560,7 +560,7 @@ function Assert-GlobalSkillArtifacts([string[]]$CandidateHomes) {
       return
     }
   }
-  throw "The 13 global Harness platform Skills were not projected under isolated HOME or USERPROFILE."
+  throw "The 15 global Harness platform Skills were not projected under isolated HOME or USERPROFILE."
 }
 
 function Assert-TrellisProjectArtifacts([string]$AcceptanceProject) {

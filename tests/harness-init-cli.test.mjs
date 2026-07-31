@@ -272,7 +272,7 @@ test("project Skill contracts enforce minimal globals and owned targets", () => 
   missingGlobal.skills.globalEssential = ["harness-init"];
   assert.throws(
     () => validateProjectContract(missingGlobal),
-    /globalEssential.*trellis-before-dev/i,
+    /globalEssential.*chatgpt-pro-sidebar/i,
   );
 
   const duplicateGlobal = approvedContract();
@@ -1960,7 +1960,9 @@ test("existing user-owned Harness state is preserved on collision", async () => 
 test("project inspection is read-only and reports discovered manifests", async () => {
   const value = fixture();
   try {
-    const facts = await inspectProject(value.repoRoot);
+    const facts = await inspectProject(value.repoRoot, {
+      homeDir: value.repoRoot,
+    });
     assert.equal(facts.repositoryRoot, path.resolve(value.repoRoot));
     assert.deepEqual(facts.manifests, ["package.json"]);
     assert.equal(facts.harnessState, "absent");

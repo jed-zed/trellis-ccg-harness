@@ -15,7 +15,11 @@ import path from "node:path";
 import process from "node:process";
 import { promisify } from "node:util";
 
-import { GLOBAL_PLATFORM_SKILLS } from "./skill-platform-migration.mjs";
+import {
+  GLOBAL_PLATFORM_SKILLS,
+  PREVIOUS_GLOBAL_PLATFORM_SKILL_SETS,
+  upgradeLegacySkillPlatformDefaults,
+} from "./skill-platform-migration.mjs";
 import {
   assertTrustedCommandUnchanged,
   minimalCommandEnvironment,
@@ -243,16 +247,191 @@ function validateGlobalManifest(manifest) {
   const legacyExpected = [...expected, "grill-me"].sort((left, right) =>
     left.localeCompare(right),
   );
-  if (
-    canonicalJson(names) !== canonicalJson(expected) &&
-    canonicalJson(names) !== canonicalJson(legacyExpected)
-  ) {
+  const current =
+    canonicalJson(names) === canonicalJson(expected) ||
+    canonicalJson(names) === canonicalJson(legacyExpected);
+  const upgradeRequired = PREVIOUS_GLOBAL_PLATFORM_SKILL_SETS.some(
+    (previous) => {
+      const previousExpected = [...previous].sort((left, right) =>
+        left.localeCompare(right),
+      );
+      const previousLegacyExpected = [...previous, "grill-me"].sort(
+        (left, right) => left.localeCompare(right),
+      );
+      return (
+        canonicalJson(names) === canonicalJson(previousExpected) ||
+        canonicalJson(names) === canonicalJson(previousLegacyExpected)
+      );
+    },
+  );
+  if (!current && !upgradeRequired) {
     throw new Error("Global Skill ownership manifest has an invalid Skill set.");
   }
   return {
     manifest,
     mode: migrationManifest ? "skill-platform-migration" : "global-init",
+    upgradeRequired,
   };
+}
+
+async function replaceGlobalManifestCas(target, originalBytes, nextBytes) {
+  const temporary = path.join(
+    path.dirname(target),
+    `.global-skills-${randomUUID()}.tmp`,
+  );
+  await writeFile(temporary, nextBytes, { flag: "wx", mode: 0o600 });
+  try {
+    const current = await readFile(target);
+    if (!current.equals(originalBytes)) {
+      throw new Error(
+        "Global Skill ownership manifest changed concurrently; refusing upgrade.",
+      );
+    }
+    await rename(temporary, target);
+  } catch (error) {
+    await rm(temporary, { force: true });
+    throw error;
+  }
+}
+
+async function upgradeDirectPlatformSkills({
+  manifest,
+  manifestPath,
+  originalManifestBytes,
+  sources,
+  targetRoot,
+}) {
+  const ownedByName = new Map(
+    manifest.managedPlatformSkills.map((entry) => [entry.name, entry]),
+  );
+  const changedSources = sources.skills.filter(
+    (source) => ownedByName.get(source.name)?.treeSha256 !== source.treeSha256,
+  );
+  for (const source of changedSources) {
+    if (ownedByName.has(source.name)) continue;
+    const target = path.join(targetRoot, source.name);
+    if (await pathExists(target)) {
+      throw new Error(
+        `Legacy global Skill upgrade target collision is user-owned: ${target}`,
+      );
+    }
+  }
+
+  const harnessRoot = path.dirname(manifestPath);
+  const stageRoot = path.join(
+    harnessRoot,
+    `.global-upgrade-stage-${randomUUID()}`,
+  );
+  const stagedRoot = path.join(stageRoot, "staged");
+  const previousRoot = path.join(stageRoot, "previous");
+  await mkdir(stagedRoot, { recursive: true, mode: 0o700 });
+  await mkdir(previousRoot, { recursive: true, mode: 0o700 });
+  const mutations = [];
+  let retainStage = false;
+  try {
+    for (const source of changedSources) {
+      const staged = path.join(stagedRoot, source.name);
+      const stagedSnapshot = await snapshotTree(source.sourcePath, {
+        copyTo: staged,
+      });
+      if (stagedSnapshot.treeSha256 !== source.treeSha256) {
+        throw new Error(
+          `Bundled platform Skill changed while staging: ${source.name}`,
+        );
+      }
+    }
+    for (const source of changedSources) {
+      const target = path.join(targetRoot, source.name);
+      const owned = ownedByName.get(source.name);
+      if (!owned) {
+        if (await pathExists(target)) {
+          throw new Error(
+            `Global Skill target appeared during upgrade: ${source.name}`,
+          );
+        }
+        await rename(path.join(stagedRoot, source.name), target);
+        mutations.push({ kind: "added", source, target });
+        continue;
+      }
+
+      const current = await snapshotTree(target);
+      if (current.treeSha256 !== owned.treeSha256) {
+        throw new Error(
+          `Managed global platform Skill changed during upgrade: ${source.name}`,
+        );
+      }
+      const previous = path.join(previousRoot, source.name);
+      await rename(target, previous);
+      try {
+        await rename(path.join(stagedRoot, source.name), target);
+      } catch (error) {
+        try {
+          await rename(previous, target);
+        } catch (restoreError) {
+          retainStage = true;
+          throw new AggregateError(
+            [error, restoreError],
+            `Global Skill replacement failed and recovery data remains at ${stageRoot}.`,
+          );
+        }
+        throw error;
+      }
+      mutations.push({ kind: "replaced", source, target, previous });
+    }
+
+    const sourceNames = new Set(sources.skills.map((source) => source.name));
+    const upgradedManifest = {
+      ...manifest,
+      managedPlatformSkills: [
+        ...sources.skills.map((source) => ({
+          ...(ownedByName.get(source.name) ?? {}),
+          name: source.name,
+          targetPath: path.join(targetRoot, source.name),
+          treeSha256: source.treeSha256,
+          fileCount: source.fileCount,
+          totalBytes: source.totalBytes,
+        })),
+        ...manifest.managedPlatformSkills.filter(
+          (entry) => !sourceNames.has(entry.name),
+        ),
+      ],
+    };
+    await replaceGlobalManifestCas(
+      manifestPath,
+      originalManifestBytes,
+      Buffer.from(canonicalJson(upgradedManifest)),
+    );
+  } catch (error) {
+    const rollbackErrors = [];
+    for (const mutation of mutations.reverse()) {
+      try {
+        const current = await snapshotTree(mutation.target);
+        if (current.treeSha256 !== mutation.source.treeSha256) {
+          throw new Error(
+            `Installed global Skill changed before rollback: ${mutation.source.name}`,
+          );
+        }
+        await rm(mutation.target, { recursive: true });
+        if (mutation.kind === "replaced") {
+          await rename(mutation.previous, mutation.target);
+        }
+      } catch (rollbackError) {
+        rollbackErrors.push(rollbackError);
+      }
+    }
+    if (rollbackErrors.length > 0) {
+      retainStage = true;
+      throw new AggregateError(
+        [error, ...rollbackErrors],
+        `Global Skill upgrade failed and recovery data remains at ${stageRoot}.`,
+      );
+    }
+    throw error;
+  } finally {
+    if (!retainStage) {
+      await rm(stageRoot, { recursive: true, force: true });
+    }
+  }
 }
 
 export async function installBundledPlatformSkills({
@@ -273,14 +452,16 @@ export async function installBundledPlatformSkills({
   const sources = await describePlatformSources(platformSkillsRoot);
 
   if (await pathExists(manifestPath)) {
+    const originalManifestBytes = await readFile(manifestPath);
     const validated = validateGlobalManifest(
       await readRegularJson(manifestPath, "Global Skill ownership manifest"),
     );
-    const { manifest } = validated;
+    const { manifest, upgradeRequired } = validated;
     for (const source of sources.skills) {
       const owned = manifest.managedPlatformSkills.find(
         (entry) => entry.name === source.name,
       );
+      if (!owned && upgradeRequired) continue;
       const expectedTarget = path.join(targetRoot, source.name);
       if (
         path.resolve(owned?.targetPath ?? "") !== path.resolve(expectedTarget) ||
@@ -292,6 +473,7 @@ export async function installBundledPlatformSkills({
         owned.totalBytes < 1 ||
         (
           validated.mode === "global-init" &&
+          !upgradeRequired &&
           owned.treeSha256 !== source.treeSha256
         )
       ) {
@@ -305,6 +487,29 @@ export async function installBundledPlatformSkills({
           `Managed global platform Skill drifted: ${source.name}`,
         );
       }
+    }
+    if (upgradeRequired) {
+      if (validated.mode !== "global-init") {
+        return upgradeLegacySkillPlatformDefaults({
+          approved,
+          homeDir: home,
+          now,
+          platformSkillsRoot,
+        });
+      }
+      await upgradeDirectPlatformSkills({
+        manifest,
+        manifestPath,
+        originalManifestBytes,
+        sources,
+        targetRoot,
+      });
+      return {
+        status: "upgraded",
+        manifestPath,
+        installedSkills: [...GLOBAL_PLATFORM_SKILLS],
+        ownershipMode: validated.mode,
+      };
     }
     return {
       status: "unchanged",
