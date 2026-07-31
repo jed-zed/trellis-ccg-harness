@@ -1,5 +1,10 @@
 # Delivery Evidence
 
+- CCG PR: https://github.com/jed-zed/ccg-gptpro-worflow/pull/23
+- Harness PR: https://github.com/jed-zed/trellis-ccg-harness/pull/22
+- Harness merge commit: `78238834f36cfb868418262b08f91368e256a8f9`
+- Harness PR CI: 10/10 checks passed before merge.
+
 ## Source baselines
 
 - CCG version: `3.4.5`

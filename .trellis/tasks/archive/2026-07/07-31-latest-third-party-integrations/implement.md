@@ -82,9 +82,9 @@ pnpm build
 
 ## 6. Delivery
 
-- [ ] 提交并推送 `codex/latest-third-party-addons`。
-- [ ] 创建 Harness PR，等待所有远端 CI；无问题后按用户授权合并。
-- [ ] 报告 CCG/Harness PR 链接、实际解析版本、测试、未验证风险和最终 Git 状态。
+- [x] 提交并推送 `codex/latest-third-party-addons`。
+- [x] 创建 Harness PR，等待所有远端 CI；无问题后按用户授权合并。
+- [x] 报告 CCG/Harness PR 链接、实际解析版本、测试、未验证风险和最终 Git 状态。
 
 ## Rollback Points
 
