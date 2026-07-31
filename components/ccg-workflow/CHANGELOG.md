@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [3.4.5] - 2026-07-31
+
+### Changed
+
+- **Latest optional add-ons** — fast-context, CodeGraph, Context7, Playwright,
+  and Exa now use an explicit `@latest` allowlist instead of repository-pinned
+  numeric versions and integrity values.
+- **Latest companion sources** — Matt Skills, Caveman, and Ponytail catalog
+  entries now publish their official repository and `latest` channel without
+  embedding historical commits, trees, or release tags.
+- **Core provenance retained** — All other executable npm/Git dependencies
+  continue to require exact selectors and reviewed integrity or commit data.
+
 ## [3.4.4] - 2026-07-30
 
 ### Added

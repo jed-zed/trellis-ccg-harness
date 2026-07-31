@@ -24,7 +24,7 @@ describe('MCP credential boundaries', () => {
       homeDir,
       serverId: 'fast-context',
       command: 'npx',
-      args: ['-y', 'fast-context-mcp@1.5.2'],
+      args: ['-y', 'fast-context-mcp@latest'],
       env: { WINDSURF_API_KEY: secret },
     })
 
@@ -244,7 +244,7 @@ describe('MCP credential boundaries', () => {
 
   it('does not synchronize legacy MCP entries containing inline secrets', () => {
     const safe = (installerMcp as any).filterSecretSafeMcpServers({
-      context7: { type: 'stdio', command: 'npx', args: ['-y', '@upstash/context7-mcp@3.2.4'] },
+      context7: { type: 'stdio', command: 'npx', args: ['-y', '@upstash/context7-mcp@latest'] },
       legacy: { type: 'stdio', command: 'npx', args: ['tool', '--token', 'secret'] },
       legacyEnv: { type: 'stdio', command: 'npx', args: ['tool'], env: { API_KEY: 'secret' } },
     })

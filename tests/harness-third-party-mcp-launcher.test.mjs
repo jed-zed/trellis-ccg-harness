@@ -14,8 +14,9 @@ import {
 
 const manifest = JSON.parse(readFileSync(new URL("../.agents/skills/harness-init/assets/third-party-sources.json", import.meta.url), "utf8"));
 const candidate = manifest.candidates.find((entry) => entry.id === "codegraph");
-const source = manifest.sources.find((entry) => entry.id === candidate.sourceId);
-const { name: packageName, version: packageVersion } = /^(?<name>(?:@[^/@]+\/)?[^@/]+)@(?<version>.+)$/.exec(candidate.packageSelector).groups;
+const { name: packageName } = /^(?<name>(?:@[^/@]+\/)?[^@/]+)@latest$/.exec(candidate.packageSelector).groups;
+const packageVersion = "9.9.9";
+const packageIntegrity = `sha512-${Buffer.from("resolved-latest-package").toString("base64")}`;
 
 function canonicalJson(value) {
   return `${JSON.stringify(value, null, 2)}\n`;
@@ -24,7 +25,7 @@ function canonicalJson(value) {
 function fixture() {
   const homeDir = mkdtempSync(path.join(os.tmpdir(), "harness-mcp-launcher-"));
   const candidateId = candidate.id;
-  const target = path.join(homeDir, ".agents", "harness", "tools", candidateId, source.release);
+  const target = path.join(homeDir, ".agents", "harness", "tools", candidateId, "latest");
   const packagePath = path.join(target, "node_modules", ...packageName.split("/"));
   const entrypoint = path.join(packagePath, "server.mjs");
   mkdirSync(packagePath, { recursive: true });
@@ -36,13 +37,22 @@ function fixture() {
   }));
   writeFileSync(
     path.join(target, "package.json"),
-    canonicalJson({ private: true, dependencies: { [packageName]: packageVersion } }),
+    canonicalJson({ private: true, dependencies: { [packageName]: "latest" } }),
   );
-  const approvedLock = readFileSync(new URL(
-    `../.agents/skills/harness-init/assets/${source.packageLock.path}`,
-    import.meta.url,
-  ));
-  writeFileSync(path.join(target, "package-lock.json"), approvedLock);
+  const installedLock = Buffer.from(canonicalJson({
+    name: "harness-latest-addon",
+    lockfileVersion: 3,
+    packages: {
+      "": { dependencies: { [packageName]: "latest" } },
+      [`node_modules/${packageName}`]: {
+        version: packageVersion,
+        resolved: `https://registry.npmjs.org/${packageName}/-/${candidateId}-${packageVersion}.tgz`,
+        integrity: packageIntegrity,
+      },
+    },
+  }));
+  writeFileSync(path.join(target, "package-lock.json"), installedLock);
+  const packageLockSha256 = createHash("sha256").update(installedLock).digest("hex");
   const manifestDigest = createHash("sha256").update(canonicalJson(manifest)).digest("hex");
   const ownershipPath = path.join(homeDir, ".agents", "harness", "third-party-global-actions.json");
   const writeOwnership = async (mutate = (value) => value) => {
@@ -57,8 +67,9 @@ function fixture() {
           mcpConfigured: true,
           sourceManifestSha256: manifestDigest,
           packageSelector: candidate.packageSelector,
-          packageIntegrity: source.packageIntegrity,
-          packageLockSha256: source.packageLock.sha256,
+          packageVersion,
+          packageIntegrity,
+          packageLockSha256,
           target,
           command: process.execPath,
           commandArgs: [entrypoint],

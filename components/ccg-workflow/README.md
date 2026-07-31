@@ -297,8 +297,9 @@ Set in `~/.claude/settings.json` under `"env"`:
 
 - The wrapper binary is downloaded only from the personal release and its
   pinned SHA-256 is verified before chmod or execution.
-- Executable npm/Git dependencies are exact-version or exact-commit entries in
-  `third-party-sources.json`; mutable `@latest` selectors are not used.
+- Core executable npm/Git dependencies remain exact-version or exact-commit
+  entries in `third-party-sources.json`. The five optional add-on packages use
+  an explicit `latest` channel; no numeric add-on version is stored in the repo.
 - MCP secrets are stored in owner-only files and loaded by a local launcher, so
   they are not placed in process arguments or mirrored into other runtimes.
   MCP children receive a minimal allowlisted base environment plus only the
@@ -375,4 +376,4 @@ MIT
 
 ---
 
-v3.4.4 | [Issues](https://github.com/jed-zed/ccg-gptpro-worflow/issues) | [Contributing](./CONTRIBUTING.md)
+v3.4.5 | [Issues](https://github.com/jed-zed/ccg-gptpro-worflow/issues) | [Contributing](./CONTRIBUTING.md)

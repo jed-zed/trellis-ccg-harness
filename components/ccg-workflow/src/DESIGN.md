@@ -30,9 +30,9 @@ distribution with public upstream.
   `jed-zed/ccg-gptpro-worflow` release.
 - A platform-specific SHA-256 must match before chmod or process creation.
 - The reported wrapper version is checked only after the digest succeeds.
-- Executable npm and Git dependencies are exact-version or exact-commit entries
-  in `third-party-sources.json`; mutable selectors and automatic elevation are
-  rejected.
+- Core executable npm and Git dependencies remain exact-version or exact-commit
+  entries in `third-party-sources.json`. Only the explicit optional add-on
+  allowlist accepts `@latest`; automatic elevation remains rejected.
 - The built-in public npm updater is disabled. Harness update requires a full
   personal commit and a matching tree.
 - Wrapper platform, download, digest, or version failure is fatal. Initialization
@@ -130,6 +130,17 @@ fails closed to Trellis-only guidance and never creates `.ccg/tasks`.
   scans exclude test fixtures and must have zero Critical/High findings.
 
 ## Change History
+
+### 2026-07-31 - Latest optional add-on channels
+
+**Change:** Removed repository-pinned identities from the optional add-on
+allowlist while retaining exact provenance for core executable dependencies.
+
+**Reason:** Optional add-ons should install their current upstream release
+instead of the repository author's historical selection.
+
+**Impact:** Source registry validation, companion catalog output, MCP command
+selectors, tests, and installation guidance.
 
 ### 2026-07-30 - Companion add-on discovery boundary
 

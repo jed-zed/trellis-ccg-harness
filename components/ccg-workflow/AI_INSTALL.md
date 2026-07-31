@@ -36,14 +36,16 @@ The catalog distinguishes:
 - `manual-pending`: external Skills, plugins, hook trust, or global defaults
   that require a separate owner-approved installer or transaction.
 
-For every requested `manual-pending` candidate, show its pinned source,
+For every requested `manual-pending` candidate, show its official source and
+`latest` channel,
 dependencies, filesystem and executable effects, hooks, network behavior, and
 data-egress disclosure. Then ask for approval for that exact action. Never claim
 that a `manual-pending` candidate is installed until the approved installer has
 completed and its result has been verified.
 
-Do not replace pinned commits, versions, selectors, trees, or integrity values
-with mutable branches, tags, or `latest`.
+Do not invent or persist a version for an add-on declared on the `latest`
+channel. Core CCG dependencies that remain exact in `third-party-sources.json`
+must not be converted to mutable selectors.
 
 ## Recommended auxiliary MCPs
 

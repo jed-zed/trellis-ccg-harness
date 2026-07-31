@@ -76,16 +76,16 @@ selection.
 Before asking for approval, explicitly present these recommended CCG-managed
 MCP candidates:
 
-- Context7: pinned `@upstash/context7-mcp@3.2.4`; documentation queries and
+- Context7: `@upstash/context7-mcp@latest`; documentation queries and
   library identifiers leave the machine.
-- Playwright: pinned `@playwright/mcp@0.0.78`; browser pages, interactions,
+- Playwright: `@playwright/mcp@latest`; browser pages, interactions,
   files, profile state, site permissions, and browser downloads require
   careful review. Recommendation does not authorize browser acquisition.
 - DeepWiki: official remote endpoint `https://mcp.deepwiki.com/mcp` and
   official documentation; it is a remote service with no local artifact SRI.
   Never substitute the obsolete unofficial `mcp-deepwiki` package.
 - Exa: hosted endpoint `https://mcp.exa.ai/mcp`, with the reviewed local
-  fallback `exa-mcp-server@3.2.1`. Basic hosted use can avoid a key. For higher
+  fallback `exa-mcp-server@latest`. Basic hosted use can avoid a key. For higher
   limits, production use, or local mode, direct the user to
   `https://dashboard.exa.ai/api-keys`.
 

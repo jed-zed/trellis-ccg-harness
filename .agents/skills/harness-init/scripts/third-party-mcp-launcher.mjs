@@ -111,7 +111,7 @@ async function readRegularJson(target, label) {
 async function readTrustedMcpCandidate({ manifestPath, candidateId, manifestDigest }) {
   const manifest = await readRegularJson(manifestPath, "Third-party MCP source manifest");
   if (
-    manifest?.schemaVersion !== 1 ||
+    manifest?.schemaVersion !== 2 ||
     manifest.owner !== OWNER ||
     !Array.isArray(manifest.sources) ||
     !Array.isArray(manifest.candidates)
@@ -126,30 +126,21 @@ async function readTrustedMcpCandidate({ manifestPath, candidateId, manifestDige
     throw new Error(`Candidate ${candidateId} is not authorized by the trusted MCP manifest.`);
   }
   const source = manifest.sources.find((entry) => entry?.id === candidate.sourceId);
-  if (!source || typeof source.release !== "string" || !/^\d+(?:\.\d+){1,3}(?:[-+][A-Za-z0-9.-]+)?$/.test(source.release)) {
-    throw new Error(`Candidate ${candidateId} has no immutable package release in the trusted MCP manifest.`);
+  if (!source || source.channel !== "latest" || typeof source.package !== "string") {
+    throw new Error(`Candidate ${candidateId} has no approved latest package channel in the trusted MCP manifest.`);
   }
   if (typeof candidate.packageSelector !== "string" || typeof candidate.entrypoint !== "string" || !candidate.entrypoint) {
     throw new Error(`Candidate ${candidateId} has an invalid package entrypoint in the trusted MCP manifest.`);
   }
-  if (typeof source.packageIntegrity !== "string" || !source.packageIntegrity.startsWith("sha512-")) {
-    throw new Error(`Candidate ${candidateId} has no pinned package integrity in the trusted MCP manifest.`);
-  }
-  if (
-    typeof source.packageLock?.path !== "string" ||
-    !HEX_64.test(String(source.packageLock?.sha256 ?? "")) ||
-    source.packageLock?.lockfileVersion !== 3 ||
-    !Number.isSafeInteger(source.packageLock?.packageCount) ||
-    source.packageLock.packageCount < 1
-  ) {
-    throw new Error(`Candidate ${candidateId} has no complete pinned package lock in the trusted MCP manifest.`);
+  if (candidate.packageSelector !== `${source.package}@latest`) {
+    throw new Error(`Candidate ${candidateId} package selector does not match its approved latest channel.`);
   }
   return { candidate, source };
 }
 
-function parseExactPackageSelector(selector) {
-  const match = /^(?<name>(?:@[^/@]+\/)?[^@/]+)@(?<version>\d+(?:\.\d+){1,3}(?:[-+][A-Za-z0-9.-]+)?)$/.exec(selector);
-  if (!match?.groups) throw new Error("Pinned package selector is not exact and immutable.");
+function parseLatestPackageSelector(selector) {
+  const match = /^(?<name>(?:@[^/@]+\/)?[^@/]+)@latest$/.exec(selector);
+  if (!match?.groups) throw new Error("Package selector is not an approved latest channel.");
   return match.groups;
 }
 
@@ -193,13 +184,16 @@ async function verifyOwnedNodeMcp({
   const { candidate, source } = await readTrustedMcpCandidate({ manifestPath, candidateId, manifestDigest });
   if (
     action.packageSelector !== candidate.packageSelector ||
-    action.packageIntegrity !== source.packageIntegrity ||
-    action.packageLockSha256 !== source.packageLock.sha256
+    typeof action.packageVersion !== "string" ||
+    !/^\d+(?:\.\d+){1,3}(?:[-+][A-Za-z0-9.-]+)?$/.test(action.packageVersion) ||
+    typeof action.packageIntegrity !== "string" ||
+    !action.packageIntegrity.startsWith("sha512-") ||
+    !HEX_64.test(String(action.packageLockSha256 ?? ""))
   ) {
-    throw new Error(`Candidate ${candidateId} package ownership does not match the trusted MCP manifest.`);
+    throw new Error(`Candidate ${candidateId} resolved package ownership is incomplete.`);
   }
   const target = assertAbsolutePath(action.target, `Candidate ${candidateId} installation target`);
-  const expectedTarget = path.join(homeDir, ".agents", "harness", "tools", candidateId, source.release);
+  const expectedTarget = path.join(homeDir, ".agents", "harness", "tools", candidateId, "latest");
   const mappedTarget = mapPathBelowRoot(
     homeDir,
     target,
@@ -250,7 +244,7 @@ async function verifyOwnedNodeMcp({
     throw new Error(`Candidate ${candidateId} entrypoint is not a regular non-linked file.`);
   }
 
-  const { name, version } = parseExactPackageSelector(action.packageSelector);
+  const { name } = parseLatestPackageSelector(action.packageSelector);
   const packagePath = path.join(target, "node_modules", ...name.split("/"));
   assertInside(target, packagePath, `Candidate ${candidateId} package path`);
   const canonicalPackagePath = await assertRealPathBelow(
@@ -260,8 +254,8 @@ async function verifyOwnedNodeMcp({
     { rootAliases: homeAliases },
   );
   const packageJson = await readRegularJson(path.join(packagePath, "package.json"), `Candidate ${candidateId} package identity`);
-  if (packageJson.name !== name || packageJson.version !== version) {
-    throw new Error(`Candidate ${candidateId} package identity drifted from its exact selector.`);
+  if (packageJson.name !== name || packageJson.version !== action.packageVersion) {
+    throw new Error(`Candidate ${candidateId} package identity drifted from its resolved latest version.`);
   }
   const bin = packageJson.bin;
   const binRelative = typeof bin === "string" ? bin : bin?.[candidate.entrypoint];
@@ -273,44 +267,6 @@ async function verifyOwnedNodeMcp({
   if (path.resolve(canonicalEntrypoint) !== expectedEntrypoint) {
     throw new Error(`Candidate ${candidateId} entrypoint does not match the trusted package metadata.`);
   }
-  const lockSegments = source.packageLock.path.replaceAll("\\", "/").split("/");
-  if (
-    lockSegments.length < 2 ||
-    lockSegments[0] !== "npm-locks" ||
-    lockSegments.some((segment) => !segment || segment === "." || segment === "..")
-  ) {
-    throw new Error(`Candidate ${candidateId} pinned package lock path is unsafe.`);
-  }
-  const approvedLockPath = path.resolve(path.dirname(manifestPath), ...lockSegments);
-  assertInside(path.dirname(manifestPath), approvedLockPath, `Candidate ${candidateId} pinned package lock`);
-  const approvedLockDetails = await lstatRequired(approvedLockPath, `Candidate ${candidateId} pinned package lock`);
-  if (
-    !approvedLockDetails.isFile() ||
-    approvedLockDetails.isSymbolicLink() ||
-    approvedLockDetails.nlink > 1
-  ) {
-    throw new Error(`Candidate ${candidateId} pinned package lock is unsafe.`);
-  }
-  const approvedLockBytes = await readFile(approvedLockPath);
-  if (sha256(approvedLockBytes) !== source.packageLock.sha256) {
-    throw new Error(`Candidate ${candidateId} pinned package lock digest drifted from the trusted manifest.`);
-  }
-  const approvedLock = JSON.parse(approvedLockBytes.toString("utf8"));
-  const approvedEntries = Object.entries(approvedLock?.packages ?? {}).filter(([key]) => key);
-  if (
-    approvedLock?.lockfileVersion !== source.packageLock.lockfileVersion ||
-    approvedEntries.length !== source.packageLock.packageCount ||
-    approvedLock?.packages?.[""]?.dependencies?.[name] !== version ||
-    approvedEntries.some(([, entry]) =>
-      entry?.link === true ||
-      typeof entry?.resolved !== "string" ||
-      !/^https:\/\/registry\.npmjs\.org\//.test(entry.resolved) ||
-      typeof entry?.integrity !== "string" ||
-      !entry.integrity.startsWith("sha512-")
-    )
-  ) {
-    throw new Error(`Candidate ${candidateId} pinned package lock is incomplete.`);
-  }
   const installedLockPath = path.join(target, "package-lock.json");
   const installedLockDetails = await lstatRequired(installedLockPath, `Candidate ${candidateId} package lock`);
   if (
@@ -321,12 +277,12 @@ async function verifyOwnedNodeMcp({
     throw new Error(`Candidate ${candidateId} installed package lock is unsafe.`);
   }
   const installedLockBytes = await readFile(installedLockPath);
-  if (sha256(installedLockBytes) !== source.packageLock.sha256) {
-    throw new Error(`Candidate ${candidateId} installed package lock drifted from its approved artifact.`);
+  if (sha256(installedLockBytes) !== action.packageLockSha256) {
+    throw new Error(`Candidate ${candidateId} installed package lock drifted from its ownership record.`);
   }
   const lock = JSON.parse(installedLockBytes.toString("utf8"));
   const locked = lock?.packages?.[`node_modules/${name}`];
-  if (!locked || locked.version !== version || locked.integrity !== action.packageIntegrity) {
+  if (!locked || locked.version !== action.packageVersion || locked.integrity !== action.packageIntegrity) {
     throw new Error(`Candidate ${candidateId} package lock drifted from its ownership record.`);
   }
 

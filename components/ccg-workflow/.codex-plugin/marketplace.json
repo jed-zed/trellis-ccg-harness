@@ -9,7 +9,7 @@
     {
       "name": "ccg",
       "description": "Codex-native CCG workflow with unified role-to-provider routing, an optional read-only Claude product-manager Provider, opt-in external intelligence, spec, team, and quality gates.",
-      "version": "3.4.4",
+      "version": "3.4.5",
       "source": "./plugins/ccg",
       "author": {
         "name": "jed-zed",

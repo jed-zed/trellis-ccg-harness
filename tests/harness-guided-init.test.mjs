@@ -409,22 +409,24 @@ test("Global Init keeps Ponytail installation manual when host mutation is not c
     const ponytailSource = THIRD_PARTY_MANIFEST.sources.find(
       (entry) => entry.id === ponytailCandidate.sourceId,
     );
-    const marketplaceName =
-      `harness-ponytail-${ponytailSource.commit.slice(0, 12)}`;
+    const sourceCommit = "1111111111111111111111111111111111111111";
+    const pluginTree = "2222222222222222222222222222222222222222";
+    const pluginVersion = "9.9.9";
+    const marketplaceName = "harness-ponytail-latest";
     const marketplaceRoot = path.join(
       value.homeDir,
       ".agents",
       "harness",
       "marketplaces",
       "ponytail",
-      ponytailSource.commit,
+      "latest",
     );
     mkdirSync(path.join(sourceRoot, ".codex-plugin"));
     writeFileSync(
       path.join(sourceRoot, ".codex-plugin", "plugin.json"),
       JSON.stringify({
         name: "ponytail",
-        version: ponytailSource.release,
+        version: pluginVersion,
         license: ponytailSource.license,
       }),
     );
@@ -453,7 +455,7 @@ test("Global Init keeps Ponytail installation manual when host mutation is not c
         commands.push({ command, args });
         if (command === "git") {
           return {
-            stdout: `${ponytailCandidate.sourceGitTree}\n`,
+            stdout: `${args.at(-1) === "HEAD" ? sourceCommit : pluginTree}\n`,
             exitCode: 0,
           };
         }
@@ -482,7 +484,7 @@ test("Global Init keeps Ponytail installation manual when host mutation is not c
                   pluginId: `ponytail@${marketplaceName}`,
                   name: "ponytail",
                   marketplaceName,
-                  version: ponytailSource.release,
+                  version: pluginVersion,
                   installed: true,
                   source: { source: "local", path: sourceRoot },
                 }]

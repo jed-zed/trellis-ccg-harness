@@ -2,7 +2,6 @@ import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from
 import { chmod, lstat, mkdir, open, readFile, readlink, readdir, rename, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 
 import {
   thirdPartySubprocessEnvironment,
@@ -22,7 +21,6 @@ const APPROVAL_GROUPS = [
   ["mcp-cli", "mcpCli"],
 ];
 const HEX_64 = /^[a-f0-9]{64}$/i;
-const NPM_LOCK_ROOT = fileURLToPath(new URL("../assets/npm-locks/", import.meta.url));
 
 function canonicalJson(value) {
   return `${JSON.stringify(value, null, 2)}\n`;
@@ -153,10 +151,6 @@ function planHasExactCandidate(plan, id) {
       (candidate) =>
         candidate.id === id && candidate.installed?.status === "exact",
     );
-}
-
-function isImmutableSelector(value) {
-  return typeof value === "string" && !/(^|[/@_-])(main|latest)(?:$|[/@_-])/i.test(value);
 }
 
 function safeError(error) {
@@ -663,93 +657,14 @@ async function resolvePinnedSource({ sourceResolver, source, candidate, homeDir,
 }
 
 function packageTarget(homeDir, candidate, source) {
-  const release = String(source.release ?? "");
-  if (!release || !/^[0-9]+(?:\.[0-9]+){1,3}(?:[-+][A-Za-z0-9.-]+)?$/.test(release)) {
-    throw new Error(`${candidate.id} has no immutable package release.`);
-  }
-  return managedPath(homeDir, `.agents/harness/tools/${candidate.id}/${release}`, "Pinned npm tool target");
+  void source;
+  return managedPath(homeDir, `.agents/harness/tools/${candidate.id}/latest`, "Latest npm tool target");
 }
 
-function parseExactPackageSelector(selector) {
-  const match = /^(?<name>(?:@[^/@]+\/)?[^@/]+)@(?<version>\d+(?:\.\d+){1,3}(?:[-+][A-Za-z0-9.-]+)?)$/.exec(selector);
-  if (!match?.groups) throw new Error(`Package selector is not exact and immutable: ${selector}`);
+function parseLatestPackageSelector(selector) {
+  const match = /^(?<name>(?:@[^/@]+\/)?[^@/]+)@latest$/.exec(selector);
+  if (!match?.groups) throw new Error(`Package selector is not an approved latest channel: ${selector}`);
   return match.groups;
-}
-
-function packageLockMetadata(source) {
-  const metadata = source.packageLock;
-  if (
-    !metadata ||
-    typeof metadata.path !== "string" ||
-    !HEX_64.test(String(metadata.sha256 ?? "")) ||
-    metadata.lockfileVersion !== 3 ||
-    !Number.isSafeInteger(metadata.packageCount) ||
-    metadata.packageCount < 1
-  ) {
-    return null;
-  }
-  const segments = metadata.path.replaceAll("\\", "/").split("/");
-  if (
-    segments.length < 2 ||
-    segments[0] !== "npm-locks" ||
-    segments.some((segment) => !segment || segment === "." || segment === "..")
-  ) {
-    throw new Error(`${source.id} pinned npm lock path is unsafe.`);
-  }
-  const lockPath = path.resolve(NPM_LOCK_ROOT, ...segments.slice(1));
-  assertInside(NPM_LOCK_ROOT, lockPath, `${source.id} pinned npm lock`);
-  return { ...metadata, lockPath };
-}
-
-async function loadPinnedPackageLock({ candidate, source }) {
-  const metadata = packageLockMetadata(source);
-  if (!metadata) return null;
-  const details = await lstat(metadata.lockPath);
-  if (!details.isFile() || details.isSymbolicLink() || details.nlink > 1) {
-    throw new Error(`${candidate.id} pinned npm lock must be a regular non-linked file.`);
-  }
-  const bytes = await readFile(metadata.lockPath);
-  const actualSha256 = sha256(bytes);
-  if (actualSha256 !== metadata.sha256) {
-    throw new Error(`${candidate.id} pinned npm lock digest does not match the approved manifest.`);
-  }
-  const lock = JSON.parse(bytes.toString("utf8"));
-  if (
-    lock?.lockfileVersion !== metadata.lockfileVersion ||
-    !lock.packages ||
-    typeof lock.packages !== "object" ||
-    Array.isArray(lock.packages)
-  ) {
-    throw new Error(`${candidate.id} pinned npm lock is incomplete.`);
-  }
-  const packageEntries = Object.entries(lock.packages).filter(([key]) => key);
-  if (packageEntries.length !== metadata.packageCount) {
-    throw new Error(`${candidate.id} pinned npm lock package count does not match the approved manifest.`);
-  }
-  for (const [key, entry] of packageEntries) {
-    if (
-      entry?.link === true ||
-      typeof entry?.version !== "string" ||
-      typeof entry?.resolved !== "string" ||
-      !/^https:\/\/registry\.npmjs\.org\//.test(entry.resolved) ||
-      typeof entry?.integrity !== "string" ||
-      !entry.integrity.startsWith("sha512-")
-    ) {
-      throw new Error(`${candidate.id} pinned npm lock lacks complete resolved and integrity data for ${key}.`);
-    }
-  }
-  const { name, version } = parseExactPackageSelector(candidate.packageSelector);
-  if (lock.packages[""]?.dependencies?.[name] !== version) {
-    throw new Error(`${candidate.id} pinned npm lock root dependency does not match its exact selector.`);
-  }
-  const packageEntry = lock.packages[`node_modules/${name}`];
-  if (
-    packageEntry?.version !== version ||
-    packageEntry?.integrity !== source.packageIntegrity
-  ) {
-    throw new Error(`${candidate.id} pinned npm lock package identity or integrity is invalid.`);
-  }
-  return { bytes, lock, sha256: actualSha256, metadata };
 }
 
 async function assertSafeNpmTree(root) {
@@ -839,31 +754,37 @@ export async function fingerprintPinnedNpmTool(root) {
 }
 
 async function verifyPinnedNpmTool({ target, candidate, source }) {
-  const { name, version } = parseExactPackageSelector(candidate.packageSelector);
+  const { name } = parseLatestPackageSelector(candidate.packageSelector);
   const { canonicalRoot: root } = await assertSafeNpmTree(target);
-  const approvedLock = await loadPinnedPackageLock({ candidate, source });
-  if (!approvedLock) throw new Error(`${candidate.id} has no complete approved npm lock.`);
   const lockPath = path.join(root, "package-lock.json");
   const lockDetails = await lstat(lockPath);
   if (!lockDetails.isFile() || lockDetails.isSymbolicLink() || lockDetails.nlink > 1) {
     throw new Error("Pinned npm package lock must be a regular non-linked file.");
   }
   const lockBytes = await readFile(lockPath);
-  if (sha256(lockBytes) !== approvedLock.sha256) {
-    throw new Error(`${candidate.id} installed package-lock drifted from the approved lock artifact.`);
-  }
   const lock = JSON.parse(lockBytes.toString("utf8"));
   const packagePath = path.join(root, "node_modules", ...name.split("/"));
   assertInside(root, packagePath, "Pinned npm package path");
   const installed = await readRegularJson(path.join(packagePath, "package.json"), "Pinned installed package identity");
-  if (installed.name !== name || installed.version !== version) {
-    throw new Error(`${candidate.id} installed package identity does not match its exact selector.`);
+  if (
+    installed.name !== name ||
+    typeof installed.version !== "string" ||
+    !/^[0-9]+(?:\.[0-9]+){1,3}(?:[-+][A-Za-z0-9.-]+)?$/.test(installed.version)
+  ) {
+    throw new Error(`${candidate.id} installed package identity is invalid.`);
   }
   const lockKey = `node_modules/${name}`;
   const locked = lock?.packages?.[lockKey];
-  if (!locked || locked.version !== version || locked.integrity !== source.packageIntegrity) {
-    throw new Error(`${candidate.id} package-lock identity or integrity does not match the approved manifest.`);
+  if (
+    !locked ||
+    locked.version !== installed.version ||
+    typeof locked.integrity !== "string" ||
+    !locked.integrity.startsWith("sha512-")
+  ) {
+    throw new Error(`${candidate.id} generated package-lock identity or integrity is invalid.`);
   }
+  source.release = installed.version;
+  source.packageIntegrity = locked.integrity;
   const bin = installed.bin;
   const binRelative = typeof bin === "string" ? bin : bin?.[candidate.entrypoint];
   if (typeof binRelative !== "string" || !binRelative) {
@@ -878,26 +799,18 @@ async function verifyPinnedNpmTool({ target, candidate, source }) {
   return {
     packagePath,
     script,
-    packageLockSha256: approvedLock.sha256,
+    packageVersion: installed.version,
+    packageIntegrity: locked.integrity,
+    packageLockSha256: sha256(lockBytes),
     treeSha256: await fingerprintPinnedNpmTool(root),
   };
 }
 
 async function installPinnedNpmTool({ candidate, source, homeDir, platform, runCommand, ownership, manifestDigest, allowNetwork, faultInjector, journalEffect }) {
   if (!allowNetwork) throw new Error(`${candidate.id} requires explicit allowNetwork=true.`);
-  if (!isImmutableSelector(candidate.packageSelector) || !/^.+@\d+(?:\.\d+){1,3}(?:[-+][A-Za-z0-9.-]+)?$/.test(candidate.packageSelector)) {
-    throw new Error(`${candidate.id} package selector is not exact and immutable.`);
-  }
-  if (typeof source.packageIntegrity !== "string" || !source.packageIntegrity.startsWith("sha512-")) {
-    throw new Error(`${candidate.id} lacks a pinned npm integrity value.`);
-  }
-  const approvedLock = await loadPinnedPackageLock({ candidate, source });
-  if (!approvedLock) {
-    return {
-      status: "manual-pending",
-      reason: `${candidate.id} has no complete repository-pinned npm lock; dynamic dependency resolution is forbidden.`,
-      mcpConfigured: false,
-    };
+  const { name } = parseLatestPackageSelector(candidate.packageSelector);
+  if (source.channel !== "latest" || source.package !== name) {
+    throw new Error(`${candidate.id} source does not match its approved latest npm channel.`);
   }
   const target = packageTarget(homeDir, candidate, source);
   const owned = ownership.actions[candidate.id];
@@ -905,9 +818,7 @@ async function installPinnedNpmTool({ candidate, source, homeDir, platform, runC
     if (
       owned?.packageInstalled === true &&
       owned?.sourceManifestSha256 === manifestDigest &&
-      owned?.packageSelector === candidate.packageSelector &&
-      owned?.packageIntegrity === source.packageIntegrity &&
-      owned?.packageLockSha256 === approvedLock.sha256
+      owned?.packageSelector === candidate.packageSelector
     ) {
       const verified = await verifyPinnedNpmTool({ target, candidate, source });
       if (verified.treeSha256 !== owned.treeSha256) {
@@ -926,10 +837,9 @@ async function installPinnedNpmTool({ candidate, source, homeDir, platform, runC
   await ensureDirectory(homeDir, path.dirname(target));
   const stage = `${target}.stage-${randomUUID()}`;
   try {
-    const { name, version } = parseExactPackageSelector(candidate.packageSelector);
     const packageJsonBytes = Buffer.from(canonicalJson({
       private: true,
-      dependencies: { [name]: version },
+      dependencies: { [name]: "latest" },
     }));
     await journalEffect(
       candidate.id,
@@ -938,16 +848,15 @@ async function installPinnedNpmTool({ candidate, source, homeDir, platform, runC
         stage,
         target,
         packageSelector: candidate.packageSelector,
-        packageLockSha256: approvedLock.sha256,
+        packageChannel: "latest",
       },
       async () => {
         await mkdir(stage, { mode: 0o700 });
         await durableWriteFile(path.join(stage, "package.json"), packageJsonBytes, { flag: "wx", mode: 0o600 });
-        await durableWriteFile(path.join(stage, "package-lock.json"), approvedLock.bytes, { flag: "wx", mode: 0o600 });
         return invoke(
           runCommand,
           "npm",
-          ["ci", "--prefix", stage, "--ignore-scripts", "--no-audit", "--no-fund"],
+          ["install", "--prefix", stage, "--ignore-scripts", "--no-audit", "--no-fund", "--package-lock=true"],
           {},
         );
       },
@@ -959,7 +868,7 @@ async function installPinnedNpmTool({ candidate, source, homeDir, platform, runC
     return {
       status: "manual-pending",
       target,
-      reason: `${candidate.id} passed pinned staging verification but requires an atomic create-only tool-directory publish operation.`,
+      reason: `${candidate.id} resolved and verified the latest npm package but requires an atomic create-only tool-directory publish operation.`,
       mcpConfigured: false,
     };
   } catch (error) {
@@ -1035,35 +944,51 @@ function mcpLauncherInvocation({ candidate, homeDir }) {
 }
 
 async function verifyPonytailSource({ candidate, source, sourceRoot, runCommand }) {
+  const headResult = await invoke(
+    runCommand,
+    "git",
+    ["-C", sourceRoot, "rev-parse", "HEAD"],
+    {},
+  );
+  const resolvedCommit = String(headResult.stdout ?? "").trim().toLowerCase();
+  if (!/^[a-f0-9]{40}$/.test(resolvedCommit)) {
+    throw new Error("Latest Ponytail source did not resolve to a Git commit.");
+  }
+  source.commit = resolvedCommit;
   const result = await invoke(
     runCommand,
     "git",
-    ["-C", sourceRoot, "rev-parse", `${source.commit}:${candidate.sourcePath}`],
+    ["-C", sourceRoot, "rev-parse", `${resolvedCommit}:${candidate.sourcePath}`],
     {},
   );
-  if (String(result.stdout ?? "").trim().toLowerCase() !== String(candidate.sourceGitTree ?? "").toLowerCase()) {
-    throw new Error(`Ponytail ${candidate.sourcePath} does not match its pinned source Git tree.`);
+  const resolvedTree = String(result.stdout ?? "").trim().toLowerCase();
+  if (!/^[a-f0-9]{40}$/.test(resolvedTree)) {
+    throw new Error(`Ponytail ${candidate.sourcePath} did not resolve to a Git tree.`);
   }
+  candidate.sourceGitTree = resolvedTree;
   const plugin = await readRegularJson(
     path.join(sourceRoot, ".codex-plugin", "plugin.json"),
     "Pinned Ponytail plugin identity",
   );
   if (
     plugin?.name !== "ponytail" ||
-    plugin.version !== source.release ||
+    typeof plugin.version !== "string" ||
+    !/^[0-9]+(?:\.[0-9]+){1,3}(?:[-+][A-Za-z0-9.-]+)?$/.test(plugin.version) ||
     plugin.license !== source.license
   ) {
-    throw new Error("Pinned Ponytail plugin metadata does not match the approved source.");
+    throw new Error("Latest Ponytail plugin metadata is invalid.");
   }
+  source.release = plugin.version;
   return plugin;
 }
 
 function ponytailMarketplaceIdentity({ source, homeDir }) {
-  const marketplaceName = `harness-ponytail-${source.commit.slice(0, 12)}`;
+  void source;
+  const marketplaceName = "harness-ponytail-latest";
   const marketplaceRoot = managedPath(
     homeDir,
-    `.agents/harness/marketplaces/ponytail/${source.commit}`,
-    "Pinned Ponytail marketplace",
+    ".agents/harness/marketplaces/ponytail/latest",
+    "Latest Ponytail marketplace",
   );
   return {
     marketplaceName,
@@ -1421,10 +1346,33 @@ async function extractRipgrepArchive({ archive, unpacked, assetPlatform, executa
 }
 
 async function installRipgrep({ candidate, source, homeDir, assetPlatform, allowNetwork, ownership, manifestDigest, fetchImpl = globalThis.fetch, runCommand, faultInjector, journalEffect }) {
-  const asset = source.assets?.find((item) => item.platform === assetPlatform);
-  if (!asset) return { status: "skipped-unsupported-platform", platform: assetPlatform };
   if (!allowNetwork) throw new Error(`${candidate.id} requires explicit allowNetwork=true.`);
-  if (!HEX_64.test(asset.sha256)) throw new Error("ripgrep asset checksum is invalid.");
+  if (typeof fetchImpl !== "function") throw new Error("No fetch implementation is available for the latest ripgrep release.");
+  const suffixes = {
+    "win32-x64": "x86_64-pc-windows-msvc.zip",
+    "linux-x64": "x86_64-unknown-linux-musl.tar.gz",
+    "darwin-x64": "x86_64-apple-darwin.tar.gz",
+  };
+  const suffix = suffixes[assetPlatform];
+  if (!suffix) return { status: "skipped-unsupported-platform", platform: assetPlatform };
+  const releaseResponse = await fetchImpl("https://api.github.com/repos/BurntSushi/ripgrep/releases/latest");
+  if (!releaseResponse?.ok) throw new Error(`Latest ripgrep release lookup failed (${releaseResponse?.status ?? "unknown"}).`);
+  const release = await releaseResponse.json();
+  if (typeof release?.tag_name !== "string" || !/^\d+(?:\.\d+){1,3}$/.test(release.tag_name)) {
+    throw new Error("Latest ripgrep release returned an invalid tag.");
+  }
+  const releaseAsset = Array.isArray(release.assets)
+    ? release.assets.find((item) => typeof item?.name === "string" && item.name.endsWith(suffix))
+    : null;
+  if (
+    !releaseAsset ||
+    typeof releaseAsset.browser_download_url !== "string" ||
+    !releaseAsset.browser_download_url.startsWith(`https://github.com/BurntSushi/ripgrep/releases/download/${release.tag_name}/`)
+  ) {
+    throw new Error(`Latest ripgrep release has no approved ${assetPlatform} asset.`);
+  }
+  const asset = { platform: assetPlatform, name: releaseAsset.name, sha256: null };
+  source.release = release.tag_name;
   if (
     typeof asset.name !== "string" ||
     !asset.name ||
@@ -1434,7 +1382,7 @@ async function installRipgrep({ candidate, source, homeDir, assetPlatform, allow
   ) {
     throw new Error("ripgrep asset name is not a safe basename.");
   }
-  const target = managedPath(homeDir, `.agents/harness/tools/ripgrep/${source.release}`, "Pinned ripgrep target");
+  const target = managedPath(homeDir, ".agents/harness/tools/ripgrep/latest", "Latest ripgrep target");
   const executableName = assetPlatform === "win32-x64" ? "rg.exe" : "rg";
   const filePath = path.join(target, executableName);
   const owned = ownership.actions[candidate.id];
@@ -1449,7 +1397,6 @@ async function installRipgrep({ candidate, source, homeDir, assetPlatform, allow
       owned?.sourceManifestSha256 === manifestDigest &&
       owned?.assetPlatform === assetPlatform &&
       owned?.asset === asset.name &&
-      owned?.assetSha256 === asset.sha256 &&
       actual &&
       actual === owned.executableSha256
     ) {
@@ -1457,13 +1404,11 @@ async function installRipgrep({ candidate, source, homeDir, assetPlatform, allow
     }
     throw new Error("ripgrep executable was modified by the user or is not Harness-owned; refusing reuse.");
   }
-  if (typeof fetchImpl !== "function") throw new Error("No fetch implementation is available for pinned ripgrep release asset.");
-  const releaseTag = `15.2.0` === String(source.release) ? `15.2.0` : String(source.release);
-  const url = `https://github.com/BurntSushi/ripgrep/releases/download/${releaseTag}/${asset.name}`;
-  const response = await fetchImpl(url);
-  if (!response?.ok) throw new Error(`Pinned ripgrep release asset download failed (${response?.status ?? "unknown"}).`);
+  const response = await fetchImpl(releaseAsset.browser_download_url);
+  if (!response?.ok) throw new Error(`Latest ripgrep release asset download failed (${response?.status ?? "unknown"}).`);
   const bytes = Buffer.from(await response.arrayBuffer());
-  if (sha256(bytes) !== asset.sha256) throw new Error("Pinned ripgrep release asset checksum did not match.");
+  asset.sha256 = sha256(bytes);
+  source.assets = [asset];
   await ensureDirectory(homeDir, path.dirname(target));
   const stage = `${target}.stage-${randomUUID()}`;
   try {
@@ -1500,7 +1445,7 @@ async function installRipgrep({ candidate, source, homeDir, assetPlatform, allow
       status: "manual-pending",
       assetPlatform,
       platform: assetPlatform,
-      reason: "ripgrep passed pinned staging verification but requires an atomic create-only tool-directory publish operation.",
+      reason: "ripgrep resolved and verified the latest release but requires an atomic create-only tool-directory publish operation.",
     };
   } catch (error) {
     await rm(stage, { recursive: true, force: true });
@@ -1529,7 +1474,7 @@ function actionTargets({ candidate, source, homeDir, env, platform }) {
     ];
   }
   if (candidate.id === "ripgrep") {
-    return [managedPath(homeDir, `.agents/harness/tools/ripgrep/${source.release}`, "Pinned ripgrep target")];
+    return [managedPath(homeDir, ".agents/harness/tools/ripgrep/latest", "Latest ripgrep target")];
   }
   return [];
 }
@@ -1606,8 +1551,9 @@ function journalActionResult(action) {
 function ccgManagedMcpSource(candidate, source) {
   return {
     repository: source.repository,
-    commit: source.commit,
-    gitTree: source.gitTree,
+    channel: source.channel,
+    ...(source.commit ? { commit: source.commit } : {}),
+    ...(source.gitTree ? { gitTree: source.gitTree } : {}),
     ...(source.release ? { release: source.release } : {}),
     ...(candidate.packageSelector
       ? { packageSelector: candidate.packageSelector }
@@ -1718,6 +1664,7 @@ async function reconcileInterruptedAction({
       mcpConfigured: inventory === "present",
       sourceManifestSha256: manifestDigest,
       packageSelector: candidate.packageSelector,
+      packageVersion: verified.packageVersion,
       packageIntegrity: source.packageIntegrity,
       packageLockSha256: verified.packageLockSha256,
       target,
@@ -1742,7 +1689,7 @@ async function reconcileInterruptedAction({
     return null;
   }
   if (candidate.id === "ripgrep") {
-    const target = managedPath(homeDir, `.agents/harness/tools/ripgrep/${source.release}`, "Pinned ripgrep target");
+    const target = managedPath(homeDir, ".agents/harness/tools/ripgrep/latest", "Latest ripgrep target");
     const executableName = assetPlatform === "win32-x64" ? "rg.exe" : "rg";
     const executable = path.join(target, executableName);
     if (!(await exists(executable))) {
@@ -1753,20 +1700,19 @@ async function reconcileInterruptedAction({
       };
     }
     const info = await lstat(executable);
-    const asset = source.assets?.find((item) => item.platform === assetPlatform);
+    const assetDetails = step.effects["asset-stage"]?.details;
     const executableSha256 = info.isFile() && !info.isSymbolicLink() && info.nlink <= 1
       ? sha256(await readFile(executable))
       : null;
     const journalExpectedSha256 = step.effects["binary-activate"]?.details?.expectedSha256;
-    if (!asset || !executableSha256 || executableSha256 !== journalExpectedSha256) {
+    if (!assetDetails?.asset || !HEX_64.test(String(assetDetails.assetSha256 ?? "")) || !executableSha256 || executableSha256 !== journalExpectedSha256) {
       return { id: candidate.id, status: "manual-pending", reason: "Interrupted ripgrep installation inventory is unsafe." };
     }
     ownership.actions[candidate.id] = {
       sourceManifestSha256: manifestDigest,
-      release: source.release,
       assetPlatform,
-      asset: asset.name,
-      assetSha256: asset.sha256,
+      asset: assetDetails.asset,
+      assetSha256: assetDetails.assetSha256,
       executable,
       executableSha256,
       target,
@@ -1838,6 +1784,7 @@ export async function applyThirdPartyGlobalActions({
   ) {
     throw new Error("Third-party global actions require unique string approval ids.");
   }
+  manifest = structuredClone(manifest);
   const allCandidates = new Map(manifest.candidates.map((candidate) => [candidate.id, candidate]));
   validateApprovalSelections(manifest, approvals, allCandidates);
   for (const id of approvals.approvedActionIds) {

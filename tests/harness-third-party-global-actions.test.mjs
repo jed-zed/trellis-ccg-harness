@@ -4,7 +4,6 @@ import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpat
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { fileURLToPath } from "node:url";
 
 import {
   applyThirdPartyGlobalActions as applyThirdPartyGlobalActionsRuntime,
@@ -48,14 +47,15 @@ function packageSourceFor(selector, sourceManifest = manifest) {
   return sourceManifest.sources.find((entry) => entry.id === candidate?.sourceId);
 }
 
-function materializePinnedPackage(args, { integrity, sourceManifest = manifest } = {}) {
+function materializePinnedPackage(args, { integrity = "sha512-fixture-integrity", sourceManifest = manifest } = {}) {
   const prefix = args[args.indexOf("--prefix") + 1];
   const rootPackage = JSON.parse(readFileSync(path.join(prefix, "package.json"), "utf8"));
   const dependencies = Object.entries(rootPackage.dependencies ?? {});
   assert.equal(dependencies.length, 1);
-  const [[name, version]] = dependencies;
-  const selector = `${name}@${version}`;
+  const [[name, requestedVersion]] = dependencies;
+  const selector = `${name}@${requestedVersion}`;
   const source = packageSourceFor(selector, sourceManifest);
+  const version = "9.9.9";
   const packageRoot = path.join(prefix, "node_modules", ...name.split("/"));
   mkdirSync(packageRoot, { recursive: true });
   const bin = source.id === "codegraph"
@@ -68,12 +68,16 @@ function materializePinnedPackage(args, { integrity, sourceManifest = manifest }
     path.join(packageRoot, "package.json"),
     JSON.stringify({ name, version, bin: { [bin]: "cli.js" } }),
   );
-  if (integrity) {
-    const lockPath = path.join(prefix, "package-lock.json");
-    const lock = JSON.parse(readFileSync(lockPath, "utf8"));
-    lock.packages[`node_modules/${name}`].integrity = integrity;
-    writeFileSync(lockPath, `${JSON.stringify(lock, null, 2)}\n`);
-  }
+  const lock = {
+    name: "harness-third-party-tool",
+    lockfileVersion: 3,
+    requires: true,
+    packages: {
+      "": { dependencies: { [name]: requestedVersion } },
+      [`node_modules/${name}`]: { version, integrity },
+    },
+  };
+  writeFileSync(path.join(prefix, "package-lock.json"), `${JSON.stringify(lock, null, 2)}\n`);
 }
 
 async function seedOwnedNpmTool(value, candidateId = "codegraph") {
@@ -85,7 +89,7 @@ async function seedOwnedNpmTool(value, candidateId = "codegraph") {
     "harness",
     "tools",
     candidate.id,
-    source.release,
+    "latest",
   );
   mkdirSync(target, { recursive: true });
   const { name, version } = /^(?<name>(?:@[^/@]+\/)?[^@/]+)@(?<version>.+)$/.exec(candidate.packageSelector).groups;
@@ -93,12 +97,7 @@ async function seedOwnedNpmTool(value, candidateId = "codegraph") {
     private: true,
     dependencies: { [name]: version },
   }, null, 2)}\n`);
-  const lockPath = fileURLToPath(new URL(
-    `../.agents/skills/harness-init/assets/${source.packageLock.path}`,
-    import.meta.url,
-  ));
-  copyFileSync(lockPath, path.join(target, "package-lock.json"));
-  materializePinnedPackage(["ci", "--prefix", target]);
+  materializePinnedPackage(["install", "--prefix", target]);
   const treeSha256 = await fingerprintPinnedNpmTool(target);
   const packageRoot = path.join(target, "node_modules", ...name.split("/"));
   const installed = JSON.parse(readFileSync(path.join(packageRoot, "package.json"), "utf8"));
@@ -121,8 +120,9 @@ async function seedOwnedNpmTool(value, candidateId = "codegraph") {
         mcpConfigured: false,
         sourceManifestSha256: manifestDigest(manifest),
         packageSelector: candidate.packageSelector,
-        packageIntegrity: source.packageIntegrity,
-        packageLockSha256: source.packageLock.sha256,
+        packageVersion: installed.version,
+        packageIntegrity: "sha512-fixture-integrity",
+        packageLockSha256: createHash("sha256").update(readFileSync(path.join(target, "package-lock.json"))).digest("hex"),
         target,
         command: process.execPath,
         commandArgs: [path.resolve(packageRoot, binRelative)],
@@ -214,7 +214,7 @@ function fixture({
     approvalPlanPromise,
     runCommand: async (command, args) => {
       commands.push({ command, args });
-      if (command === "npm" && args[0] === "ci") {
+      if (command === "npm" && args[0] === "install") {
         materializePinnedPackage(args, { integrity, sourceManifest });
       }
       if (command === "codex" && args.slice(0, 2).join(" ") === "mcp add") {
@@ -273,31 +273,32 @@ function materializePonytailSource(sourceRoot) {
     path.join(sourceRoot, ".codex-plugin", "plugin.json"),
     JSON.stringify({
       name: "ponytail",
-      version: source.release,
+      version: "9.9.9",
       license: source.license,
     }),
   );
 }
 
 function ponytailHostRunner(value, { initiallyInstalled = false } = {}) {
-  const pluginTree = manifest.candidates.find((entry) => entry.id === "ponytail.install").sourceGitTree;
+  const pluginTree = "2222222222222222222222222222222222222222";
+  const sourceCommit = "1111111111111111111111111111111111111111";
   const source = manifest.sources.find((entry) => entry.id === "ponytail");
   const sourceRoot = path.join(value.homeDir, "pinned-ponytail");
-  const marketplaceName = `harness-ponytail-${source.commit.slice(0, 12)}`;
+  const marketplaceName = "harness-ponytail-latest";
   const marketplaceRoot = path.join(
     value.homeDir,
     ".agents",
     "harness",
     "marketplaces",
     "ponytail",
-    source.commit,
+    "latest",
   );
   const pluginId = `ponytail@${marketplaceName}`;
   let marketplaceInstalled = initiallyInstalled;
   let installed = initiallyInstalled;
   return async (command, args) => {
     value.commands.push({ command, args });
-    if (command === "git") return { stdout: `${pluginTree}\n`, exitCode: 0 };
+    if (command === "git") return { stdout: `${args.at(-1) === "HEAD" ? sourceCommit : pluginTree}\n`, exitCode: 0 };
     if (command === "codex" && args.slice(0, 4).join(" ") === "plugin marketplace list --json") {
       return {
         stdout: JSON.stringify({
@@ -314,7 +315,7 @@ function ponytailHostRunner(value, { initiallyInstalled = false } = {}) {
                 pluginId,
                 name: "ponytail",
                 marketplaceName,
-                version: source.release,
+                version: "9.9.9",
                 installed: true,
                 source: { source: "local", path: sourceRoot },
               }]
@@ -895,18 +896,19 @@ test("global actions pass every external command a minimal injection-free enviro
   }
 });
 
-test("CodeGraph uses exact selectors and integrity but leaves non-atomic MCP creation manual", async () => {
+test("CodeGraph resolves the latest package and leaves non-atomic MCP creation manual", async () => {
   const value = fixture();
   try {
     const result = await applyThirdPartyGlobalActions({ manifest, approvals: value.approvals(["codegraph"]), homeDir: value.homeDir, allowNetwork: true, runCommand: value.runCommand });
     assert.equal(result.status, "applied");
     const text = JSON.stringify(value.commands);
-    assert.doesNotMatch(text, /(?:main|latest|codegraph init|npm view)/i);
+    assert.doesNotMatch(text, /(?:main|codegraph init|npm view)/i);
     const npm = value.commands.find((entry) => entry.command === "npm");
-    assert.deepEqual(npm.args.slice(0, 2), ["ci", "--prefix"]);
+    assert.deepEqual(npm.args.slice(0, 2), ["install", "--prefix"]);
     assert.equal(npm.args.includes("--ignore-scripts"), true);
     const source = manifest.sources.find((entry) => entry.id === "codegraph");
-    assert.equal(source.packageLock.sha256, "12ef016f442cf837e433e9a61488b1ec87d7df85490455df384b26a549d27847");
+    assert.equal(source.release, undefined);
+    assert.equal(source.packageIntegrity, undefined);
     assert.equal(result.actions[0].status, "manual-pending");
     assert.match(result.actions[0].reason, /create-only|overwrite/i);
     assert.equal(value.commands.some(
@@ -1375,13 +1377,26 @@ test("direct global actions require complete explicit selections that contain ev
   } finally { value.cleanup(); }
 });
 
-test("a staged npm package is rejected when its lock integrity is not the approved artifact integrity", async () => {
-  const value = fixture({ integrity: "sha512-wrong" });
+test("a staged npm package is rejected when npm does not produce a lockfile", async () => {
+  const value = fixture();
   try {
-    const result = await applyThirdPartyGlobalActions({ manifest, approvals: value.approvals(["codegraph"]), homeDir: value.homeDir, allowNetwork: true, runCommand: value.runCommand });
+    const result = await applyThirdPartyGlobalActions({
+      manifest,
+      approvals: value.approvals(["codegraph"]),
+      homeDir: value.homeDir,
+      allowNetwork: true,
+      runCommand: async (command, args) => {
+        value.commands.push({ command, args });
+        if (command === "npm") {
+          materializePinnedPackage(args);
+          rmSync(path.join(args[args.indexOf("--prefix") + 1], "package-lock.json"));
+        }
+        return { stdout: "", exitCode: 0 };
+      },
+    });
     assert.equal(result.status, "partial-failure");
     assert.equal(result.actions[0].status, "failed");
-    assert.match(result.actions[0].error, /package-lock.*(?:integrity|approved lock artifact)/i);
+    assert.match(result.actions[0].error, /package-lock/i);
     assert.equal(value.commands.some((entry) => entry.command === "codex"), false);
   } finally { value.cleanup(); }
 });
@@ -1389,7 +1404,7 @@ test("a staged npm package is rejected when its lock integrity is not the approv
 test("a global action refuses a tool target created after staging", async () => {
   const value = fixture();
   try {
-    const target = path.join(value.homeDir, ".agents", "harness", "tools", "codegraph", "1.5.0");
+    const target = path.join(value.homeDir, ".agents", "harness", "tools", "codegraph", "latest");
     const result = await applyThirdPartyGlobalActions({
       manifest,
       approvals: value.approvals(["codegraph"]),
@@ -1475,12 +1490,12 @@ test("an owned npm tool with modified installed files is rejected before reuse",
   } finally { value.cleanup(); }
 });
 
-test("fast-context is only acted on after plan approval and uses its exact immutable selector", async () => {
+test("fast-context is only acted on after plan approval and uses its latest selector", async () => {
   const value = fixture();
   try {
     const result = await applyThirdPartyGlobalActions({ manifest, approvals: value.approvals(["fast-context"]), homeDir: value.homeDir, allowNetwork: true, runCommand: value.runCommand });
     assert.equal(result.actions[0].status, "manual-pending");
-    assert.equal(value.commands.find((entry) => entry.command === "npm").args[0], "ci");
+    assert.equal(value.commands.find((entry) => entry.command === "npm").args[0], "install");
     assert.match(result.actions[0].reason, /create-only.*tool-directory/i);
     assert.equal(existsSync(result.actions[0].target), false);
   } finally { value.cleanup(); }
@@ -1499,28 +1514,30 @@ test("unsupported ripgrep platform skips without a fallback or network call", as
 
 test("ripgrep rejects an unsafe asset basename before download or staging", async () => {
   const sourceManifest = structuredClone(manifest);
-  const ripgrep = sourceManifest.sources.find((entry) => entry.id === "ripgrep");
-  ripgrep.assets.find((entry) => entry.platform === "win32-x64").name = "../rg.zip";
   const value = fixture({ sourceManifest, platform: "win32", arch: "x64" });
   try {
-    let fetched = false;
-    await assert.rejects(
-      applyThirdPartyGlobalActions({
-        manifest: sourceManifest,
-        approvals: value.approvals(["ripgrep"]),
-        homeDir: value.homeDir,
-        allowNetwork: true,
-        platform: "win32",
-        arch: "x64",
-        runCommand: value.runCommand,
-        fetchImpl: async () => {
-          fetched = true;
-          throw new Error("must not fetch");
-        },
+    const name = "../ripgrep-15.2.0-x86_64-pc-windows-msvc.zip";
+    const result = await applyThirdPartyGlobalActions({
+      manifest: sourceManifest,
+      approvals: value.approvals(["ripgrep"]),
+      homeDir: value.homeDir,
+      allowNetwork: true,
+      platform: "win32",
+      arch: "x64",
+      runCommand: value.runCommand,
+      fetchImpl: async () => ({
+        ok: true,
+        json: async () => ({
+          tag_name: "15.2.0",
+          assets: [{
+            name,
+            browser_download_url: `https://github.com/BurntSushi/ripgrep/releases/download/15.2.0/${name}`,
+          }],
+        }),
       }),
-      /safe basename/i,
-    );
-    assert.equal(fetched, false);
+    });
+    assert.equal(result.status, "partial-failure");
+    assert.match(result.actions[0].error, /safe basename/i);
   } finally {
     value.cleanup();
   }
@@ -1529,10 +1546,7 @@ test("ripgrep rejects an unsafe asset basename before download or staging", asyn
 test("ripgrep rejects tar symlink and hardlink inventory before extraction", async () => {
   const sourceManifest = structuredClone(manifest);
   const archive = Buffer.from("fixture tar archive");
-  const asset = sourceManifest.sources
-    .find((entry) => entry.id === "ripgrep")
-    .assets.find((entry) => entry.platform === "linux-x64");
-  asset.sha256 = createHash("sha256").update(archive).digest("hex");
+  const assetName = "ripgrep-15.2.0-x86_64-unknown-linux-musl.tar.gz";
   const value = fixture({ sourceManifest, platform: "linux", arch: "x64" });
   try {
     let extracted = false;
@@ -1553,10 +1567,21 @@ test("ripgrep rejects tar symlink and hardlink inventory before extraction", asy
         extracted = true;
         return { stdout: "", exitCode: 0 };
       },
-      fetchImpl: async () => ({
-        ok: true,
-        arrayBuffer: async () => archive.buffer.slice(archive.byteOffset, archive.byteOffset + archive.byteLength),
-      }),
+      fetchImpl: async (url) => url.endsWith("/releases/latest")
+        ? {
+            ok: true,
+            json: async () => ({
+              tag_name: "15.2.0",
+              assets: [{
+                name: assetName,
+                browser_download_url: `https://github.com/BurntSushi/ripgrep/releases/download/15.2.0/${assetName}`,
+              }],
+            }),
+          }
+        : {
+            ok: true,
+            arrayBuffer: async () => archive.buffer.slice(archive.byteOffset, archive.byteOffset + archive.byteLength),
+          },
     });
     assert.equal(result.status, "partial-failure");
     assert.match(result.actions[0].error, /link or special member/i);
@@ -1566,12 +1591,11 @@ test("ripgrep rejects tar symlink and hardlink inventory before extraction", asy
   }
 });
 
-test("supported ripgrep verifies the pinned asset but leaves global publish manual", async () => {
+test("supported ripgrep resolves and verifies the latest asset but leaves global publish manual", async () => {
   const sourceManifest = structuredClone(manifest);
   const archive = Buffer.from("fixture archive");
   const ripgrep = sourceManifest.sources.find((entry) => entry.id === "ripgrep");
-  const asset = ripgrep.assets.find((entry) => entry.platform === "win32-x64");
-  asset.sha256 = createHash("sha256").update(archive).digest("hex");
+  const assetName = "ripgrep-15.2.0-x86_64-pc-windows-msvc.zip";
   const value = fixture({ sourceManifest, platform: "win32", arch: "x64" });
   try {
     let fetches = 0;
@@ -1584,8 +1608,20 @@ test("supported ripgrep verifies the pinned asset but leaves global publish manu
       }
       return { stdout: "", exitCode: 0 };
     };
-    const fetchImpl = async () => {
+    const fetchImpl = async (url) => {
       fetches += 1;
+      if (url.endsWith("/releases/latest")) {
+        return {
+          ok: true,
+          json: async () => ({
+            tag_name: "15.2.0",
+            assets: [{
+              name: assetName,
+              browser_download_url: `https://github.com/BurntSushi/ripgrep/releases/download/15.2.0/${assetName}`,
+            }],
+          }),
+        };
+      }
       return {
         ok: true,
         arrayBuffer: async () => archive.buffer.slice(archive.byteOffset, archive.byteOffset + archive.byteLength),
@@ -1609,7 +1645,7 @@ test("supported ripgrep verifies the pinned asset but leaves global publish manu
       "harness",
       "tools",
       "ripgrep",
-      ripgrep.release,
+      "latest",
     )), false);
     const second = await applyThirdPartyGlobalActions({
       manifest: sourceManifest,
@@ -1622,15 +1658,14 @@ test("supported ripgrep verifies the pinned asset but leaves global publish manu
       fetchImpl,
     });
     assert.equal(second.actions[0].status, "manual-pending");
-    assert.equal(fetches, 2);
+    assert.equal(fetches, 4);
   } finally { value.cleanup(); }
 });
 
 test("ripgrep extraction with no usable extractor result is failed and never recorded as installed", async () => {
   const sourceManifest = structuredClone(manifest);
   const archive = Buffer.from("fixture archive");
-  const asset = sourceManifest.sources.find((entry) => entry.id === "ripgrep").assets.find((entry) => entry.platform === "win32-x64");
-  asset.sha256 = createHash("sha256").update(archive).digest("hex");
+  const assetName = "ripgrep-15.2.0-x86_64-pc-windows-msvc.zip";
   const value = fixture({ sourceManifest, platform: "win32", arch: "x64" });
   try {
     const result = await applyThirdPartyGlobalActions({
@@ -1641,7 +1676,18 @@ test("ripgrep extraction with no usable extractor result is failed and never rec
       platform: "win32",
       arch: "x64",
       runCommand: async () => ({ exitCode: 1 }),
-      fetchImpl: async () => ({ ok: true, arrayBuffer: async () => archive.buffer.slice(archive.byteOffset, archive.byteOffset + archive.byteLength) }),
+      fetchImpl: async (url) => url.endsWith("/releases/latest")
+        ? {
+            ok: true,
+            json: async () => ({
+              tag_name: "15.2.0",
+              assets: [{
+                name: assetName,
+                browser_download_url: `https://github.com/BurntSushi/ripgrep/releases/download/15.2.0/${assetName}`,
+              }],
+            }),
+          }
+        : { ok: true, arrayBuffer: async () => archive.buffer.slice(archive.byteOffset, archive.byteOffset + archive.byteLength) },
     });
     assert.equal(result.status, "partial-failure");
     assert.equal(result.actions[0].status, "failed");
