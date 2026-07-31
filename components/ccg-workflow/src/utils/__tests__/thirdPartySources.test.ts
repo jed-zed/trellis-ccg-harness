@@ -28,7 +28,7 @@ describe('trusted executable source inventory', () => {
     expect(fs.existsSync(MANIFEST_PATH)).toBe(true)
   })
 
-  it('pins every npm executable by exact version and registry integrity', () => {
+  it('uses latest only for the approved add-on allowlist', () => {
     const packages = readManifest().npmExecutables || {}
     const required = [
       'ace-tool',
@@ -47,11 +47,25 @@ describe('trusted executable source inventory', () => {
 
     expect(Object.keys(packages).sort()).toEqual(required.sort())
     expect(packages).not.toHaveProperty('mcp-deepwiki')
+    const latest = new Set([
+      'fast-context-mcp',
+      '@colbymchenry/codegraph',
+      '@upstash/context7-mcp',
+      '@playwright/mcp',
+      'exa-mcp-server',
+    ])
     for (const [name, source] of Object.entries(packages) as Array<[string, any]>) {
       expect(source.package).toBe(name)
-      expect(source.version).toMatch(/^\d+\.\d+\.\d+(?:[-+][0-9a-z.-]+)?$/i)
-      expect(source.integrity).toMatch(/^sha512-[A-Za-z0-9+/]+=*$/)
-      expect(source.selector).toBe(`${name}@${source.version}`)
+      if (latest.has(name)) {
+        expect(source).toMatchObject({ channel: 'latest', selector: `${name}@latest` })
+        expect(source).not.toHaveProperty('version')
+        expect(source).not.toHaveProperty('integrity')
+      }
+      else {
+        expect(source.version).toMatch(/^\d+\.\d+\.\d+(?:[-+][0-9a-z.-]+)?$/i)
+        expect(source.integrity).toMatch(/^sha512-[A-Za-z0-9+/]+=*$/)
+        expect(source.selector).toBe(`${name}@${source.version}`)
+      }
     }
   })
 
@@ -66,19 +80,25 @@ describe('trusted executable source inventory', () => {
   it('rejects registry metadata that does not match the reviewed integrity', () => {
     expect((sourceRegistry as any).assertNpmExecutableIntegrity).toBeTypeOf('function')
     expect(() => (sourceRegistry as any).assertNpmExecutableIntegrity(
-      '@upstash/context7-mcp',
+      'ace-tool',
       'sha512-unreviewed',
     )).toThrow(/integrity/i)
   })
 
-  it('rejects an unpinned npx MCP command before it can be configured', async () => {
+  it('accepts approved latest selectors and rejects bare package selectors', async () => {
     expect((sourceRegistry as any).verifyPinnedNpmCommand).toBeTypeOf('function')
+    const lookup = async () => {
+      throw new Error('lookup must not run for an approved latest selector')
+    }
+    await expect((sourceRegistry as any).verifyPinnedNpmCommand(
+      'npx',
+      ['-y', '@upstash/context7-mcp@latest'],
+      lookup,
+    )).resolves.toBeUndefined()
     await expect((sourceRegistry as any).verifyPinnedNpmCommand(
       'npx',
       ['-y', '@upstash/context7-mcp'],
-      async () => {
-        throw new Error('lookup must not run for an unpinned selector')
-      },
+      lookup,
     )).rejects.toThrow(/trusted|exact|pinned/i)
   })
 
@@ -105,7 +125,15 @@ describe('trusted executable source inventory', () => {
       .map(file => readFileSync(join(PACKAGE_ROOT, file), 'utf8'))
       .join('\n')
 
-    expect(content).not.toMatch(/@latest\b/)
+    for (const selector of content.match(/[\w@/-]+@latest\b/g) || []) {
+      expect([
+        'fast-context-mcp@latest',
+        '@colbymchenry/codegraph@latest',
+        '@upstash/context7-mcp@latest',
+        '@playwright/mcp@latest',
+        'exa-mcp-server@latest',
+      ]).toContain(selector)
+    }
     expect(content).not.toMatch(/\bsudo\s+npm\b/)
     expect(content).not.toContain('ccg-workflow@latest')
   })

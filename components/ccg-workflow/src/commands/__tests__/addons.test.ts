@@ -23,16 +23,15 @@ describe('companion add-on discovery', () => {
     expect(report.candidates.every(candidate => candidate.selected === false)).toBe(true)
   })
 
-  it('pins external companion sources and exposes Ponytail approval dependencies', () => {
+  it('publishes latest channels and exposes Ponytail approval dependencies', () => {
     const report = buildCompanionAddonReport()
     const ponytail = report.candidates.find(candidate => candidate.id === 'ponytail.install')
     const hooks = report.candidates.find(candidate => candidate.id === 'ponytail.hooks')
     const fullDefault = report.candidates.find(candidate => candidate.id === 'ponytail.default-full')
     const caveman = report.candidates.find(candidate => candidate.id === 'caveman')
 
-    expect(ponytail?.source?.commit).toMatch(/^[a-f0-9]{40}$/)
-    expect(ponytail?.source?.gitTree).toMatch(/^[a-f0-9]{40}$/)
-    expect(caveman?.source?.commit).toMatch(/^[a-f0-9]{40}$/)
+    expect(ponytail?.source).toMatchObject({ channel: 'latest' })
+    expect(caveman?.source).toMatchObject({ channel: 'latest' })
     expect(hooks?.dependencies).toEqual(['ponytail.install'])
     expect(fullDefault?.dependencies).toEqual(['ponytail.install'])
     expect(hooks?.effects.hooks).toBe(true)
@@ -52,12 +51,12 @@ describe('companion add-on discovery', () => {
     expect([...managed.values()].some(candidate => candidate.action.command?.includes('pnpm addons'))).toBe(false)
   })
 
-  it('publishes the four auxiliary MCPs with official pinned or remote sources', () => {
+  it('publishes the four auxiliary MCPs with official latest or remote sources', () => {
     const report = buildCompanionAddonReport()
     const candidates = new Map(report.candidates.map(candidate => [candidate.id, candidate]))
 
-    expect(candidates.get('context7')?.source?.selector).toBe('@upstash/context7-mcp@3.2.4')
-    expect(candidates.get('playwright')?.source?.selector).toBe('@playwright/mcp@0.0.78')
+    expect(candidates.get('context7')?.source?.selector).toBe('@upstash/context7-mcp@latest')
+    expect(candidates.get('playwright')?.source?.selector).toBe('@playwright/mcp@latest')
     expect(candidates.get('deepwiki')?.source?.endpoint).toBe('https://mcp.deepwiki.com/mcp')
     expect(candidates.get('exa')?.source?.endpoint).toBe('https://mcp.exa.ai/mcp')
     expect(candidates.get('exa')?.source?.apiKeys).toBe('https://dashboard.exa.ai/api-keys')

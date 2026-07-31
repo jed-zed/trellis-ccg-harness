@@ -294,7 +294,9 @@ Codex 模式只分别设置 `frontend`、`backend`、`search` 三个大角色，
 ## 安全与所有权
 
 - Wrapper 二进制只从个人 Release 下载，并在 `chmod` 或执行前校验固定 SHA-256。
-- 可执行 npm/Git 依赖都以精确版本或完整 commit 记录在 `third-party-sources.json`，不使用可变的 `@latest`。
+- 核心可执行 npm/Git 依赖仍以精确版本或完整 commit 记录在
+  `third-party-sources.json`；五个可选 add-on 包使用明确的 `latest` 通道，
+  仓库不再保存它们的数字版本。
 - MCP 密钥放在仅所有者可读的文件中，由本地启动器加载，不进入进程参数，也不镜像到其他运行时。
 - 官方远程 MCP 仅允许精确 HTTPS 地址，并分别使用 Claude 的 `type=http`、
   Codex 的 `url` 和 Gemini 的 `httpUrl`；拒绝 URL 凭据、任意 query 和旧版
@@ -354,4 +356,4 @@ MIT
 
 ---
 
-v3.4.4 | [Issues](https://github.com/jed-zed/ccg-gptpro-worflow/issues) | [Contributing](./CONTRIBUTING.md)
+v3.4.5 | [Issues](https://github.com/jed-zed/ccg-gptpro-worflow/issues) | [Contributing](./CONTRIBUTING.md)

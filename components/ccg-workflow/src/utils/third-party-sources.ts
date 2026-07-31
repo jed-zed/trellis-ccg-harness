@@ -4,13 +4,22 @@ import fs from 'fs-extra'
 import { join } from 'pathe'
 import { PACKAGE_ROOT } from './installer-template'
 
-export interface NpmExecutableSource {
+interface ExactNpmExecutableSource {
   package: string
   version: string
   selector: string
   integrity: string
   bin: string
 }
+
+interface LatestNpmExecutableSource {
+  package: string
+  channel: 'latest'
+  selector: string
+  bin: string
+}
+
+export type NpmExecutableSource = ExactNpmExecutableSource | LatestNpmExecutableSource
 
 interface GitExecutableSource {
   repository: string
@@ -27,14 +36,34 @@ interface ThirdPartySources {
 const manifestPath = join(PACKAGE_ROOT, 'third-party-sources.json')
 const manifest = fs.readJsonSync(manifestPath) as ThirdPartySources
 
-if (manifest.schemaVersion !== 1) {
+if (manifest.schemaVersion !== 2) {
   throw new Error(`Unsupported third-party source manifest schema: ${manifest.schemaVersion}`)
 }
 
+const LATEST_NPM_ALLOWLIST = new Set([
+  'fast-context-mcp',
+  '@colbymchenry/codegraph',
+  '@upstash/context7-mcp',
+  '@playwright/mcp',
+  'exa-mcp-server',
+])
+
 export function npmExecutableSource(packageName: string): Readonly<NpmExecutableSource> {
   const source = manifest.npmExecutables[packageName]
-  if (!source || source.package !== packageName || source.selector !== `${source.package}@${source.version}`) {
+  if (!source || source.package !== packageName) {
     throw new Error(`No trusted npm executable source is recorded for ${packageName}.`)
+  }
+  if ('channel' in source) {
+    if (
+      source.channel !== 'latest'
+      || source.selector !== `${source.package}@latest`
+      || !LATEST_NPM_ALLOWLIST.has(packageName)
+    ) {
+      throw new Error(`No approved latest npm channel is recorded for ${packageName}.`)
+    }
+  }
+  else if (source.selector !== `${source.package}@${source.version}`) {
+    throw new Error(`No trusted exact npm executable source is recorded for ${packageName}.`)
   }
   return source
 }
@@ -59,6 +88,8 @@ export function assertNpmExecutableIntegrity(
   observedIntegrity: string,
 ): Readonly<NpmExecutableSource> {
   const source = npmExecutableSource(packageName)
+  if ('channel' in source)
+    throw new Error(`Integrity is resolved at install time for ${source.selector}.`)
   const actual = normalizeIntegrity(observedIntegrity)
   if (actual !== source.integrity) {
     throw new Error(
@@ -96,9 +127,12 @@ export async function verifyPinnedNpmCommand(
     .find(candidate => args.includes(candidate.selector))
   if (!source) {
     throw new Error(
-      'npx command does not contain a trusted exact package selector; refusing to configure it.',
+      'npx command does not contain a trusted exact or approved latest package selector; refusing to configure it.',
     )
   }
+
+  if ('channel' in source)
+    return
 
   const observedIntegrity = await lookup(source.selector)
   assertNpmExecutableIntegrity(source.package, observedIntegrity)

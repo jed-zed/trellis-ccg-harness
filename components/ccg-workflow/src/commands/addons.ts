@@ -6,6 +6,7 @@ export type CompanionAddonActionStatus = 'ccg-managed' | 'manual-pending'
 
 export interface CompanionAddonSource {
   repository?: string
+  channel?: 'latest'
   commit?: string
   gitTree?: string
   release?: string
@@ -59,6 +60,13 @@ export interface CompanionAddonReport {
 
 function catalogNpmSource(packageName: string): CompanionAddonSource {
   const source = npmExecutableSource(packageName)
+  if ('channel' in source) {
+    return {
+      package: source.package,
+      channel: source.channel,
+      selector: source.selector,
+    }
+  }
   return {
     package: source.package,
     version: source.version,
@@ -77,8 +85,7 @@ const CANDIDATES: readonly CompanionAddonCandidate[] = [
     selected: false,
     source: {
       repository: 'https://github.com/mattpocock/skills.git',
-      commit: 'ed37663cc5fbef691ddfecd080dff42f7e7e350d',
-      gitTree: '04b0fcb78e3de7c58744fcba2528354cc64ab988',
+      channel: 'latest',
     },
     dependencies: [],
     effects: {
@@ -87,7 +94,7 @@ const CANDIDATES: readonly CompanionAddonCandidate[] = [
       hooks: false,
       executables: false,
       network: true,
-      dataEgress: 'Fetches only the pinned Git source when an approved installer is used.',
+      dataEgress: 'Resolves the latest Git source only when an approved installer is used.',
     },
     action: {
       status: 'manual-pending',
@@ -103,9 +110,7 @@ const CANDIDATES: readonly CompanionAddonCandidate[] = [
     selected: false,
     source: {
       repository: 'https://github.com/JuliusBrussee/caveman.git',
-      commit: '0d95a81d35a9f2d123a5e9430d1cfc43d55f1bb0',
-      gitTree: '867418a8efea2c92b3885b8efd99d73d7c58af11',
-      release: 'v1.9.1',
+      channel: 'latest',
     },
     dependencies: [],
     effects: {
@@ -114,7 +119,7 @@ const CANDIDATES: readonly CompanionAddonCandidate[] = [
       hooks: false,
       executables: false,
       network: true,
-      dataEgress: 'Fetches only the pinned Git source when an approved installer is used.',
+      dataEgress: 'Resolves the latest Git source only when an approved installer is used.',
     },
     action: {
       status: 'manual-pending',
@@ -130,9 +135,7 @@ const CANDIDATES: readonly CompanionAddonCandidate[] = [
     selected: false,
     source: {
       repository: 'https://github.com/DietrichGebert/ponytail.git',
-      commit: 'bc9ee949d5f439e8b9f3bb92c6d6d3d1e6ebd324',
-      gitTree: '2b3486c779084a0442ac530affd85fb864499827',
-      release: '4.8.4',
+      channel: 'latest',
     },
     dependencies: [],
     effects: {
@@ -145,7 +148,7 @@ const CANDIDATES: readonly CompanionAddonCandidate[] = [
     },
     action: {
       status: 'manual-pending',
-      guidance: 'Review the pinned plugin source, then use an owner-approved Codex host or Harness transaction.',
+      guidance: 'Review the latest resolved plugin source, then use an owner-approved Codex host or Harness transaction.',
     },
   },
   {
@@ -157,9 +160,7 @@ const CANDIDATES: readonly CompanionAddonCandidate[] = [
     selected: false,
     source: {
       repository: 'https://github.com/DietrichGebert/ponytail.git',
-      commit: 'bc9ee949d5f439e8b9f3bb92c6d6d3d1e6ebd324',
-      gitTree: '2b3486c779084a0442ac530affd85fb864499827',
-      release: '4.8.4',
+      channel: 'latest',
     },
     dependencies: ['ponytail.install'],
     effects: {
@@ -184,9 +185,7 @@ const CANDIDATES: readonly CompanionAddonCandidate[] = [
     selected: false,
     source: {
       repository: 'https://github.com/DietrichGebert/ponytail.git',
-      commit: 'bc9ee949d5f439e8b9f3bb92c6d6d3d1e6ebd324',
-      gitTree: '2b3486c779084a0442ac530affd85fb864499827',
-      release: '4.8.4',
+      channel: 'latest',
     },
     dependencies: ['ponytail.install'],
     effects: {
@@ -395,6 +394,9 @@ export function formatCompanionAddonReport(
     const sources = [
       candidate.source?.endpoint,
       candidate.source?.selector,
+      candidate.source?.channel && candidate.source?.repository
+        ? `${candidate.source.repository}#${candidate.source.channel}`
+        : undefined,
       candidate.source?.commit ? `${candidate.source.repository}@${candidate.source.commit}` : undefined,
     ].filter((source): source is string => Boolean(source))
     const source = sources.length > 0 ? sources.join(' | ') : 'built-in guidance'

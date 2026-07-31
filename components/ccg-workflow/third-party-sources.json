@@ -1,6 +1,6 @@
 {
-  "schemaVersion": 1,
-  "reviewedAt": "2026-07-23",
+  "schemaVersion": 2,
+  "reviewedAt": "2026-07-31",
   "npmExecutables": {
     "ace-tool": {
       "package": "ace-tool",
@@ -25,37 +25,32 @@
     },
     "fast-context-mcp": {
       "package": "fast-context-mcp",
-      "version": "1.5.2",
-      "selector": "fast-context-mcp@1.5.2",
-      "integrity": "sha512-xgq94v7XAD7HLljtUXPjPvZAc599pExrLZLhnn2CoTxVK4PR8dNy4gjE5kGqgc0O8PRIw54WcE9h6zBcaoJiWA==",
+      "channel": "latest",
+      "selector": "fast-context-mcp@latest",
       "bin": "fast-context-mcp"
     },
     "@colbymchenry/codegraph": {
       "package": "@colbymchenry/codegraph",
-      "version": "1.5.0",
-      "selector": "@colbymchenry/codegraph@1.5.0",
-      "integrity": "sha512-/l1JMVOQ9WGQLrc/IIuAg7Igr944t79/oNCJTcnGkYtIeQx2XFIqI0ho+9Les/Yu4zKfmPU17hIUshD6yP1fKw==",
+      "channel": "latest",
+      "selector": "@colbymchenry/codegraph@latest",
       "bin": "codegraph"
     },
     "@upstash/context7-mcp": {
       "package": "@upstash/context7-mcp",
-      "version": "3.2.4",
-      "selector": "@upstash/context7-mcp@3.2.4",
-      "integrity": "sha512-w2Vg6MkF4Qojp8X1fdmJ6NrjZ8Ip/9lflybtqfDKaqOsUV9iVaXeRbyGTqARdn1O8teIPm7Bt+nfVqFiUcZvjQ==",
+      "channel": "latest",
+      "selector": "@upstash/context7-mcp@latest",
       "bin": "context7-mcp"
     },
     "@playwright/mcp": {
       "package": "@playwright/mcp",
-      "version": "0.0.78",
-      "selector": "@playwright/mcp@0.0.78",
-      "integrity": "sha512-XLTUeA6mEN9sQ+hJ4dfG8EIkDbxS0K3Trc2RBkUJuf02TgE2FQRNTMtq/aJfhyRMINsRl/Ybc4sxcWLtFn4/TQ==",
+      "channel": "latest",
+      "selector": "@playwright/mcp@latest",
       "bin": "playwright-mcp"
     },
     "exa-mcp-server": {
       "package": "exa-mcp-server",
-      "version": "3.2.1",
-      "selector": "exa-mcp-server@3.2.1",
-      "integrity": "sha512-JUcqdfvOh/szKM8iZk//Bm2De4eDiNOud3tZqHSOBK8EgMKJQoXRcLKzWzHLroTwVEfxGL1aB9UdFUiXibV/5A==",
+      "channel": "latest",
+      "selector": "exa-mcp-server@latest",
       "bin": "exa-mcp-server"
     },
     "@fission-ai/openspec": {

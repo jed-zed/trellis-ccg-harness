@@ -292,7 +292,7 @@ describe('Codex mode ownership and reversibility', () => {
     expect(installed).toContain('enabled = true')
     expect(installed).not.toMatch(/\[product_manager\][\s\S]*provider\s*=/)
     const nextOwnership = await fs.readJSON(ownershipPath)
-    expect(nextOwnership.version).toBe('3.4.4')
+    expect(nextOwnership.version).toBe('3.4.5')
     expect(nextOwnership.files.find(
       (file: { relativePath: string }) => file.relativePath === 'ccg/config.toml',
     ).installedSha256).toBe(

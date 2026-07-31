@@ -148,7 +148,7 @@ v1.7.83 将原 1878 行单文件拆分为 5 个聚焦模块，各自边界清晰
 | `mcp-secrets.ts` | owner-only MCP secret spec 和无密钥 argv 的 launcher 配置 |
 | `mcp-smoke.ts` | 显式、有界、脱敏的 MCP stdio `initialize` 握手及进程树清理 |
 | `python-resolver.ts` | 跨平台解析 Python 3.9+，支持 `python3` / `python` / `py -3` |
-| `third-party-sources.ts` | 校验 `third-party-sources.json` 的精确版本、commit 和 integrity |
+| `third-party-sources.ts` | 校验核心精确来源与可选 add-on 的受限 `latest` allowlist |
 
 **`installWorkflows()` 执行链**（`src/utils/installer.ts:659`）：
 
