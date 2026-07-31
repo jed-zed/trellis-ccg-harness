@@ -133,12 +133,12 @@ secret 边界。Harness 不读取、收集或保存该 key。`fast-context` 会�
 `--third-party-plan-sha256 <reviewed-planSha256>`；拒绝全部候选时仍可使用
 明确的 `none` 公共基线。
 选中需要下载的候选后，交互初始化还会单独询问第三方网络授权，列出候选、
-固定仓库/提交和 source manifest 摘要，默认 `no`。拒绝网络只跳过这些候选，
+官方仓库/latest channel 和 source manifest 摘要，默认 `no`。拒绝网络只跳过这些候选，
 不阻塞 15 个 core Skills/Trellis/CCG。私人 catalog clone 使用另一项
 `AllowCatalogNetwork`，不会与第三方下载共用授权；自动化若确需下载第三方，
 必须显式传 `AllowThirdPartyNetwork`/`--allow-third-party-network`。
 CodeGraph 与 `fast-context` 等 Harness-owned 本地 launcher 仍会在每次启动前
-重新验证批准清单摘要、ownership、精确包版本/SRI、lockfile、完整安装树
+重新验证批准清单摘要、ownership、安装时解析的包版本/SRI、生成的 lockfile、完整安装树
 指纹和唯一入口，任何漂移都会 fail closed。Context7、Playwright、
 DeepWiki 和 Exa 不再由 Harness 重复安装或写 MCP host 配置；批准后只返回
 固定的 `ccg config mcp` 交接和 `manual-pending` 状态，由 CCG 复用其冲突
@@ -284,8 +284,8 @@ Harness 的运行前提。
 Project Init 默认不调用 Grok、Claude、GPT Pro、付费模型或联网服务，
 也不会读取密钥值。15 个公开 platform Skills 已由 Global Init 安装；
 Project Init 只从已明确选择的私人/本地 catalog 安装项目相关 Skills。
-第三方项目 Skill 同样必须在项目合同中记录固定来源摘要和逐项批准，不能从
-`main`、`latest` 或 `@latest` 安装。
+第三方项目 Skill 同样必须在项目合同中记录稳定来源摘要和逐项批准；批准
+apply 会从官方 `latest` channel 解析并记录实际 commit/tree。
 现有全局 Skill 不会被初始化过程擅自删除或移动，清理由独立的所有权感知
 迁移处理。现有文件在没有所有权清单前一律按用户资产处理。
 协作规则的发行版上游来源是

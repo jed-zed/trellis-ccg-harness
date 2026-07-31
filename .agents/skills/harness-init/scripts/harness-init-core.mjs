@@ -5413,17 +5413,9 @@ async function applyPreparedThirdPartyGlobals({
   const sourceResolver =
     thirdPartySourceResolver ??
     (async ({ source }) => {
-      const cachedSource = path.join(
-        path.resolve(homeDir),
-        ".agents",
-        "harness",
-        "sources",
-        source.id,
-        source.commit,
-      );
-      if (!allowNetwork && !(await pathEntryExists(cachedSource))) {
+      if (!allowNetwork) {
         throw new Error(
-          `Pinned source ${source.id} is not cached and network access was not approved.`,
+          `Latest source ${source.id} requires explicit third-party network approval.`,
         );
       }
       return acquirePinnedGitSource({
@@ -6157,17 +6149,9 @@ export async function runProjectInit({
   const resolveThirdPartySource =
     thirdPartySourceResolver ??
     (async ({ source }) => {
-      const cachedSource = path.join(
-        path.resolve(homeDir),
-        ".agents",
-        "harness",
-        "sources",
-        source.id,
-        source.commit,
-      );
-      if (!thirdPartyNetworkApproved && !(await pathEntryExists(cachedSource))) {
+      if (!thirdPartyNetworkApproved) {
         throw new Error(
-          `Pinned source ${source.id} is not cached and network access was not approved.`,
+          `Latest source ${source.id} requires explicit third-party network approval.`,
         );
       }
       return acquirePinnedGitSource({
@@ -6885,6 +6869,9 @@ function thirdPartyCandidateQuestion(candidate, sourceManifestSha256) {
     candidate.repository && candidate.commit
       ? `Source: ${candidate.repository} @ ${candidate.commit}`
       : null,
+    candidate.repository && candidate.channel
+      ? `Source: ${candidate.repository} (${candidate.channel} channel)`
+      : null,
     candidate.gitTree ? `Source Git tree: ${candidate.gitTree}` : null,
     candidate.release ? `Release: ${candidate.release}` : null,
     candidate.source?.endpoint
@@ -7503,7 +7490,7 @@ async function resolveInteractiveGlobalArgs(
         networkCandidates
           .map(
             (candidate) =>
-              `- ${candidate.id}: ${candidate.repository} @ ${candidate.commit}`,
+              `- ${candidate.id}: ${candidate.repository} (${candidate.channel} channel)`,
           )
           .join("\n") +
         `\nSource manifest SHA-256: ${thirdPartyPlan.sourceManifestSha256}`,
@@ -7786,7 +7773,7 @@ export async function runHarnessInitCli(
             networkProjectCandidates
               .map(
                 (candidate) =>
-                  `- ${candidate.id}: ${candidate.repository} @ ${candidate.commit}`,
+                  `- ${candidate.id}: ${candidate.repository} (${candidate.channel} channel)`,
               )
               .join("\n") +
             `\nSource manifest SHA-256: ${projectThirdPartyPlan.sourceManifestSha256}`,

@@ -54,12 +54,12 @@ identities. Non-interactive Global or Project Init that selects any
 third-party candidate must additionally pass
 `--third-party-plan-sha256 <reviewed-planSha256>`.
 Approved MCPs use a Harness-owned runtime launcher rather than a direct package
-entrypoint. Every start revalidates the pinned manifest, ownership, package
-lock, tree fingerprint, and executable entrypoint. Host registration stays
+entrypoint. Every start revalidates the stable manifest, ownership, resolved
+package version/integrity, generated lock, tree fingerprint, and executable entrypoint. Host registration stays
 manual-pending because Codex has no atomic create-only MCP registration API.
 Network approval is split by purpose. `--allow-catalog-network` authorizes only
 the selected personal-catalog clone. `--allow-third-party-network` authorizes
-only acquisition of already selected, pinned third-party candidates.
+only acquisition of already selected third-party candidates from their declared latest channels.
 Interactive initialization asks the latter after candidate selection, displays
 the candidate sources and manifest digest, defaults to `no`, and drops only
 the declined network candidates while core initialization continues.
@@ -234,7 +234,7 @@ approval and fail closed on digest drift.
 
 Legacy global `grill-me` directories are not part of the 15-core projection:
 the migration leaves them untouched. A new `grill-me` install is instead an
-explicitly approved third-party bundle with pinned source and ownership record.
+explicitly approved third-party bundle resolved from the official latest channel with an ownership record.
 An intact schema-v1 Skill-platform migration with a former 13- or 14-Skill
 baseline upgrades in place: Global Init adds only the missing platform trees,
 updates the matching profile and global AGENTS managed block, and preserves

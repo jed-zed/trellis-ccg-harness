@@ -146,10 +146,10 @@ async function fixtureManifest(value) {
     "grilling",
     "Ask one question.",
   );
-  const grillSnapshot = await snapshotThirdPartyTree(grill);
-  const grillingSnapshot = await snapshotThirdPartyTree(grilling);
+  await snapshotThirdPartyTree(grill);
+  await snapshotThirdPartyTree(grilling);
   const manifest = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     owner: "trellis-ccg-harness",
     generatedAt: "2026-07-26T00:00:00.000Z",
     approvalDefaults: { selected: false },
@@ -157,9 +157,8 @@ async function fixtureManifest(value) {
       {
         id: "matt-skills",
         repository: "https://example.invalid/matt-skills.git",
-        commit: "1111111111111111111111111111111111111111",
-        gitTree: "2222222222222222222222222222222222222222",
         license: "MIT",
+        channel: "latest",
       },
     ],
     candidates: [
@@ -177,17 +176,11 @@ async function fixtureManifest(value) {
             name: "grill-me",
             sourcePath: grillPath,
             targetPath: ".agents/skills/grill-me",
-            treeSha256: grillSnapshot.treeSha256,
-            fileCount: grillSnapshot.fileCount,
-            totalBytes: grillSnapshot.totalBytes,
           },
           {
             name: "grilling",
             sourcePath: grillingPath,
             targetPath: ".agents/skills/grilling",
-            treeSha256: grillingSnapshot.treeSha256,
-            fileCount: grillingSnapshot.fileCount,
-            totalBytes: grillingSnapshot.totalBytes,
           },
         ],
         dependencies: [],
@@ -202,9 +195,6 @@ async function fixtureManifest(value) {
           update: "new-explicit-approval",
           rollback: "restore-owned-backup",
           uninstall: "remove-only-owned-unchanged",
-        },
-        migration: {
-          acceptedLegacyTreeSha256: [],
         },
       },
     ],
@@ -249,13 +239,12 @@ async function fixtureCavemanManifest(value) {
   const cavemanRoot = path.join(value.root, "caveman-source");
   mkdirSync(cavemanRoot);
   const caveman = writeSkill(cavemanRoot, "skills/caveman", "caveman", "Use concise prose.");
-  const snapshot = await snapshotThirdPartyTree(caveman);
+  await snapshotThirdPartyTree(caveman);
   fixtureSource.manifest.sources.push({
     id: "caveman",
     repository: "https://example.invalid/caveman.git",
-    commit: "3333333333333333333333333333333333333333",
-    gitTree: "4444444444444444444444444444444444444444",
     license: "MIT",
+    channel: "latest",
   });
   fixtureSource.manifest.candidates.push({
     id: "caveman",
@@ -271,9 +260,6 @@ async function fixtureCavemanManifest(value) {
       name: "caveman",
       sourcePath: "skills/caveman",
       targetPath: ".agents/skills/caveman",
-      treeSha256: snapshot.treeSha256,
-      fileCount: snapshot.fileCount,
-      totalBytes: snapshot.totalBytes,
     }],
     dependencies: [],
     effects: { scripts: false, hooks: false, executables: false, network: true, dataEgress: "Git source acquisition only." },
@@ -283,7 +269,7 @@ async function fixtureCavemanManifest(value) {
   return { ...fixtureSource, cavemanRoot };
 }
 
-test("the public source manifest is immutable, complete, and offers Caveman as opt-in", async () => {
+test("the public source manifest uses latest channels and offers Caveman as opt-in", async () => {
   const loaded = await loadThirdPartySourceManifest({
     manifestPath: MANIFEST_PATH,
   });
@@ -292,8 +278,10 @@ test("the public source manifest is immutable, complete, and offers Caveman as o
   assert.equal(caveman.approvalDefaults.selected, false);
   assert.equal(caveman.recommended, true);
   for (const source of loaded.manifest.sources) {
-    assert.match(source.commit, /^[a-f0-9]{40}$/);
-    assert.doesNotMatch(JSON.stringify(source), /main|latest|@latest/i);
+    assert.match(source.channel, /^(latest|service)$/);
+    assert.equal(source.commit, undefined);
+    assert.equal(source.gitTree, undefined);
+    assert.equal(source.release, undefined);
   }
   assert.equal(
     loaded.manifest.candidates.every((entry) => entry.approvalDefaults?.selected === false),
@@ -310,11 +298,11 @@ test("the public source manifest is immutable, complete, and offers Caveman as o
   );
 });
 
-test("manifest validation rejects mutable selectors", () => {
+test("manifest validation rejects undeclared source channels", () => {
   assert.throws(
     () =>
       validateThirdPartySourceManifest({
-        schemaVersion: 1,
+        schemaVersion: 2,
         owner: "trellis-ccg-harness",
         generatedAt: "2026-07-26T00:00:00.000Z",
         approvalDefaults: { selected: false },
@@ -322,15 +310,14 @@ test("manifest validation rejects mutable selectors", () => {
           {
             id: "unsafe",
             repository: "https://example.invalid/repo.git",
-            commit: "main",
-            gitTree: "2222222222222222222222222222222222222222",
             license: "MIT",
+            channel: "main",
           },
         ],
         candidates: [],
         exclusions: ["caveman"],
       }),
-    /commit|immutable/i,
+    /latest or service channel/i,
   );
 });
 
@@ -348,27 +335,19 @@ test("manifest validation rejects credential-bearing and non-HTTPS repositories"
   }
 });
 
-test("manifest validation rejects incomplete or traversing release assets", () => {
-  const traversal = JSON.parse(readFileSync(MANIFEST_PATH, "utf8"));
-  traversal.sources.find((entry) => entry.id === "ripgrep").assets[0].name =
-    "../../ripgrep.exe";
+test("manifest validation rejects stored release pins and incomplete service channels", () => {
+  const pinned = JSON.parse(readFileSync(MANIFEST_PATH, "utf8"));
+  pinned.sources.find((entry) => entry.id === "ripgrep").release = "15.2.0";
   assert.throws(
-    () => validateThirdPartySourceManifest(traversal),
-    /safe basename/i,
+    () => validateThirdPartySourceManifest(pinned),
+    /must not pin release/i,
   );
 
   const incomplete = JSON.parse(readFileSync(MANIFEST_PATH, "utf8"));
-  delete incomplete.sources.find((entry) => entry.id === "ripgrep").assets[0].sha256;
+  delete incomplete.sources.find((entry) => entry.id === "deepwiki").endpoint;
   assert.throws(
     () => validateThirdPartySourceManifest(incomplete),
-    /invalid or duplicate asset/i,
-  );
-
-  const noRelease = JSON.parse(readFileSync(MANIFEST_PATH, "utf8"));
-  delete noRelease.sources.find((entry) => entry.id === "ripgrep").release;
-  assert.throws(
-    () => validateThirdPartySourceManifest(noRelease),
-    /fixed release/i,
+    /service channel requires an endpoint/i,
   );
 });
 
@@ -458,10 +437,11 @@ test("approval planning has four groups and selects no third party by default", 
       const candidate = byId.get(id);
       const source = JSON.parse(readFileSync(MANIFEST_PATH, "utf8"))
         .sources.find((entry) => entry.id === id);
-      assert.equal(candidate.source.gitTree, source.gitTree);
-      assert.equal(candidate.source.packageIntegrity, source.packageIntegrity);
-      assert.deepEqual(candidate.source.packageLock, source.packageLock);
-      assert.deepEqual(candidate.source.assets, []);
+      assert.equal(candidate.source.channel, "latest");
+      assert.equal(candidate.source.package, source.package);
+      assert.equal(candidate.packageSelector, `${source.package}@latest`);
+      assert.equal(candidate.source.commit, undefined);
+      assert.equal(candidate.source.release, undefined);
     }
     for (const id of ["context7", "playwright", "deepwiki", "exa"]) {
       const candidate = byId.get(id);
@@ -486,17 +466,9 @@ test("approval planning has four groups and selects no third party by default", 
     );
     assert.equal(JSON.stringify(plan).includes("mcp-deepwiki"), false);
     const ripgrep = byId.get("ripgrep");
-    assert.equal(ripgrep.source.gitTree, "c743701524f65f036cf174d6551918be7dfc0d40");
-    assert.deepEqual(
-      ripgrep.source.assets.map(({ platform, name, sha256: digest }) => ({
-        platform,
-        name,
-        sha256: digest,
-      })),
-      JSON.parse(readFileSync(MANIFEST_PATH, "utf8"))
-        .sources.find((entry) => entry.id === "ripgrep").assets,
-    );
-    assert.equal(JSON.stringify(plan).includes("packageIntegrity"), true);
+    assert.equal(ripgrep.source.channel, "latest");
+    assert.equal(ripgrep.source.release, undefined);
+    assert.equal(JSON.stringify(plan).includes("packageIntegrity"), false);
     const caveman = plan.groups
       .find((group) => group.id === "global-skills")
       .candidates.find((entry) => entry.id === "caveman");
@@ -1329,7 +1301,7 @@ test("interrupted bundle state recovers both targets together", async () => {
   }
 });
 
-test("pinned Git acquisition fetches only the approved full commit and validates the cache", async () => {
+test("latest Git acquisition resolves HEAD once, fetches that commit, and validates the cache", async () => {
   const value = fixture();
   try {
     const sourceFixture = await fixtureManifest(value);
@@ -1343,10 +1315,13 @@ test("pinned Git acquisition fetches only the approved full commit and validates
       env: { PATH: commandRoot },
     });
     const calls = [];
+    const resolvedCommit = "1111111111111111111111111111111111111111";
+    const resolvedTree = "2222222222222222222222222222222222222222";
     const fakeGit = async (_command, args) => {
       calls.push(args);
+      if (args[0] === "ls-remote") return { stdout: `${resolvedCommit}\tHEAD\n` };
       if (args[0] === "rev-parse") {
-        return { stdout: args[1] === "HEAD" ? `${source.commit}\n` : `${source.gitTree}\n` };
+        return { stdout: args[1] === "HEAD" ? `${resolvedCommit}\n` : `${resolvedTree}\n` };
       }
       return { stdout: "" };
     };
@@ -1357,10 +1332,11 @@ test("pinned Git acquisition fetches only the approved full commit and validates
       execFileImpl: fakeGit,
     });
     assert.equal(
-      calls.some((args) => args[0] === "fetch" && args.at(-1) === source.commit),
+      calls.some((args) => args[0] === "fetch" && args.at(-1) === resolvedCommit),
       true,
     );
-    assert.equal(calls.some((args) => args.join(" ").match(/main|latest/i)), false);
+    assert.equal(source.commit, resolvedCommit);
+    assert.equal(source.gitTree, resolvedTree);
     const before = calls.length;
     const repeated = await acquirePinnedGitSource({
       approvalPlan,
@@ -1375,7 +1351,7 @@ test("pinned Git acquisition fetches only the approved full commit and validates
   }
 });
 
-test("pinned Git acquisition requires the displayed Git identity and strips caller GIT injection", async () => {
+test("latest Git acquisition requires the displayed channel and strips caller GIT injection", async () => {
   const value = fixture();
   try {
     const sourceFixture = await fixtureManifest(value);
@@ -1389,6 +1365,8 @@ test("pinned Git acquisition requires the displayed Git identity and strips call
       env: { PATH: commandRoot },
     });
     const calls = [];
+    const resolvedCommit = "1111111111111111111111111111111111111111";
+    const resolvedTree = "2222222222222222222222222222222222222222";
     const cache = await acquirePinnedGitSource({
       homeDir: value.homeDir,
       source,
@@ -1404,11 +1382,14 @@ test("pinned Git acquisition requires the displayed Git identity and strips call
       },
       execFileImpl: async (command, args, options) => {
         calls.push({ command, args, options });
+        if (args[0] === "ls-remote") {
+          return { stdout: `${resolvedCommit}\tHEAD\n` };
+        }
         if (args[0] === "rev-parse") {
           return {
             stdout: args[1] === "HEAD"
-              ? `${source.commit}\n`
-              : `${source.gitTree}\n`,
+              ? `${resolvedCommit}\n`
+              : `${resolvedTree}\n`,
           };
         }
         return { stdout: "" };
@@ -1653,7 +1634,7 @@ test("project approval planning observes project Skill drift in repoRoot, not ho
     const candidate = plan.groups
       .find((group) => group.id === "project-skills")
       .candidates.find((entry) => entry.id === "fixture-project-grilling");
-    assert.equal(candidate.installed.status, "drifted");
+    assert.equal(candidate.installed.status, "unowned");
     assert.equal(existsSync(path.join(value.homeDir, ".agents", "skills", "grilling")), false);
   } finally {
     value.cleanup();
@@ -1728,7 +1709,7 @@ test("explicit reject-all approval records a canonical source snapshot without s
       recorded.planEvidence.targetRoots.projectSkills,
       realpathSync.native(value.repoRoot),
     );
-    assert.equal(readFileSync(sourcePath, "utf8").includes("@latest"), false);
+    assert.equal(readFileSync(sourcePath, "utf8").includes("@latest"), true);
     assert.match(readFileSync(approvalPath, "utf8"), /sourceManifestSha256/);
     assert.equal((await recordThirdPartyGlobalApproval({
       homeDir: value.homeDir,
@@ -1999,29 +1980,21 @@ test("approval receipt stale-lock recovery preserves drift for manual review", a
   }
 });
 
-test("npm-backed candidates require an exact package selector and complete pinned lock metadata", () => {
-  const missingIntegrity = JSON.parse(readFileSync(MANIFEST_PATH, "utf8"));
-  delete missingIntegrity.sources.find((entry) => entry.id === "context7")
-    .packageIntegrity;
+test("npm-backed candidates require the approved latest selector without stored pins", () => {
+  const exactSelector = JSON.parse(readFileSync(MANIFEST_PATH, "utf8"));
+  exactSelector.candidates.find((entry) => entry.id === "context7")
+    .packageSelector = "@upstash/context7-mcp@1.0.0";
   assert.throws(
-    () => validateThirdPartySourceManifest(missingIntegrity),
-    /package.*packageIntegrity.*packageLock together/i,
+    () => validateThirdPartySourceManifest(exactSelector),
+    /approved latest npm channel/i,
   );
 
-  const mutableSelector = JSON.parse(readFileSync(MANIFEST_PATH, "utf8"));
-  mutableSelector.candidates.find((entry) => entry.id === "context7")
-    .packageSelector = "@upstash/context7-mcp@latest";
+  const storedIntegrity = JSON.parse(readFileSync(MANIFEST_PATH, "utf8"));
+  storedIntegrity.sources.find((entry) => entry.id === "context7")
+    .packageIntegrity = "sha512-stale";
   assert.throws(
-    () => validateThirdPartySourceManifest(mutableSelector),
-    /packageSelector must exactly match/i,
-  );
-
-  const traversingLock = JSON.parse(readFileSync(MANIFEST_PATH, "utf8"));
-  traversingLock.sources.find((entry) => entry.id === "context7")
-    .packageLock.path = "../context7.package-lock.json";
-  assert.throws(
-    () => validateThirdPartySourceManifest(traversingLock),
-    /invalid Harness-owned packageLock/i,
+    () => validateThirdPartySourceManifest(storedIntegrity),
+    /must not pin packageIntegrity/i,
   );
 });
 
@@ -2046,8 +2019,7 @@ test("every approval candidate reports bounded installation evidence and an allo
       assert.equal(candidate.installed.scope, candidate.scope);
       assert.equal(candidate.installed.expected.sourceId, candidate.sourceId);
       assert.equal(candidate.installed.expected.repository, candidate.repository);
-      assert.equal(candidate.installed.expected.commit, candidate.commit);
-      assert.equal(candidate.installed.expected.gitTree, candidate.gitTree);
+      assert.equal(candidate.installed.expected.channel, candidate.source.channel);
       assert.equal(
         allowedStatuses.has(candidate.installed.observed.status),
         true,
@@ -2064,11 +2036,8 @@ test("every approval candidate reports bounded installation evidence and an allo
     assert.equal(ponytailHook.installed.status, "manual-pending");
     const context7 = candidates.find((candidate) => candidate.id === "context7");
     assert.equal(context7.installed.status, "manual-pending");
-    assert.match(context7.installed.expected.packageIntegrity, /^sha512-/);
-    assert.match(
-      context7.installed.expected.packageLockSha256,
-      /^[a-f0-9]{64}$/,
-    );
+    assert.equal(context7.installed.expected.packageSelector, "@upstash/context7-mcp@latest");
+    assert.equal(context7.installed.expected.packageIntegrity, undefined);
     for (const id of ["context7", "playwright", "deepwiki", "exa"]) {
       const candidate = candidates.find((entry) => entry.id === id);
       assert.equal(candidate.installed.status, "manual-pending");

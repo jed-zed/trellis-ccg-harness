@@ -65,6 +65,7 @@ const MANIFEST_FIELDS = new Set([
 const SOURCE_FIELDS = new Set([
   "id",
   "repository",
+  "channel",
   "commit",
   "gitTree",
   "release",
@@ -86,7 +87,6 @@ const CANDIDATE_FIELDS = new Set([
   "purpose",
   "sourceId",
   "sourcePath",
-  "sourceGitTree",
   "packageSelector",
   "entrypoint",
   "scope",
@@ -107,9 +107,6 @@ const CANDIDATE_PATH_FIELDS = new Set([
   "name",
   "sourcePath",
   "targetPath",
-  "treeSha256",
-  "fileCount",
-  "totalBytes",
 ]);
 const CANDIDATE_EFFECT_FIELDS = new Set([
   "scripts",
@@ -139,7 +136,6 @@ const PUBLIC_CANDIDATE_FIELDS = Object.freeze([
   "purpose",
   "sourceId",
   "sourcePath",
-  "sourceGitTree",
   "packageSelector",
   "entrypoint",
   "scope",
@@ -472,93 +468,20 @@ function validateServiceSourceMetadata(source) {
 }
 
 function validateSourceAssets(source) {
-  const packageFields = [
-    source.package,
-    source.packageIntegrity,
-    source.packageLock,
-  ];
-  const hasPackage = packageFields.some((value) => value !== undefined);
-  if (hasPackage && packageFields.some((value) => value === undefined)) {
-    throw new Error(`Source ${source.id} npm metadata must include package, packageIntegrity, and packageLock together.`);
+  if (source.package !== undefined && !NPM_PACKAGE.test(String(source.package))) {
+    throw new Error(`Source ${source.id} has an invalid npm package name.`);
   }
-  if (hasPackage) {
-    if (
-      typeof source.package !== "string" ||
-      !NPM_PACKAGE.test(source.package) ||
-      typeof source.release !== "string" ||
-      !EXACT_RELEASE.test(source.release) ||
-      typeof source.packageIntegrity !== "string" ||
-      !/^sha512-[A-Za-z0-9+/]+={0,2}$/.test(source.packageIntegrity)
-    ) {
-      throw new Error(`Source ${source.id} has invalid exact npm package metadata.`);
+  for (const forbidden of ["commit", "gitTree", "release", "packageIntegrity", "packageLock", "assets"]) {
+    if (source[forbidden] !== undefined) {
+      throw new Error(`Source ${source.id} must not pin ${forbidden}; resolve the latest channel at install time.`);
     }
-    assertExactFields(
-      source.packageLock,
-      new Set(["path", "sha256", "lockfileVersion", "packageCount"]),
-      `Source ${source.id} packageLock`,
-    );
-    const lockPath = String(source.packageLock.path ?? "").replaceAll("\\", "/");
-    if (
-      !/^npm-locks\/[A-Za-z0-9][A-Za-z0-9._-]*\.package-lock\.json$/.test(lockPath) ||
-      lockPath !== source.packageLock.path ||
-      !HEX_64.test(String(source.packageLock.sha256 ?? "")) ||
-      !Number.isSafeInteger(source.packageLock.lockfileVersion) ||
-      source.packageLock.lockfileVersion < 2 ||
-      source.packageLock.lockfileVersion > 3 ||
-      !Number.isSafeInteger(source.packageLock.packageCount) ||
-      source.packageLock.packageCount <= 0
-    ) {
-      throw new Error(`Source ${source.id} has invalid Harness-owned packageLock metadata.`);
-    }
-  }
-  if (
-    source.release !== undefined &&
-    (typeof source.release !== "string" || !EXACT_RELEASE.test(source.release))
-  ) {
-    throw new Error(`Source ${source.id} release must be an exact immutable version.`);
-  }
-  if (source.assets === undefined) return;
-  if (
-    typeof source.release !== "string" ||
-    !source.release.trim() ||
-    !Array.isArray(source.assets) ||
-    !source.assets.length
-  ) {
-    throw new Error(`Source ${source.id} assets require a fixed release and a non-empty asset list.`);
-  }
-  const platforms = new Set();
-  const names = new Set();
-  for (const asset of source.assets) {
-    if (
-      !asset ||
-      Object.keys(asset).sort().join(",") !== "name,platform,sha256" ||
-      typeof asset.platform !== "string" ||
-      !/^[a-z0-9]+(?:-[a-z0-9]+)+$/i.test(asset.platform) ||
-      platforms.has(asset.platform) ||
-      typeof asset.name !== "string" ||
-      !asset.name ||
-      names.has(asset.name) ||
-      !HEX_64.test(String(asset.sha256 ?? ""))
-    ) {
-      throw new Error(`Source ${source.id} has an invalid or duplicate asset record.`);
-    }
-    const normalizedName = asset.name.replaceAll("\\", "/");
-    if (
-      normalizedName !== path.posix.basename(normalizedName) ||
-      normalizedName === "." ||
-      normalizedName === ".."
-    ) {
-      throw new Error(`Source ${source.id} asset name must be a safe basename.`);
-    }
-    platforms.add(asset.platform);
-    names.add(asset.name);
   }
 }
 
 /** Reject malformed and mutable public source records before presenting approvals. */
 export function validateThirdPartySourceManifest(manifest) {
   assertExactFields(manifest, MANIFEST_FIELDS, "Third-party source manifest");
-  if (!manifest || manifest.schemaVersion !== 1 || manifest.owner !== OWNER) {
+  if (!manifest || manifest.schemaVersion !== 2 || manifest.owner !== OWNER) {
     throw new Error("Third-party source manifest has an unsupported schema or owner.");
   }
   if (manifest.approvalDefaults?.selected !== false) {
@@ -575,17 +498,16 @@ export function validateThirdPartySourceManifest(manifest) {
     assertSafeIdentifier(source.id, "Third-party source id");
     sourceIds.add(source.id);
     assertCredentialFreeHttpsRepository(source.repository, `Source ${source.id} repository`);
-    immutable(source.commit, `Source ${source.id} commit`);
-    immutable(source.gitTree, `Source ${source.id} gitTree`);
+    if (!['latest', 'service'].includes(source.channel)) {
+      throw new Error(`Source ${source.id} must declare a latest or service channel.`);
+    }
+    if (source.channel === 'service' && source.endpoint === undefined) {
+      throw new Error(`Source ${source.id} service channel requires an endpoint.`);
+    }
     if (typeof source.license !== "string" || !source.license.trim()) throw new Error(`Source ${source.id} lacks a license.`);
     validateSourceAssets(source);
     validateServiceSourceMetadata(source);
     sourcesById.set(source.id, source);
-    for (const [field, value] of Object.entries(source)) {
-      if (typeof value === "string" && /(^|[\/@_-])(main|latest)(?:$|[\/@_-])/i.test(value) && !["repository"].includes(field)) {
-        throw new Error(`Source ${source.id} ${field} uses a mutable selector.`);
-      }
-    }
   }
   const candidateIds = new Set();
   const groups = new Set(GROUPS.map(([id]) => id));
@@ -602,22 +524,19 @@ export function validateThirdPartySourceManifest(manifest) {
     if (candidate.recommended !== undefined && typeof candidate.recommended !== "boolean") {
       throw new Error(`Candidate ${candidate.id} recommended must be a boolean when present.`);
     }
-    if (candidate.sourceId === "ponytail") {
-      immutable(candidate.sourceGitTree, `Ponytail candidate ${candidate.id} sourceGitTree`);
-    }
     const candidateSource = sourcesById.get(candidate.sourceId);
     if (candidate.packageSelector !== undefined) {
-      const expectedSelector = candidateSource?.package && candidateSource?.release
-        ? `${candidateSource.package}@${candidateSource.release}`
+      const expectedSelector = candidateSource?.package && candidateSource?.channel === 'latest'
+        ? `${candidateSource.package}@latest`
         : null;
       if (
         typeof candidate.packageSelector !== "string" ||
         candidate.packageSelector !== expectedSelector
       ) {
-        throw new Error(`Candidate ${candidate.id} packageSelector must exactly match its pinned npm source and version.`);
+        throw new Error(`Candidate ${candidate.id} packageSelector must match its approved latest npm channel.`);
       }
     } else if (candidateSource?.package && candidate.group === "mcp-cli") {
-      throw new Error(`Candidate ${candidate.id} lacks its exact pinned npm packageSelector.`);
+      throw new Error(`Candidate ${candidate.id} lacks its approved latest npm packageSelector.`);
     }
     if (
       candidate.entrypoint !== undefined &&
@@ -667,7 +586,7 @@ export function validateThirdPartySourceManifest(manifest) {
       if (!Array.isArray(candidate.paths) || !candidate.paths.length) throw new Error(`Candidate ${candidate.id} has invalid Skill paths.`);
       for (const item of candidate.paths) {
         assertExactFields(item, CANDIDATE_PATH_FIELDS, `Candidate ${candidate.id} Skill path`);
-        if (!item?.name || typeof item.sourcePath !== "string" || typeof item.targetPath !== "string" || !HEX_64.test(String(item.treeSha256))) throw new Error(`Candidate ${candidate.id} has an invalid pinned Skill path.`);
+        if (!item?.name || typeof item.sourcePath !== "string" || typeof item.targetPath !== "string") throw new Error(`Candidate ${candidate.id} has an invalid Skill path.`);
         assertSafeIdentifier(item.name, `Candidate ${candidate.id} Skill name`);
         const sourceSegments = item.sourcePath.replaceAll("\\", "/").split("/");
         if (!sourceSegments.length || sourceSegments.some((segment) => !segment || segment === "." || segment === "..")) {
@@ -736,20 +655,20 @@ async function runGit(execFileImpl, binding, verifyBinding, args, cwd, env) {
 async function verifyPinnedGitCheckout(directory, source, execFileImpl, binding, verifyBinding, env) {
   const head = await runGit(execFileImpl, binding, verifyBinding, ["rev-parse", "HEAD"], directory, env);
   if (head.toLowerCase() !== source.commit.toLowerCase()) {
-    throw new Error(`Pinned source ${source.id} HEAD does not match its approved commit.`);
+    throw new Error(`Latest source ${source.id} HEAD does not match its resolved commit.`);
   }
   const tree = await runGit(execFileImpl, binding, verifyBinding, ["rev-parse", "HEAD^{tree}"], directory, env);
-  if (tree.toLowerCase() !== source.gitTree.toLowerCase()) {
-    throw new Error(`Pinned source ${source.id} tree does not match its approved gitTree.`);
+  if (source.gitTree && tree.toLowerCase() !== source.gitTree.toLowerCase()) {
+    throw new Error(`Latest source ${source.id} tree changed after resolution.`);
   }
+  source.gitTree = tree;
   const porcelain = await runGit(execFileImpl, binding, verifyBinding, ["status", "--porcelain"], directory, env);
-  if (porcelain) throw new Error(`Pinned source ${source.id} checkout is not clean.`);
+  if (porcelain) throw new Error(`Latest source ${source.id} checkout is not clean.`);
 }
 
 /**
- * Acquire exactly one immutable Git object into the private Harness cache.
- * The ref passed to Git is the 40-character approved commit, never a branch
- * or mutable npm/Git selector. Existing cache entries are verified again.
+ * Resolve the official repository HEAD once, then acquire that immutable Git
+ * object into the private Harness cache. Existing cache entries are verified.
  */
 export async function acquirePinnedGitSource({
   homeDir,
@@ -759,18 +678,17 @@ export async function acquirePinnedGitSource({
   env = process.env,
 }) {
   const canonicalHome = await assertRealDirectory(homeDir, "User home");
-  if (!source || !SOURCE_ID.test(String(source.id ?? ""))) throw new Error("Pinned source has an unsafe id.");
-  assertCredentialFreeHttpsRepository(source.repository, "Pinned source repository");
-  immutable(source.commit, `Pinned source ${source.id} commit`);
-  immutable(source.gitTree, `Pinned source ${source.id} gitTree`);
+  if (!source || !SOURCE_ID.test(String(source.id ?? ""))) throw new Error("Latest source has an unsafe id.");
+  assertCredentialFreeHttpsRepository(source.repository, "Latest source repository");
+  if (source.channel !== "latest") throw new Error(`Source ${source.id} is not on the latest channel.`);
   if (!approvalPlan) {
-    throw new Error("Pinned source acquisition requires the displayed third-party approval plan.");
+    throw new Error("Latest source acquisition requires the displayed third-party approval plan.");
   }
   validateApprovalPlanDigest(approvalPlan);
   assertCanonicalEqual(
     approvalPlan.execution?.subprocessConfigRoots,
     subprocessConfigRoots(canonicalHome),
-    "Pinned source subprocess configuration roots",
+    "Latest source subprocess configuration roots",
   );
   const displayedSources = approvalPlan.groups
     .flatMap((group) => group.candidates)
@@ -778,10 +696,9 @@ export async function acquirePinnedGitSource({
   if (!displayedSources.some((displayed) =>
     displayed?.id === source.id &&
     displayed.repository === source.repository &&
-    displayed.commit === source.commit &&
-    displayed.gitTree === source.gitTree
+    displayed.channel === "latest"
   )) {
-    throw new Error(`Pinned source ${source.id} was not bound by the displayed approval plan.`);
+    throw new Error(`Latest source ${source.id} was not bound by the displayed approval plan.`);
   }
   const trustedCommands = await bindPlannedTrustedCommands(
     approvalPlan.execution?.commandPlan,
@@ -792,15 +709,26 @@ export async function acquirePinnedGitSource({
   );
   const binding = validateGitBinding(trustedCommands.bindings.git);
   const gitEnvironment = gitSubprocessEnvironment(approvalPlan, env);
-  const root = homePath(canonicalHome, ".agents/harness/sources", "Pinned source cache");
+  const root = homePath(canonicalHome, ".agents/harness/sources", "Latest source cache");
   await ensureDirectory(canonicalHome, root);
   const sourceRoot = path.join(root, source.id);
-  assertInside(root, sourceRoot, "Pinned source cache");
+  assertInside(root, sourceRoot, "Latest source cache");
   await ensureDirectory(canonicalHome, sourceRoot);
+  const remoteHead = await runGit(
+    execFileImpl,
+    binding,
+    assertTrustedCommandUnchanged,
+    ["ls-remote", source.repository, "HEAD"],
+    canonicalHome,
+    gitEnvironment,
+  );
+  const resolvedCommit = remoteHead.split(/\s+/)[0];
+  immutable(resolvedCommit, `Latest source ${source.id} resolved commit`);
+  source.commit = resolvedCommit;
   const target = path.join(sourceRoot, source.commit);
-  assertInside(sourceRoot, target, "Pinned source checkout");
+  assertInside(sourceRoot, target, "Latest source checkout");
   if (await exists(target)) {
-    await assertRealDirectory(target, "Pinned source checkout");
+    await assertRealDirectory(target, "Latest source checkout");
     await verifyPinnedGitCheckout(
       target,
       source,
@@ -812,7 +740,7 @@ export async function acquirePinnedGitSource({
     return target;
   }
   const stage = path.join(sourceRoot, `.stage-${source.commit}-${randomUUID()}`);
-  assertInside(sourceRoot, stage, "Pinned source staging directory");
+  assertInside(sourceRoot, stage, "Latest source staging directory");
   try {
     await mkdir(stage, { mode: 0o700 });
     await runGit(execFileImpl, binding, assertTrustedCommandUnchanged, ["init"], stage, gitEnvironment);
@@ -889,25 +817,15 @@ function approvalExpectedInstallation(candidate, source) {
     scope: candidate.scope,
     sourceId: source.id,
     repository: source.repository,
-    commit: source.commit,
-    gitTree: source.gitTree,
-    release: source.release ?? null,
+    channel: source.channel,
     packageSelector: candidate.packageSelector ?? null,
-    packageIntegrity: source.packageIntegrity ?? null,
-    packageLockSha256: source.packageLock?.sha256 ?? null,
     endpoint: source.endpoint ?? null,
     documentation: source.documentation ?? null,
     accessGuide: source.accessGuide ?? null,
     artifactPolicy: source.artifactPolicy ?? null,
-    assets: (source.assets ?? []).map(({ platform, name, sha256: digest }) => ({
-      platform,
-      name,
-      sha256: digest,
-    })),
-    paths: (candidate.paths ?? []).map(({ name, targetPath, treeSha256 }) => ({
+    paths: (candidate.paths ?? []).map(({ name, targetPath }) => ({
       name,
       targetPath,
-      treeSha256,
     })),
   };
 }
@@ -944,29 +862,11 @@ async function installedPathStatus(root, candidate, source, manifestSha256) {
       };
       return { status: observed.status, scope: candidate.scope, expected, observed };
     }
-    const target = candidate.id === "ponytail.install"
-      ? homePath(root, `.agents/harness/sources/${source.id}/${source.commit}`, "Observed Ponytail source")
-      : homePath(root, `.agents/harness/tools/${candidate.id}/${source.release}`, "Observed third-party tool");
-    const targetPresent = await exists(target);
-    let status;
-    let reason;
-    if (!targetPresent && !owned) {
-      status = "absent";
-      reason = "No managed target or ownership record was found.";
-    } else if (!targetPresent && owned) {
-      status = "drifted";
-      reason = "Ownership exists but its managed target is absent.";
-    } else if (targetPresent && !owned) {
-      status = "unowned";
-      reason = "A target exists without matching Harness ownership.";
-    } else if (owned.sourceManifestSha256 !== manifestSha256) {
-      status = "drifted";
-      reason = "Ownership is bound to a different source manifest.";
-    } else {
-      status = "manual-pending";
-      reason = "A target and ownership exist; the action runtime must revalidate the complete host/tree inventory before reuse.";
-    }
-    const observed = { status, reason, target, targetPresent, owned: Boolean(owned) };
+    const status = owned ? "manual-pending" : "absent";
+    const reason = owned
+      ? "A Harness-owned installation exists; execution resolves latest and revalidates it before update."
+      : "No Harness ownership record was found.";
+    const observed = { status, reason, owned: Boolean(owned) };
     return { status, scope: candidate.scope, expected, observed };
   }
   const ownershipTarget = candidate.group === "project-skills"
@@ -988,20 +888,19 @@ async function installedPathStatus(root, candidate, source, manifestSha256) {
     const target = safeSkillTarget(root, item.targetPath, "Third-party Skill observation target");
     if (!(await exists(target))) { paths.push({ name: item.name, status: "absent" }); continue; }
     const snapshot = await snapshotManagedThirdPartyTree(target);
-    paths.push({ name: item.name, status: snapshot.treeSha256 === item.treeSha256 ? "exact" : "drifted", treeSha256: snapshot.treeSha256 });
+    paths.push({ name: item.name, status: "present", treeSha256: snapshot.treeSha256 });
   }
   const owned = ownership.installations[candidate.id];
   let status = paths.every((entry) => entry.status === "absent")
     ? (owned ? "drifted" : "absent")
-    : paths.some((entry) => entry.status === "drifted" || entry.status === "absent")
+    : paths.some((entry) => entry.status === "absent")
       ? "drifted"
       : "exact";
   if (
     status === "exact" &&
     (
-      owned?.sourceManifestSha256 !== manifestSha256 ||
       candidate.paths.some((item) =>
-        owned?.paths?.[item.name]?.treeSha256 !== item.treeSha256)
+        owned?.paths?.[item.name]?.treeSha256 !== paths.find((entry) => entry.name === item.name)?.treeSha256)
     )
   ) {
     status = "unowned";
@@ -1018,29 +917,13 @@ function approvalSourceEvidence(source) {
   return {
     id: source.id,
     repository: source.repository,
-    commit: source.commit,
-    gitTree: source.gitTree,
-    release: source.release ?? null,
+    channel: source.channel,
     package: source.package ?? null,
-    packageIntegrity: source.packageIntegrity ?? null,
-    packageLock: source.packageLock
-      ? {
-        path: source.packageLock.path,
-        sha256: source.packageLock.sha256,
-        lockfileVersion: source.packageLock.lockfileVersion,
-        packageCount: source.packageLock.packageCount,
-      }
-      : null,
     endpoint: source.endpoint ?? null,
     documentation: source.documentation ?? null,
     accessGuide: source.accessGuide ?? null,
     artifactPolicy: source.artifactPolicy ?? null,
     license: source.license,
-    assets: (source.assets ?? []).map((asset) => ({
-      platform: asset.platform,
-      name: asset.name,
-      sha256: asset.sha256,
-    })),
   };
 }
 
@@ -1285,12 +1168,8 @@ export async function verifyThirdPartyApprovalPlanForOperation({
     );
     for (const field of [
       "repository",
-      "commit",
-      "gitTree",
-      "release",
+      "channel",
       "package",
-      "packageIntegrity",
-      "assets",
       "license",
     ]) {
       assertCanonicalEqual(
@@ -1384,12 +1263,8 @@ export async function buildThirdPartyApprovalPlan({
         ...approvalCandidateEvidence(candidate),
         source: sourceEvidence,
         repository: source.repository,
-        commit: source.commit,
-        gitTree: source.gitTree,
-        release: source.release ?? null,
+        channel: source.channel,
         package: source.package ?? null,
-        packageIntegrity: source.packageIntegrity ?? null,
-        assets: sourceEvidence.assets,
         license: source.license,
         dataEgress: candidate.effects?.dataEgress ?? "None.",
         scripts: Boolean(candidate.effects?.scripts),
@@ -3235,10 +3110,15 @@ export async function applyThirdPartyGlobalSkills({
         const sourcePath = path.join(path.resolve(sourceRoot), ...item.sourcePath.split("/"));
         assertInside(sourceRoot, sourcePath, "Third-party source Skill");
         const snapshot = await snapshotThirdPartyTree(sourcePath);
-        if (snapshot.treeSha256 !== item.treeSha256 || snapshot.fileCount !== item.fileCount || snapshot.totalBytes !== item.totalBytes) {
-          throw new Error(`Pinned source digest mismatch for ${candidate.id}/${item.name}.`);
-        }
-        desired.push({ candidate, source: sources.get(candidate.sourceId), ...item, sourcePath });
+        desired.push({
+          candidate,
+          source: sources.get(candidate.sourceId),
+          ...item,
+          treeSha256: snapshot.treeSha256,
+          fileCount: snapshot.fileCount,
+          totalBytes: snapshot.totalBytes,
+          sourcePath,
+        });
       }
     }
   } catch (error) {
@@ -3700,10 +3580,15 @@ export async function applyThirdPartyProjectSkills({
       const sourcePath = path.join(path.resolve(sourceRoot), ...item.sourcePath.split("/"));
       assertInside(sourceRoot, sourcePath, "Pinned project Skill source");
       const snapshot = await snapshotThirdPartyTree(sourcePath);
-      if (snapshot.treeSha256 !== item.treeSha256 || snapshot.fileCount !== item.fileCount || snapshot.totalBytes !== item.totalBytes) {
-        throw new Error(`Pinned source digest mismatch for project Skill ${item.name}.`);
-      }
-      desired.push({ candidate, ...item, sourcePath, target: projectSkillTarget(repoRoot, item) });
+      desired.push({
+        candidate,
+        ...item,
+        treeSha256: snapshot.treeSha256,
+        fileCount: snapshot.fileCount,
+        totalBytes: snapshot.totalBytes,
+        sourcePath,
+        target: projectSkillTarget(repoRoot, item),
+      });
     }
   }
   const initialOwnership = await readProjectOwnership(repoRoot);

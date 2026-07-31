@@ -185,7 +185,7 @@ For an existing local Git catalog, add `--catalog-mode local --repository
 "<credential-free-url>" --allow-catalog-network`; the saved profile contains
 only the canonical local working-tree path. Third-party acquisition uses the
 separate `--allow-third-party-network` approval. In interactive mode it is
-asked only after exact candidates are selected, lists their pinned sources and
+asked only after exact candidates are selected, lists their official latest channels and
 manifest digest, defaults to `no`, and a refusal drops only those network
 candidates while core initialization continues.
 

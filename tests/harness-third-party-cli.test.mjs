@@ -146,7 +146,7 @@ async function thirdPartyProjectFixture(value, { candidates = [] } = {}) {
       path.join(sourcePath, "SKILL.md"),
       `---\nname: ${entry.id}\ndescription: "Test third-party Skill."\n---\n`,
     );
-    const snapshot = await snapshotThirdPartyTree(sourcePath);
+    await snapshotThirdPartyTree(sourcePath);
     sourceCandidates.push({
       id: entry.id,
       name: entry.id,
@@ -162,9 +162,6 @@ async function thirdPartyProjectFixture(value, { candidates = [] } = {}) {
           name: entry.id,
           sourcePath: entry.id,
           targetPath: `.agents/skills/${entry.id}`,
-          treeSha256: snapshot.treeSha256,
-          fileCount: snapshot.fileCount,
-          totalBytes: snapshot.totalBytes,
         },
       ],
       effects: {
@@ -183,16 +180,15 @@ async function thirdPartyProjectFixture(value, { candidates = [] } = {}) {
     });
   }
   const manifest = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     owner: "trellis-ccg-harness",
     approvalDefaults: { selected: false },
     sources: [
       {
         id: "test-source",
         repository: "https://example.invalid/test-source.git",
-        commit: "1111111111111111111111111111111111111111",
-        gitTree: "2222222222222222222222222222222222222222",
         license: "MIT",
+        channel: "latest",
       },
     ],
     candidates: sourceCandidates,
@@ -955,8 +951,8 @@ test("interactive Global Init recommends every global candidate but keeps explic
       const candidate = candidateQuestions.find((entry) =>
         entry.question.startsWith(`Approve ${name}`),
       );
-      assert.match(candidate.question, /Source Git tree: [a-f0-9]{40}/i);
-      assert.match(candidate.question, /Package SRI: sha512-/i);
+      assert.match(candidate.question, /Source: https:\/\/github\.com\/.*\(latest channel\)/i);
+      assert.doesNotMatch(candidate.question, /Source Git tree|Package SRI/i);
     }
     for (const name of ["Context7", "Playwright", "DeepWiki", "Exa"]) {
       const candidate = candidateQuestions.find((entry) =>
@@ -983,7 +979,7 @@ test("interactive Global Init recommends every global candidate but keeps explic
       candidateQuestions.find((entry) =>
         entry.question.startsWith("Approve ripgrep"),
       ).question,
-      /Release assets:.*SHA-256=[a-f0-9]{64}/is,
+      /Source: https:\/\/github\.com\/BurntSushi\/ripgrep\.git \(latest channel\)/i,
     );
     const finalApproval = questions.find((entry) =>
       entry.question.startsWith("Approve Global Init"),
@@ -1029,7 +1025,7 @@ test("interactive third-party network approval is separate, default-no, and decl
             assert.equal(question.recommended, "no");
             assert.match(
               question.question,
-              /caveman.*github\.com.*@\s*[a-f0-9]{40}/is,
+              /caveman.*github\.com.*\(latest channel\)/is,
             );
             assert.match(question.question, /Source manifest SHA-256: [a-f0-9]{64}/i);
             return "no";

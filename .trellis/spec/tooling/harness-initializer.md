@@ -97,7 +97,7 @@ and recovery tests; ordinary callers use only `repoRoot`.
 - Provider credentials have no initializer fields or environment contract.
   Secret-looking contract keys or values are rejected before mutation.
 - `addons --status` is a read-only inventory of the twelve global candidates in
-  the pinned third-party manifest. It never accepts selections, approvals, or
+  the stable third-party source/channel manifest. It never accepts selections, approvals, or
   network authorization.
 - Interactive `addons` lists every candidate and defaults every selection,
   network prompt, and final approval to skip or cancel.
@@ -116,7 +116,7 @@ and recovery tests; ordinary callers use only `repoRoot`.
 - Drifted or unowned targets are reported but are never selectable or
   overwritten by the addon workflow.
 - Context7, Playwright, DeepWiki, and Exa are CCG-managed MCP handoffs. Harness
-  validates and displays their immutable package/service evidence, effects,
+  validates and displays their latest-channel/service evidence, effects,
   and fixed `ccg config mcp` command, but never executes that command, installs
   their packages, mutates host MCP configuration, or reads credentials.
 - DeepWiki uses only `https://mcp.deepwiki.com/mcp` and explicitly records that
