@@ -262,3 +262,24 @@ Made developer help and invalid arguments side-effect free, isolated CCG test br
 ### Status
 
 [OK] **Completed**
+
+
+## Session 10: Latest third-party integrations
+
+**Date**: 2026-07-31
+**Task**: Latest third-party integrations
+**Branch**: `codex/archive-latest-third-party-addons`
+
+### Summary
+
+Moved approved optional integrations to latest channels, synced CCG 3.4.5, fixed resolved-manifest isolation from live smoke, passed local and remote gates, and merged Harness PR #22.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `78238834f36cfb868418262b08f91368e256a8f9` | (see git log) |
+
+### Status
+
+[OK] **Completed**
