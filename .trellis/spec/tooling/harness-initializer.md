@@ -66,7 +66,7 @@ and recovery tests; ordinary callers use only `repoRoot`.
   user-owned and byte-preserved.
 - An existing owned collaboration-policy snapshot or managed `AGENTS.md` block is
   adopted only when it exactly matches the distribution policy projection.
-- `.harness/ownership.json` schema v2 binds the exact contract, schema, owned
+- `.harness/ownership.json` schema v3 binds the exact contract, schema, owned
   policy, and rendered block digests.
 - Project Schema JSON is parsed and serialized canonically with LF before
   installation and hashing; source-checkout line endings never enter ownership.
@@ -83,7 +83,7 @@ and recovery tests; ordinary callers use only `repoRoot`.
   ownership digest.
 - `revise-project-skills` accepts only a ready, ownership-valid project and a
   clean, immutable Git catalog identity from the saved Skill profile.
-- The revision's global essentials must exactly match the saved 13-Skill
+- The revision's global essentials must exactly match the saved 15-Skill
   profile. `grill-me` remains an externally owned optional Skill and must not
   enter the project contract's global-essential baseline.
 - Replacing an already owned Project Skill requires `--replace-existing`.
@@ -107,6 +107,15 @@ and recovery tests; ordinary callers use only `repoRoot`.
 - Non-interactive addon apply requires those two exact digests plus explicit
   final approval. Network candidates additionally require
   `--allow-third-party-network`.
+- The tracked source manifest stores only stable `latest` or `service` channels;
+  it must not store a resolved commit, tree, release, package integrity, lock,
+  or release-asset digest.
+- Planning is offline and binds the stable channel plus requested effects.
+  After approval, apply resolves the current channel once, verifies the
+  resulting immutable identity, and records that identity in ownership.
+- Every Skill/action executor receives its own clone of the stable manifest.
+  Adding a resolved commit or package identity to one executor's working copy
+  must not mutate the manifest passed to a later executor.
 - Addon apply rebuilds and compares the approved plan immediately before the
   first mutation. Source or plan drift fails closed.
 - Candidate dependencies may be satisfied only by an exact installed candidate
@@ -147,6 +156,8 @@ and recovery tests; ordinary callers use only `repoRoot`.
 | Non-interactive addon apply omits either digest or final approval | Refuse before mutation |
 | A selected addon requires network and network approval is absent | Refuse before mutation |
 | Approved source or plan changes before apply | Refuse the stale approval before mutation |
+| Stable manifest contains a commit, tree, release, integrity, lock, or asset digest | Refuse the stored pin; resolution belongs to approved apply |
+| One executor resolves a latest source | Record the identity in ownership without changing the stable manifest or breaking later executors |
 | An addon target is drifted or unowned | Report it as non-selectable and preserve its bytes |
 
 Errors propagate to `scripts/harness-init.mjs`, which writes one
@@ -171,6 +182,10 @@ Errors propagate to `scripts/harness-init.mjs`, which writes one
   skipped and the command exits without mutation.
 - Bad: an AI reuses an older addon digest after the manifest or installed state
   changes. Apply refuses the stale plan.
+- Good: apply resolves one Git HEAD, installs from that exact commit, and status
+  later reports the owned commit and tree digest.
+- Bad: a Skill resolver writes `source.commit` into the shared manifest and a
+  later plugin executor rejects that runtime-enriched object as a stored pin.
 
 ## 6. Tests Required
 
@@ -202,6 +217,10 @@ Errors propagate to `scripts/harness-init.mjs`, which writes one
 - strict-boundary and network approval rules fail before mutation;
 - stale source or plan digests and a final pre-apply plan change fail closed.
 
+`tests/harness-third-party-approval.test.mjs` must assert that a source resolver
+may add a resolved commit to its private source record without mutating the
+caller's stable manifest or preventing another executor from validating it.
+
 `tests/install-script.test.mjs` must assert that successful default setup keeps
 third-party installation optional and prints the `pnpm addons` re-entry path
 when recommended addons remain pending.
@@ -229,3 +248,7 @@ await markProjectReady({ repoRoot });
 
 The shared transaction engine validates all owned inputs, atomically updates
 the two targets, and preserves the approved state on failure.
+
+For latest-channel execution, pass each installer a cloned manifest and keep
+resolved identities only in the installer transaction and ownership record;
+never write them back into `.harness/third-party-sources.json`.

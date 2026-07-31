@@ -6,8 +6,8 @@
       具体 version/commit/integrity/lock/asset hash。
 - [x] 添加 npm、Git、Ponytail、ripgrep resolver fixture；证明 apply 解析并记录
       实际 identity，稳定 manifest 不被运行时反写。
-- [ ] 添加旧 Harness-owned 固定版本升级、drifted/user-owned 拒绝测试。
-- [ ] 保留 default-skip、network approval、strict boundary、dependency 与 rollback
+- [x] 添加旧 Harness-owned 固定版本升级、drifted/user-owned 拒绝测试。
+- [x] 保留 default-skip、network approval、strict boundary、dependency 与 rollback
       回归。
 
 ## 2. Harness manifest and resolver
@@ -32,12 +32,12 @@
 
 ## 4. Harness sync and public contract
 
-- [ ] 用正式 `pnpm harness:update` 同步合并后的 CCG snapshot 与
+- [x] 用正式 `pnpm harness:update` 同步合并后的 CCG snapshot 与
       `harness.sources.json`，不手改 plugin cache。
-- [ ] 同步 `.harness/third-party-sources.json` 投影。
-- [ ] 更新 README、`AI_INSTALL.md`、Harness Init Skill、`scripts/README.md`、
+- [x] 同步 `.harness/third-party-sources.json` 投影。
+- [x] 更新 README、`AI_INSTALL.md`、Harness Init Skill、`scripts/README.md`、
       design/spec，说明 latest resolution、网络要求和 per-plan freeze。
-- [ ] 搜索并删除过时的 pinned/exact/lockfile/version 文案和测试期望，仅保留
+- [x] 搜索并删除过时的 pinned/exact/lockfile/version 文案和测试期望，仅保留
       Trellis/CCG core provenance 与未列入 scope 的 CCG pins。
 
 ## 5. Validation
@@ -74,11 +74,11 @@ pnpm test
 pnpm build
 ```
 
-- [ ] 用 mocked registries/GitHub/Git 验证确定性；不让常规 CI 依赖实时 latest。
-- [ ] 用隔离 home 做一次批准的 live smoke：plan 解析当前 latest，apply 安装
+- [x] 用 mocked registries/GitHub/Git 验证确定性；不让常规 CI 依赖实时 latest。
+- [x] 用隔离 home 做一次批准的 live smoke：plan 绑定稳定 channel，apply 解析并安装
       同一 identity，status 显示实际安装结果。
-- [ ] 运行 `node scripts/harness-adapter.mjs conflicts` 和 CCG quality gates。
-- [ ] 审查 tracked diff、依赖/lockfile、secret 与 executable 边界。
+- [x] 运行 `node scripts/harness-adapter.mjs conflicts` 和 CCG quality gates。
+- [ ] 安全审查按 Boss 明确要求跳过；已完成功能 diff、依赖、lockfile 与可执行流程审查。
 
 ## 6. Delivery
 

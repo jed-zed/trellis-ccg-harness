@@ -2882,7 +2882,7 @@ export async function preflightThirdPartyGlobalApproval({
   }
   await assertRealDirectory(homeDir, "User home");
   const loaded = suppliedManifest
-    ? { manifest: validateThirdPartySourceManifest(suppliedManifest), manifestSha256: sha256(canonicalJson(suppliedManifest)) }
+    ? { manifest: validateThirdPartySourceManifest(structuredClone(suppliedManifest)), manifestSha256: sha256(canonicalJson(suppliedManifest)) }
     : await loadThirdPartySourceManifest({ manifestPath });
   await verifyThirdPartyApprovalPlanForOperation({
     approvalPlan,
@@ -3057,7 +3057,7 @@ export async function applyThirdPartyGlobalSkills({
   }
   await assertRealDirectory(homeDir, "User home");
   const loaded = suppliedManifest
-    ? { manifest: validateThirdPartySourceManifest(suppliedManifest), manifestSha256: sha256(canonicalJson(suppliedManifest)) }
+    ? { manifest: validateThirdPartySourceManifest(structuredClone(suppliedManifest)), manifestSha256: sha256(canonicalJson(suppliedManifest)) }
     : await loadThirdPartySourceManifest({ manifestPath });
   await verifyThirdPartyApprovalPlanForOperation({
     approvalPlan,
@@ -3530,7 +3530,7 @@ export async function applyThirdPartyProjectSkills({
   await assertRealDirectory(repoRoot, "Project root");
   await assertRealDirectory(homeDir, "User home");
   const loaded = suppliedManifest
-    ? { manifest: validateThirdPartySourceManifest(suppliedManifest), manifestSha256: sha256(canonicalJson(suppliedManifest)) }
+    ? { manifest: validateThirdPartySourceManifest(structuredClone(suppliedManifest)), manifestSha256: sha256(canonicalJson(suppliedManifest)) }
     : await loadThirdPartySourceManifest({ manifestPath });
   await verifyThirdPartyApprovalPlanForOperation({
     approvalPlan,

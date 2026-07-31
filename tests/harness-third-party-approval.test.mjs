@@ -957,11 +957,15 @@ test("explicit Caveman approval installs its pinned global Skill, repeats unchan
       plan,
       selections: { globalSkills: ["caveman"], globalPlugins: [], projectSkills: [], mcpCli: [] },
     });
-    const resolver = async ({ source: pinned }) => pinned.id === "caveman" ? source.cavemanRoot : source.sourceRoot;
+    const resolver = async ({ source: pinned }) => {
+      pinned.commit = "1".repeat(40);
+      return pinned.id === "caveman" ? source.cavemanRoot : source.sourceRoot;
+    };
     const first = await applyThirdPartyGlobalSkills({
       approved: true, approvals, homeDir: value.homeDir, manifest: source.manifest, sourceResolver: resolver,
     });
     assert.equal(first.status, "installed");
+    assert.equal(source.manifest.sources.some((entry) => Object.hasOwn(entry, "commit")), false);
     assert.deepEqual(first.approvedSkillIds, ["caveman"]);
     assert.equal(existsSync(path.join(value.homeDir, ".agents", "skills", "caveman", "SKILL.md")), true);
     assert.equal(existsSync(path.join(value.homeDir, ".claude")), false);
