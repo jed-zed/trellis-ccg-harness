@@ -5,7 +5,10 @@ import {
   validateProviderExecution,
 } from '../provider-registry'
 import { createCodexProductManagerExecution } from '../providers/codex'
-import { createClaudeProductManagerExecution } from '../providers/claude'
+import {
+  createClaudeProductManagerExecution,
+  createClaudeSshProductManagerExecution,
+} from '../providers/claude'
 import { createGeminiProductManagerExecution } from '../providers/gemini'
 import { PRODUCT_MANAGER_OUTPUT_JSON_SCHEMA } from '../contracts'
 import { buildProductManagerProviderEnvironment } from '../provider-runner'
@@ -44,7 +47,7 @@ describe('product-manager provider policy', () => {
     })).toThrow(/read-only/)
   })
 
-  it('disables tools for Codex, Gemini, and Claude', () => {
+  it('keeps providers read-only while allowing Claude workspace reads', () => {
     const workspace = resolve('fixtures', 'empty')
     const policyFile = resolve(workspace, 'deny-all.toml')
     const codex = createCodexProductManagerExecution(resolve('fixtures', 'codex'), {
@@ -71,7 +74,7 @@ describe('product-manager provider policy', () => {
     })
     expect(claude.args).toContain('--safe-mode')
     expect(claude.args).toContain('--disable-slash-commands')
-    expect(claude.args.slice(claude.args.indexOf('--tools'), claude.args.indexOf('--tools') + 2)).toEqual(['--tools', ''])
+    expect(claude.args.slice(claude.args.indexOf('--tools'), claude.args.indexOf('--tools') + 2)).toEqual(['--tools', 'Read,Glob,Grep'])
     expect(claude.args).toContain('--strict-mcp-config')
     expect(claude.args.slice(
       claude.args.indexOf('--mcp-config'),
@@ -102,5 +105,31 @@ describe('product-manager provider policy', () => {
     expect(environment.CODEX_HOME).toBe(codexHome)
     expect(environment.GEMINI_CLI_HOME).toBeUndefined()
     expect(environment.CCG_UNRELATED_SECRET).toBeUndefined()
+  })
+
+  it('keeps SSH details in the exact environment allowlist and out of argv', () => {
+    vi.stubEnv('CCG_PRODUCT_MANAGER_CLAUDE_SSH_EXECUTABLE', resolve('fixtures', 'bridge.exe'))
+    vi.stubEnv('CCG_PRODUCT_MANAGER_CLAUDE_SSH_HOST', 'review.example.test')
+    vi.stubEnv('CCG_PRODUCT_MANAGER_CLAUDE_SSH_USER', 'reviewer')
+    vi.stubEnv('CCG_PRODUCT_MANAGER_CLAUDE_SSH_PORT', '22')
+    vi.stubEnv('CCG_PRODUCT_MANAGER_CLAUDE_SSH_IDENTITY_FILE', resolve('fixtures', 'identity'))
+    vi.stubEnv('CCG_PRODUCT_MANAGER_CLAUDE_SSH_KNOWN_HOSTS_FILE', resolve('fixtures', 'known-hosts'))
+    vi.stubEnv('CCG_PRODUCT_MANAGER_CLAUDE_SSH_REMOTE_EXECUTABLE', '/usr/local/bin/claude')
+    vi.stubEnv('CCG_PRODUCT_MANAGER_CLAUDE_SSH_PASSWORD', 'must-not-pass')
+    const execution = createClaudeSshProductManagerExecution(resolve('fixtures', 'bridge.exe'), {
+      model: 'opus',
+      schema: PRODUCT_MANAGER_OUTPUT_JSON_SCHEMA,
+      snapshotRoot: resolve('fixtures', 'snapshot'),
+      manifestFile: resolve('fixtures', 'manifest.json'),
+      attemptId: 'attempt-1',
+    })
+    const environment = buildProductManagerProviderEnvironment(execution)
+    expect(environment.CCG_PRODUCT_MANAGER_CLAUDE_SSH_HOST).toBe('review.example.test')
+    expect(environment.CCG_PRODUCT_MANAGER_CLAUDE_SSH_REMOTE_EXECUTABLE).toBe('/usr/local/bin/claude')
+    expect(environment.CCG_PRODUCT_MANAGER_CLAUDE_SSH_PASSWORD).toBeUndefined()
+    const argv = execution.args.join(' ')
+    expect(argv).not.toContain('review.example.test')
+    expect(argv).not.toContain('reviewer')
+    expect(argv).not.toContain('known-hosts')
   })
 })

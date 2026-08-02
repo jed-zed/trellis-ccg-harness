@@ -1,10 +1,11 @@
 import type { ModelType, ProductManagerConfig } from '../types'
-import type { ProductManagerOutput, ProductManagerProvider } from '../product-manager/contracts'
-import { existsSync } from 'node:fs'
+import type { ClaudeTransport, ProductManagerOutput, ProductManagerProvider } from '../product-manager/contracts'
+import { randomUUID } from 'node:crypto'
+import { existsSync, lstatSync, realpathSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
-import { delimiter, dirname, isAbsolute, join, resolve } from 'node:path'
+import { basename, delimiter, dirname, isAbsolute, join, resolve } from 'node:path'
 import {
   PRODUCT_MANAGER_CONTRACT_VERSION,
   PRODUCT_MANAGER_OUTPUT_JSON_SCHEMA,
@@ -22,12 +23,21 @@ import {
 } from '../product-manager/evidence-store'
 import { createInvocationKey } from '../product-manager/invocation'
 import {
+  prepareProductManagerWorkspaceSnapshot,
+  validateProductManagerWorkspaceSnapshot,
+} from '../product-manager/workspace-snapshot'
+import {
+  CLAUDE_SSH_ENVIRONMENT_KEYS,
   IMPLEMENTED_PRODUCT_MANAGER_PROVIDERS,
   resolveEffectiveProductManagerProvider,
+  validateProviderExecution,
 } from '../product-manager/provider-registry'
-import { executeReadOnlyProvider } from '../product-manager/provider-runner'
+import { buildProductManagerProviderEnvironment, executeReadOnlyProvider } from '../product-manager/provider-runner'
 import { createCodexProductManagerExecution } from '../product-manager/providers/codex'
-import { createClaudeProductManagerExecution } from '../product-manager/providers/claude'
+import {
+  createClaudeProductManagerExecution,
+  createClaudeSshProductManagerExecution,
+} from '../product-manager/providers/claude'
 import { createGeminiProductManagerExecution } from '../product-manager/providers/gemini'
 import { normalizeProductManagerConfig, readCcgConfigAt } from '../utils/config'
 import { normalizeModelRouting } from '../utils/model-routing'
@@ -36,9 +46,13 @@ export interface ProductManagerCommandOptions {
   json?: boolean
   input?: string
   taskDir?: string
+  workdir?: string
   response?: string
   allowedProviders?: string
   allowProviderCall?: boolean
+  workspaceSnapshot?: string
+  workspaceManifest?: string
+  claudeTransport?: ClaudeTransport
   config?: string
 }
 
@@ -102,20 +116,134 @@ function resolveGeminiEntrypoint(): string | null {
   return existsSync(adjacent) ? adjacent : null
 }
 
+function validateNativeClaudeExecutable(candidate: string): string | null {
+  if (!isAbsolute(candidate) || !existsSync(candidate))
+    return null
+  try {
+    const metadata = lstatSync(candidate)
+    const expectedName = process.platform === 'win32' ? 'claude.exe' : 'claude'
+    if (!metadata.isFile() || metadata.isSymbolicLink() || basename(candidate).toLowerCase() !== expectedName)
+      return null
+    const canonical = realpathSync(candidate)
+    const normalize = (value: string) => process.platform === 'win32' ? resolve(value).toLowerCase() : resolve(value)
+    return normalize(canonical) === normalize(candidate) ? canonical : null
+  }
+  catch {
+    return null
+  }
+}
+
 export function resolveClaudeExecutable(): string | null {
   const explicit = process.env.CCG_PRODUCT_MANAGER_CLAUDE_EXECUTABLE
-  if (explicit && isAbsolute(explicit) && existsSync(explicit))
-    return process.platform !== 'win32' || explicit.toLowerCase().endsWith('.exe') ? explicit : null
+  if (explicit)
+    return validateNativeClaudeExecutable(explicit)
   const direct = findExecutable(process.platform === 'win32' ? ['claude.exe'] : ['claude'])
   if (direct)
-    return direct
+    return validateNativeClaudeExecutable(direct)
   if (process.platform !== 'win32')
     return null
   const shim = findExecutable(['claude.cmd', 'claude.ps1', 'claude'])
   if (!shim)
     return null
   const native = join(dirname(shim), 'node_modules', '@anthropic-ai', 'claude-code', 'bin', 'claude.exe')
-  return existsSync(native) ? native : null
+  return validateNativeClaudeExecutable(native)
+}
+
+export interface ClaudeSshConfiguration {
+  executable: string
+  host: string
+  user: string
+  port: string
+  identityFile: string
+  knownHostsFile: string
+  remoteExecutable: string
+}
+
+function validateTrustedRegularFile(candidate: string, label: string): string {
+  if (!isAbsolute(candidate) || !existsSync(candidate))
+    throw new Error(`${label} must be an existing absolute path`)
+  const metadata = lstatSync(candidate)
+  const canonical = realpathSync(candidate)
+  const normalize = (value: string) => process.platform === 'win32' ? resolve(value).toLowerCase() : resolve(value)
+  if (!metadata.isFile() || metadata.isSymbolicLink() || normalize(canonical) !== normalize(candidate))
+    throw new Error(`${label} must be a canonical non-link regular file`)
+  return canonical
+}
+
+export function resolveClaudeSshConfiguration(
+  environment: NodeJS.ProcessEnv = process.env,
+): ClaudeSshConfiguration {
+  const executable = validateTrustedRegularFile(
+    environment.CCG_PRODUCT_MANAGER_CLAUDE_SSH_EXECUTABLE || '',
+    'Claude SSH bridge executable',
+  )
+  if (process.platform === 'win32' && !executable.toLowerCase().endsWith('.exe'))
+    throw new Error('Claude SSH bridge executable must be a native .exe on Windows')
+  const host = environment.CCG_PRODUCT_MANAGER_CLAUDE_SSH_HOST || ''
+  const user = environment.CCG_PRODUCT_MANAGER_CLAUDE_SSH_USER || ''
+  const port = environment.CCG_PRODUCT_MANAGER_CLAUDE_SSH_PORT || ''
+  if (!/^[a-z0-9][a-z0-9.:-]{0,252}$/i.test(host))
+    throw new Error('Claude SSH host is missing or invalid')
+  if (!/^[a-z_][a-z0-9._-]{0,63}$/i.test(user))
+    throw new Error('Claude SSH user is missing or invalid')
+  if (!/^\d{1,5}$/.test(port) || Number(port) < 1 || Number(port) > 65535)
+    throw new Error('Claude SSH port is missing or invalid')
+  const identityFile = validateTrustedRegularFile(
+    environment.CCG_PRODUCT_MANAGER_CLAUDE_SSH_IDENTITY_FILE || '',
+    'Claude SSH identity file',
+  )
+  const knownHostsFile = validateTrustedRegularFile(
+    environment.CCG_PRODUCT_MANAGER_CLAUDE_SSH_KNOWN_HOSTS_FILE || '',
+    'Claude SSH known-hosts file',
+  )
+  const remoteExecutable = environment.CCG_PRODUCT_MANAGER_CLAUDE_SSH_REMOTE_EXECUTABLE || ''
+  if (/[\0\r\n]/.test(remoteExecutable)
+    || (!remoteExecutable.startsWith('/') && !/^[a-z]:[\\/]/i.test(remoteExecutable))) {
+    throw new Error('Claude SSH remote executable must be an absolute path')
+  }
+  return { executable, host, user, port, identityFile, knownHostsFile, remoteExecutable }
+}
+
+function probeClaudeSshBridge(configuration: ClaudeSshConfiguration): {
+  bridge_version: string
+  remote_cli_version: string
+} {
+  const execution = validateProviderExecution({
+    executable: configuration.executable,
+    args: ['--product-manager-snapshot-protocol-version'],
+    environmentKeys: [...CLAUDE_SSH_ENVIRONMENT_KEYS],
+    readOnly: true,
+    shell: false,
+  })
+  let raw: string
+  try {
+    raw = execFileSync(execution.executable, execution.args, {
+      encoding: 'utf8',
+      env: buildProductManagerProviderEnvironment(execution),
+      shell: false,
+      timeout: 10_000,
+      windowsHide: true,
+    })
+  }
+  catch (error) {
+    let message = error instanceof Error ? error.message : String(error)
+    for (const key of CLAUDE_SSH_ENVIRONMENT_KEYS) {
+      const secret = process.env[key]
+      if (secret)
+        message = message.split(secret).join('[REDACTED]')
+    }
+    throw new Error(`Claude SSH bridge protocol probe failed: ${message}`)
+  }
+  const parsed = JSON.parse(raw) as Record<string, unknown>
+  if (parsed.protocol_version !== '2'
+    || typeof parsed.bridge_version !== 'string' || !parsed.bridge_version.trim()
+    || typeof parsed.remote_cli_version !== 'string' || !parsed.remote_cli_version.trim()) {
+    throw new Error('Claude SSH bridge does not support product-manager snapshot protocol v2')
+  }
+  return {
+    bridge_version: parsed.bridge_version,
+    remote_cli_version: parsed.remote_cli_version,
+  }
 }
 
 function readProviderCliVersion(executable: string): string {
@@ -139,7 +267,8 @@ export function createProductManagerProviderPrompt(input: unknown, identity?: {
 }, schema: Record<string, unknown> = PRODUCT_MANAGER_OUTPUT_JSON_SCHEMA): string {
   return [
     'You are the read-only product-manager reviewer.',
-    'Do not use tools, execute commands, modify files, or control subagents.',
+    'Use only the provider file-read and file-search tools inside the supplied workspace snapshot.',
+    'Do not execute shell commands, modify files, access the network, or control subagents.',
     'Return exactly one JSON object matching the supplied contract.',
     'Do not include markdown, hidden reasoning, credentials, or commentary.',
     identity
@@ -254,8 +383,10 @@ async function invokeProvider(options: {
   provider: ProductManagerProvider
   input: ReturnType<typeof validateProductManagerInput>
   config: ProductManagerConfig
+  workspace: string
+  manifestFile: string
 }): Promise<unknown> {
-  const workspace = await mkdtemp(join(tmpdir(), 'ccg-product-manager-'))
+  const controlRoot = await mkdtemp(join(tmpdir(), 'ccg-product-manager-'))
   const invocationKey = createInvocationKey(options.input)
   const bindContract = (identity: {
     provider: ProductManagerProvider
@@ -287,7 +418,7 @@ async function invokeProvider(options: {
         model,
         cliVersion: readProviderCliVersion(executable),
       })
-      const schemaFile = join(workspace, 'output.schema.json')
+      const schemaFile = join(controlRoot, 'output.schema.json')
       await writeFile(
         schemaFile,
         `${JSON.stringify(contract.schema)}\n`,
@@ -296,10 +427,10 @@ async function invokeProvider(options: {
       const raw = await executeReadOnlyProvider({
         execution: createCodexProductManagerExecution(executable, {
           model,
-          workspace,
+          workspace: options.workspace,
           schemaFile,
         }),
-        cwd: workspace,
+        cwd: options.workspace,
         input: contract.prompt,
         timeoutMs: options.config.timeout_ms,
         maxOutputBytes: options.config.max_output_bytes,
@@ -307,10 +438,33 @@ async function invokeProvider(options: {
       return unwrapProviderOutput(raw, options.provider)
     }
     if (options.provider === 'claude') {
+      const model = resolveClaudeProductManagerModel()
+      if (options.input.claude_transport === 'ssh') {
+        const configuration = resolveClaudeSshConfiguration()
+        const probe = probeClaudeSshBridge(configuration)
+        const contract = bindContract({
+          provider: 'claude',
+          model,
+          cliVersion: probe.remote_cli_version,
+        })
+        const raw = await executeReadOnlyProvider({
+          execution: createClaudeSshProductManagerExecution(configuration.executable, {
+            model,
+            schema: contract.schema,
+            snapshotRoot: options.workspace,
+            manifestFile: options.manifestFile,
+            attemptId: randomUUID(),
+          }),
+          cwd: options.workspace,
+          input: contract.prompt,
+          timeoutMs: options.config.timeout_ms,
+          maxOutputBytes: options.config.max_output_bytes,
+        })
+        return unwrapProviderOutput(raw, options.provider)
+      }
       const executable = resolveClaudeExecutable()
       if (!executable)
         throw new Error('Claude product-manager native executable is unavailable')
-      const model = resolveClaudeProductManagerModel()
       const contract = bindContract({
         provider: 'claude',
         model,
@@ -321,7 +475,7 @@ async function invokeProvider(options: {
           model,
           schema: contract.schema,
         }),
-        cwd: workspace,
+        cwd: options.workspace,
         input: contract.prompt,
         timeoutMs: options.config.timeout_ms,
         maxOutputBytes: options.config.max_output_bytes,
@@ -337,8 +491,14 @@ async function invokeProvider(options: {
       model,
       cliVersion: 'unknown',
     })
-    const policyFile = join(workspace, 'deny-all-tools.toml')
+    const policyFile = join(controlRoot, 'read-only-tools.toml')
     await writeFile(policyFile, [
+      '[[rule]]',
+      'toolName = ["read_file", "read_many_files", "list_directory", "glob", "grep_search"]',
+      'decision = "allow"',
+      'priority = 1000',
+      'modes = ["plan"]',
+      '',
       '[[rule]]',
       'toolName = "*"',
       'decision = "deny"',
@@ -360,7 +520,7 @@ async function invokeProvider(options: {
         model,
         policyFile,
       }),
-      cwd: workspace,
+      cwd: options.workspace,
       input: contract.prompt,
       timeoutMs: options.config.timeout_ms,
       maxOutputBytes: options.config.max_output_bytes,
@@ -368,7 +528,7 @@ async function invokeProvider(options: {
     return unwrapProviderOutput(raw, options.provider)
   }
   finally {
-    await rm(workspace, { recursive: true, force: true })
+    await rm(controlRoot, { recursive: true, force: true })
   }
 }
 
@@ -402,6 +562,15 @@ export async function productManagerStatus(options: ProductManagerCommandOptions
       authorizes_paid_call: false,
     },
   }
+}
+
+export async function snapshotProductManager(options: ProductManagerCommandOptions) {
+  if (!options.workdir || !options.taskDir)
+    throw new TypeError('product-manager snapshot requires --workdir and --task-dir')
+  return await prepareProductManagerWorkspaceSnapshot({
+    workdir: resolve(options.workdir),
+    taskDir: resolve(options.taskDir),
+  })
 }
 
 function invocationStatus(options: {
@@ -442,11 +611,20 @@ function invocationStatus(options: {
 }
 
 export async function reviewProductManager(options: ProductManagerCommandOptions): Promise<ProductManagerOutput> {
-  if (!options.input || !options.taskDir)
-    throw new TypeError('product-manager review requires --input and --task-dir')
+  if (!options.input || !options.taskDir || !options.workspaceSnapshot || !options.workspaceManifest || !options.claudeTransport)
+    throw new TypeError('product-manager review requires --input, --task-dir, --workspace-snapshot, --workspace-manifest, and --claude-transport')
   const inputFile = resolve(options.input)
   const taskDir = resolve(options.taskDir)
   const input = validateProductManagerInput(JSON.parse(await readFile(inputFile, 'utf8')))
+  if (options.claudeTransport !== input.claude_transport)
+    throw new Error('stale product-manager request: Claude transport mismatch')
+  const workspace = await validateProductManagerWorkspaceSnapshot({
+    snapshotRoot: resolve(options.workspaceSnapshot),
+    manifestFile: resolve(options.workspaceManifest),
+    taskDir,
+    expected: input.workspace_snapshot,
+  })
+  const manifestFile = realpathSync(options.workspaceManifest)
   const invocationKey = createInvocationKey(input)
   const config = await readCodexProductManagerConfig(options.config)
   const allowed = parseAllowedProviders(options.allowedProviders)
@@ -491,6 +669,8 @@ export async function reviewProductManager(options: ProductManagerCommandOptions
           contract_version: input.contract_version,
           input_digest: input.input_digest,
           evidence_digest: input.evidence_digest,
+          workspace_snapshot: input.workspace_snapshot,
+          claude_transport: input.claude_transport,
           mode: options.response ? 'recorded-response' : 'live-provider-call',
           requested_at: createdAt,
         },
@@ -534,6 +714,8 @@ export async function reviewProductManager(options: ProductManagerCommandOptions
               provider: effective.provider,
               input,
               config: config.behavior,
+              workspace,
+              manifestFile,
             }),
             onAttemptFailure: async ({ attempt, maxAttempts, error }) => {
               await appendInvocationAudit({
@@ -621,9 +803,11 @@ export async function productManagerCommand(
   try {
     const result = action === 'status'
       ? await productManagerStatus(options)
-      : action === 'review'
-        ? await reviewProductManager(options)
-        : null
+      : action === 'snapshot'
+        ? await snapshotProductManager(options)
+        : action === 'review'
+          ? await reviewProductManager(options)
+          : null
     if (!result)
       throw new Error(`unknown product-manager action: ${action}`)
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`)

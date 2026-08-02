@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { executeReadOnlyProvider } from '../provider-runner'
 
 const cleanupPids = new Set<number>()
@@ -39,6 +39,7 @@ afterEach(() => {
     }
   }
   cleanupPids.clear()
+  vi.unstubAllEnvs()
 })
 
 describe('product-manager provider runner', () => {
@@ -93,6 +94,35 @@ describe('product-manager provider runner', () => {
         expect(message).toContain('provider rejected model')
         expect(message).toContain('[truncated]')
         expect(Buffer.byteLength(message, 'utf8')).toBeLessThan(4_300)
+        return true
+      })
+    }
+    finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('redacts SSH transport details from provider diagnostics', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'ccg-provider-runner-'))
+    const host = 'private-review-host.example.test'
+    vi.stubEnv('CCG_PRODUCT_MANAGER_CLAUDE_SSH_HOST', host)
+    try {
+      await expect(executeReadOnlyProvider({
+        execution: {
+          executable: process.execPath,
+          args: ['-e', `process.stderr.write(${JSON.stringify(`host=${host}`)}); process.exit(7)`],
+          environmentKeys: ['CCG_PRODUCT_MANAGER_CLAUDE_SSH_HOST'],
+          readOnly: true,
+          shell: false,
+        },
+        cwd: root,
+        input: '',
+        timeoutMs: 5_000,
+        maxOutputBytes: 1_024,
+      })).rejects.toSatisfy((error: unknown) => {
+        const message = (error as Error).message
+        expect(message).toContain('[REDACTED]')
+        expect(message).not.toContain(host)
         return true
       })
     }

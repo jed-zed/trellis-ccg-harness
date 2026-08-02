@@ -112,6 +112,7 @@
     "stateFile": ".trellis/tasks/<task>/product-manager.json",
     "evidenceRoot": ".trellis/tasks/<task>/.ccg-evidence/product-manager",
     "selectedProviderAuthority": "unified-ccg-routing",
+    "claudeTransport": "local",
     "allowedProviders": [
       "codex",
       "gemini",

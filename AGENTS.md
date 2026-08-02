@@ -200,9 +200,13 @@ plans, milestones, status, completion, or workspace writes.
   terminal tools, subagents, and provider fallback disabled. A provider failure
   records `unavailable`; it never fabricates acceptance.
 - Claude Code may be the explicitly selected product-manager Provider. It must
-  run from its trusted native executable in a disposable directory with safe
-  mode, tools, MCP, skills/plugins, hooks, session persistence, and workspace
-  writes disabled. Harness initialization still never installs or logs in Claude.
+  see only a bounded task-local snapshot and may use Read, Glob, and Grep.
+  Write/Edit/Bash/Shell, MCP, skills/plugins, hooks, browser, session
+  persistence, subagents, and workspace writes stay disabled. Project transport
+  defaults to native local Claude; explicit SSH stores only `ssh` in the project
+  contract, reads connection details from the fixed environment allowlist,
+  requires bridge protocol v2, and never falls back. Harness initialization
+  still never installs or logs in Claude.
 - Existing prompt hooks may inject only pending-gate and resume breadcrumbs.
   They must not call a provider, acquire a product-manager lock, write product
   state, create another hook, or become a second orchestrator.

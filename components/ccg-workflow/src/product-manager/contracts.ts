@@ -22,6 +22,7 @@ export const PRODUCT_MANAGER_VERDICTS = [
 export type ProductManagerTrigger = typeof PRODUCT_MANAGER_TRIGGERS[number]
 export type ProductManagerVerdict = typeof PRODUCT_MANAGER_VERDICTS[number]
 export type ProductManagerProvider = string
+export type ClaudeTransport = 'local' | 'ssh'
 export type MilestoneStatus
   = | 'not_started'
     | 'in_progress'
@@ -40,7 +41,18 @@ export interface InvocationIdentity {
   evidence_digest: string
 }
 
+export interface ProductManagerWorkspaceSnapshot {
+  policy_version: string
+  sha256: string
+  file_count: number
+  total_bytes: number
+  git_head: string
+  dirty: boolean
+}
+
 export interface ProductManagerInput extends InvocationIdentity {
+  workspace_snapshot: ProductManagerWorkspaceSnapshot
+  claude_transport: ClaudeTransport
   user_request: string
   product_brief: Record<string, unknown> | null
   grill_handoff: Record<string, unknown> | null
@@ -63,6 +75,8 @@ const INPUT_FIELDS = [
   'plan_revision',
   'input_digest',
   'evidence_digest',
+  'workspace_snapshot',
+  'claude_transport',
   'user_request',
   'product_brief',
   'grill_handoff',
@@ -294,6 +308,24 @@ function assertHypotheses(value: unknown[]): void {
   }
 }
 
+function assertWorkspaceSnapshot(value: unknown): asserts value is ProductManagerWorkspaceSnapshot {
+  assertRecord(value, 'product_manager_input.workspace_snapshot')
+  assertExactFields(
+    value,
+    ['policy_version', 'sha256', 'file_count', 'total_bytes', 'git_head', 'dirty'],
+    'product_manager_input.workspace_snapshot',
+  )
+  assertString(value.policy_version, 'product_manager_input.workspace_snapshot.policy_version')
+  assertString(value.sha256, 'product_manager_input.workspace_snapshot.sha256', HEX_64)
+  assertString(value.git_head, 'product_manager_input.workspace_snapshot.git_head')
+  if (!Number.isSafeInteger(value.file_count) || (value.file_count as number) < 0 || (value.file_count as number) > 2000)
+    throw new TypeError('product_manager_input.workspace_snapshot.file_count must be between 0 and 2000')
+  if (!Number.isSafeInteger(value.total_bytes) || (value.total_bytes as number) < 0 || (value.total_bytes as number) > 64 * 1024 * 1024)
+    throw new TypeError('product_manager_input.workspace_snapshot.total_bytes must be between 0 and 67108864')
+  if (typeof value.dirty !== 'boolean')
+    throw new TypeError('product_manager_input.workspace_snapshot.dirty must be a boolean')
+}
+
 export function validateInvocationIdentity(value: unknown): InvocationIdentity {
   assertRecord(value, 'invocation')
   assertString(value.contract_version, 'invocation.contract_version')
@@ -313,6 +345,9 @@ export function validateProductManagerInput(value: unknown): ProductManagerInput
   assertRecord(value, 'product_manager_input')
   assertExactFields(value, INPUT_FIELDS, 'product_manager_input')
   validateInvocationIdentity(value)
+  assertWorkspaceSnapshot(value.workspace_snapshot)
+  if (value.claude_transport !== 'local' && value.claude_transport !== 'ssh')
+    throw new TypeError('product_manager_input.claude_transport must be local or ssh')
   assertString(value.user_request, 'product_manager_input.user_request')
   for (const field of ['product_brief', 'grill_handoff', 'current_milestone', 'previous_review'] as const) {
     if (value[field] !== null)

@@ -24,8 +24,8 @@
     "authoritativeRepository": "https://github.com/jed-zed/ccg-gptpro-worflow",
     "authoritativeRemoteNameInSourceCheckout": "gptpro",
     "originalUpstream": "https://github.com/fengshao1227/ccg-workflow",
-    "commit": "2b87e4162b44fc363ed6aac072b9d95ee3de81bb",
-    "gitTree": "8c2471617edc8b5f75eafa829c6007afa0cf804b",
+    "commit": "6c85839744ac7d91776929a207f45fdeab132179",
+    "gitTree": "54ce1ed315c2b0c66765a0eee8ebf146f05b9911",
     "snapshotPath": "components/ccg-workflow",
     "sourceMode": "tracked-tree-from-explicit-personal-commit"
   }

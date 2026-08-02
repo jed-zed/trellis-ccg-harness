@@ -13,7 +13,8 @@ becoming a task or workspace authority.
 - Validate facts, hypotheses, progress, verdicts, evidence references, and a
   vendor-neutral provider identity.
 - Run only an explicitly selected, implemented Codex, Gemini, or Claude adapter through
-  a no-tool, read-only boundary.
+  a snapshot-bound, read-only boundary with file reads/searches but no writes,
+  terminal, MCP, network, plugins, sessions, browser, or subagents.
 - Redact provider payloads and task-local runtime evidence.
 - Keep machine-readable stdout to exactly one JSON document by suppressing
   support notices in both CCG and provider children, and record bounded,
@@ -44,7 +45,10 @@ for Trellis state projection and user gates.
 ccg routing get product-manager --json
 ccg routing set product-manager claude
 ccg product-manager status --json
-ccg product-manager review --input <input.json> --task-dir <trellis-task>
+ccg product-manager snapshot --workdir <repo> --task-dir <trellis-task> --json
+ccg product-manager review --input <input.json> --task-dir <trellis-task> \
+  --workspace-snapshot <snapshot> --workspace-manifest <manifest> \
+  --claude-transport <local|ssh>
 ```
 
 Provider execution additionally requires explicit `--allow-provider-call`.
@@ -57,3 +61,8 @@ CLI. CCG does not install Claude, log it in, create project `.claude` state, or
 enable it for ordinary delegation. The adapter always passes `--model`; its
 default is the native `opus` alias, while
 `CCG_PRODUCT_MANAGER_CLAUDE_MODEL` can explicitly override that value.
+Local transport is the default and accepts only native Claude. SSH is a
+project opt-in whose seven connection settings are environment-only; it
+requires bridge protocol v2 and never falls back to local. Neither mode is
+installed or logged in by CCG.
+See `CLAUDE_SSH_BRIDGE_V2.md` for the packaged bridge contract.

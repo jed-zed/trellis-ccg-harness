@@ -290,6 +290,7 @@ function createFixture() {
   const project = {
     productManager: {
       ...adapterContract().productManager,
+      claudeTransport: "local",
       stateFile: ".trellis/tasks/<task>/product-manager.json",
       evidenceRoot:
         ".trellis/tasks/<task>/.ccg-evidence/product-manager",
@@ -619,6 +620,39 @@ test("clean fixture has no blocking conflicts", async () => {
       report.findings.find((item) => item.id === "ccg-source-tree").status,
       "ok",
     );
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("invalid project Claude transport is a blocking conflict", async () => {
+  const fixture = createFixture();
+  try {
+    const projectPath = path.join(fixture.repoRoot, ".harness", "project.json");
+    const ownershipPath = path.join(
+      fixture.repoRoot,
+      ".harness",
+      "ownership.json",
+    );
+    const project = JSON.parse(readFileSync(projectPath, "utf8"));
+    project.productManager.claudeTransport = "automatic";
+    const projectBytes = `${JSON.stringify(project, null, 2)}\n`;
+    writeText(projectPath, projectBytes);
+    const ownership = JSON.parse(readFileSync(ownershipPath, "utf8"));
+    ownership.contractSha256 = sha256(projectBytes);
+    writeJson(ownershipPath, ownership);
+
+    const report = await auditConflicts(fixture.repoRoot, {
+      runner: fixture.runner,
+      homeDir: fixture.homeDir,
+    });
+    const finding = report.findings.find(
+      (item) => item.id === "product-manager-managed-assets",
+    );
+    assert.equal(finding.severity, "blocking");
+    assert.equal(finding.status, "conflict");
+    assert.equal(finding.evidence.claudeTransport, "automatic");
+    assert.equal(conflictExitCode(report), 2);
   } finally {
     fixture.cleanup();
   }

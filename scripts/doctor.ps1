@@ -172,6 +172,26 @@ else {
   Add-Pass "Installed personal CCG CLI $ccgRuntimeVersion"
 }
 
+$legacyClaudeOverride = @("Process", "User") |
+  ForEach-Object {
+    [Environment]::GetEnvironmentVariable(
+      "CCG_PRODUCT_MANAGER_CLAUDE_EXECUTABLE",
+      $_
+    )
+  } |
+  Where-Object {
+    $_ -and
+    [System.IO.Path]::GetFileName($_) -match '^claude-ssh-bridge(?:\.exe)?$'
+  } |
+  Select-Object -First 1
+if ($legacyClaudeOverride) {
+  Add-Warning (
+    "Legacy Claude SSH bridge remains bound to CCG_PRODUCT_MANAGER_CLAUDE_EXECUTABLE. " +
+    "Local transport rejects this binding; select project transport ssh and migrate " +
+    "the bridge to CCG_PRODUCT_MANAGER_CLAUDE_SSH_* variables without automatic fallback."
+  )
+}
+
 $transactionState = Join-Path $RepoRoot ".harness-cache"
 $transactionJournal = Join-Path $transactionState "transaction-journal.json"
 $transactionLock = Join-Path $transactionState "transaction.lock"

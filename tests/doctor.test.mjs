@@ -195,7 +195,7 @@ function fixture() {
   };
 }
 
-function runDoctor(value, reportPath, targetVersion = TARGET_VERSION) {
+function runDoctor(value, reportPath, targetVersion = TARGET_VERSION, environment = {}) {
   const args = [
     "-NoProfile",
     "-ExecutionPolicy",
@@ -218,6 +218,7 @@ function runDoctor(value, reportPath, targetVersion = TARGET_VERSION) {
         ...process.env,
         PATH: `${value.binRoot}${delimiter}${process.env.PATH}`,
         TEST_ADAPTER_REPORT: reportPath,
+        ...environment,
       },
     },
   );
@@ -247,6 +248,23 @@ function runSetupDoctor(value, reportPath, previousPluginVersion) {
     },
   });
 }
+
+test("doctor warns when the legacy Claude override still points to the SSH bridge", () => {
+  const value = fixture();
+  try {
+    const reportPath = value.writeReport("legacy-claude-bridge.json", adapterReport());
+    const result = runDoctor(value, reportPath, null, {
+      CCG_PRODUCT_MANAGER_CLAUDE_EXECUTABLE: path.join(
+        value.fixtureRoot,
+        process.platform === "win32" ? "claude-ssh-bridge.exe" : "claude-ssh-bridge",
+      ),
+    });
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+    assert.match(result.stdout, /legacy Claude SSH bridge.*local transport rejects/i);
+  } finally {
+    value.cleanup();
+  }
+});
 
 test("CCG doctor accepts owner-compatible versions while updates remain target-bound", () => {
   const value = fixture();

@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { execFileSync } from 'node:child_process'
+import { chmod, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -8,11 +9,18 @@ import {
   invokeValidatedProductManagerProvider,
   productManagerStatus,
   reviewProductManager,
+  resolveClaudeExecutable,
   resolveClaudeProductManagerModel,
+  resolveClaudeSshConfiguration,
+  snapshotProductManager,
   unwrapProviderOutput,
 } from '../../commands/product-manager'
 import { canonicalJson } from '../canonical-json'
 import { createInvocationKey } from '../invocation'
+import {
+  createWorkspaceSnapshotDigest,
+  validateProductManagerWorkspaceSnapshot,
+} from '../workspace-snapshot'
 
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), 'ccg-pm-command-'))
@@ -34,6 +42,32 @@ async function fixture() {
     'max_output_bytes = 1048576',
     '',
   ].join('\n'), 'utf8')
+  const snapshotRoot = join(taskDir, '.ccg-evidence', 'product-manager', 'snapshots', 'fixture', 'root')
+  await mkdir(snapshotRoot, { recursive: true })
+  const snapshotData = Buffer.from('# Snapshot\n', 'utf8')
+  const snapshotFile = join(snapshotRoot, 'README.md')
+  await writeFile(snapshotFile, snapshotData)
+  await chmod(snapshotFile, 0o400)
+  const files = [{
+    path: 'README.md',
+    bytes: snapshotData.length,
+    sha256: createHash('sha256').update(snapshotData).digest('hex'),
+  }]
+  const workspaceSnapshot = {
+    policy_version: '1',
+    sha256: createWorkspaceSnapshotDigest({
+      policy_version: '1',
+      git_head: '4'.repeat(40),
+      dirty: false,
+      files,
+    }),
+    file_count: files.length,
+    total_bytes: snapshotData.length,
+    git_head: '4'.repeat(40),
+    dirty: false,
+  }
+  const manifestFile = join(taskDir, '.ccg-evidence', 'product-manager', 'snapshots', 'fixture', 'manifest.json')
+  await writeFile(manifestFile, `${JSON.stringify({ ...workspaceSnapshot, files })}\n`, 'utf8')
   const base = {
     contract_version: '1',
     task_id: 'pm',
@@ -41,6 +75,8 @@ async function fixture() {
     checkpoint_id: 'M1',
     plan_revision: 1,
     evidence_digest: '2'.repeat(64),
+    workspace_snapshot: workspaceSnapshot,
+    claude_transport: 'local' as const,
     user_request: 'Implement M1',
     product_brief: null,
     grill_handoff: null,
@@ -60,7 +96,15 @@ async function fixture() {
   }
   const inputFile = join(taskDir, 'input.json')
   await writeFile(inputFile, `${JSON.stringify(input)}\n`, 'utf8')
-  return { root, taskDir, config, input, inputFile }
+  return { root, taskDir, config, input, inputFile, snapshotRoot, manifestFile }
+}
+
+function workspaceOptions(value: Awaited<ReturnType<typeof fixture>>) {
+  return {
+    workspaceSnapshot: value.snapshotRoot,
+    workspaceManifest: value.manifestFile,
+    claudeTransport: 'local' as const,
+  }
 }
 
 function outputFor(input: Awaited<ReturnType<typeof fixture>>['input']) {
@@ -101,6 +145,88 @@ describe('product-manager command', () => {
 
     vi.stubEnv('CCG_PRODUCT_MANAGER_CLAUDE_MODEL', 'claude-opus-5')
     expect(resolveClaudeProductManagerModel()).toBe('claude-opus-5')
+  })
+
+  it('rejects the legacy SSH bridge as a local Claude executable', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'ccg-pm-claude-'))
+    try {
+      const bridge = join(root, process.platform === 'win32' ? 'claude-ssh-bridge.exe' : 'claude-ssh-bridge')
+      await writeFile(bridge, '')
+      vi.stubEnv('CCG_PRODUCT_MANAGER_CLAUDE_EXECUTABLE', bridge)
+      expect(resolveClaudeExecutable()).toBeNull()
+    }
+    finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('validates the explicit SSH transport environment without using the local override', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'ccg-pm-ssh-'))
+    try {
+      const bridge = join(root, process.platform === 'win32' ? 'bridge.exe' : 'bridge')
+      const identity = join(root, 'identity')
+      const knownHosts = join(root, 'known-hosts')
+      await writeFile(bridge, '')
+      await writeFile(identity, '')
+      await writeFile(knownHosts, '')
+      const configuration = resolveClaudeSshConfiguration({
+        CCG_PRODUCT_MANAGER_CLAUDE_EXECUTABLE: join(root, 'local-claude-must-not-be-used.exe'),
+        CCG_PRODUCT_MANAGER_CLAUDE_SSH_EXECUTABLE: bridge,
+        CCG_PRODUCT_MANAGER_CLAUDE_SSH_HOST: 'review.example.test',
+        CCG_PRODUCT_MANAGER_CLAUDE_SSH_USER: 'reviewer',
+        CCG_PRODUCT_MANAGER_CLAUDE_SSH_PORT: '22',
+        CCG_PRODUCT_MANAGER_CLAUDE_SSH_IDENTITY_FILE: identity,
+        CCG_PRODUCT_MANAGER_CLAUDE_SSH_KNOWN_HOSTS_FILE: knownHosts,
+        CCG_PRODUCT_MANAGER_CLAUDE_SSH_REMOTE_EXECUTABLE: '/usr/local/bin/claude',
+      })
+      expect(configuration.executable).toBe(bridge)
+      expect(configuration.remoteExecutable).toBe('/usr/local/bin/claude')
+      expect(() => resolveClaudeSshConfiguration({
+        ...process.env,
+        CCG_PRODUCT_MANAGER_CLAUDE_SSH_EXECUTABLE: bridge,
+      })).toThrow(/host|user|port|identity|known-hosts/i)
+    }
+    finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('prepares one bounded offline snapshot from tracked, dirty, and untracked files', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'ccg-pm-snapshot-'))
+    const taskDir = join(root, '.trellis', 'tasks', 'pm')
+    try {
+      await mkdir(taskDir, { recursive: true })
+      await writeFile(join(taskDir, 'task.json'), '{"id":"pm"}\n')
+      await writeFile(join(root, '.gitignore'), '.ccg-evidence/\nignored.txt\n')
+      await writeFile(join(root, 'tracked.txt'), 'before\n')
+      await writeFile(join(root, '.env'), 'SECRET=excluded\n')
+      execFileSync('git', ['init'], { cwd: root, shell: false, stdio: 'ignore' })
+      execFileSync('git', ['add', '.'], { cwd: root, shell: false, stdio: 'ignore' })
+      await writeFile(join(root, 'tracked.txt'), 'after\n')
+      await writeFile(join(root, 'untracked.txt'), 'visible\n')
+      await writeFile(join(root, 'ignored.txt'), 'excluded\n')
+
+      const prepared = await snapshotProductManager({ workdir: root, taskDir })
+      const manifest = JSON.parse(await readFile(prepared.manifest_path, 'utf8'))
+      expect(manifest.files.map((file: { path: string }) => file.path)).toEqual(expect.arrayContaining([
+        '.gitignore',
+        '.trellis/tasks/pm/task.json',
+        'tracked.txt',
+        'untracked.txt',
+      ]))
+      expect(manifest.files.map((file: { path: string }) => file.path)).not.toContain('.env')
+      expect(manifest.files.map((file: { path: string }) => file.path)).not.toContain('ignored.txt')
+      expect(prepared.workspace_snapshot.dirty).toBe(true)
+      await expect(validateProductManagerWorkspaceSnapshot({
+        snapshotRoot: prepared.snapshot_root,
+        manifestFile: prepared.manifest_path,
+        taskDir,
+        expected: prepared.workspace_snapshot,
+      })).resolves.toBe(prepared.snapshot_root)
+    }
+    finally {
+      await rm(root, { recursive: true, force: true })
+    }
   })
 
   it('reports the provider resolved from unified routing', async () => {
@@ -194,12 +320,14 @@ describe('product-manager command', () => {
       const response = join(value.taskDir, 'response.json')
       await writeFile(response, `${JSON.stringify(outputFor(value.input))}\n`, 'utf8')
       const first = await reviewProductManager({
+        ...workspaceOptions(value),
         input: value.inputFile,
         taskDir: value.taskDir,
         response,
         config: value.config,
       })
       const reused = await reviewProductManager({
+        ...workspaceOptions(value),
         input: value.inputFile,
         taskDir: value.taskDir,
         config: value.config,
@@ -216,6 +344,7 @@ describe('product-manager command', () => {
     try {
       vi.stubEnv('CCG_PRODUCT_MANAGER_CODEX_EXECUTABLE', process.execPath)
       const result = await reviewProductManager({
+        ...workspaceOptions(value),
         input: value.inputFile,
         taskDir: value.taskDir,
         config: value.config,

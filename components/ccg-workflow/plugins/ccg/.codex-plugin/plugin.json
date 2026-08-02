@@ -1,7 +1,7 @@
 {
   "name": "ccg",
   "version": "3.4.5+codex.1",
-  "description": "Codex-native CCG workflow with unified role-to-provider routing, bounded provider evidence, an optional isolated read-only Claude product-manager Provider, opt-in external intelligence, spec, team, and quality gates. Codex remains the final implementation and verification owner.",
+  "description": "Codex-native CCG workflow with unified role-to-provider routing, bounded provider evidence, an optional snapshot-bound read-only Claude product-manager Provider with local or explicit SSH transport, opt-in external intelligence, spec, team, and quality gates. Codex remains the final implementation and verification owner.",
   "author": {
     "name": "jed-zed",
     "email": "noreply@example.com",
@@ -23,7 +23,7 @@
   "interface": {
     "displayName": "CCG GPT Pro Workflow",
     "shortDescription": "Run Codex-native CCG with configurable role providers and local quality gates",
-    "longDescription": "A Codex-native CCG fork where frontend, backend, search, and product-manager independently select registered providers through unified routing. Codex owns orchestration, implementation, and verification. External intelligence remains opt-in, Claude may run only as an explicitly selected isolated read-only product-manager Provider, and GPT Pro uses the installed Codex Desktop sidebar Skill for automated read-only evidence. Includes bounded provider evidence, hardened snapshots, Git/context helpers, spec and team workflows, and local quality/security gates.",
+    "longDescription": "A Codex-native CCG fork where frontend, backend, search, and product-manager independently select registered providers through unified routing. Codex owns orchestration, implementation, and verification. External intelligence remains opt-in, Claude may run only as an explicitly selected snapshot-bound read-only product-manager Provider using local native execution by default or an environment-only SSH protocol-v2 opt-in with no fallback, and GPT Pro uses the installed Codex Desktop sidebar Skill for automated read-only evidence. Includes bounded provider evidence, hardened snapshots, Git/context helpers, spec and team workflows, and local quality/security gates.",
     "developerName": "jed-zed",
     "category": "Coding",
     "capabilities": [

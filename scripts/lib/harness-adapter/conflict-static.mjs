@@ -379,7 +379,7 @@ function checkProductManagerPolicy({ contract, add }) {
       selectedProviderAuthority: policy?.selectedProviderAuthority,
       allowedProviders: allowed,
     },
-    "Restore Trellis task projection authority and independently no-tool provider capabilities.",
+    "Restore Trellis task projection authority and independently constrained read-only provider capabilities.",
   );
 }
 
@@ -407,6 +407,7 @@ function checkProductManagerManagedAssets({ repoRoot, contract, add }) {
     );
     const managedPaths = new Set(ownership.managedPaths ?? []);
     const policy = project.productManager;
+    const claudeTransport = policy?.claudeTransport ?? "local";
     const matches =
       typeof projectBytes === "string" &&
       typeof projectSchemaBytes === "string" &&
@@ -418,6 +419,7 @@ function checkProductManagerManagedAssets({ repoRoot, contract, add }) {
       managedPaths.has(".harness/project.json") &&
       managedPaths.has(".harness/project.schema.json") &&
       managedPaths.has(".harness/product-manager.schema.json") &&
+      ["local", "ssh"].includes(claudeTransport) &&
       policy?.stateAuthority === contract.productManager.stateAuthority &&
       policy?.stateFile ===
         `.trellis/tasks/<task>/${contract.productManager.stateFile}` &&
@@ -444,6 +446,7 @@ function checkProductManagerManagedAssets({ repoRoot, contract, add }) {
         ),
         stateAuthority: policy?.stateAuthority,
         selectedProviderAuthority: policy?.selectedProviderAuthority,
+        claudeTransport,
       },
       "Run the approved harness-init product-manager migration instead of editing managed assets by hand.",
     );
