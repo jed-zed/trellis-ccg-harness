@@ -184,7 +184,7 @@ export function resolveClaudeSshConfiguration(
   const port = environment.CCG_PRODUCT_MANAGER_CLAUDE_SSH_PORT || ''
   if (!/^[a-z0-9][a-z0-9.:-]{0,252}$/i.test(host))
     throw new Error('Claude SSH host is missing or invalid')
-  if (!/^[a-z_][a-z0-9._-]{0,63}$/i.test(user))
+  if (!/^[a-z0-9_][a-z0-9._-]{0,63}$/i.test(user))
     throw new Error('Claude SSH user is missing or invalid')
   if (!/^\d{1,5}$/.test(port) || Number(port) < 1 || Number(port) > 65535)
     throw new Error('Claude SSH port is missing or invalid')

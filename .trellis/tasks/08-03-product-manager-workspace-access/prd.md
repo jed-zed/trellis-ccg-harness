@@ -100,7 +100,7 @@ SSH 连接、传输、远端版本或清理失败必须失败关闭；不得切�
 
 ## 风险与延期项
 
-- `fix-ccg-plan-snapshot` 与 CCG `3.4.5` source/runtime 基线已对齐；权威 CCG 实现已提交为 `6c85839744ac7d91776929a207f45fdeab132179`，Harness staged snapshot 已通过 committed-source 门禁。
+- `fix-ccg-plan-snapshot` 与 CCG `3.4.5` source/runtime 基线已对齐；权威 CCG 实现已提交为 `cc053f7d2345031dbc93b933aa659fd582150b8f`，Harness staged snapshot 已通过 committed-source 门禁。
 - 当前机器只有编译后的 `claude-ssh-bridge.exe`，仓库内没有其源码。Harness/CCG 将定义并校验 bridge v2 协议，但 bridge 的升级、安装和真实远端验收仍是显式运维步骤。
 - 强制终止或远端主机失联可能留下远端临时目录；正常结果、错误、timeout 和 retry 必须清理，异常残留由 bridge 的下次启动清理/运维检查处理，不由 Harness 自动连接远端扫描。
 

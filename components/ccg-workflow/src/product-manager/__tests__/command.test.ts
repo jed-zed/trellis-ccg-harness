@@ -173,13 +173,14 @@ describe('product-manager command', () => {
         CCG_PRODUCT_MANAGER_CLAUDE_EXECUTABLE: join(root, 'local-claude-must-not-be-used.exe'),
         CCG_PRODUCT_MANAGER_CLAUDE_SSH_EXECUTABLE: bridge,
         CCG_PRODUCT_MANAGER_CLAUDE_SSH_HOST: 'review.example.test',
-        CCG_PRODUCT_MANAGER_CLAUDE_SSH_USER: 'reviewer',
+        CCG_PRODUCT_MANAGER_CLAUDE_SSH_USER: '29933',
         CCG_PRODUCT_MANAGER_CLAUDE_SSH_PORT: '22',
         CCG_PRODUCT_MANAGER_CLAUDE_SSH_IDENTITY_FILE: identity,
         CCG_PRODUCT_MANAGER_CLAUDE_SSH_KNOWN_HOSTS_FILE: knownHosts,
         CCG_PRODUCT_MANAGER_CLAUDE_SSH_REMOTE_EXECUTABLE: '/usr/local/bin/claude',
       })
       expect(configuration.executable).toBe(bridge)
+      expect(configuration.user).toBe('29933')
       expect(configuration.remoteExecutable).toBe('/usr/local/bin/claude')
       expect(() => resolveClaudeSshConfiguration({
         ...process.env,

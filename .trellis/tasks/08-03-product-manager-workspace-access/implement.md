@@ -9,7 +9,7 @@
   - `allowedCcgPlanPaths` 的显式 plan-only 语义；
   - Grok distribution byte-parity tests；
   - project schema、ownership digest 与 `globalEssential` 15 项。
-- [x] CCG source/runtime 已对齐 `3.4.5`；权威源已提交为 `6c85839744ac7d91776929a207f45fdeab132179`（tree `54ce1ed315c2b0c66765a0eee8ebf146f05b9911`），Harness staged snapshot 已通过 `verify-sources -Index`。`runInstalledProductManagerReview()` 的 exact-version 门禁保持不变。
+- [x] CCG source/runtime 已对齐 `3.4.5`；权威源已提交为 `cc053f7d2345031dbc93b933aa659fd582150b8f`（tree `4e240c48279f7a4422413fc278be0053b82a54d3`），Harness staged snapshot 已通过 `verify-sources -Index`。`runInstalledProductManagerReview()` 的 exact-version 门禁保持不变。
 - [x] 本 worktree 的本机检出限制已隔离：Windows 防护会立即移除 `components/ccg-workflow/templates/skills/domains/security/{pentest,red-team}.md`，当前通过 worktree-local sparse-checkout 排除；提交清单不含这两个文件的删除，并由可完整检出的权威 CCG checkout 完成 staged source verify。
 - [x] 已运行 `git status --short`、`git diff --check`；无 whitespace error，变更均属于本任务。
 - [ ] 重新运行：
