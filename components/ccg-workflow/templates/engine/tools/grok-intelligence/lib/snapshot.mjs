@@ -32,11 +32,23 @@ function normalizeRelativePath(input) {
   return parts.join('/')
 }
 
-function exclusionReason(relativePath) {
+function normalizeAllowedCcgPlanPaths(paths = []) {
+  if (!Array.isArray(paths))
+    throw new Error('allowedCcgPlanPaths must be an array')
+  return new Set(paths.map((input) => {
+    const path = normalizeRelativePath(input)
+    if (!/^\.codex\/ccg\/plans\/[^/]+\.md$/i.test(path))
+      throw new Error(`Allowed CCG plan must be a top-level Markdown file under .codex/ccg/plans: ${input}`)
+    return path.toLowerCase()
+  }))
+}
+
+function exclusionReason(relativePath, allowedCcgPlanPaths) {
   const normalized = relativePath.toLowerCase()
   const parts = normalized.split('/')
   const basename = parts.at(-1)
-  if (parts.some(part => DENIED_SEGMENTS.has(part)))
+  const allowedCcgPlan = allowedCcgPlanPaths.has(normalized)
+  if (parts.some(part => DENIED_SEGMENTS.has(part) && !(allowedCcgPlan && part === '.codex')))
     return 'dependency, VCS, cache, instruction, hook, skill, or plugin directory'
   if (DENIED_BASENAMES.has(basename))
     return 'secret or model instruction file'
@@ -123,10 +135,10 @@ function normalizeLimits(limits = {}) {
   return result
 }
 
-async function collectSelectedFiles(repoRoot, selectedPaths, ignoreRules) {
+async function collectSelectedFiles(repoRoot, selectedPaths, ignoreRules, allowedCcgPlanPaths) {
   const files = new Map()
   const visit = async (relativePath, explicitlySelected) => {
-    const reason = exclusionReason(relativePath)
+    const reason = exclusionReason(relativePath, allowedCcgPlanPaths)
     const ignored = ignoreRules.some(rule => rule.test(relativePath))
     if (reason || ignored) {
       if (explicitlySelected)
@@ -175,6 +187,7 @@ export async function createFocusedSnapshot({
   selectedPaths,
   dirtyDiffs,
   limits,
+  allowedCcgPlanPaths,
 }) {
   if (!isAbsolute(repoRoot) || !isAbsolute(snapshotRoot))
     throw new Error('repoRoot and snapshotRoot must be absolute')
@@ -188,8 +201,9 @@ export async function createFocusedSnapshot({
     throw new Error('Snapshot root must be empty')
 
   const effectiveLimits = normalizeLimits(limits)
+  const allowedPlans = normalizeAllowedCcgPlanPaths(allowedCcgPlanPaths)
   const ignoreRules = await loadIgnoreRules(sourceRoot)
-  const files = await collectSelectedFiles(sourceRoot, selectedPaths, ignoreRules)
+  const files = await collectSelectedFiles(sourceRoot, selectedPaths, ignoreRules, allowedPlans)
   if (files.size > effectiveLimits.maxFiles)
     throw new Error(`Snapshot file count exceeds cap (${effectiveLimits.maxFiles})`)
 

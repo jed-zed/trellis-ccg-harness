@@ -141,6 +141,7 @@ export async function runGrokIntelligence(options) {
       repoRoot: options.repoRoot,
       snapshotRoot: roots.snapshotRoot,
       selectedPaths: options.selectedPaths,
+      allowedCcgPlanPaths: options.allowedCcgPlanPaths,
       dirtyDiffs: options.dirtyDiffs,
       limits: options.snapshotLimits || { maxTotalBytes: options.config.max_bundle_bytes || 16 * 1024 * 1024 },
     })

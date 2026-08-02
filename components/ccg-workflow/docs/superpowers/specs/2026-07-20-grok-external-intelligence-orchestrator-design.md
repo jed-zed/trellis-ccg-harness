@@ -113,7 +113,7 @@ The existing generic `--backend grok` behavior remains available and separate.
 
 ### 6.3 Isolation Boundary
 
-Grok never receives write access to the real workspace. Trusted CCG code creates a focused, size-bounded snapshot containing only router-selected source, configuration, lockfile, and diff context. The snapshot excludes secrets, credentials, `.git`, dependency trees, caches, instruction/plugin surfaces, links and reparse escapes, and user-configured `.ccgignore` paths. It is data minimization, not the security boundary; the ACP client still advertises no filesystem or terminal capability.
+Grok never receives write access to the real workspace. Trusted CCG code creates a focused, size-bounded snapshot containing only router-selected source, configuration, lockfile, and diff context. The snapshot excludes secrets, credentials, `.git`, dependency trees, caches, instruction/plugin surfaces, links and reparse escapes, and user-configured `.ccgignore` paths. `.codex` remains denied except for an explicit `--plan` binding that exactly names one top-level `.codex/ccg/plans/*.md` file; basename denials and `.ccgignore` still take precedence. It is data minimization, not the security boundary; the ACP client still advertises no filesystem or terminal capability.
 
 Snapshot files are marked read-only where supported. Grok cannot write scripts, patches, or reproduction artifacts in the first release. Any future trusted reproduction must be implemented by CCG-side fixed code and re-reviewed as a separate capability.
 

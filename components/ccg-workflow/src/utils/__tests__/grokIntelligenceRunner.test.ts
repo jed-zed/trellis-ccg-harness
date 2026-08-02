@@ -131,6 +131,47 @@ describe('focused Grok snapshot', () => {
     expect(await readdir(snapshot)).toEqual([])
   })
 
+  it('allows only an explicitly bound top-level CCG Markdown plan', async () => {
+    const planPath = '.codex/ccg/plans/example.md'
+    await mkdir(resolve(repo, '.codex/ccg/plans'), { recursive: true })
+    await writeFile(resolve(repo, planPath), '# Plan\n')
+
+    await expect(createFocusedSnapshot({
+      repoRoot: repo,
+      snapshotRoot: snapshot,
+      selectedPaths: [planPath],
+    })).rejects.toThrow(/excluded/i)
+
+    for (const disallowed of [
+      '.codex/ccg/plans/example.txt',
+      '.codex/ccg/plans/nested/example.md',
+      '.codex/ccg/plans/AGENTS.md',
+    ]) {
+      await expect(createFocusedSnapshot({
+        repoRoot: repo,
+        snapshotRoot: snapshot,
+        selectedPaths: [planPath],
+        allowedCcgPlanPaths: [disallowed],
+      })).rejects.toThrow(/plan|excluded|instruction/i)
+    }
+
+    await writeFile(resolve(repo, '.ccgignore'), `${planPath}\n`)
+    await expect(createFocusedSnapshot({
+      repoRoot: repo,
+      snapshotRoot: snapshot,
+      selectedPaths: [planPath],
+      allowedCcgPlanPaths: [planPath],
+    })).rejects.toThrow(/ccgignore/i)
+    await writeFile(resolve(repo, '.ccgignore'), '# no exclusions\n')
+
+    await expect(createFocusedSnapshot({
+      repoRoot: repo,
+      snapshotRoot: snapshot,
+      selectedPaths: [planPath],
+      allowedCcgPlanPaths: [planPath],
+    })).resolves.toMatchObject({ files: [{ path: planPath }] })
+  })
+
   it('rejects traversal, symlink escapes, and hard-linked input', async () => {
     await expect(createFocusedSnapshot({ repoRoot: repo, snapshotRoot: snapshot, selectedPaths: ['../outside.txt'] }))
       .rejects

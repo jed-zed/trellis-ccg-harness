@@ -94,6 +94,9 @@ state under `.ccg/` and `.codex/ccg/` is evidence only and must remain ignored.
 - Credential namespaces must remain distinct.
 - No provider may be marked search-capable without a search tool call plus
   citation or annotation evidence.
+- Grok snapshots deny `.codex` by default. Only an explicit `--plan` binding may
+  admit one top-level `.codex/ccg/plans/*.md` file; basename denials and
+  `.ccgignore` still take precedence.
 - Ordinary CI is offline. Live probes are explicit operator actions.
 
 ## Conflict Severity

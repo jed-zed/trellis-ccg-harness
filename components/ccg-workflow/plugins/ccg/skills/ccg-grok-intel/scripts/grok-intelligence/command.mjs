@@ -401,6 +401,9 @@ export async function runManualCommand(action, options, runtime = {}) {
     digestBinding(repoRoot, 'diff', options.diff, { allowEmpty: options.allowEmptyDiff === true }),
     ...(options.dependencies || []).map(file => digestBinding(repoRoot, 'dependency', file)),
   ])).filter(Boolean)
+  const allowedCcgPlanPaths = bindings
+    .filter(item => item.kind === 'plan' && /^\.codex\/ccg\/plans\/[^/]+\.md$/i.test(item.path))
+    .map(item => item.path)
   const files = await chooseSnapshotFiles(repoRoot, [...(options.files || []), ...bindings.map(item => item.path)])
   const paths = runtime.paths || getDefaultGrokIntelligencePaths()
   const requirement = 'required'
@@ -488,6 +491,7 @@ export async function runManualCommand(action, options, runtime = {}) {
       depth,
       repoRoot,
       selectedPaths: files,
+      allowedCcgPlanPaths,
       dirtyDiffs: [],
       tempParent: paths.tempParent,
       grokHome: paths.grokHome,

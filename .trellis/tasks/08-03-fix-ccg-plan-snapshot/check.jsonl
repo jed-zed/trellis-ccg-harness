@@ -1,0 +1,2 @@
+{"file":".trellis/spec/guides/layered-harness-adapter.md","reason":"Verify the explicit --plan exception remains narrow and other denials stay authoritative."}
+{"file":".trellis/spec/tooling/index.md","reason":"Verify the imported component passes the full offline source and Harness gates."}

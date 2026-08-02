@@ -123,10 +123,11 @@ describe('Grok intelligence distribution', () => {
   it('binds verify inputs and persists canonical output through the shared runner', async () => {
     const root = join(tmpdir(), `ccg-grok-manual-${Date.now()}`)
     await fs.ensureDir(root)
+    await fs.ensureDir(join(root, '.codex', 'ccg', 'plans'))
     await Promise.all([
       fs.writeFile(join(root, 'config.toml'), '[intelligence]\nenabled = true\nauth_mode = "browser_oauth"\nartifact_root = ".codex/ccg/intelligence"\n'),
       fs.writeFile(join(root, 'package.json'), '{}\n'),
-      fs.writeFile(join(root, 'plan.md'), '# Plan\n'),
+      fs.writeFile(join(root, '.codex', 'ccg', 'plans', 'plan.md'), '# Plan\n'),
       fs.writeFile(join(root, 'change.diff'), '+current contract\n'),
       fs.writeFile(join(root, 'pnpm-lock.yaml'), 'lockfileVersion: 9\n'),
     ])
@@ -135,7 +136,7 @@ describe('Grok intelligence distribution', () => {
       const result = await runManualCommand('verify', {
         task: 'Verify current API support.',
         config: join(root, 'config.toml'),
-        plan: 'plan.md',
+        plan: '.codex/ccg/plans/plan.md',
         diff: 'change.diff',
         dependencies: ['pnpm-lock.yaml'],
         files: ['package.json'],
@@ -167,6 +168,7 @@ describe('Grok intelligence distribution', () => {
       expect(await fs.pathExists(join(root, result.manifestPath))).toBe(true)
       expect(result.manifestSha256).toMatch(/^[a-f0-9]{64}$/)
       expect(runnerOptions.model).toBe('grok-4.5')
+      expect(runnerOptions.allowedCcgPlanPaths).toEqual(['.codex/ccg/plans/plan.md'])
       expect(await fs.readJson(join(root, result.manifestPath))).toMatchObject({ model: 'grok-4.5' })
       expect((await fs.readJson(join(root, result.manifestPath))).prompt_sha256).toBe(
         createHash('sha256').update('ccg-grok-intelligence-prompt-v9-demote-ineligible-blockers').digest('hex'),
