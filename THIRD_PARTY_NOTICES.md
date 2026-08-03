@@ -16,7 +16,9 @@ The Trellis CLI source is not vendored. The repository contains project files ge
 ## CCG
 
 - Authoritative customized source: https://github.com/jed-zed/ccg-gptpro-worflow
-- Captured commit: `a20457da3e8c48126710eb588d4f50a45c4e825a`
+- Captured commit: `e1e5986cd3fd10545f7d7451e6a6d1e1ba735715`
+- Captured Git tree: `e5363687ae992546c654e626871c5474f13af79d`
+- Authoritative snapshot manifest: `harness.sources.json` (exact identifiers and capture time)
 - Original upstream/provenance: https://github.com/fengshao1227/ccg-workflow
 - License: MIT
 - License copy: `components/ccg-workflow/LICENSE`
