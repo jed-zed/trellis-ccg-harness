@@ -303,6 +303,34 @@ test("project Skill contracts enforce minimal globals and owned targets", () => 
   );
 });
 
+test("product-manager Claude transport defaults to local and validates ssh opt-in", () => {
+  const current = approvedContract();
+  assert.equal(current.productManager.claudeTransport, "local");
+  assert.doesNotThrow(() => validateProjectContract(current));
+
+  const ssh = approvedContract();
+  ssh.productManager.claudeTransport = "ssh";
+  assert.doesNotThrow(() => validateProjectContract(ssh));
+
+  const legacy = approvedContract();
+  delete legacy.productManager.claudeTransport;
+  assert.doesNotThrow(() => validateProjectContract(legacy));
+
+  const invalid = approvedContract();
+  invalid.productManager.claudeTransport = "automatic";
+  assert.throws(
+    () => validateProjectContract(invalid),
+    /claudeTransport.*local.*ssh/i,
+  );
+
+  const secret = approvedContract();
+  secret.productManager.sshHost = "example.test";
+  assert.throws(
+    () => validateProjectContract(secret),
+    /credential|secret|invalid schema/i,
+  );
+});
+
 test("approved contracts atomically create the owned Harness contract", async () => {
   const value = fixture();
   try {
@@ -353,7 +381,7 @@ test("approved contracts atomically create the owned Harness contract", async ()
       },
     ]);
     assert.deepEqual(ownership.policy, {
-      policyVersion: 6,
+      policyVersion: 7,
       markerFormatVersion: 1,
       sourcePath: ".harness/policies/collaboration-policy.md",
       sourceSha256: sha256(readFileSync(POLICY_PATH)),
@@ -597,6 +625,7 @@ test("approved product-manager migration updates owned files and preserves unkno
       project.productManager.allowedProviders,
       ["codex", "gemini", "claude"],
     );
+    assert.equal(project.productManager.claudeTransport, "local");
     assert.equal(project.providers.claude.enabled, true);
     assert.equal(project.providers.claude.workspaceWrite, false);
     assert.equal(
@@ -1659,7 +1688,7 @@ test("policy content cannot change without a policy version bump", async () => {
       "# Harness Collaboration Policy",
       "# Harness Collaboration Policy without version bump",
     );
-    setOwnedPolicyProjection(value.repoRoot, differentPolicy, 6);
+    setOwnedPolicyProjection(value.repoRoot, differentPolicy, 7);
     const before = {
       agents: readFileSync(path.join(value.repoRoot, "AGENTS.md"), "utf8"),
       policy: readFileSync(

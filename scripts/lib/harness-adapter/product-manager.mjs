@@ -5,6 +5,7 @@ import {
   mkdirSync,
   openSync,
   readFileSync,
+  realpathSync,
   renameSync,
   rmSync,
   statSync,
@@ -672,6 +673,8 @@ export function prepareProductManagerReview(
     checkpointId,
     evidenceRefs = [],
     grillHandoff = null,
+    workspaceSnapshot,
+    claudeTransport,
   },
 ) {
   if (!REVIEW_TRIGGERS.has(triggerType)) {
@@ -693,6 +696,31 @@ export function prepareProductManagerReview(
     )
   ) {
     throw new Error("GRILL_HANDOFF must be a task-artifact object.");
+  }
+  if (!workspaceSnapshot || typeof workspaceSnapshot !== "object" || Array.isArray(workspaceSnapshot)) {
+    throw new Error("Product-manager workspace snapshot is required.");
+  }
+  assertExactKeys(
+    workspaceSnapshot,
+    ["policy_version", "sha256", "file_count", "total_bytes", "git_head", "dirty"],
+    "Product-manager workspace snapshot",
+  );
+  if (
+    !isNonemptyString(workspaceSnapshot.policy_version) ||
+    !/^[a-f0-9]{64}$/.test(workspaceSnapshot.sha256) ||
+    !Number.isSafeInteger(workspaceSnapshot.file_count) ||
+    workspaceSnapshot.file_count < 0 ||
+    workspaceSnapshot.file_count > 2000 ||
+    !Number.isSafeInteger(workspaceSnapshot.total_bytes) ||
+    workspaceSnapshot.total_bytes < 0 ||
+    workspaceSnapshot.total_bytes > 64 * 1024 * 1024 ||
+    !isNonemptyString(workspaceSnapshot.git_head) ||
+    typeof workspaceSnapshot.dirty !== "boolean"
+  ) {
+    throw new Error("Product-manager workspace snapshot is malformed or exceeds its caps.");
+  }
+  if (!["local", "ssh"].includes(claudeTransport)) {
+    throw new Error("Product-manager Claude transport must be local or ssh.");
   }
   const canonical = assertCanonicalTaskDirectory(taskDirectory);
   const task = readJson(canonical.taskPath);
@@ -730,12 +758,14 @@ export function prepareProductManagerReview(
         }))
       : null;
   const base = {
-    contract_version: "1",
+    contract_version: "2",
     task_id: task.id,
     trigger_type: triggerType,
     checkpoint_id: checkpointId,
     plan_revision: state.planRevision,
     evidence_digest: evidenceDigest,
+    workspace_snapshot: structuredClone(workspaceSnapshot),
+    claude_transport: claudeTransport,
     user_request: String(task.description || task.title || task.id),
     product_brief: artifacts["prd.md"]
       ? { artifact: artifacts["prd.md"] }
@@ -853,6 +883,8 @@ function assertPreparedReviewIsCurrent(taskDirectory, prepared) {
       checkpointId: prepared.input.checkpoint_id,
       evidenceRefs: prepared.input.evidence_refs,
       grillHandoff: prepared.input.grill_handoff,
+      workspaceSnapshot: prepared.input.workspace_snapshot,
+      claudeTransport: prepared.input.claude_transport,
     },
   );
   if (
@@ -1055,6 +1087,207 @@ function parseRuntimeVersion(value) {
   return match?.[1] ?? null;
 }
 
+function readProjectClaudeTransport(repoRoot) {
+  const project = readJson(path.join(repoRoot, ".harness", "project.json"));
+  const transport = project.productManager?.claudeTransport ?? "local";
+  if (!["local", "ssh"].includes(transport)) {
+    throw new Error("Harness project Claude transport must be local or ssh.");
+  }
+  return transport;
+}
+
+function validatePreparedWorkspaceSnapshot(taskDirectory, rawOutput) {
+  let output;
+  try {
+    output = JSON.parse(rawOutput);
+  } catch {
+    throw new Error("Installed CCG product-manager snapshot returned malformed JSON.");
+  }
+  if (!output || typeof output !== "object" || Array.isArray(output)) {
+    throw new Error("Installed CCG product-manager snapshot returned malformed output.");
+  }
+  assertExactKeys(
+    output,
+    ["protocol_version", "snapshot_root", "manifest_path", "workspace_snapshot"],
+    "Installed CCG product-manager snapshot output",
+  );
+  if (output.protocol_version !== "1") {
+    throw new Error("Installed CCG product-manager snapshot protocol version is unsupported.");
+  }
+  const snapshotStore = path.resolve(
+    taskDirectory,
+    ".ccg-evidence",
+    "product-manager",
+    "snapshots",
+  );
+  for (const [field, value] of [
+    ["snapshot_root", output.snapshot_root],
+    ["manifest_path", output.manifest_path],
+  ]) {
+    if (typeof value !== "string" || !path.isAbsolute(value)) {
+      throw new Error(`Installed CCG product-manager snapshot ${field} must be absolute.`);
+    }
+    assertInside(snapshotStore, value, `Installed CCG product-manager snapshot ${field}`);
+  }
+  const snapshotBase = path.dirname(output.snapshot_root);
+  if (
+    path.basename(output.snapshot_root) !== "root" ||
+    path.basename(output.manifest_path) !== "manifest.json" ||
+    path.dirname(output.manifest_path) !== snapshotBase ||
+    path.dirname(snapshotBase) !== snapshotStore
+  ) {
+    throw new Error("Installed CCG product-manager snapshot paths have an invalid layout.");
+  }
+  const snapshotRoot = realpathSync(output.snapshot_root);
+  const manifestPath = realpathSync(output.manifest_path);
+  const realSnapshotStore = realpathSync(snapshotStore);
+  assertInside(realSnapshotStore, snapshotRoot, "Installed CCG product-manager snapshot root");
+  assertInside(realSnapshotStore, manifestPath, "Installed CCG product-manager snapshot manifest");
+  if (!statSync(snapshotRoot).isDirectory() || !statSync(manifestPath).isFile()) {
+    throw new Error("Installed CCG product-manager snapshot paths have invalid types.");
+  }
+  const manifest = readJson(manifestPath);
+  assertExactKeys(
+    manifest,
+    ["policy_version", "sha256", "file_count", "total_bytes", "git_head", "dirty", "files"],
+    "Installed CCG product-manager snapshot manifest",
+  );
+  if (!Array.isArray(manifest.files)) {
+    throw new Error("Installed CCG product-manager snapshot manifest files are invalid.");
+  }
+  const workspaceSnapshot = {
+    policy_version: manifest.policy_version,
+    sha256: manifest.sha256,
+    file_count: manifest.file_count,
+    total_bytes: manifest.total_bytes,
+    git_head: manifest.git_head,
+    dirty: manifest.dirty,
+  };
+  if (!output.workspace_snapshot || typeof output.workspace_snapshot !== "object" || Array.isArray(output.workspace_snapshot)) {
+    throw new Error("Installed CCG product-manager workspace snapshot is malformed.");
+  }
+  assertExactKeys(
+    output.workspace_snapshot,
+    ["policy_version", "sha256", "file_count", "total_bytes", "git_head", "dirty"],
+    "Installed CCG product-manager workspace snapshot",
+  );
+  if (canonicalJson(output.workspace_snapshot) !== canonicalJson(workspaceSnapshot)) {
+    throw new Error("Installed CCG product-manager snapshot output does not match its manifest.");
+  }
+  const files = manifest.files.map((file, index) => {
+    if (!file || typeof file !== "object" || Array.isArray(file)) {
+      throw new Error(`Installed CCG product-manager snapshot file ${index} is malformed.`);
+    }
+    assertExactKeys(file, ["path", "bytes", "sha256"], `Installed CCG product-manager snapshot file ${index}`);
+    if (
+      typeof file.path !== "string" ||
+      !file.path ||
+      file.path.includes("\\") ||
+      /[\0\r\n]/.test(file.path) ||
+      file.path.includes(":") ||
+      file.path.startsWith("/") ||
+      file.path.split("/").some((segment) => ["", ".", ".."].includes(segment)) ||
+      !Number.isSafeInteger(file.bytes) ||
+      file.bytes < 0 ||
+      file.bytes > 2 * 1024 * 1024 ||
+      !/^[a-f0-9]{64}$/.test(file.sha256)
+    ) {
+      throw new Error(`Installed CCG product-manager snapshot file ${index} is malformed.`);
+    }
+    return file;
+  });
+  if (
+    files.length !== workspaceSnapshot.file_count ||
+    files.length > 2000 ||
+    new Set(files.map((file) => file.path)).size !== files.length ||
+    files.reduce((total, file) => total + file.bytes, 0) !== workspaceSnapshot.total_bytes ||
+    !Number.isSafeInteger(workspaceSnapshot.file_count) ||
+    workspaceSnapshot.file_count < 0 ||
+    !Number.isSafeInteger(workspaceSnapshot.total_bytes) ||
+    workspaceSnapshot.total_bytes < 0 ||
+    workspaceSnapshot.total_bytes > 64 * 1024 * 1024 ||
+    !isNonemptyString(workspaceSnapshot.policy_version) ||
+    !/^[a-f0-9]{64}$/.test(workspaceSnapshot.sha256) ||
+    !isNonemptyString(workspaceSnapshot.git_head) ||
+    typeof workspaceSnapshot.dirty !== "boolean"
+  ) {
+    throw new Error("Installed CCG product-manager snapshot summary is malformed or exceeds its caps.");
+  }
+  const digest = sha256(canonicalJson({
+    policy_version: workspaceSnapshot.policy_version,
+    git_head: workspaceSnapshot.git_head,
+    dirty: workspaceSnapshot.dirty,
+    files,
+  }));
+  if (digest !== workspaceSnapshot.sha256) {
+    throw new Error("Installed CCG product-manager snapshot manifest digest is invalid.");
+  }
+  return { snapshotRoot, manifestPath, workspaceSnapshot };
+}
+
+function prepareInstalledWorkspaceSnapshot(repoRoot, taskDirectory, binding, runner, env) {
+  const args = [
+    ...binding.argsPrefix,
+    "product-manager",
+    "snapshot",
+    "--workdir",
+    path.resolve(repoRoot),
+    "--task-dir",
+    path.resolve(taskDirectory),
+    "--json",
+  ];
+  const result = runCommand(binding.command, args, { repoRoot, runner, env });
+  if (result.status !== 0) {
+    throw new Error(commandError(binding.command, args, result));
+  }
+  try {
+    return validatePreparedWorkspaceSnapshot(taskDirectory, result.stdout);
+  } catch (error) {
+    try {
+      const output = JSON.parse(result.stdout);
+      const snapshotStore = path.resolve(
+        taskDirectory,
+        ".ccg-evidence",
+        "product-manager",
+        "snapshots",
+      );
+      const snapshotBase = path.dirname(output.snapshot_root);
+      if (
+        path.isAbsolute(output.snapshot_root) &&
+        path.isAbsolute(output.manifest_path) &&
+        path.basename(output.snapshot_root) === "root" &&
+        path.basename(output.manifest_path) === "manifest.json" &&
+        path.dirname(output.manifest_path) === snapshotBase &&
+        path.dirname(snapshotBase) === snapshotStore
+      ) {
+        rmSync(snapshotBase, { recursive: true, force: true });
+      }
+    } catch {
+      // Invalid output may not identify a safe cleanup target.
+    }
+    throw error;
+  }
+}
+
+function cleanupPreparedWorkspaceSnapshot(taskDirectory, snapshot) {
+  const snapshotStore = path.resolve(
+    taskDirectory,
+    ".ccg-evidence",
+    "product-manager",
+    "snapshots",
+  );
+  const snapshotBase = path.dirname(snapshot.snapshotRoot);
+  if (
+    path.basename(snapshot.snapshotRoot) !== "root" ||
+    path.basename(snapshot.manifestPath) !== "manifest.json" ||
+    path.dirname(snapshot.manifestPath) !== snapshotBase ||
+    path.dirname(snapshotBase) !== snapshotStore
+  ) {
+    throw new Error("Refusing to clean an invalid product-manager snapshot layout.");
+  }
+  rmSync(snapshotBase, { recursive: true, force: true });
+}
+
 function allowedProvidersFromContract(contract) {
   const configured = contract.productManager?.allowedProviders;
   if (!Array.isArray(configured)) {
@@ -1095,6 +1328,7 @@ export async function runInstalledProductManagerReview(
 ) {
   const contract = readJson(path.join(repoRoot, ".harness", "adapter.json"));
   const sources = readJson(path.join(repoRoot, "harness.sources.json"));
+  const claudeTransport = readProjectClaudeTransport(repoRoot);
   const allowedProviders = allowedProvidersFromContract(contract);
   if (allowedProviders.length === 0) {
     throw new Error(
@@ -1133,15 +1367,29 @@ export async function runInstalledProductManagerReview(
       `Installed CCG runtime drift: expected ${sources.ccg.version}, actual ${actualVersion ?? "unknown"}.`,
     );
   }
-  const prepared = prepareProductManagerReview(
+  const snapshot = prepareInstalledWorkspaceSnapshot(
     repoRoot,
     taskDirectory,
-    { triggerType, checkpointId, evidenceRefs, grillHandoff },
+    binding,
+    runner,
+    env,
   );
-  const token = acquireProductManagerLock(
-    taskDirectory,
-    prepared.invocationKey,
-  );
+  let prepared;
+  let token;
+  try {
+    prepared = prepareProductManagerReview(repoRoot, taskDirectory, {
+      triggerType,
+      checkpointId,
+      evidenceRefs,
+      grillHandoff,
+      workspaceSnapshot: snapshot.workspaceSnapshot,
+      claudeTransport,
+    });
+    token = acquireProductManagerLock(taskDirectory, prepared.invocationKey);
+  } catch (error) {
+    cleanupPreparedWorkspaceSnapshot(taskDirectory, snapshot);
+    throw error;
+  }
   const paths = productManagerCallPaths(
     taskDirectory,
     prepared.invocationKey,
@@ -1153,6 +1401,8 @@ export async function runInstalledProductManagerReview(
     atomicWriteJson(paths.providerRequestPath, {
       invocation_key: prepared.invocationKey,
       allowed_providers: allowedProviders,
+      workspace_snapshot: prepared.input.workspace_snapshot,
+      claude_transport: prepared.input.claude_transport,
       mode: responseFile
         ? "recorded-response"
         : allowProviderCall
@@ -1188,6 +1438,12 @@ export async function runInstalledProductManagerReview(
       path.resolve(taskDirectory),
       "--allowed-providers",
       allowedProviders.join(","),
+      "--workspace-snapshot",
+      snapshot.snapshotRoot,
+      "--workspace-manifest",
+      snapshot.manifestPath,
+      "--claude-transport",
+      claudeTransport,
       "--json",
     ];
     if (responseFile) {
@@ -1248,7 +1504,8 @@ export async function runInstalledProductManagerReview(
     });
     throw error;
   } finally {
-    releaseProductManagerLock(token);
+    if (token) releaseProductManagerLock(token);
+    cleanupPreparedWorkspaceSnapshot(taskDirectory, snapshot);
   }
 }
 

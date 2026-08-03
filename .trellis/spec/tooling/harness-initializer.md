@@ -96,6 +96,10 @@ and recovery tests; ordinary callers use only `repoRoot`.
   targets.
 - Provider credentials have no initializer fields or environment contract.
   Secret-looking contract keys or values are rejected before mutation.
+- `productManager.claudeTransport` is the only project transport field. New
+  contracts write `local`; legacy omission reads as `local`; only explicit
+  `ssh` selects remote transport. SSH host, user, port, identity, known-hosts,
+  remote executable, passwords, and tokens are forbidden in the contract.
 - `addons --status` is a read-only inventory of the twelve global candidates in
   the stable third-party source/channel manifest. It never accepts selections, approvals, or
   network authorization.
@@ -142,6 +146,7 @@ and recovery tests; ordinary callers use only `repoRoot`.
 | Contract status is neither `approved` nor intact `ready` | Refuse readiness promotion |
 | Contract bytes differ from the ownership digest | Refuse drift, including formatting-only drift |
 | Schema, policy, block, or ownership differs | Refuse drift without mutation |
+| Claude transport is neither `local` nor `ssh`, or SSH details appear in the contract | Refuse before mutation |
 | Schema or policy plus ownership are changed together | Refuse because Skill asset bytes remain authoritative |
 | Source Schema uses CRLF or another formatting layout | Install and hash canonical JSON/LF bytes |
 | Legacy Schema formatting is noncanonical but semantically exact and ownership matches its bytes | Canonicalize Schema and ownership transactionally |

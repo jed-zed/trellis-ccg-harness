@@ -96,6 +96,15 @@ describe('product-manager output validation', () => {
       checkpoint_id: 'M1',
       plan_revision: 1,
       evidence_digest: '2'.repeat(64),
+      workspace_snapshot: {
+        policy_version: '1',
+        sha256: '3'.repeat(64),
+        file_count: 12,
+        total_bytes: 4096,
+        git_head: '4'.repeat(40),
+        dirty: true,
+      },
+      claude_transport: 'local' as const,
       user_request: 'Implement M1',
       product_brief: null,
       grill_handoff: null,
@@ -116,8 +125,34 @@ describe('product-manager output validation', () => {
     expect(validateProductManagerInput(input).checkpoint_id).toBe('M1')
     expect(() => validateProductManagerInput({
       ...input,
+      contract_version: '1',
+      input_digest: createHash('sha256')
+        .update(canonicalJson({ ...base, contract_version: '1' }), 'utf8')
+        .digest('hex'),
+    })).toThrow(/contract_version/i)
+    expect(() => validateProductManagerInput({
+      ...input,
       user_request: 'Changed without updating the digest',
     })).toThrow(/input_digest/i)
+
+    const changedSnapshot = {
+      ...base,
+      workspace_snapshot: { ...base.workspace_snapshot, sha256: '5'.repeat(64) },
+    }
+    const changedInput = {
+      ...changedSnapshot,
+      input_digest: createHash('sha256').update(canonicalJson(changedSnapshot), 'utf8').digest('hex'),
+    }
+    expect(changedInput.input_digest).not.toBe(input.input_digest)
+    expect(createInvocationKey(changedInput)).not.toBe(createInvocationKey(input))
+
+    expect(() => validateProductManagerInput({
+      ...input,
+      claude_transport: 'automatic',
+      input_digest: createHash('sha256')
+        .update(canonicalJson({ ...base, claude_transport: 'automatic' }), 'utf8')
+        .digest('hex'),
+    })).toThrow(/claude_transport/i)
   })
 
   it('accepts the complete strict contract', () => {

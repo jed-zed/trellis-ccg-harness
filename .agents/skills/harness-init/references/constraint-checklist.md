@@ -80,7 +80,9 @@ decisions that remain unresolved.
   Claude installation/login remains default-skipped and Harness initialization
   never probes or executes it. A separately selected product-manager Provider
   may invoke an already installed Claude only with explicit per-call approval
-  and a no-tool, no-write, non-persistent execution boundary.
+  and a snapshot-bound, Read/Glob/Grep-only, no-write, non-persistent execution
+  boundary. Local is the project default; explicit SSH is environment-only,
+  protocol-v2, and fail-closed without transport fallback.
 - Do all executable status/source/action helpers use a verified absolute
   command binding and an explicit minimal environment rooted in the approved
   home/config locations, with `NODE_OPTIONS`, `NODE_PATH`, `LD_PRELOAD`,

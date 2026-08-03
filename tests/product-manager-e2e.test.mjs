@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   mkdirSync,
   mkdtempSync,
+  existsSync,
   readFileSync,
   renameSync,
   rmSync,
@@ -27,6 +29,28 @@ import {
 import { resolvePython } from "../scripts/lib/python-resolver.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const TEST_SNAPSHOT_FILES = Object.freeze([]);
+const TEST_WORKSPACE_SNAPSHOT = Object.freeze({
+  policy_version: "1",
+  sha256: createHash("sha256").update(JSON.stringify({
+    dirty: false,
+    files: TEST_SNAPSHOT_FILES,
+    git_head: "4".repeat(40),
+    policy_version: "1",
+  })).digest("hex"),
+  file_count: 0,
+  total_bytes: 0,
+  git_head: "4".repeat(40),
+  dirty: false,
+});
+
+function prepareReview(repoRoot, taskDirectory, options) {
+  return prepareProductManagerReview(repoRoot, taskDirectory, {
+    ...options,
+    workspaceSnapshot: TEST_WORKSPACE_SNAPSHOT,
+    claudeTransport: "local",
+  });
+}
 
 function fixture(name) {
   const repoRoot = mkdtempSync(path.join(tmpdir(), `harness-pm-e2e-${name}-`));
@@ -116,6 +140,10 @@ function fakeProviderResponse(
 function configureInstalledRuntime(value) {
   mkdirSync(path.join(value.repoRoot, ".harness"), { recursive: true });
   writeFileSync(
+    path.join(value.repoRoot, ".harness", "project.json"),
+    `${JSON.stringify({ productManager: { claudeTransport: "local" } })}\n`,
+  );
+  writeFileSync(
     path.join(value.repoRoot, ".harness", "adapter.json"),
     `${JSON.stringify({
       productManager: {
@@ -145,6 +173,7 @@ function installedRuntimeOptions(
   {
     driftArtifact = false,
     rawOutput = null,
+    snapshotOutput = null,
     assertProviderLockAvailable = false,
   } = {},
 ) {
@@ -164,6 +193,35 @@ function installedRuntimeOptions(
       calls++;
       if (args.includes("--version")) {
         return { status: 0, stdout: "ccg-workflow 3.4.1", stderr: "" };
+      }
+      if (args.includes("snapshot")) {
+        if (snapshotOutput !== null) {
+          return { status: 0, stdout: snapshotOutput, stderr: "" };
+        }
+        const snapshotBase = path.join(
+          value.taskDir,
+          ".ccg-evidence",
+          "product-manager",
+          "snapshots",
+          "fake",
+        );
+        const snapshotRoot = path.join(snapshotBase, "root");
+        const manifestPath = path.join(snapshotBase, "manifest.json");
+        mkdirSync(snapshotRoot, { recursive: true });
+        writeFileSync(
+          manifestPath,
+          `${JSON.stringify({ ...TEST_WORKSPACE_SNAPSHOT, files: TEST_SNAPSHOT_FILES })}\n`,
+        );
+        return {
+          status: 0,
+          stdout: JSON.stringify({
+            protocol_version: "1",
+            snapshot_root: snapshotRoot,
+            manifest_path: manifestPath,
+            workspace_snapshot: TEST_WORKSPACE_SNAPSHOT,
+          }),
+          stderr: "",
+        };
       }
       if (assertProviderLockAvailable) {
         const providerLockPath = path.join(
@@ -194,7 +252,7 @@ function installedRuntimeOptions(
 }
 
 function review(value, triggerType, checkpointId, evidenceRefs, options = {}) {
-  const prepared = prepareProductManagerReview(
+  const prepared = prepareReview(
     value.repoRoot,
     value.taskDir,
     {
@@ -387,7 +445,7 @@ test("installed review writes the complete ignored call evidence and projection 
   try {
     configureInstalledRuntime(value);
     syncProductManagerPlan(value.taskDir);
-    const prepared = prepareProductManagerReview(
+    const prepared = prepareReview(
       value.repoRoot,
       value.taskDir,
       {
@@ -409,7 +467,11 @@ test("installed review writes the complete ignored call evidence and projection 
         ...runtime,
       },
     );
-    assert.equal(runtime.callCount(), 2);
+    assert.equal(runtime.callCount(), 3);
+    assert.equal(
+      existsSync(path.join(value.taskDir, ".ccg-evidence", "product-manager", "snapshots", "fake")),
+      false,
+    );
     const callRoot = path.join(
       value.taskDir,
       ".ccg-evidence",
@@ -439,12 +501,95 @@ test("installed review writes the complete ignored call evidence and projection 
   }
 });
 
+test("invalid offline snapshot output fails before the provider review starts", async () => {
+  const value = fixture("installed-invalid-snapshot");
+  try {
+    configureInstalledRuntime(value);
+    syncProductManagerPlan(value.taskDir);
+    const prepared = prepareReview(value.repoRoot, value.taskDir, {
+      triggerType: "MILESTONE_REVIEW",
+      checkpointId: "M1",
+    });
+    const runtime = installedRuntimeOptions(value, prepared, {
+      snapshotOutput: "not-json",
+    });
+    await assert.rejects(
+      runInstalledProductManagerReview(value.repoRoot, value.taskDir, {
+        triggerType: "MILESTONE_REVIEW",
+        checkpointId: "M1",
+        ...runtime,
+      }),
+      /snapshot.*malformed JSON/i,
+    );
+    assert.equal(runtime.callCount(), 2);
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("unsafe offline snapshot manifest is rejected and cleaned up", async () => {
+  const value = fixture("installed-unsafe-snapshot");
+  try {
+    configureInstalledRuntime(value);
+    syncProductManagerPlan(value.taskDir);
+    const prepared = prepareReview(value.repoRoot, value.taskDir, {
+      triggerType: "MILESTONE_REVIEW",
+      checkpointId: "M1",
+    });
+    const snapshotBase = path.join(
+      value.taskDir,
+      ".ccg-evidence",
+      "product-manager",
+      "snapshots",
+      "unsafe",
+    );
+    const snapshotRoot = path.join(snapshotBase, "root");
+    const manifestPath = path.join(snapshotBase, "manifest.json");
+    const files = [{ bytes: 0, path: "../secret", sha256: "0".repeat(64) }];
+    const workspaceSnapshot = {
+      policy_version: "1",
+      sha256: createHash("sha256").update(JSON.stringify({
+        dirty: false,
+        files,
+        git_head: "4".repeat(40),
+        policy_version: "1",
+      })).digest("hex"),
+      file_count: 1,
+      total_bytes: 0,
+      git_head: "4".repeat(40),
+      dirty: false,
+    };
+    mkdirSync(snapshotRoot, { recursive: true });
+    writeFileSync(manifestPath, `${JSON.stringify({ ...workspaceSnapshot, files })}\n`);
+    const runtime = installedRuntimeOptions(value, prepared, {
+      snapshotOutput: JSON.stringify({
+        protocol_version: "1",
+        snapshot_root: snapshotRoot,
+        manifest_path: manifestPath,
+        workspace_snapshot: workspaceSnapshot,
+      }),
+    });
+    await assert.rejects(
+      runInstalledProductManagerReview(value.repoRoot, value.taskDir, {
+        triggerType: "MILESTONE_REVIEW",
+        checkpointId: "M1",
+        ...runtime,
+      }),
+      /snapshot file 0 is malformed/i,
+    );
+    assert.equal(runtime.callCount(), 2);
+    assert.equal(existsSync(snapshotBase), false);
+  } finally {
+    value.cleanup();
+  }
+});
+
 test("late installed response is retained as raw stale audit without projecting state", async () => {
   const value = fixture("installed-stale");
   try {
     configureInstalledRuntime(value);
     syncProductManagerPlan(value.taskDir);
-    const prepared = prepareProductManagerReview(
+    const prepared = prepareReview(
       value.repoRoot,
       value.taskDir,
       {
@@ -495,7 +640,7 @@ test("malformed installed response is redacted into raw audit before JSON parsin
   try {
     configureInstalledRuntime(value);
     syncProductManagerPlan(value.taskDir);
-    const prepared = prepareProductManagerReview(
+    const prepared = prepareReview(
       value.repoRoot,
       value.taskDir,
       {

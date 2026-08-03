@@ -22,6 +22,23 @@ import {
   writeProductManagerState,
 } from "../scripts/lib/harness-adapter.mjs";
 
+const TEST_WORKSPACE_SNAPSHOT = Object.freeze({
+  policy_version: "1",
+  sha256: "3".repeat(64),
+  file_count: 3,
+  total_bytes: 1024,
+  git_head: "4".repeat(40),
+  dirty: false,
+});
+
+function prepareReview(repoRoot, taskDirectory, options) {
+  return prepareProductManagerReview(repoRoot, taskDirectory, {
+    ...options,
+    workspaceSnapshot: TEST_WORKSPACE_SNAPSHOT,
+    claudeTransport: "local",
+  });
+}
+
 test("a product-manager projection has one cross-process lock owner", () => {
   const root = mkdtempSync(path.join(tmpdir(), "harness pm lock-"));
   const taskDir = path.join(root, ".trellis", "tasks", "pm");
@@ -97,7 +114,7 @@ test("a late response cannot update state after revision drift", () => {
   );
   try {
     syncProductManagerPlan(taskDir);
-    const prepared = prepareProductManagerReview(root, taskDir, {
+    const prepared = prepareReview(root, taskDir, {
       triggerType: "MILESTONE_REVIEW",
       checkpointId: "M1",
       evidenceRefs: ["test:late"],

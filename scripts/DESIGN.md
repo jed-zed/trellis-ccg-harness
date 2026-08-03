@@ -198,7 +198,11 @@ unclaimed path merely because an earlier observation matched.
 - Harness initialization never invokes Claude and Harness never creates,
   restores, mutates, or deletes user-level or project `.claude` content.
   A separately authorized product-manager review may invoke the trusted native
-  Claude CLI in safe, no-tool, non-persistent mode without workspace writes.
+  Claude CLI in safe, non-persistent mode against a strict task-local snapshot.
+  Only Read/Glob/Grep are enabled; writes, terminal, MCP, hooks, plugins,
+  browser, sessions, and subagents remain disabled. Project transport defaults
+  to local. Explicit SSH uses environment-only details, a protocol-v2 bridge,
+  fresh remote directories, cleanup, and no automatic local fallback.
 
 Accepted limitation: an operator can intentionally point the manual probe at an
 internal HTTPS service. This is equivalent to running a local HTTP client and

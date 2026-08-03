@@ -38,6 +38,7 @@
   "files": [
     "bin/ccg.mjs",
     "AI_INSTALL.md",
+    "CLAUDE_SSH_BRIDGE_V2.md",
     "third-party-sources.json",
     "dist",
     "templates/commands/",

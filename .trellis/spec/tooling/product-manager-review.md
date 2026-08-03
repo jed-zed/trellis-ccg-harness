@@ -16,11 +16,18 @@ Installed CCG runtime:
 
 ```text
 ccg product-manager status --json --allowed-providers <csv>
+ccg product-manager snapshot \
+  --workdir <absolute-project-path> \
+  --task-dir <absolute-trellis-task-path> \
+  --json
 ccg product-manager review \
   --input <absolute-json-path> \
   --task-dir <absolute-trellis-task-path> \
   --allowed-providers <csv> \
-  [--provider-response <absolute-json-path>] \
+  --workspace-snapshot <absolute-snapshot-path> \
+  --workspace-manifest <absolute-manifest-path> \
+  --claude-transport <local|ssh> \
+  [--response <absolute-json-path>] \
   [--allow-provider-call]
 ```
 
@@ -70,6 +77,9 @@ offline operations.
   `product-manager` is the sole selected-provider authority. Project state may
   narrow `allowedProviders`, but cannot select or fall back to another
   provider.
+- `.harness/project.json.productManager.claudeTransport` is the sole Claude
+  transport authority. Missing legacy fields mean `local`; `ssh` is explicit.
+  Transport never selects a Provider and never falls back.
 
 ### Installed configuration
 
@@ -81,7 +91,7 @@ strategy = "fallback"
 
 [product_manager]
 enabled = false
-contract_version = "1"
+contract_version = "2"
 max_retries = 1
 timeout_ms = 180000
 max_output_bytes = 1048576
@@ -94,6 +104,8 @@ Unimplemented or disallowed selections fail closed without fallback.
 once into unified routing and then removed. Selection never installs a
 provider, logs in, reads credentials, calls the network, or authorizes a paid
 call.
+Legacy stored version `1` configuration is accepted only for migration and is
+normalized to version `2`; new exact version `1` review requests are rejected.
 
 Optional test/operator overrides are:
 
@@ -104,10 +116,19 @@ CCG_PRODUCT_MANAGER_GEMINI_ENTRYPOINT
 CCG_PRODUCT_MANAGER_GEMINI_MODEL
 CCG_PRODUCT_MANAGER_CLAUDE_EXECUTABLE
 CCG_PRODUCT_MANAGER_CLAUDE_MODEL
+CCG_PRODUCT_MANAGER_CLAUDE_SSH_EXECUTABLE
+CCG_PRODUCT_MANAGER_CLAUDE_SSH_HOST
+CCG_PRODUCT_MANAGER_CLAUDE_SSH_USER
+CCG_PRODUCT_MANAGER_CLAUDE_SSH_PORT
+CCG_PRODUCT_MANAGER_CLAUDE_SSH_IDENTITY_FILE
+CCG_PRODUCT_MANAGER_CLAUDE_SSH_KNOWN_HOSTS_FILE
+CCG_PRODUCT_MANAGER_CLAUDE_SSH_REMOTE_EXECUTABLE
 ```
 
 They do not change provider authority. Executables must resolve to approved
 absolute paths, run with `shell: false`, and receive a minimal environment.
+SSH details are environment-only and must not enter argv, project contracts,
+tracked state, or evidence. Harness does not install or authenticate Claude.
 
 ### Invocation and output
 
@@ -116,6 +137,7 @@ Every invocation binds:
 ```text
 contract_version + task_id + trigger_type + checkpoint_id
 + plan_revision + input_digest + evidence_digest
++ workspace_snapshot + claude_transport
 ```
 
 The canonical SHA-256 invocation key is single-flight across processes. CCG
@@ -137,8 +159,12 @@ post-response validator remains an independent fail-closed boundary; the
 Provider must not be asked to infer or reproduce these identity fields from a
 generic shape-only schema.
 
-Provider execution occurs in a disposable directory with workspace writes,
-terminal tools, MCP tools, subagents, and provider fallback disabled. The
+Provider execution occurs in a verified task-local snapshot with workspace
+writes, terminal tools, MCP tools, subagents, and provider fallback disabled.
+The snapshot contains Git tracked, dirty, and unignored new files after strict
+secret/instruction/plugin/cache exclusions, and is capped at 2000 files,
+2 MiB per file, and 64 MiB total. Its manifest identity is bound before review
+and its contents are removed in `finally`. The
 response is size- and time-bounded, schema-validated, redacted, and rechecked
 against current task, plan, input, evidence, and state revision before it may
 update the projection.
@@ -147,6 +173,10 @@ The Claude adapter must always pass `--model`. When
 `CCG_PRODUCT_MANAGER_CLAUDE_MODEL` is unset or empty, the argument is
 `--model opus`; an explicit environment value replaces only that model
 argument. It must not inherit the machine default or silently use `sonnet`.
+Claude may use only `Read`, `Glob`, and `Grep` inside the snapshot. Local mode
+accepts only a native non-link Claude executable. SSH mode accepts only the
+seven allowlisted environment variables and a protocol-v2 bridge; every error
+stays on SSH and never starts local Claude.
 
 The installed CCG command is a strict machine boundary: successful stdout must
 contain exactly one JSON document and no support banner, progress message, or
@@ -188,6 +218,11 @@ second verdict, authorize fallback, or expose raw credentials.
 | No active Trellis task | Refuse reviewer state or review commands |
 | State path is outside the active task | Refuse without mutation |
 | Evidence root is not task-local and ignored | Blocking conflict |
+| Snapshot output, path containment, manifest digest, file type, or cap is invalid | Refuse before Provider start and clean up bounded residue |
+| Project Claude transport is missing | Treat as `local` |
+| Project Claude transport is unknown | Blocking conflict |
+| Local Claude override is an SSH bridge | Fail closed; do not use it as native Claude |
+| SSH config or protocol v2 probe fails | Return unavailable on SSH only; never start local Claude |
 | Installed provider is empty, disabled, unavailable, or disallowed | Return `unavailable`; never fall back |
 | Live review lacks `--allow-provider-call` and has no saved response | Refuse the call without network access |
 | Input/output has missing, unknown, malformed, or oversized fields | Reject before projection |
@@ -244,7 +279,9 @@ Assertions must cover:
 - exact input/output schema and digest binding;
 - selected-provider authority and no fallback;
 - provider selection having zero network, credential, login, or install effect;
-- disposable read-only execution and denied tools;
+- snapshot-bound read-only execution and the Provider-specific read/search allowlist;
+- local default, SSH environment-only opt-in, protocol-v2 probing, cleanup, and
+  no transport fallback;
 - task-local tracked projection versus ignored raw evidence;
 - Provider single-flight versus Harness projection-lock separation, dead-owner
   recovery, and late-response staleness;
@@ -279,6 +316,8 @@ const prepared = prepareProductManagerReview(repoRoot, taskDir, {
   triggerType: "MILESTONE_REVIEW",
   checkpointId: "M1",
   evidenceRefs: ["test:focused"],
+  workspaceSnapshot,
+  claudeTransport: "local",
 });
 const projected = applyProductManagerReview(taskDir, prepared, response);
 ```

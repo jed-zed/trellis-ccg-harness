@@ -77,7 +77,8 @@ state under `.ccg/` and `.codex/ccg/` is evidence only and must remain ignored.
 - Codex is the sole workspace writer and uses `codex.dispatch_mode: inline`.
 - Gemini is a bounded read-only helper.
 - Claude may be the explicitly selected product-manager provider. It is
-  read-only, tool-less, non-persistent, and never owns workspace or lifecycle writes.
+  non-persistent, sees only a bounded task-local snapshot, may use only file
+  read/search primitives, and never owns workspace or lifecycle writes.
 - GPT Pro is manual-only and remains owned by the CCG bridge.
 - Grok is optional and disabled until a working provider is configured.
 - A user-level Trellis workflow-state hook must yield whenever the project
@@ -97,6 +98,9 @@ state under `.ccg/` and `.codex/ccg/` is evidence only and must remain ignored.
 - Grok snapshots deny `.codex` by default. Only an explicit `--plan` binding may
   admit one top-level `.codex/ccg/plans/*.md` file; basename denials and
   `.ccgignore` still take precedence.
+- Product-manager snapshots reuse the same strict filtering core with
+  `2000 / 2 MiB / 64 MiB` caps. Project `claudeTransport` defaults to `local`;
+  explicit `ssh` uses environment-only connection details and never falls back.
 - Ordinary CI is offline. Live probes are explicit operator actions.
 
 ## Conflict Severity

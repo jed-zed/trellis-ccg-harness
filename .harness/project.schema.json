@@ -329,6 +329,12 @@
         "selectedProviderAuthority": {
           "const": "unified-ccg-routing"
         },
+        "claudeTransport": {
+          "enum": [
+            "local",
+            "ssh"
+          ]
+        },
         "allowedProviders": {
           "type": "array",
           "items": {

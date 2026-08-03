@@ -109,7 +109,7 @@ const PROJECT_SKILL_MAX_FILE_BYTES = 16 * 1024 * 1024;
 const PROJECT_SKILL_MAX_TOTAL_BYTES = 64 * 1024 * 1024;
 const COLLABORATION_BLOCK_START = "<!-- HARNESS-COLLABORATION:START -->";
 const COLLABORATION_BLOCK_END = "<!-- HARNESS-COLLABORATION:END -->";
-const PROJECT_POLICY_VERSION = 6;
+const PROJECT_POLICY_VERSION = 7;
 const COLLABORATION_MARKER_FORMAT_VERSION = 1;
 const PROJECT_OWNERSHIP_SCHEMA_VERSION = 2;
 const PROJECT_SKILL_OWNERSHIP_SCHEMA_VERSION = 3;
@@ -2037,6 +2037,10 @@ function assertProviders(providers) {
 
 function assertProductManager(productManager) {
   assertObject(productManager, "productManager");
+  const hasClaudeTransport = Object.hasOwn(
+    productManager,
+    "claudeTransport",
+  );
   assertExactKeys(
     productManager,
     [
@@ -2044,6 +2048,7 @@ function assertProductManager(productManager) {
       "stateFile",
       "evidenceRoot",
       "selectedProviderAuthority",
+      ...(hasClaudeTransport ? ["claudeTransport"] : []),
       "allowedProviders",
       "providerCapabilities",
     ],
@@ -2060,6 +2065,14 @@ function assertProductManager(productManager) {
     if (productManager[field] !== value) {
       throw new Error(`productManager.${field} must be ${value}.`);
     }
+  }
+  if (
+    hasClaudeTransport &&
+    !["local", "ssh"].includes(productManager.claudeTransport)
+  ) {
+    throw new Error(
+      "productManager.claudeTransport must be local or ssh.",
+    );
   }
   if (
     !Array.isArray(productManager.allowedProviders) ||

@@ -16,6 +16,23 @@ import {
   writeProductManagerState,
 } from "../scripts/lib/harness-adapter.mjs";
 
+const TEST_WORKSPACE_SNAPSHOT = Object.freeze({
+  policy_version: "1",
+  sha256: "3".repeat(64),
+  file_count: 3,
+  total_bytes: 1024,
+  git_head: "4".repeat(40),
+  dirty: false,
+});
+
+function prepareReview(repoRoot, taskDirectory, options) {
+  return prepareProductManagerReview(repoRoot, taskDirectory, {
+    ...options,
+    workspaceSnapshot: TEST_WORKSPACE_SNAPSHOT,
+    claudeTransport: "local",
+  });
+}
+
 function fixture() {
   const root = mkdtempSync(path.join(tmpdir(), "harness-pm-state-"));
   const taskDir = path.join(root, ".trellis", "tasks", "07-27-pm");
@@ -254,11 +271,44 @@ test("status reports final eligibility without mutating task status", () => {
   }
 });
 
+test("review identity binds the validated workspace snapshot and Claude transport", () => {
+  const value = fixture();
+  try {
+    syncProductManagerPlan(value.taskDir);
+    const local = prepareReview(value.root, value.taskDir, {
+      triggerType: "MILESTONE_REVIEW",
+      checkpointId: "M1",
+    });
+    const ssh = prepareProductManagerReview(value.root, value.taskDir, {
+      triggerType: "MILESTONE_REVIEW",
+      checkpointId: "M1",
+      workspaceSnapshot: TEST_WORKSPACE_SNAPSHOT,
+      claudeTransport: "ssh",
+    });
+    assert.equal(local.input.contract_version, "2");
+    assert.deepEqual(local.input.workspace_snapshot, TEST_WORKSPACE_SNAPSHOT);
+    assert.equal(local.input.claude_transport, "local");
+    assert.notEqual(local.input.input_digest, ssh.input.input_digest);
+    assert.notEqual(local.invocationKey, ssh.invocationKey);
+    assert.throws(
+      () => prepareProductManagerReview(value.root, value.taskDir, {
+        triggerType: "MILESTONE_REVIEW",
+        checkpointId: "M1",
+        workspaceSnapshot: TEST_WORKSPACE_SNAPSHOT,
+        claudeTransport: "automatic",
+      }),
+      /claude transport/i,
+    );
+  } finally {
+    rmSync(value.root, { recursive: true, force: true });
+  }
+});
+
 test("review application rejects stale identities and creates a user hard gate", () => {
   const value = fixture();
   try {
     syncProductManagerPlan(value.taskDir);
-    const prepared = prepareProductManagerReview(value.root, value.taskDir, {
+    const prepared = prepareReview(value.root, value.taskDir, {
       triggerType: "MILESTONE_REVIEW",
       checkpointId: "M1",
       evidenceRefs: ["test:focused"],
@@ -332,7 +382,7 @@ test("a fresh presentation is required before response and advice remains visibl
   try {
     const taskBefore = readFileSync(path.join(value.taskDir, "task.json"), "utf8");
     syncProductManagerPlan(value.taskDir);
-    const prepared = prepareProductManagerReview(value.root, value.taskDir, {
+    const prepared = prepareReview(value.root, value.taskDir, {
       triggerType: "MILESTONE_REVIEW",
       checkpointId: "M1",
       evidenceRefs: ["test:advice-presentation"],
@@ -421,7 +471,7 @@ test("legacy projections recover the latest rich advice from task-local evidence
   const value = fixture();
   try {
     syncProductManagerPlan(value.taskDir);
-    const prepared = prepareProductManagerReview(value.root, value.taskDir, {
+    const prepared = prepareReview(value.root, value.taskDir, {
       triggerType: "MILESTONE_REVIEW",
       checkpointId: "M1",
       evidenceRefs: ["test:legacy-advice-recovery"],
@@ -490,7 +540,7 @@ test("review application rechecks current artifact input before projecting state
   try {
     writeFileSync(path.join(value.taskDir, "design.md"), "# Initial design\n");
     syncProductManagerPlan(value.taskDir);
-    const prepared = prepareProductManagerReview(value.root, value.taskDir, {
+    const prepared = prepareReview(value.root, value.taskDir, {
       triggerType: "MILESTONE_REVIEW",
       checkpointId: "M1",
       evidenceRefs: ["test:artifact-drift"],
@@ -518,7 +568,7 @@ test("review application accepts Claude as a registered read-only provider ident
   const value = fixture();
   try {
     syncProductManagerPlan(value.taskDir);
-    const prepared = prepareProductManagerReview(value.root, value.taskDir, {
+    const prepared = prepareReview(value.root, value.taskDir, {
       triggerType: "MILESTONE_REVIEW",
       checkpointId: "M1",
       evidenceRefs: ["test:claude-provider-identity"],
@@ -548,7 +598,7 @@ test("INTAKE_REVIEW carries an explicit GRILL_HANDOFF without creating another r
       confirmedDecisions: ["No parallel plan authority."],
       artifactRef: ".trellis/tasks/pm/prd.md",
     };
-    const prepared = prepareProductManagerReview(
+    const prepared = prepareReview(
       value.root,
       value.taskDir,
       {
@@ -560,7 +610,7 @@ test("INTAKE_REVIEW carries an explicit GRILL_HANDOFF without creating another r
     assert.deepEqual(prepared.input.grill_handoff, handoff);
     assert.throws(
       () =>
-        prepareProductManagerReview(value.root, value.taskDir, {
+        prepareReview(value.root, value.taskDir, {
           triggerType: "INTAKE_REVIEW",
           checkpointId: "intake",
           grillHandoff: [],
@@ -576,7 +626,7 @@ test("intake acceptance resumes automatically while material decisions remain a 
   const value = fixture();
   try {
     syncProductManagerPlan(value.taskDir);
-    const accepted = prepareProductManagerReview(
+    const accepted = prepareReview(
       value.root,
       value.taskDir,
       {
@@ -622,7 +672,7 @@ test("intake acceptance resumes automatically while material decisions remain a 
       "Continue the approved Trellis plan.",
     );
 
-    const decision = prepareProductManagerReview(
+    const decision = prepareReview(
       value.root,
       value.taskDir,
       {
@@ -675,7 +725,7 @@ test("FINAL_REVIEW merges with the last unchanged milestone into one atomic user
       state,
       state.stateRevision,
     );
-    const prepared = prepareProductManagerReview(
+    const prepared = prepareReview(
       value.root,
       value.taskDir,
       {
@@ -699,7 +749,7 @@ test("FINAL_REVIEW merges with the last unchanged milestone into one atomic user
       state,
       state.stateRevision,
     );
-    const fresh = prepareProductManagerReview(
+    const fresh = prepareReview(
       value.root,
       value.taskDir,
       {

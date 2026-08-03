@@ -4,7 +4,20 @@ import { isAbsolute } from 'node:path'
 
 export const IMPLEMENTED_PRODUCT_MANAGER_PROVIDERS: readonly ProductManagerProvider[] = ['codex', 'gemini', 'claude']
 
-export type ProviderEnvironmentKey = 'CODEX_HOME' | 'GEMINI_CLI_HOME'
+export const CLAUDE_SSH_ENVIRONMENT_KEYS = [
+  'CCG_PRODUCT_MANAGER_CLAUDE_SSH_EXECUTABLE',
+  'CCG_PRODUCT_MANAGER_CLAUDE_SSH_HOST',
+  'CCG_PRODUCT_MANAGER_CLAUDE_SSH_USER',
+  'CCG_PRODUCT_MANAGER_CLAUDE_SSH_PORT',
+  'CCG_PRODUCT_MANAGER_CLAUDE_SSH_IDENTITY_FILE',
+  'CCG_PRODUCT_MANAGER_CLAUDE_SSH_KNOWN_HOSTS_FILE',
+  'CCG_PRODUCT_MANAGER_CLAUDE_SSH_REMOTE_EXECUTABLE',
+] as const
+
+export type ProviderEnvironmentKey
+  = | 'CODEX_HOME'
+    | 'GEMINI_CLI_HOME'
+    | typeof CLAUDE_SSH_ENVIRONMENT_KEYS[number]
 
 export function resolveEffectiveProductManagerProvider(options: {
   enabled: boolean
@@ -44,7 +57,11 @@ export function validateProviderExecution(value: ProviderExecution): ProviderExe
     throw new TypeError('provider execution must use shell:false')
   if (value.args.some(argument => /[\0\r\n]/.test(argument)))
     throw new TypeError('provider arguments must not contain control characters')
-  if (value.environmentKeys?.some(key => !['CODEX_HOME', 'GEMINI_CLI_HOME'].includes(key)))
+  if (value.environmentKeys?.some(key => ![
+    'CODEX_HOME',
+    'GEMINI_CLI_HOME',
+    ...CLAUDE_SSH_ENVIRONMENT_KEYS,
+  ].includes(key)))
     throw new TypeError('provider environment contains an unsupported key')
   return value
 }

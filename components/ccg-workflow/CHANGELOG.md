@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- **Product-manager workspace snapshot** — Build a strict task-local snapshot
+  from Git tracked, dirty, and unignored new files, bind its manifest identity
+  into every review, and expose only provider-native file read/search tools.
+- **Explicit Claude transport** — Default projects to native local Claude and
+  add an environment-only SSH bridge protocol-v2 opt-in with remote cleanup and
+  no automatic transport fallback.
+
+### Security
+
+- **Bounded read-only projection** — Reuse the Grok snapshot core for secret,
+  instruction, plugin, link, hardlink, race, and size defenses; reject malformed
+  or stale manifests before Provider start and delete snapshot contents in
+  `finally`.
+
+### Changed
+
+- **Product-manager contract v2** — Bind workspace snapshot identity and Claude
+  transport into the strict request contract; legacy v1 configuration is
+  normalized without accepting v1 requests under the new exact schema.
+
 ## [3.4.5] - 2026-07-31
 
 ### Changed

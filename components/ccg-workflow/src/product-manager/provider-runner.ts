@@ -3,7 +3,7 @@ import type { ChildProcessWithoutNullStreams } from 'node:child_process'
 import { spawn, spawnSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { validateProviderExecution } from './provider-registry'
+import { CLAUDE_SSH_ENVIRONMENT_KEYS, validateProviderExecution } from './provider-registry'
 
 const BASE_ENV_ALLOWLIST = [
   'PATH',
@@ -71,10 +71,22 @@ export async function executeReadOnlyProvider(options: {
   maxOutputBytes: number
 }): Promise<string> {
   const execution = validateProviderExecution(options.execution)
+  const environment = buildProductManagerProviderEnvironment(execution)
+  const redactDiagnostic = (value: string) => {
+    let result = value
+    for (const key of CLAUDE_SSH_ENVIRONMENT_KEYS) {
+      const secret = environment[key]
+      if (secret)
+        result = result.split(secret).join('[REDACTED]')
+    }
+    return result
+      .replace(/\bBearer\s+\S+/gi, 'Bearer [REDACTED]')
+      .replace(/((?:password|token|identity|known.?hosts?)\s*[:=]\s*)\S+/gi, '$1[REDACTED]')
+  }
   return await new Promise((resolve, reject) => {
     const child = spawn(execution.executable, execution.args, {
       cwd: options.cwd,
-      env: buildProductManagerProviderEnvironment(execution),
+      env: environment,
       detached: process.platform !== 'win32',
       shell: false,
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -98,7 +110,7 @@ export async function executeReadOnlyProvider(options: {
       if (!diagnostic)
         return new Error(message)
       return new Error(
-        `${message}; stderr: ${diagnostic}${stderrDiagnosticTruncated ? ' [truncated]' : ''}`,
+        `${message}; stderr: ${redactDiagnostic(diagnostic)}${stderrDiagnosticTruncated ? ' [truncated]' : ''}`,
       )
     }
     const finish = (error?: Error, value?: string) => {

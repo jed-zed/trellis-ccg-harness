@@ -16,7 +16,8 @@
   their configured roles. Provider assignment is configurable, not permanent.
   Claude is disabled for
   ordinary Codex-mode delegation; the only exception is when unified routing
-  selects Claude for the no-tool, no-write `product-manager` contract.
+  selects Claude for the snapshot-bound, Read/Glob/Grep-only, no-write
+  `product-manager` contract.
 - When `.trellis/` exists, Trellis owns task identity, lifecycle,
   specifications, plans, and completion. CCG must not create a parallel task
   authority.
