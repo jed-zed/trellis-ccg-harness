@@ -222,6 +222,38 @@ func buildGrokArgs(cfg *Config, targetArg string) []string {
 	return args
 }
 
+type PiBackend struct{}
+
+func (PiBackend) Name() string    { return "pi" }
+func (PiBackend) Command() string { return "pi" }
+func (PiBackend) BuildArgs(cfg *Config, targetArg string) []string {
+	return buildPiArgs(cfg, targetArg)
+}
+
+func buildPiArgs(cfg *Config, targetArg string) []string {
+	if cfg == nil {
+		return nil
+	}
+
+	args := []string{
+		"--mode", "json",
+		"--no-approve",
+		"--no-extensions",
+		"--no-skills",
+		"--no-prompt-templates",
+		"--no-themes",
+		"--no-context-files",
+		"--tools", "read,grep,find,ls",
+	}
+	if cfg.Mode == "resume" && cfg.SessionID != "" {
+		args = append(args, "--session", cfg.SessionID)
+	}
+	if targetArg != "" {
+		args = append(args, targetArg)
+	}
+	return args
+}
+
 type GeminiBackend struct{}
 
 func (GeminiBackend) Name() string { return "gemini" }

@@ -263,7 +263,7 @@ node bin/ccg.mjs doctor --grok-live       # Explicit paid Web/X smoke
 
 Codex mode routes `frontend`, `backend`, and `search` independently to any
 provider already registered by `codeagent-wrapper`: `codex`, `gemini`,
-`claude`, `antigravity`, or `grok`. Analysis, planning, and review run inside
+`claude`, `antigravity`, `grok`, or `pi`. Analysis, planning, and review run inside
 the applicable top-level role. Codex remains the final real-workspace writer
 and verifier.
 

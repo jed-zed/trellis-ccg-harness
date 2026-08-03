@@ -73,6 +73,7 @@ type codexHeader struct {
 type UnifiedEvent struct {
 	// Common fields
 	Type string `json:"type"`
+	ID   string `json:"id,omitempty"`
 
 	// Codex-specific fields
 	ThreadID string          `json:"thread_id,omitempty"`
@@ -97,6 +98,9 @@ type UnifiedEvent struct {
 	//   {"type":"end","stopReason":"EndTurn","sessionId":"...","requestId":"..."}
 	Data       string `json:"data,omitempty"`
 	StopReason string `json:"stopReason,omitempty"`
+
+	// Pi-specific fields (pi --mode json)
+	Message json.RawMessage `json:"message,omitempty"`
 }
 
 // GetSessionID returns the session ID from either snake_case or camelCase field.
@@ -154,6 +158,7 @@ func parseJSONStreamInternalWithContent(r io.Reader, warnFn func(string), infoFn
 		claudeMessage string
 		geminiBuffer  strings.Builder
 		grokBuffer    strings.Builder
+		piMessage     string
 	)
 
 	for {
@@ -217,11 +222,40 @@ func parseJSONStreamInternalWithContent(r io.Reader, warnFn func(string), infoFn
 		}
 		isGemini := event.Role != "" || event.Delta != nil || event.Status != "" ||
 			(event.Type == "init" && event.GetSessionID() != "")
-		// Grok streaming-json: token deltas carry "data"; the terminal "end"
-		// event carries stopReason + camelCase sessionId (no role/status).
+			// Grok streaming-json: token deltas carry "data"; the terminal "end"
+			// event carries stopReason + camelCase sessionId (no role/status).
 		isGrok := !isCodex && !isClaude && !isGemini &&
 			(((event.Type == "thought" || event.Type == "text") && event.Data != "") ||
 				(event.Type == "end" && (event.StopReason != "" || event.SessionIDCamel != "")))
+		isPi := !isCodex && !isClaude && !isGemini && !isGrok &&
+			((event.Type == "session" && event.ID != "") ||
+				((event.Type == "message_end" || event.Type == "turn_end") && len(event.Message) > 0) ||
+				event.Type == "agent_end")
+
+		if isPi {
+			switch event.Type {
+			case "session":
+				threadID = event.ID
+				if onSessionStarted != nil {
+					onSessionStarted(threadID)
+				}
+				emitProgress(formatProgressLine("session_started", map[string]string{"id": threadID}))
+			case "message_end", "turn_end":
+				text := extractPiAssistantText(event.Message)
+				if text != "" && text != piMessage {
+					piMessage = text
+					notifyMessage()
+					if onContent != nil {
+						onContent(text, "message")
+					}
+					emitProgress(formatProgressLine("message", map[string]string{"text": strconv.Quote(safeProgressSnippet(text, 120))}))
+				}
+			case "agent_end":
+				emitProgress(formatProgressLine("session_completed", map[string]string{"total_events": strconv.Itoa(totalEvents)}))
+				notifyComplete()
+			}
+			continue
+		}
 
 		// Handle Codex events
 		if isCodex {
@@ -414,6 +448,8 @@ func parseJSONStreamInternalWithContent(r io.Reader, warnFn func(string), infoFn
 	}
 
 	switch {
+	case piMessage != "":
+		message = piMessage
 	case grokBuffer.Len() > 0:
 		message = grokBuffer.String()
 	case geminiBuffer.Len() > 0:
@@ -426,6 +462,27 @@ func parseJSONStreamInternalWithContent(r io.Reader, warnFn func(string), infoFn
 
 	infoFn(fmt.Sprintf("parseJSONStream completed: events=%d, message_len=%d, thread_id_found=%t", totalEvents, len(message), threadID != ""))
 	return message, threadID
+}
+
+func extractPiAssistantText(raw json.RawMessage) string {
+	var message struct {
+		Role    string `json:"role"`
+		Content []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		} `json:"content"`
+	}
+	if json.Unmarshal(raw, &message) != nil || message.Role != "assistant" {
+		return ""
+	}
+
+	var text strings.Builder
+	for _, block := range message.Content {
+		if block.Type == "text" {
+			text.WriteString(block.Text)
+		}
+	}
+	return text.String()
 }
 
 func formatProgressLine(event string, fields map[string]string) string {

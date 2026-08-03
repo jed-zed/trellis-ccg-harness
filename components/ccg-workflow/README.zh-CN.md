@@ -262,7 +262,7 @@ node bin/ccg.mjs doctor --grok-live       # 显式付费 Web/X 冒烟
 
 Codex 模式只分别设置 `frontend`、`backend`、`search` 三个大角色，并可为
 每个角色选择 `codeagent-wrapper` 已注册的 `codex`、`gemini`、`claude`、
-`antigravity` 或 `grok`。分析、计划和审查是每个大角色内部的工作阶段，
+`antigravity`、`grok` 或 `pi`。分析、计划和审查是每个大角色内部的工作阶段，
 不是独立路由项。Codex 仍负责真实工作区的最终写入和验证。
 
 ## 配置

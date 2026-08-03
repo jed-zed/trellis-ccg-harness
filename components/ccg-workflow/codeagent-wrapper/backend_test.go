@@ -444,3 +444,77 @@ func TestParseJSONStream_GrokThoughtsExcludedFromMessage(t *testing.T) {
 		t.Fatalf("message = %q, want %q (thoughts must not leak)", message, "answer")
 	}
 }
+
+func TestPiBuildArgs_ReadOnlyJSONMode(t *testing.T) {
+	cfg := &Config{Mode: "new", WorkDir: "/tmp/project", Backend: "pi"}
+	want := []string{
+		"--mode", "json",
+		"--no-approve",
+		"--no-extensions",
+		"--no-skills",
+		"--no-prompt-templates",
+		"--no-themes",
+		"--no-context-files",
+		"--tools", "read,grep,find,ls",
+	}
+	if got := buildPiArgs(cfg, ""); !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+func TestPiBuildArgs_ResumeAndDirectPrompt(t *testing.T) {
+	cfg := &Config{Mode: "resume", SessionID: "pi-session", Backend: "pi"}
+	args := buildPiArgs(cfg, "continue")
+	joined := strings.Join(args, " ")
+	if !strings.Contains(joined, "--session pi-session") {
+		t.Fatalf("resume args missing --session: %v", args)
+	}
+	if args[len(args)-1] != "continue" {
+		t.Fatalf("direct prompt must be final arg: %v", args)
+	}
+}
+
+func TestPiBuildArgs_NilConfig(t *testing.T) {
+	if args := buildPiArgs(nil, "x"); args != nil {
+		t.Fatalf("nil config should return nil args, got %v", args)
+	}
+}
+
+func TestPiBackend_Metadata(t *testing.T) {
+	b := PiBackend{}
+	if b.Name() != "pi" || b.Command() != "pi" {
+		t.Fatalf("metadata = (%q, %q), want (pi, pi)", b.Name(), b.Command())
+	}
+}
+
+func TestParseJSONStream_PiEvents(t *testing.T) {
+	stream := `{"type":"session","version":3,"id":"pi-session"}
+{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"Hello"},{"type":"text","text":" world"}]}}
+{"type":"agent_end"}
+`
+	var sessionFromCallback string
+	message, threadID := parseJSONStreamInternalWithContent(
+		strings.NewReader(stream), nil, nil, nil, nil, nil, nil,
+		func(id string) { sessionFromCallback = id },
+	)
+
+	if message != "Hello world" {
+		t.Fatalf("message = %q, want %q", message, "Hello world")
+	}
+	if threadID != "pi-session" || sessionFromCallback != "pi-session" {
+		t.Fatalf("session IDs = (%q, %q), want pi-session", threadID, sessionFromCallback)
+	}
+}
+
+func TestParseJSONStream_PiIgnoresUnknownAndNonTextEvents(t *testing.T) {
+	stream := `{"type":"session","version":3,"id":"pi-session"}
+{"type":"future_event","payload":{"value":1}}
+{"type":"message_end","message":{"role":"user","content":[{"type":"text","text":"not the answer"}]}}
+{"type":"turn_end","message":{"role":"assistant","content":[{"type":"thinking","thinking":"hidden"},{"type":"text","text":"answer"}]}}
+{"type":"agent_end"}
+`
+	message, threadID := parseJSONStream(strings.NewReader(stream))
+	if message != "answer" || threadID != "pi-session" {
+		t.Fatalf("got (%q, %q), want (answer, pi-session)", message, threadID)
+	}
+}

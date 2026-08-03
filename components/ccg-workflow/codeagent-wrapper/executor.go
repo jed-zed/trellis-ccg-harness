@@ -859,7 +859,7 @@ func runCodexTaskWithContext(parentCtx context.Context, taskSpec TaskSpec, backe
 	useStdin := taskSpec.UseStdin
 	targetArg := taskSpec.Task
 
-	// Gemini/Antigravity CLI does not support "-" as stdin marker for -p flag.
+	// Gemini/Antigravity/Pi CLI does not support "-" as stdin marker for the prompt.
 	// On macOS/Linux: pass the actual task text directly via -p (execve preserves
 	// multi-line args in argv). On Windows: npm's .cmd wrapper routes through
 	// cmd.exe which truncates multi-line args at the first newline (Issue #129).
@@ -868,8 +868,10 @@ func runCodexTaskWithContext(parentCtx context.Context, taskSpec TaskSpec, backe
 	// platform, including Windows (#146). The cmd.exe truncation risk is
 	// accepted because a truncated prompt is better than a silent no-op.
 	// Grok is a native binary (no .cmd shim), so -p is safe on every platform.
+	// Pi JSON mode reads piped stdin on every platform; use it to avoid Windows
+	// npm shim argument truncation and keep multiline prompts intact.
 	promptDirect := useStdin && ((cfg.Backend == "gemini" && !isWindows()) || cfg.Backend == "antigravity" || cfg.Backend == "grok")
-	promptStdinPipe := useStdin && cfg.Backend == "gemini" && isWindows()
+	promptStdinPipe := useStdin && ((cfg.Backend == "gemini" && isWindows()) || cfg.Backend == "pi")
 	if useStdin && !promptDirect && !promptStdinPipe {
 		targetArg = "-"
 	}

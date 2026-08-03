@@ -13,6 +13,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -1601,6 +1602,7 @@ func TestBackendSelectBackend(t *testing.T) {
 		{"codex", "codex", CodexBackend{}},
 		{"claude mixed case", "ClAuDe", ClaudeBackend{}},
 		{"gemini", "gemini", GeminiBackend{}},
+		{"pi", "Pi", PiBackend{}},
 	}
 
 	for _, tt := range tests {
@@ -1621,6 +1623,10 @@ func TestBackendSelectBackend(t *testing.T) {
 			case GeminiBackend:
 				if _, ok := got.(GeminiBackend); !ok {
 					t.Fatalf("expected GeminiBackend, got %T", got)
+				}
+			case PiBackend:
+				if _, ok := got.(PiBackend); !ok {
+					t.Fatalf("expected PiBackend, got %T", got)
 				}
 			}
 		})
@@ -2456,6 +2462,41 @@ func TestRunCodexTaskFn_UsesTaskBackend(t *testing.T) {
 		if seenArgs[i] != want {
 			t.Fatalf("args[%d]=%q, want %q", i, seenArgs[i], want)
 		}
+	}
+}
+
+func TestRunCodexTaskFn_PiUsesStdinForComplexPrompt(t *testing.T) {
+	defer resetTestHooks()
+
+	fake := newFakeCmd(fakeCmdConfig{
+		StdoutPlan: []fakeStdoutEvent{
+			{Data: `{"type":"session","version":3,"id":"pi-thread"}` + "\n"},
+			{Data: `{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"pi-output"}]}}` + "\n"},
+			{Data: `{"type":"agent_end"}` + "\n"},
+		},
+	})
+
+	var seenName string
+	var seenArgs []string
+	newCommandRunner = func(ctx context.Context, name string, args ...string) commandRunner {
+		seenName = name
+		seenArgs = append([]string(nil), args...)
+		return fake
+	}
+
+	task := "line one\nline two"
+	res := runCodexTaskFn(TaskSpec{Task: task, Backend: "pi", UseStdin: true}, 5)
+	if res.ExitCode != 0 || res.Message != "pi-output" || res.SessionID != "pi-thread" {
+		t.Fatalf("unexpected result: %+v", res)
+	}
+	if seenName != "pi" {
+		t.Fatalf("command name = %q, want pi", seenName)
+	}
+	if slices.Contains(seenArgs, task) {
+		t.Fatalf("complex prompt must not be passed in argv: %v", seenArgs)
+	}
+	if got := fake.StdinContents(); got != task {
+		t.Fatalf("stdin = %q, want %q", got, task)
 	}
 }
 

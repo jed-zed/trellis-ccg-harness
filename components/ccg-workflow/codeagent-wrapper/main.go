@@ -451,11 +451,11 @@ func run() (exitCode int) {
 	useStdin := cfg.ExplicitStdin || shouldUseStdin(taskText, piped)
 
 	targetArg := taskText
-	// Gemini/Antigravity/Grok CLI doesn't support "-" as stdin marker — pass text directly via -p.
-	// Keep in sync with runCodexTaskWithContext (executor.go): only gemini uses
-	// the Windows stdin pipe; antigravity (#146) and grok take -p everywhere.
+	// Gemini/Antigravity/Grok/Pi CLI doesn't support "-" as stdin marker.
+	// Keep in sync with runCodexTaskWithContext (executor.go): Pi always uses
+	// stdin for complex prompts; Gemini uses it on Windows.
 	promptDirect := useStdin && ((cfg.Backend == "gemini" && !isWindows()) || cfg.Backend == "antigravity" || cfg.Backend == "grok")
-	promptStdinPipe := useStdin && cfg.Backend == "gemini" && isWindows()
+	promptStdinPipe := useStdin && ((cfg.Backend == "gemini" && isWindows()) || cfg.Backend == "pi")
 	if useStdin && !promptDirect && !promptStdinPipe {
 		targetArg = "-"
 	}
@@ -606,7 +606,7 @@ Parallel mode examples:
 
 Options:
     --lite, -L            Lite mode: disable Web UI, faster response
-    --backend <name>      Select backend (codex, gemini, claude, antigravity, grok)
+    --backend <name>      Select backend (codex, gemini, claude, antigravity, grok, pi)
     --gemini-model <name> Specify Gemini model (gemini backend only)
                           Can also be set via GEMINI_MODEL environment variable
                           CLI parameter takes precedence over environment variable

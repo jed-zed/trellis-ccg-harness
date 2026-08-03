@@ -2,7 +2,7 @@
 export type SupportedLang = 'zh-CN' | 'en'
 
 // codeagent-wrapper 已注册的模型类型
-export const REGISTERED_MODEL_TYPES = ['codex', 'gemini', 'claude', 'antigravity', 'grok'] as const
+export const REGISTERED_MODEL_TYPES = ['codex', 'gemini', 'claude', 'antigravity', 'grok', 'pi'] as const
 export type ModelType = typeof REGISTERED_MODEL_TYPES[number]
 
 // 可独立切换的四类正式角色。分析、计划和审查是角色内部阶段。

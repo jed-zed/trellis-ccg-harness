@@ -73,6 +73,7 @@ var backendRegistry = map[string]Backend{
 	"antigravity": AntigravityBackend{},
 	"agy":         AntigravityBackend{},
 	"grok":        GrokBackend{},
+	"pi":          PiBackend{},
 }
 
 func selectBackend(name string) (Backend, error) {
