@@ -469,7 +469,7 @@ test("installed review writes the complete ignored call evidence and projection 
     );
     assert.equal(runtime.callCount(), 3);
     assert.equal(
-      existsSync(path.join(value.taskDir, ".ccg-evidence", "product-manager", "snapshots", "fake", "root")),
+      existsSync(path.join(value.taskDir, ".ccg-evidence", "product-manager", "snapshots", "fake")),
       false,
     );
     const callRoot = path.join(

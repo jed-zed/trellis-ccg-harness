@@ -23,6 +23,7 @@ import {
 } from '../product-manager/evidence-store'
 import { createInvocationKey } from '../product-manager/invocation'
 import {
+  cleanupProductManagerWorkspaceSnapshot,
   prepareProductManagerWorkspaceSnapshot,
   validateProductManagerWorkspaceSnapshot,
 } from '../product-manager/workspace-snapshot'
@@ -105,15 +106,26 @@ function findExecutable(names: string[]): string | null {
   return null
 }
 
-function resolveGeminiEntrypoint(): string | null {
+export function resolveGeminiEntrypoint(): string | null {
   const explicit = process.env.CCG_PRODUCT_MANAGER_GEMINI_ENTRYPOINT
-  if (explicit && isAbsolute(explicit) && existsSync(explicit))
-    return explicit
+  if (explicit) {
+    try {
+      return validateTrustedRegularFile(explicit, 'Gemini product-manager entrypoint')
+    }
+    catch {
+      return null
+    }
+  }
   const shim = findExecutable(process.platform === 'win32' ? ['gemini.cmd'] : ['gemini'])
   if (!shim)
     return null
   const adjacent = resolve(shim, '..', 'node_modules', '@google', 'gemini-cli', 'dist', 'index.js')
-  return existsSync(adjacent) ? adjacent : null
+  try {
+    return validateTrustedRegularFile(adjacent, 'Gemini product-manager entrypoint')
+  }
+  catch {
+    return null
+  }
 }
 
 function validateNativeClaudeExecutable(candidate: string): string | null {
@@ -408,10 +420,11 @@ async function invokeProvider(options: {
   }
   try {
     if (options.provider === 'codex') {
-      const executable = process.env.CCG_PRODUCT_MANAGER_CODEX_EXECUTABLE
+      const candidate = process.env.CCG_PRODUCT_MANAGER_CODEX_EXECUTABLE
         || findExecutable(process.platform === 'win32' ? ['codex.exe'] : ['codex'])
-      if (!executable)
+      if (!candidate)
         throw new Error('Codex product-manager executable is unavailable')
+      const executable = validateTrustedRegularFile(candidate, 'Codex product-manager executable')
       const model = process.env.CCG_PRODUCT_MANAGER_CODEX_MODEL || 'gpt-5.6-sol'
       const contract = bindContract({
         provider: 'codex',
@@ -793,6 +806,12 @@ export async function reviewProductManager(options: ProductManagerCommandOptions
         throw error
       }
     },
+  }).finally(async () => {
+    await cleanupProductManagerWorkspaceSnapshot({
+      snapshotRoot: workspace,
+      manifestFile,
+      taskDir,
+    })
   })
 }
 

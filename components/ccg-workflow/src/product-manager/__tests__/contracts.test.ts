@@ -125,6 +125,13 @@ describe('product-manager output validation', () => {
     expect(validateProductManagerInput(input).checkpoint_id).toBe('M1')
     expect(() => validateProductManagerInput({
       ...input,
+      contract_version: '1',
+      input_digest: createHash('sha256')
+        .update(canonicalJson({ ...base, contract_version: '1' }), 'utf8')
+        .digest('hex'),
+    })).toThrow(/contract_version/i)
+    expect(() => validateProductManagerInput({
+      ...input,
       user_request: 'Changed without updating the digest',
     })).toThrow(/input_digest/i)
 

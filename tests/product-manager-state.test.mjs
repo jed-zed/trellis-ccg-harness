@@ -285,6 +285,7 @@ test("review identity binds the validated workspace snapshot and Claude transpor
       workspaceSnapshot: TEST_WORKSPACE_SNAPSHOT,
       claudeTransport: "ssh",
     });
+    assert.equal(local.input.contract_version, "2");
     assert.deepEqual(local.input.workspace_snapshot, TEST_WORKSPACE_SNAPSHOT);
     assert.equal(local.input.claude_transport, "local");
     assert.notEqual(local.input.input_digest, ssh.input.input_digest);

@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import { canonicalJson } from './canonical-json'
 
-export const PRODUCT_MANAGER_CONTRACT_VERSION = '1' as const
+export const PRODUCT_MANAGER_CONTRACT_VERSION = '2' as const
 
 export const PRODUCT_MANAGER_TRIGGERS = [
   'INTAKE_REVIEW',
@@ -329,6 +329,8 @@ function assertWorkspaceSnapshot(value: unknown): asserts value is ProductManage
 export function validateInvocationIdentity(value: unknown): InvocationIdentity {
   assertRecord(value, 'invocation')
   assertString(value.contract_version, 'invocation.contract_version')
+  if (value.contract_version !== PRODUCT_MANAGER_CONTRACT_VERSION)
+    throw new TypeError(`invocation.contract_version must be ${PRODUCT_MANAGER_CONTRACT_VERSION}`)
   assertString(value.task_id, 'invocation.task_id')
   assertString(value.trigger_type, 'invocation.trigger_type')
   if (!PRODUCT_MANAGER_TRIGGERS.includes(value.trigger_type as ProductManagerTrigger))

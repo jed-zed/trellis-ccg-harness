@@ -2,7 +2,7 @@ import type { ProductManagerWorkspaceSnapshot } from './contracts'
 import { createHash, randomUUID } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
 import { chmod, lstat, mkdir, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises'
-import { isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { canonicalJson } from './canonical-json'
 import { PACKAGE_ROOT } from '../utils/installer-template'
@@ -84,6 +84,16 @@ function gitOutput(workdir: string, args: string[]): string {
   })
 }
 
+function trackedSnapshotPaths(output: string): string[] {
+  return output.split('\0').filter(Boolean).flatMap((entry) => {
+    const separator = entry.indexOf('\t')
+    const metadata = separator === -1 ? [] : entry.slice(0, separator).split(' ')
+    if (metadata.length !== 3 || !/^\d{6}$/.test(metadata[0]) || !/^[a-f0-9]+$/.test(metadata[1]) || !/^\d+$/.test(metadata[2]))
+      throw new Error('git ls-files returned an invalid staged entry')
+    return metadata[0] === '160000' ? [] : [entry.slice(separator + 1)]
+  })
+}
+
 export async function prepareProductManagerWorkspaceSnapshot(options: {
   workdir: string
   taskDir: string
@@ -95,9 +105,10 @@ export async function prepareProductManagerWorkspaceSnapshot(options: {
   if (!isInside(workdir, taskDir))
     throw new Error('product-manager snapshot task directory must stay inside the workdir')
 
-  const selectedPaths = gitOutput(workdir, ['ls-files', '--cached', '--others', '--exclude-standard', '-z'])
-    .split('\0')
-    .filter(Boolean)
+  const selectedPaths = [...new Set([
+    ...trackedSnapshotPaths(gitOutput(workdir, ['ls-files', '--stage', '-z'])),
+    ...gitOutput(workdir, ['ls-files', '--others', '--exclude-standard', '-z']).split('\0').filter(Boolean),
+  ])]
   const existingPaths: string[] = []
   for (const path of selectedPaths) {
     try {
@@ -191,6 +202,37 @@ export async function prepareProductManagerWorkspaceSnapshot(options: {
   }
 }
 
+async function resolveWorkspaceSnapshotLayout(options: {
+  snapshotRoot: string
+  manifestFile: string
+  taskDir: string
+}): Promise<{ snapshotRoot: string, manifestFile: string, snapshotBase: string, taskDir: string }> {
+  if (!isAbsolute(options.snapshotRoot) || !isAbsolute(options.manifestFile) || !isAbsolute(options.taskDir))
+    throw new TypeError('workspace snapshot paths must be absolute')
+  const taskDir = await realpath(options.taskDir)
+  const snapshotStore = await realpath(join(taskDir, '.ccg-evidence', 'product-manager', 'snapshots'))
+  const snapshotRoot = await realpath(options.snapshotRoot)
+  const manifestFile = await realpath(options.manifestFile)
+  const snapshotBase = dirname(snapshotRoot)
+  if (!isInside(taskDir, snapshotStore)
+    || basename(snapshotRoot) !== 'root'
+    || basename(manifestFile) !== 'manifest.json'
+    || dirname(manifestFile) !== snapshotBase
+    || dirname(snapshotBase) !== snapshotStore) {
+    throw new Error('workspace snapshot paths have an invalid task-local layout')
+  }
+  return { snapshotRoot, manifestFile, snapshotBase, taskDir }
+}
+
+export async function cleanupProductManagerWorkspaceSnapshot(options: {
+  snapshotRoot: string
+  manifestFile: string
+  taskDir: string
+}): Promise<void> {
+  const { snapshotBase } = await resolveWorkspaceSnapshotLayout(options)
+  await rm(snapshotBase, { recursive: true, force: true })
+}
+
 async function listSnapshotFiles(root: string, directory = root): Promise<string[]> {
   const files: string[] = []
   for (const entry of await readdir(directory, { withFileTypes: true })) {
@@ -212,13 +254,7 @@ export async function validateProductManagerWorkspaceSnapshot(options: {
   taskDir: string
   expected: ProductManagerWorkspaceSnapshot
 }): Promise<string> {
-  if (!isAbsolute(options.snapshotRoot) || !isAbsolute(options.manifestFile) || !isAbsolute(options.taskDir))
-    throw new TypeError('workspace snapshot paths must be absolute')
-  const taskDir = await realpath(options.taskDir)
-  const snapshotRoot = await realpath(options.snapshotRoot)
-  const manifestFile = await realpath(options.manifestFile)
-  if (!isInside(taskDir, snapshotRoot) || !isInside(taskDir, manifestFile))
-    throw new Error('workspace snapshot paths must stay inside the canonical task directory')
+  const { snapshotRoot, manifestFile } = await resolveWorkspaceSnapshotLayout(options)
   const rootMetadata = await lstat(snapshotRoot)
   const manifestMetadata = await lstat(manifestFile)
   if (!rootMetadata.isDirectory() || rootMetadata.isSymbolicLink() || !manifestMetadata.isFile() || manifestMetadata.isSymbolicLink())

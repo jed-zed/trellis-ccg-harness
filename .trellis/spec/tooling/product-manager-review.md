@@ -91,7 +91,7 @@ strategy = "fallback"
 
 [product_manager]
 enabled = false
-contract_version = "1"
+contract_version = "2"
 max_retries = 1
 timeout_ms = 180000
 max_output_bytes = 1048576
@@ -104,6 +104,8 @@ Unimplemented or disallowed selections fail closed without fallback.
 once into unified routing and then removed. Selection never installs a
 provider, logs in, reads credentials, calls the network, or authorizes a paid
 call.
+Legacy stored version `1` configuration is accepted only for migration and is
+normalized to version `2`; new exact version `1` review requests are rejected.
 
 Optional test/operator overrides are:
 

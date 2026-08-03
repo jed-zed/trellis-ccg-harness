@@ -238,11 +238,18 @@ describe('product-manager configuration', () => {
   it('keeps existing installs disabled when the section is absent', () => {
     expect(normalizeProductManagerConfig(undefined, { existingInstall: true })).toEqual({
       enabled: false,
-      contract_version: '1',
+      contract_version: '2',
       max_retries: 1,
       timeout_ms: 180000,
       max_output_bytes: 1048576,
     })
+  })
+
+  it('normalizes legacy product-manager contract v1 configuration to v2', () => {
+    expect(normalizeProductManagerConfig(
+      { contract_version: '1' },
+      { existingInstall: true },
+    ).contract_version).toBe('2')
   })
 
   it('requires explicit consent for fresh behavior enablement', () => {

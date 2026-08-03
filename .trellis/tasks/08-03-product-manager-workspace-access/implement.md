@@ -1,6 +1,6 @@
 # 实施计划：Product-manager 工作区只读访问
 
-> 当前状态：实施中。用户已明确批准修改及 CCG/Harness commit；push、安装、登录和 live Provider 调用仍未授权。
+> 当前状态：实施中。用户已明确批准修改、CCG/Harness commit、push 与 PR 合并；安装、登录和 live Provider 调用仍未授权。
 
 ## 0. 合并前置与基线确认
 
@@ -9,7 +9,7 @@
   - `allowedCcgPlanPaths` 的显式 plan-only 语义；
   - Grok distribution byte-parity tests；
   - project schema、ownership digest 与 `globalEssential` 15 项。
-- [x] CCG source/runtime 已对齐 `3.4.5`；权威源已提交为 `cc053f7d2345031dbc93b933aa659fd582150b8f`（tree `4e240c48279f7a4422413fc278be0053b82a54d3`），Harness staged snapshot 已通过 `verify-sources -Index`。`runInstalledProductManagerReview()` 的 exact-version 门禁保持不变。
+- [x] CCG source/runtime 已对齐 `3.4.5`；权威源已提交为 `e1e5986cd3fd10545f7d7451e6a6d1e1ba735715`（tree `e5363687ae992546c654e626871c5474f13af79d`），Harness snapshot 已通过事务式门禁与 staged `verify-sources -Index`。`runInstalledProductManagerReview()` 的 exact-version 门禁保持不变。
 - [x] 本 worktree 的本机检出限制已隔离：Windows 防护会立即移除 `components/ccg-workflow/templates/skills/domains/security/{pentest,red-team}.md`，当前通过 worktree-local sparse-checkout 排除；提交清单不含这两个文件的删除，并由可完整检出的权威 CCG checkout 完成 staged source verify。
 - [x] 已运行 `git status --short`、`git diff --check`；无 whitespace error，变更均属于本任务。
 - [ ] 重新运行：
@@ -58,7 +58,7 @@ ccg route --workflow plan --phase intake \
 - [x] 校验返回 JSON、版本、task-local containment 与 manifest SHA；将非敏感摘要和 `claude_transport` 加入 canonical input。
 - [x] 更新 input schema、canonical digest、invocation key、bound output schema 和 stale/CAS 校验；ephemeral path 与 SSH details 不入 digest/state。
 - [x] `review` 显式接收 snapshot path/manifest；CCG 在 Provider 启动前复核绑定。
-- [x] Harness `finally` 删除本地 snapshot 内容；tracked projection 只保留 advice/evidence refs。
+- [x] Harness `finally` 删除整个本地随机 snapshot 目录；tracked projection 只保留 advice/evidence refs。
 
 **先写失败测试**：snapshot/transport 改变使 invocation key 变化；旧 response stale；malformed snapshot output/越界 path/摘要漂移不调用 Provider。
 
@@ -91,7 +91,7 @@ ccg route --workflow plan --phase intake \
 
 - [x] 更新 canonical Harness collaboration policy、initializer docs、`.trellis/spec/tooling/product-manager-review.md`、layered adapter guide、`scripts/DESIGN.md`。
 - [x] 更新 CCG PM README/DESIGN/CHANGELOG、plugin/marketplace description、provider command/Skill 文档；明确 local 默认、SSH opt-in、env-only、no install/login/no fallback。
-- [ ] 同步所有 generated/owned/template/plugin runtime copies，通过 source/tree/digest/byte-parity tests；不修改全局 plugin cache 或用户登录态。
+- [x] 同步所有 generated/owned/template/plugin runtime copies，通过 source/tree/digest/byte-parity tests；不修改全局 plugin cache 或用户登录态。
 
 ## 7. 最小验证门禁（5 点）
 
@@ -154,4 +154,4 @@ node components/ccg-workflow/templates/skills/tools/verify-security/scripts/secu
 
 - [ ] PRD 的 AC1–AC10 全部有测试或明确的 live evidence。
 - [x] 更新/复核相关 Trellis spec，记录 bridge v2、snapshot identity、transport authority 的长期约束。
-- [ ] 运行最终 full-scope check 后再提交；commit/push/archive 均需遵循 Trellis 独立审批与生命周期。
+- [x] 已运行最终 full-scope check；本 PR 的 commit、push 与 merge 已获授权，Trellis finish/archive 仍需在 live 验收完成后按独立生命周期处理。

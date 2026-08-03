@@ -48,7 +48,7 @@ export interface IntelligenceConfig {
 
 export interface ProductManagerConfig {
   enabled: boolean
-  contract_version: '1'
+  contract_version: '1' | '2'
   max_retries: number
   timeout_ms: number
   max_output_bytes: number

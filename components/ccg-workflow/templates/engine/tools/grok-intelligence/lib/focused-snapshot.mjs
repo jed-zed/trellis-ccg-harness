@@ -10,7 +10,7 @@ const DEFAULT_LIMITS = Object.freeze({
 })
 
 const DENIED_SEGMENTS = new Set([
-  '.git', '.hg', '.svn', '.claude', '.codex', '.gemini', '.grok', '.cursor',
+  '.git', '.hg', '.svn', '.claude', '.codex', '.ccg-evidence', '.gemini', '.grok', '.cursor',
   '.github', '.claude-plugin', '.codex-plugin', '.ssh', '.aws', '.azure', '.gnupg', '.kube',
   'node_modules', 'vendor', '.cache', '.next', '.nuxt', '.turbo',
   'dist', 'build', 'coverage', 'skills', 'hooks', 'plugins',

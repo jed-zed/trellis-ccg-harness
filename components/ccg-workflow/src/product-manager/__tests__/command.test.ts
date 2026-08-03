@@ -12,6 +12,7 @@ import {
   resolveClaudeExecutable,
   resolveClaudeProductManagerModel,
   resolveClaudeSshConfiguration,
+  resolveGeminiEntrypoint,
   snapshotProductManager,
   unwrapProviderOutput,
 } from '../../commands/product-manager'
@@ -69,7 +70,7 @@ async function fixture() {
   const manifestFile = join(taskDir, '.ccg-evidence', 'product-manager', 'snapshots', 'fixture', 'manifest.json')
   await writeFile(manifestFile, `${JSON.stringify({ ...workspaceSnapshot, files })}\n`, 'utf8')
   const base = {
-    contract_version: '1',
+    contract_version: '2',
     task_id: 'pm',
     trigger_type: 'MILESTONE_REVIEW' as const,
     checkpoint_id: 'M1',
@@ -160,6 +161,18 @@ describe('product-manager command', () => {
     }
   })
 
+  it('rejects a non-regular explicit Gemini entrypoint without PATH fallback', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'ccg-pm-gemini-'))
+    try {
+      vi.stubEnv('CCG_PRODUCT_MANAGER_GEMINI_ENTRYPOINT', root)
+      vi.stubEnv('PATH', '')
+      expect(resolveGeminiEntrypoint()).toBeNull()
+    }
+    finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
   it('validates the explicit SSH transport environment without using the local override', async () => {
     const root = await mkdtemp(join(tmpdir(), 'ccg-pm-ssh-'))
     try {
@@ -206,6 +219,17 @@ describe('product-manager command', () => {
       await writeFile(join(root, 'tracked.txt'), 'after\n')
       await writeFile(join(root, 'untracked.txt'), 'visible\n')
       await writeFile(join(root, 'ignored.txt'), 'excluded\n')
+      await mkdir(join(taskDir, '.ccg-evidence'), { recursive: true })
+      await writeFile(join(taskDir, '.ccg-evidence', 'previous.txt'), 'must not recurse\n')
+      execFileSync('git', ['add', '-f', '.trellis/tasks/pm/.ccg-evidence/previous.txt'], { cwd: root, shell: false, stdio: 'ignore' })
+      await mkdir(join(root, 'linked-repository'), { recursive: true })
+      await writeFile(join(root, 'linked-repository', 'untracked-secret.txt'), 'must not recurse\n')
+      execFileSync('git', [
+        'update-index',
+        '--add',
+        '--cacheinfo',
+        `160000,${'1'.repeat(40)},linked-repository`,
+      ], { cwd: root, shell: false, stdio: 'ignore' })
 
       const prepared = await snapshotProductManager({ workdir: root, taskDir })
       const manifest = JSON.parse(await readFile(prepared.manifest_path, 'utf8'))
@@ -217,6 +241,8 @@ describe('product-manager command', () => {
       ]))
       expect(manifest.files.map((file: { path: string }) => file.path)).not.toContain('.env')
       expect(manifest.files.map((file: { path: string }) => file.path)).not.toContain('ignored.txt')
+      expect(manifest.files.map((file: { path: string }) => file.path)).not.toContain('.trellis/tasks/pm/.ccg-evidence/previous.txt')
+      expect(manifest.files.map((file: { path: string }) => file.path)).not.toContain('linked-repository/untracked-secret.txt')
       expect(prepared.workspace_snapshot.dirty).toBe(true)
       await expect(validateProductManagerWorkspaceSnapshot({
         snapshotRoot: prepared.snapshot_root,
@@ -327,6 +353,18 @@ describe('product-manager command', () => {
         response,
         config: value.config,
       })
+      const snapshotData = Buffer.from('# Snapshot\n', 'utf8')
+      await mkdir(value.snapshotRoot, { recursive: true })
+      await writeFile(join(value.snapshotRoot, 'README.md'), snapshotData)
+      await chmod(join(value.snapshotRoot, 'README.md'), 0o400)
+      await writeFile(value.manifestFile, `${JSON.stringify({
+        ...value.input.workspace_snapshot,
+        files: [{
+          path: 'README.md',
+          bytes: snapshotData.length,
+          sha256: createHash('sha256').update(snapshotData).digest('hex'),
+        }],
+      })}\n`, 'utf8')
       const reused = await reviewProductManager({
         ...workspaceOptions(value),
         input: value.inputFile,
@@ -334,6 +372,7 @@ describe('product-manager command', () => {
         config: value.config,
       })
       expect(reused).toEqual(first)
+      await expect(readFile(value.manifestFile, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
     }
     finally {
       await rm(value.root, { recursive: true, force: true })
@@ -372,6 +411,7 @@ describe('product-manager command', () => {
         [2, 2, 'codex'],
       ])
       expect(attempts.every(entry => typeof entry.error === 'string' && entry.error.length > 0)).toBe(true)
+      await expect(readFile(value.manifestFile, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
     }
     finally {
       await rm(value.root, { recursive: true, force: true })

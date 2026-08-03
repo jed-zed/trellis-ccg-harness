@@ -82,7 +82,7 @@ const DEFAULT_INTELLIGENCE_CONFIG: IntelligenceConfig = {
 
 const DEFAULT_PRODUCT_MANAGER_CONFIG: ProductManagerConfig = {
   enabled: false,
-  contract_version: '1',
+  contract_version: '2',
   max_retries: 1,
   timeout_ms: 180_000,
   max_output_bytes: 1024 * 1024,
@@ -121,8 +121,8 @@ export function normalizeProductManagerConfig(
   const { provider: _legacyProvider, ...behavior } = (value ?? {}) as Partial<ProductManagerConfig> & {
     provider?: unknown
   }
-  if (value?.contract_version != null && value.contract_version !== '1')
-    throw new TypeError('product_manager.contract_version must remain "1"')
+  if (value?.contract_version != null && !['1', '2'].includes(value.contract_version))
+    throw new TypeError('product_manager.contract_version must be "1" or "2"')
   const integerField = (
     key: 'max_retries' | 'timeout_ms' | 'max_output_bytes',
     fallback: number,
@@ -141,7 +141,7 @@ export function normalizeProductManagerConfig(
   return {
     ...behavior,
     enabled,
-    contract_version: '1',
+    contract_version: '2',
     max_retries: integerField('max_retries', DEFAULT_PRODUCT_MANAGER_CONFIG.max_retries, 0, 2),
     timeout_ms: integerField('timeout_ms', DEFAULT_PRODUCT_MANAGER_CONFIG.timeout_ms, 1_000, 600_000),
     max_output_bytes: integerField('max_output_bytes', DEFAULT_PRODUCT_MANAGER_CONFIG.max_output_bytes, 1_024, 8 * 1024 * 1024),

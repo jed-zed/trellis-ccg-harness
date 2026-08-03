@@ -758,7 +758,7 @@ export function prepareProductManagerReview(
         }))
       : null;
   const base = {
-    contract_version: "1",
+    contract_version: "2",
     task_id: task.id,
     trigger_type: triggerType,
     checkpoint_id: checkpointId,
@@ -1269,6 +1269,25 @@ function prepareInstalledWorkspaceSnapshot(repoRoot, taskDirectory, binding, run
   }
 }
 
+function cleanupPreparedWorkspaceSnapshot(taskDirectory, snapshot) {
+  const snapshotStore = path.resolve(
+    taskDirectory,
+    ".ccg-evidence",
+    "product-manager",
+    "snapshots",
+  );
+  const snapshotBase = path.dirname(snapshot.snapshotRoot);
+  if (
+    path.basename(snapshot.snapshotRoot) !== "root" ||
+    path.basename(snapshot.manifestPath) !== "manifest.json" ||
+    path.dirname(snapshot.manifestPath) !== snapshotBase ||
+    path.dirname(snapshotBase) !== snapshotStore
+  ) {
+    throw new Error("Refusing to clean an invalid product-manager snapshot layout.");
+  }
+  rmSync(snapshotBase, { recursive: true, force: true });
+}
+
 function allowedProvidersFromContract(contract) {
   const configured = contract.productManager?.allowedProviders;
   if (!Array.isArray(configured)) {
@@ -1368,8 +1387,7 @@ export async function runInstalledProductManagerReview(
     });
     token = acquireProductManagerLock(taskDirectory, prepared.invocationKey);
   } catch (error) {
-    rmSync(snapshot.snapshotRoot, { recursive: true, force: true });
-    rmSync(snapshot.manifestPath, { force: true });
+    cleanupPreparedWorkspaceSnapshot(taskDirectory, snapshot);
     throw error;
   }
   const paths = productManagerCallPaths(
@@ -1487,8 +1505,7 @@ export async function runInstalledProductManagerReview(
     throw error;
   } finally {
     if (token) releaseProductManagerLock(token);
-    rmSync(snapshot.snapshotRoot, { recursive: true, force: true });
-    rmSync(snapshot.manifestPath, { force: true });
+    cleanupPreparedWorkspaceSnapshot(taskDirectory, snapshot);
   }
 }
 
