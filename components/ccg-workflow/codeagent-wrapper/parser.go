@@ -119,10 +119,11 @@ type ItemContent struct {
 }
 
 func parseJSONStreamInternal(r io.Reader, warnFn func(string), infoFn func(string), onMessage func(), onComplete func()) (message, threadID string) {
-	return parseJSONStreamInternalWithContent(r, warnFn, infoFn, onMessage, onComplete, nil, nil, nil)
+	message, threadID, _ = parseJSONStreamInternalWithContent(r, warnFn, infoFn, onMessage, onComplete, nil, nil, nil)
+	return message, threadID
 }
 
-func parseJSONStreamInternalWithContent(r io.Reader, warnFn func(string), infoFn func(string), onMessage func(), onComplete func(), onContent func(content, contentType string), onProgress func(line string), onSessionStarted func(id string)) (message, threadID string) {
+func parseJSONStreamInternalWithContent(r io.Reader, warnFn func(string), infoFn func(string), onMessage func(), onComplete func(), onContent func(content, contentType string), onProgress func(line string), onSessionStarted func(id string)) (message, threadID, terminalError string) {
 	reader := bufio.NewReaderSize(r, jsonLineReaderSize)
 
 	if warnFn == nil {
@@ -159,6 +160,7 @@ func parseJSONStreamInternalWithContent(r io.Reader, warnFn func(string), infoFn
 		geminiBuffer  strings.Builder
 		grokBuffer    strings.Builder
 		piMessage     string
+		piError       string
 	)
 
 	for {
@@ -241,7 +243,22 @@ func parseJSONStreamInternalWithContent(r io.Reader, warnFn func(string), infoFn
 				}
 				emitProgress(formatProgressLine("session_started", map[string]string{"id": threadID}))
 			case "message_end", "turn_end":
-				text := extractPiAssistantText(event.Message)
+				text, stopReason, errorMessage := extractPiAssistantMessage(event.Message)
+				switch strings.ToLower(stopReason) {
+				case "error", "aborted":
+					piMessage = ""
+					piError = fmt.Sprintf("pi assistant stopped with %s", stopReason)
+					if errorMessage != "" {
+						piError += ": " + errorMessage
+					}
+					notifyComplete()
+					continue
+				case "tooluse":
+					continue
+				}
+				if piError != "" {
+					continue
+				}
 				if text != "" && text != piMessage {
 					piMessage = text
 					notifyMessage()
@@ -461,28 +478,30 @@ func parseJSONStreamInternalWithContent(r io.Reader, warnFn func(string), infoFn
 	}
 
 	infoFn(fmt.Sprintf("parseJSONStream completed: events=%d, message_len=%d, thread_id_found=%t", totalEvents, len(message), threadID != ""))
-	return message, threadID
+	return message, threadID, piError
 }
 
-func extractPiAssistantText(raw json.RawMessage) string {
+func extractPiAssistantMessage(raw json.RawMessage) (text, stopReason, errorMessage string) {
 	var message struct {
-		Role    string `json:"role"`
-		Content []struct {
+		Role         string `json:"role"`
+		StopReason   string `json:"stopReason"`
+		ErrorMessage string `json:"errorMessage"`
+		Content      []struct {
 			Type string `json:"type"`
 			Text string `json:"text"`
 		} `json:"content"`
 	}
 	if json.Unmarshal(raw, &message) != nil || message.Role != "assistant" {
-		return ""
+		return "", "", ""
 	}
 
-	var text strings.Builder
+	var content strings.Builder
 	for _, block := range message.Content {
 		if block.Type == "text" {
-			text.WriteString(block.Text)
+			content.WriteString(block.Text)
 		}
 	}
-	return text.String()
+	return content.String(), message.StopReason, message.ErrorMessage
 }
 
 func formatProgressLine(event string, fields map[string]string) string {

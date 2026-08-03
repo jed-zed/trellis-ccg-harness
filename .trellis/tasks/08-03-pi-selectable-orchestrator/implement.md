@@ -7,9 +7,13 @@
    - Pi backend selection and argument construction;
    - Pi JSONL session/final-message parsing;
    - missing/unknown backend behavior remaining unchanged.
+   - every Pi prompt using stdin and never appearing in argv;
+   - Pi resume setting the caller-provided working directory;
+   - Pi `stopReason=error|aborted` failing without returning partial or stale
+     assistant text.
 3. Add the minimal TypeScript registry and hard-coded help/template updates.
-4. Add `PiBackend`, register it, wire direct prompt handling, and extend the
-   unified parser for Pi events.
+4. Add `PiBackend`, register it, route every Pi prompt through stdin, preserve
+   `WorkDir` on resume, and extend the unified parser for Pi terminal status.
 5. Run focused tests, TypeScript lint/typecheck/test/build, and Go short tests
    plus build in the authoritative checkout.
 6. Present the authoritative-source commit plan and wait for Boss's separate

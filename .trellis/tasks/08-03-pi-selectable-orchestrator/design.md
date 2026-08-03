@@ -5,8 +5,9 @@
 The change spans the authoritative personal CCG source, its verified Harness
 snapshot, and the installed local runtime. Trellis owns this task and its
 acceptance criteria. CCG owns provider routing. Pi receives no workspace-write
-authority, and product-manager remains governed by its separate provider
-registry and review contract.
+authority. Pi uses the shared role-routing registry without a special
+product-manager ban; the separate product-manager execution contract is not
+expanded in this task.
 
 ## Provider registration
 
@@ -15,16 +16,18 @@ derived routing validation, `ccg routing get/set`, init choices, and menu
 choices. Do not introduce a parallel provider list or change role defaults.
 
 Update only hard-coded provider prose/help that is not derived from the
-registry. Product-manager's implemented-provider list remains unchanged.
+registry. Do not add a role-compatibility matrix. Product-manager's dedicated
+execution-provider implementation remains a separate concern.
 
 ## Wrapper backend
 
 Add a small `PiBackend` alongside the existing Go backends:
 
 - command: `pi`;
-- new session: `--mode json` plus the prompt argument;
-- resume: `--session <id>` plus the new prompt;
-- working directory: existing `cmd.Dir` behavior;
+- new session: `--mode json`, with the prompt supplied only through stdin;
+- resume: `--session <id>`, with the prompt supplied only through stdin;
+- working directory: always set `cmd.Dir` to the caller-provided `WorkDir` for
+  Pi new and resume processes so session lookup remains project-local;
 - project trust/resources: `--no-approve`, `--no-extensions`, `--no-skills`,
   `--no-prompt-templates`, `--no-context-files`;
 - tool boundary: `--tools read,grep,find,ls`;
@@ -48,7 +51,11 @@ Recognize:
 
 Prefer the completed assistant message as the authoritative final result to
 avoid duplicate delta accumulation. Preserve unknown events and tool events as
-ignored input unless an existing callback needs them.
+ignored input unless an existing callback needs them. Interpret the nested Pi
+assistant `stopReason`: `error` and `aborted` fail closed, clear any prior
+candidate message, and surface `errorMessage`; `toolUse` is intermediate and
+cannot become the final successful result; `stop` is successful. Streaming
+`message_update` remains optional because `message_end` is authoritative.
 
 ## Provenance and rollout
 

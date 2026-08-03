@@ -426,6 +426,7 @@ type fakeCmd struct {
 	stderr io.Writer
 
 	env map[string]string
+	dir string
 
 	waitDelay time.Duration
 	waitErr   error
@@ -549,7 +550,17 @@ func (f *fakeCmd) SetStderr(w io.Writer) {
 	f.stderr = w
 }
 
-func (f *fakeCmd) SetDir(string) {}
+func (f *fakeCmd) SetDir(dir string) {
+	f.mu.Lock()
+	f.dir = dir
+	f.mu.Unlock()
+}
+
+func (f *fakeCmd) Dir() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.dir
+}
 
 func (f *fakeCmd) SetEnv(env map[string]string) {
 	if len(env) == 0 {
@@ -2465,38 +2476,76 @@ func TestRunCodexTaskFn_UsesTaskBackend(t *testing.T) {
 	}
 }
 
-func TestRunCodexTaskFn_PiUsesStdinForComplexPrompt(t *testing.T) {
-	defer resetTestHooks()
+func TestRunCodexTaskFn_PiAlwaysUsesStdinAndResumeWorkDir(t *testing.T) {
+	for _, tt := range []struct {
+		name      string
+		task      string
+		mode      string
+		sessionID string
+		workDir   string
+	}{
+		{name: "new", task: "--approve @secrets.txt", mode: "new", workDir: "C:/repo/new"},
+		{name: "resume", task: "continue", mode: "resume", sessionID: "pi-thread", workDir: "C:/repo/resume"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			defer resetTestHooks()
 
-	fake := newFakeCmd(fakeCmdConfig{
-		StdoutPlan: []fakeStdoutEvent{
-			{Data: `{"type":"session","version":3,"id":"pi-thread"}` + "\n"},
-			{Data: `{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"pi-output"}]}}` + "\n"},
-			{Data: `{"type":"agent_end"}` + "\n"},
-		},
-	})
+			fake := newFakeCmd(fakeCmdConfig{
+				StdoutPlan: []fakeStdoutEvent{
+					{Data: `{"type":"session","version":3,"id":"pi-thread"}` + "\n"},
+					{Data: `{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"pi-output"}],"stopReason":"stop"}}` + "\n"},
+					{Data: `{"type":"agent_end"}` + "\n"},
+				},
+			})
 
-	var seenName string
-	var seenArgs []string
-	newCommandRunner = func(ctx context.Context, name string, args ...string) commandRunner {
-		seenName = name
-		seenArgs = append([]string(nil), args...)
-		return fake
-	}
+			var seenName string
+			var seenArgs []string
+			newCommandRunner = func(ctx context.Context, name string, args ...string) commandRunner {
+				seenName = name
+				seenArgs = append([]string(nil), args...)
+				return fake
+			}
 
-	task := "line one\nline two"
-	res := runCodexTaskFn(TaskSpec{Task: task, Backend: "pi", UseStdin: true}, 5)
-	if res.ExitCode != 0 || res.Message != "pi-output" || res.SessionID != "pi-thread" {
-		t.Fatalf("unexpected result: %+v", res)
+			res := runCodexTaskFn(TaskSpec{Task: tt.task, Backend: "pi", Mode: tt.mode, SessionID: tt.sessionID, WorkDir: tt.workDir}, 5)
+			if res.ExitCode != 0 || res.Message != "pi-output" || res.SessionID != "pi-thread" {
+				t.Fatalf("unexpected result: %+v", res)
+			}
+			if seenName != "pi" {
+				t.Fatalf("command name = %q, want pi", seenName)
+			}
+			if slices.Contains(seenArgs, tt.task) {
+				t.Fatalf("Pi prompt must not be passed in argv: %v", seenArgs)
+			}
+			if got := fake.StdinContents(); got != tt.task {
+				t.Fatalf("stdin = %q, want %q", got, tt.task)
+			}
+			if got := fake.Dir(); got != tt.workDir {
+				t.Fatalf("cmd.Dir = %q, want %q", got, tt.workDir)
+			}
+		})
 	}
-	if seenName != "pi" {
-		t.Fatalf("command name = %q, want pi", seenName)
-	}
-	if slices.Contains(seenArgs, task) {
-		t.Fatalf("complex prompt must not be passed in argv: %v", seenArgs)
-	}
-	if got := fake.StdinContents(); got != task {
-		t.Fatalf("stdin = %q, want %q", got, task)
+}
+
+func TestRunCodexTaskFn_PiTerminalFailureReturnsNoPartialMessage(t *testing.T) {
+	for _, stopReason := range []string{"error", "aborted"} {
+		t.Run(stopReason, func(t *testing.T) {
+			defer resetTestHooks()
+			fake := newFakeCmd(fakeCmdConfig{StdoutPlan: []fakeStdoutEvent{
+				{Data: `{"type":"session","version":3,"id":"pi-thread"}` + "\n"},
+				{Data: `{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"stale partial"}],"stopReason":"stop"}}` + "\n"},
+				{Data: `{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"must not escape"}],"stopReason":"` + stopReason + `","errorMessage":"provider failed"}}` + "\n"},
+				{Data: `{"type":"agent_end"}` + "\n"},
+			}})
+			newCommandRunner = func(context.Context, string, ...string) commandRunner { return fake }
+
+			res := runCodexTaskFn(TaskSpec{Task: "review", Backend: "pi"}, 5)
+			if res.ExitCode == 0 || res.Message != "" {
+				t.Fatalf("terminal Pi failure returned partial success: %+v", res)
+			}
+			if !strings.Contains(res.Error, stopReason) || !strings.Contains(res.Error, "provider failed") {
+				t.Fatalf("error = %q, want stop reason and provider error", res.Error)
+			}
+		})
 	}
 }
 

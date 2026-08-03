@@ -3,7 +3,8 @@
 ## Goal
 
 Add Pi Agent as a real, selectable CCG role provider so Boss can later run
-`ccg routing set frontend pi` without changing today's default routing.
+`ccg routing set frontend pi` or select Pi for another formal role without
+changing today's default routing.
 
 ## Background
 
@@ -30,8 +31,10 @@ Add Pi Agent as a real, selectable CCG role provider so Boss can later run
    files and may use only the read-only `read,grep,find,ls` tool allowlist.
 5. Treat Pi as optional. Routing changes must not install, authenticate, or
    invoke Pi; a missing executable must fail clearly at execution time.
-6. Keep product-manager execution out of scope. Pi is a normal role provider
-   for analysis/planning/draft/review routing, not a product-manager reviewer.
+6. Do not introduce a role-level Pi restriction. Pi remains selectable through
+   the shared registry for every formal routing role. A dedicated Pi
+   product-manager execution adapter is a separate integration concern, not a
+   reason for this task to reject the routing choice.
 7. Implement first in the authoritative personal CCG checkout, then synchronize
    its tracked committed tree into the Harness snapshot and refresh source
    provenance before installing or publishing the updated runtime.
@@ -47,7 +50,12 @@ Add Pi Agent as a real, selectable CCG role provider so Boss can later run
 - [ ] New-session arguments use Pi JSON mode, read-only tools, disabled project
       resources, and the caller-provided working directory.
 - [ ] Resume arguments use `--session <id>` and do not open an interactive
-      session picker.
+      session picker; Pi resume runs in the caller-provided working directory.
+- [ ] Every Pi task prompt, including simple one-line prompts and resume
+      prompts, is sent through stdin and never reinterpreted as a Pi CLI flag or
+      `@file` argument.
+- [ ] Pi assistant messages with `stopReason=error|aborted` fail closed and do
+      not return partial or stale assistant text as a successful result.
 - [ ] Parser regression fixtures recover the session header ID and the final
       assistant text from Pi JSONL, while unknown/non-text events remain safe.
 - [ ] Missing Pi returns the wrapper's existing command-not-found failure and
@@ -62,8 +70,9 @@ Add Pi Agent as a real, selectable CCG role provider so Boss can later run
 
 - Switching any current role to Pi by default.
 - Installing Pi, logging in, choosing a Pi model, or copying credentials.
-- Giving Pi write, edit, bash, network-search, product-manager, or lifecycle
-  authority.
+- Giving Pi write, edit, bash, network-search, or lifecycle authority.
+- Adding a dedicated Pi product-manager execution adapter or changing the
+  Harness product-manager provider contract. This is not a routing-level ban.
 - Adding a Pi-specific model selector before a real installed Pi needs it.
 - Refactoring the existing global provider registry into a role-compatibility
   matrix.

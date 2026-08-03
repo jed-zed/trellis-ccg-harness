@@ -448,12 +448,12 @@ func run() (exitCode int) {
 		}
 	}
 
-	useStdin := cfg.ExplicitStdin || shouldUseStdin(taskText, piped)
+	useStdin := cfg.Backend == "pi" || cfg.ExplicitStdin || shouldUseStdin(taskText, piped)
 
 	targetArg := taskText
 	// Gemini/Antigravity/Grok/Pi CLI doesn't support "-" as stdin marker.
 	// Keep in sync with runCodexTaskWithContext (executor.go): Pi always uses
-	// stdin for complex prompts; Gemini uses it on Windows.
+	// stdin; Gemini uses it on Windows.
 	promptDirect := useStdin && ((cfg.Backend == "gemini" && !isWindows()) || cfg.Backend == "antigravity" || cfg.Backend == "grok")
 	promptStdinPipe := useStdin && ((cfg.Backend == "gemini" && isWindows()) || cfg.Backend == "pi")
 	if useStdin && !promptDirect && !promptStdinPipe {

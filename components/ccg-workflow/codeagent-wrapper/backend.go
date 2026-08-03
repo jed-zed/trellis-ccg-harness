@@ -230,7 +230,7 @@ func (PiBackend) BuildArgs(cfg *Config, targetArg string) []string {
 	return buildPiArgs(cfg, targetArg)
 }
 
-func buildPiArgs(cfg *Config, targetArg string) []string {
+func buildPiArgs(cfg *Config, _ string) []string {
 	if cfg == nil {
 		return nil
 	}
@@ -247,9 +247,6 @@ func buildPiArgs(cfg *Config, targetArg string) []string {
 	}
 	if cfg.Mode == "resume" && cfg.SessionID != "" {
 		args = append(args, "--session", cfg.SessionID)
-	}
-	if targetArg != "" {
-		args = append(args, targetArg)
 	}
 	return args
 }

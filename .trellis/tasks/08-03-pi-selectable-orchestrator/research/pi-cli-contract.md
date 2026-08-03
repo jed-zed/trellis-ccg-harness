@@ -13,6 +13,16 @@ Checked 2026-08-03.
 - Deterministic resume uses `--session <path|id>`; `-r/--resume` opens a
   selector and is unsuitable for automation.
 - The CLI keeps the caller's working directory; it has no `--cwd` option.
+- Session storage and lookup are keyed by CWD. A `--session` ID found in another
+  project triggers an interactive fork confirmation, so an automated resume
+  process must start in the original caller-provided work directory.
+- Positional arguments are parsed as CLI options and `@file` inputs before they
+  become messages. A later `--approve` overrides an earlier `--no-approve`.
+  All wrapper-controlled task text must therefore use stdin.
+- Assistant messages carry `stopReason` values including `stop`, `toolUse`,
+  `length`, `error`, and `aborted`, plus optional `errorMessage`. JSON mode does
+  not apply the text-mode exit-code conversion for `error` or `aborted`, so the
+  wrapper must interpret these terminal states itself.
 - A documented read-only tool example uses
   `--tools read,grep,find,ls -p "Review the code"`.
 - `--no-approve` ignores untrusted project-local resources for one run;
@@ -26,6 +36,9 @@ Primary sources:
 - https://github.com/earendil-works/pi/blob/main/packages/coding-agent/README.md
 - https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/json.md
 - https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/windows.md
+- https://github.com/earendil-works/pi/blob/main/packages/coding-agent/src/main.ts
+- https://github.com/earendil-works/pi/blob/main/packages/coding-agent/src/cli/args.ts
+- https://github.com/earendil-works/pi/blob/main/packages/coding-agent/src/modes/print-mode.ts
 - https://github.com/earendil-works/pi#permissions--containerization
 
 ## Local state
