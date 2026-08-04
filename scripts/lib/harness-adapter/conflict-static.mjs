@@ -462,10 +462,75 @@ function checkProductManagerManagedAssets({ repoRoot, contract, add }) {
   }
 }
 
+function checkProjectSkillPathOwnership({ repoRoot, add }) {
+  try {
+    const harnessRoot = path.join(repoRoot, ".harness");
+    const project = readJson(path.join(harnessRoot, "project.json"));
+    const selected = project.thirdParty?.projectSkills ?? [];
+    if (!Array.isArray(selected)) {
+      throw new Error("thirdParty.projectSkills must be an array.");
+    }
+    const catalogText = readTextIfPresent(
+      path.join(harnessRoot, "project-skills.json"),
+    );
+    const catalog = catalogText === null ? { skills: [] } : JSON.parse(catalogText);
+    if (!Array.isArray(catalog.skills)) {
+      throw new Error("project-skills.json skills must be an array.");
+    }
+    const installationsText = readTextIfPresent(
+      path.join(harnessRoot, "third-party-installations.json"),
+    );
+    const installations =
+      installationsText === null
+        ? {}
+        : (JSON.parse(installationsText).installations ?? {});
+    const missingInstallations = selected.filter((id) => !installations[id]);
+    const thirdPartyPaths = selected.flatMap((id) =>
+      Object.keys(installations[id]?.paths ?? {}).map(
+        (name) => `.agents/skills/${name}`,
+      ),
+    );
+    const catalogPaths = new Set(
+      catalog.skills.map((skill) => skill.targetPath),
+    );
+    const managedPaths = new Set(project.workflow?.managedProjectPaths ?? []);
+    const overlaps = [
+      ...new Set(thirdPartyPaths.filter((skillPath) => catalogPaths.has(skillPath))),
+    ].sort();
+    const unmanagedThirdPartyPaths = [
+      ...new Set(thirdPartyPaths.filter((skillPath) => !managedPaths.has(skillPath))),
+    ].sort();
+    const valid =
+      missingInstallations.length === 0 &&
+      overlaps.length === 0 &&
+      unmanagedThirdPartyPaths.length === 0;
+    add(
+      "project-skill-path-ownership",
+      "blocking",
+      valid ? "ok" : "conflict",
+      valid
+        ? "Catalog and selected third-party Project Skill paths have distinct managed ownership."
+        : "Catalog and selected third-party Project Skill path ownership conflicts or is incomplete.",
+      { overlaps, unmanagedThirdPartyPaths, missingInstallations },
+      "Assign distinct paths to catalog and third-party Project Skills and include every selected third-party path in workflow.managedProjectPaths.",
+    );
+  } catch (error) {
+    add(
+      "project-skill-path-ownership",
+      "blocking",
+      "conflict",
+      "Project Skill path ownership could not be inspected safely.",
+      redactString(error.message),
+      "Repair the project Skill manifests and rerun the Harness conflict audit.",
+    );
+  }
+}
+
 export function runPolicyChecks(context) {
   checkModelPolicy(context);
   checkProviderSeparation(context);
   checkCommandNamespaces(context);
   checkProductManagerPolicy(context);
   checkProductManagerManagedAssets(context);
+  checkProjectSkillPathOwnership(context);
 }
