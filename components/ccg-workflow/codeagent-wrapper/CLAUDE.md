@@ -25,10 +25,10 @@
 
 ```bash
 # 单任务模式（新会话）
-codeagent-wrapper [--backend <codex|gemini|claude|antigravity|grok>] "任务文本" [工作目录]
+codeagent-wrapper [--backend <codex|gemini|claude|antigravity|grok|pi>] "任务文本" [工作目录]
 
 # stdin 模式（处理含换行/特殊字符的任务）
-codeagent-wrapper [--backend <codex|gemini|claude|antigravity|grok>] - [工作目录] <<'EOF'
+codeagent-wrapper [--backend <codex|gemini|claude|antigravity|grok|pi>] - [工作目录] <<'EOF'
 任务文本
 EOF
 
@@ -48,7 +48,7 @@ codeagent-wrapper --cleanup
 
 | Flag | 说明 | 默认值 |
 |------|------|--------|
-| `--backend <name>` | 指定后端：`codex`、`gemini`、`claude`、`antigravity`、`grok` | `codex` |
+| `--backend <name>` | 指定后端：`codex`、`gemini`、`claude`、`antigravity`、`grok`、`pi` | `codex` |
 | `--gemini-model <name>` | Gemini 型号（仅 gemini 后端有效） | 空（后端默认） |
 | `--grok-model <name>` | Grok 型号（仅 grok 后端有效） | 空（后端默认） |
 | `--progress` | 向 stderr 输出紧凑进度行 | 关 |

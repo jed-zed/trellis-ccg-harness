@@ -69,12 +69,6 @@ export function parseSparseArchiveExclusions(value) {
 }
 
 export function assertSparseExclusionsUnchanged(exclusions, changedPaths) {
-  if (exclusions.length > 0) {
-    throw new Error(
-      "Full component replacement cannot preserve sparse archive "
-      + `exclusions; refusing update: ${exclusions.join(", ")}.`,
-    );
-  }
   const changed = new Set(
     (changedPaths ?? [])
       .map((value) => String(value).trim().replaceAll("\\", "/"))

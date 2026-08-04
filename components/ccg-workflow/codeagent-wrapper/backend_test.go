@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -418,7 +419,7 @@ func TestParseJSONStream_GrokEvents(t *testing.T) {
 {"type":"end","stopReason":"EndTurn","sessionId":"019f-abc","requestId":"req-1"}
 `
 	var sessionFromCallback string
-	message, threadID := parseJSONStreamInternalWithContent(
+	message, threadID, terminalError := parseJSONStreamInternalWithContent(
 		strings.NewReader(stream), nil, nil, nil, nil, nil, nil,
 		func(id string) { sessionFromCallback = id },
 	)
@@ -432,6 +433,9 @@ func TestParseJSONStream_GrokEvents(t *testing.T) {
 	if sessionFromCallback != "019f-abc" {
 		t.Fatalf("onSessionStarted got %q, want %q", sessionFromCallback, "019f-abc")
 	}
+	if terminalError != "" {
+		t.Fatalf("terminalError = %q, want empty", terminalError)
+	}
 }
 
 func TestParseJSONStream_GrokThoughtsExcludedFromMessage(t *testing.T) {
@@ -442,5 +446,107 @@ func TestParseJSONStream_GrokThoughtsExcludedFromMessage(t *testing.T) {
 	message, _ := parseJSONStreamInternal(strings.NewReader(stream), nil, nil, nil, nil)
 	if message != "answer" {
 		t.Fatalf("message = %q, want %q (thoughts must not leak)", message, "answer")
+	}
+}
+
+func TestPiBuildArgs_ReadOnlyJSONMode(t *testing.T) {
+	cfg := &Config{Mode: "new", WorkDir: "/tmp/project", Backend: "pi"}
+	want := []string{
+		"--mode", "json",
+		"--no-approve",
+		"--no-extensions",
+		"--no-skills",
+		"--no-prompt-templates",
+		"--no-themes",
+		"--no-context-files",
+		"--tools", "read,grep,find,ls",
+	}
+	if got := buildPiArgs(cfg, ""); !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+func TestPiBuildArgs_ResumeOmitsPrompt(t *testing.T) {
+	cfg := &Config{Mode: "resume", SessionID: "pi-session", Backend: "pi"}
+	prompt := "--approve @secrets.txt"
+	args := buildPiArgs(cfg, prompt)
+	joined := strings.Join(args, " ")
+	if !strings.Contains(joined, "--session pi-session") {
+		t.Fatalf("resume args missing --session: %v", args)
+	}
+	if slices.Contains(args, prompt) {
+		t.Fatalf("Pi prompt must not be passed in argv: %v", args)
+	}
+}
+
+func TestPiBuildArgs_NilConfig(t *testing.T) {
+	if args := buildPiArgs(nil, "x"); args != nil {
+		t.Fatalf("nil config should return nil args, got %v", args)
+	}
+}
+
+func TestPiBackend_Metadata(t *testing.T) {
+	b := PiBackend{}
+	if b.Name() != "pi" || b.Command() != "pi" {
+		t.Fatalf("metadata = (%q, %q), want (pi, pi)", b.Name(), b.Command())
+	}
+}
+
+func TestParseJSONStream_PiEvents(t *testing.T) {
+	stream := `{"type":"session","version":3,"id":"pi-session"}
+{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"Hello"},{"type":"text","text":" world"}]}}
+{"type":"agent_end"}
+`
+	var sessionFromCallback string
+	message, threadID, terminalError := parseJSONStreamInternalWithContent(
+		strings.NewReader(stream), nil, nil, nil, nil, nil, nil,
+		func(id string) { sessionFromCallback = id },
+	)
+
+	if message != "Hello world" {
+		t.Fatalf("message = %q, want %q", message, "Hello world")
+	}
+	if threadID != "pi-session" || sessionFromCallback != "pi-session" {
+		t.Fatalf("session IDs = (%q, %q), want pi-session", threadID, sessionFromCallback)
+	}
+	if terminalError != "" {
+		t.Fatalf("terminalError = %q, want empty", terminalError)
+	}
+}
+
+func TestParseJSONStream_PiTerminalFailureClearsPartialMessage(t *testing.T) {
+	for _, stopReason := range []string{"error", "aborted"} {
+		t.Run(stopReason, func(t *testing.T) {
+			stream := `{"type":"session","version":3,"id":"pi-session"}
+{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"stale partial"}],"stopReason":"stop"}}
+{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"must not escape"}],"stopReason":"` + stopReason + `","errorMessage":"provider failed"}}
+{"type":"agent_end"}
+`
+			message, threadID, terminalError := parseJSONStreamInternalWithContent(
+				strings.NewReader(stream), nil, nil, nil, nil, nil, nil, nil,
+			)
+			if message != "" {
+				t.Fatalf("message = %q, want empty after terminal failure", message)
+			}
+			if threadID != "pi-session" {
+				t.Fatalf("threadID = %q, want pi-session", threadID)
+			}
+			if !strings.Contains(terminalError, stopReason) || !strings.Contains(terminalError, "provider failed") {
+				t.Fatalf("terminalError = %q, want stop reason and provider error", terminalError)
+			}
+		})
+	}
+}
+
+func TestParseJSONStream_PiIgnoresUnknownAndNonTextEvents(t *testing.T) {
+	stream := `{"type":"session","version":3,"id":"pi-session"}
+{"type":"future_event","payload":{"value":1}}
+{"type":"message_end","message":{"role":"user","content":[{"type":"text","text":"not the answer"}]}}
+{"type":"turn_end","message":{"role":"assistant","content":[{"type":"thinking","thinking":"hidden"},{"type":"text","text":"answer"}]}}
+{"type":"agent_end"}
+`
+	message, threadID := parseJSONStream(strings.NewReader(stream))
+	if message != "answer" || threadID != "pi-session" {
+		t.Fatalf("got (%q, %q), want (answer, pi-session)", message, threadID)
 	}
 }

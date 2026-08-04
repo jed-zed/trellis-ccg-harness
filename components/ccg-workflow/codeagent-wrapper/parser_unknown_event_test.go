@@ -44,7 +44,7 @@ func TestParseJSONStreamInternalWithContent_EmitsProgressLines(t *testing.T) {
 	}, "\n")
 
 	var progress []string
-	message, threadID := parseJSONStreamInternalWithContent(
+	message, threadID, terminalError := parseJSONStreamInternalWithContent(
 		strings.NewReader(input),
 		nil,
 		func(string) {},
@@ -60,6 +60,9 @@ func TestParseJSONStreamInternalWithContent_EmitsProgressLines(t *testing.T) {
 	}
 	if threadID != "tid-123" {
 		t.Fatalf("threadID=%q, want %q", threadID, "tid-123")
+	}
+	if terminalError != "" {
+		t.Fatalf("terminalError=%q, want empty", terminalError)
 	}
 
 	joined := strings.Join(progress, "\n")
@@ -112,4 +115,3 @@ func TestParseArgs_ParsesProgressFlag(t *testing.T) {
 		t.Fatalf("unexpected cfg: %+v", cfg)
 	}
 }
-

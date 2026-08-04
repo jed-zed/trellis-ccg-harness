@@ -46,6 +46,18 @@ describe('model routing', () => {
     }
   })
 
+  it('allows pi to be selected for frontend without changing defaults', () => {
+    const before = createDefaultRoleRouting()
+    const after = setRoleProvider(before, 'frontend', 'pi')
+
+    expect(after.frontend).toMatchObject({ primary: 'pi', models: ['pi'] })
+    expect(before.frontend.primary).toBe('gemini')
+    for (const role of STANDARD_ROUTING_ROLES) {
+      if (role !== 'frontend')
+        expect(after[role]).toEqual(before[role])
+    }
+  })
+
   it('allows every standard role to select every registered provider', () => {
     for (const role of STANDARD_ROUTING_ROLES) {
       for (const provider of REGISTERED_MODEL_TYPES) {

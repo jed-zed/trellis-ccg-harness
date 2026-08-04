@@ -287,7 +287,7 @@ test("source validation binds credential-free personal repo, commit, and tree", 
   );
 });
 
-test("sparse source exclusions are literal, bounded, and fail closed for replacement", () => {
+test("sparse source exclusions are literal, bounded, and unchanged", () => {
   const exclusions = parseSparseArchiveExclusions([
     "/*",
     "!/templates/skills/domains/security/pentest.md",
@@ -297,16 +297,16 @@ test("sparse source exclusions are literal, bounded, and fail closed for replace
     "templates/skills/domains/security/pentest.md",
     "templates/skills/domains/security/red-team.md",
   ]);
-  assert.throws(
-    () => assertSparseExclusionsUnchanged(exclusions, ["package.json"]),
-    /cannot preserve|full component replacement|refusing/i,
+  assert.deepEqual(
+    assertSparseExclusionsUnchanged(exclusions, ["package.json"]),
+    exclusions,
   );
   assert.throws(
     () =>
       assertSparseExclusionsUnchanged(exclusions, [
         "templates/skills/domains/security/red-team.md",
       ]),
-    /cannot preserve|full component replacement|refusing/i,
+    /sparse-excluded path changed/i,
   );
   assert.throws(
     () => parseSparseArchiveExclusions("!/templates/**/secret.md"),

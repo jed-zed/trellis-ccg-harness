@@ -11,8 +11,8 @@ Read ~/.claude/.ccg/config.toml
 ```
 
 从 `[routing]` 区块提取：
-- `frontend.primary` — 前端模型（默认 `antigravity`，可选 `gemini` / `codex` / `grok`）
-- `backend.primary` — 后端模型（默认 `codex`，可选 `gemini` / `antigravity` / `grok`）
+- `frontend.primary` — 前端模型（默认 `gemini`，可选任一已注册 Provider，包括 `pi`）
+- `backend.primary` — 后端模型（默认 `codex`，可选任一已注册 Provider，包括 `pi`）
 - `geminiModel` — Gemini 型号（默认 `gemini-3.1-pro-preview`）
 - `grokModel` — Grok 型号（默认 `grok-4.5`，代码实施可选 `grok-composer-2.5-fast`）
 
@@ -78,7 +78,7 @@ Bash({
 ```
 
 变量说明：
-- `$MODEL` — 选定的模型名（`codex` / `gemini` / `claude` / `antigravity` / `grok`）
+- `$MODEL` — 选定的模型名（`codex` / `gemini` / `claude` / `antigravity` / `grok` / `pi`）
 - `$ROLE` — 角色文件名（`analyzer` / `architect` / `reviewer` / `debugger` / `optimizer` / `tester` / `builder`）
 - `$TASK_CONTENT` — 任务内容（需求 + 上下文）
 - `$OUTPUT_FORMAT` — 期望输出格式

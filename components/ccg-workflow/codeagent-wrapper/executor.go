@@ -202,6 +202,7 @@ var newCommandRunner = func(ctx context.Context, name string, args ...string) co
 type parseResult struct {
 	message  string
 	threadID string
+	err      string
 }
 
 type taskLoggerContextKey struct{}
@@ -856,10 +857,10 @@ func runCodexTaskWithContext(parentCtx context.Context, taskSpec TaskSpec, backe
 		return result
 	}
 
-	useStdin := taskSpec.UseStdin
+	useStdin := taskSpec.UseStdin || cfg.Backend == "pi"
 	targetArg := taskSpec.Task
 
-	// Gemini/Antigravity CLI does not support "-" as stdin marker for -p flag.
+	// Gemini/Antigravity/Pi CLI does not support "-" as stdin marker for the prompt.
 	// On macOS/Linux: pass the actual task text directly via -p (execve preserves
 	// multi-line args in argv). On Windows: npm's .cmd wrapper routes through
 	// cmd.exe which truncates multi-line args at the first newline (Issue #129).
@@ -868,8 +869,10 @@ func runCodexTaskWithContext(parentCtx context.Context, taskSpec TaskSpec, backe
 	// platform, including Windows (#146). The cmd.exe truncation risk is
 	// accepted because a truncated prompt is better than a silent no-op.
 	// Grok is a native binary (no .cmd shim), so -p is safe on every platform.
+	// Pi JSON mode reads piped stdin on every platform; use it to avoid Windows
+	// npm shim argument truncation and keep multiline prompts intact.
 	promptDirect := useStdin && ((cfg.Backend == "gemini" && !isWindows()) || cfg.Backend == "antigravity" || cfg.Backend == "grok")
-	promptStdinPipe := useStdin && cfg.Backend == "gemini" && isWindows()
+	promptStdinPipe := useStdin && ((cfg.Backend == "gemini" && isWindows()) || cfg.Backend == "pi")
 	if useStdin && !promptDirect && !promptStdinPipe {
 		targetArg = "-"
 	}
@@ -1001,7 +1004,7 @@ func runCodexTaskWithContext(parentCtx context.Context, taskSpec TaskSpec, backe
 	//   API keys are already protected via cmd.SetEnv() from loadMinimalEnvSettings().
 	//   Project dir is also passed via --include-directories in buildGeminiArgs().
 	// - Claude: uses cmd.Dir as project context (no .env loading issue).
-	if cfg.Mode != "resume" && cfg.WorkDir != "" {
+	if cfg.WorkDir != "" && (cfg.Mode != "resume" || cfg.Backend == "pi") {
 		switch commandName {
 		case "codex":
 			// Codex uses -C flag, don't set cmd.Dir
@@ -1148,7 +1151,7 @@ func runCodexTaskWithContext(parentCtx context.Context, taskSpec TaskSpec, backe
 			return
 		}
 
-		msg, tid := parseJSONStreamInternalWithContent(stdoutReader, logWarnFn, logInfoFn, func() {
+		msg, tid, terminalError := parseJSONStreamInternalWithContent(stdoutReader, logWarnFn, logInfoFn, func() {
 			// os/exec.Wait closes StdoutPipe after the process exits. Do not let a
 			// fast process win that race before the parser has captured its message.
 			allowWait()
@@ -1171,7 +1174,7 @@ func runCodexTaskWithContext(parentCtx context.Context, taskSpec TaskSpec, backe
 		case completeSeen <- struct{}{}:
 		default:
 		}
-		parseCh <- parseResult{message: msg, threadID: tid}
+		parseCh <- parseResult{message: msg, threadID: tid, err: terminalError}
 	}()
 
 	logInfoFn(fmt.Sprintf("Starting %s with args: %s %s...", commandName, commandName, strings.Join(codexArgs[:min(5, len(codexArgs))], " ")))
@@ -1368,6 +1371,12 @@ waitLoop:
 		}
 		result.ExitCode = 130
 		result.Error = attachStderr("execution cancelled")
+		return result
+	}
+	if parsed.err != "" {
+		logErrorFn(parsed.err)
+		result.ExitCode = 1
+		result.Error = attachStderr(parsed.err)
 		return result
 	}
 

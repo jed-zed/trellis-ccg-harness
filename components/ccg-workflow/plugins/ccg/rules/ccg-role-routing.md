@@ -27,8 +27,8 @@ ccg routing get product-manager --json
 ccg routing set <role> <provider>
 ```
 
-The registered providers are `codex`, `gemini`, `claude`, `antigravity`, and
-`grok`. Route only to an existing registered provider. Codex remains the
+The registered providers are `codex`, `gemini`, `claude`, `antigravity`,
+`grok`, and `pi`. Route only to an existing registered provider. Codex remains the
 orchestrator, sole real-workspace writer, final verifier, and delivery owner
 regardless of the selected role provider.
 
