@@ -202,6 +202,17 @@ test('harness-init refines and reuses the 15-Skill global platform profile', asy
     schema.properties.skills.properties.installMode.const,
     'copy',
   )
+  const globalEssentialSchema =
+    schema.properties.skills.properties.globalEssential
+  assert.equal(globalEssentialSchema.minItems, 15)
+  assert.equal(globalEssentialSchema.maxItems, 15)
+  for (const name of ['chatgpt-pro-sidebar', 'grill-with-docs']) {
+    assert.ok(
+      globalEssentialSchema.allOf.some(
+        (requirement) => requirement.contains?.const === name,
+      ),
+    )
+  }
 })
 
 test('root AGENTS projects the canonical collaboration policy', async () => {
@@ -227,7 +238,7 @@ test('root AGENTS projects the canonical collaboration policy', async () => {
   assert.equal(pinnedPolicy, policy)
 })
 
-test('root Harness contract pins the 15-core and reject-all third-party baseline', async () => {
+test('root Harness contract pins the 15-core and approved project third-party baseline', async () => {
   const contractText = await readFile(
     path.join(ROOT, '.harness', 'project.json'),
     'utf8',
@@ -276,7 +287,7 @@ test('root Harness contract pins the 15-core and reject-all third-party baseline
     sourceManifestSha256: sourceSha256,
     globalSkills: [],
     globalPlugins: [],
-    projectSkills: [],
+    projectSkills: ['codebase-design', 'writing-great-skills'],
     mcpCli: [],
     excluded: [],
   })

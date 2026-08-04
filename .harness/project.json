@@ -26,12 +26,14 @@
       "archive"
     ],
     "managedProjectPaths": [
-      ".harness/project.json",
-      ".harness/project.schema.json",
+      ".agents/skills/codebase-design",
+      ".agents/skills/writing-great-skills",
       ".harness/ownership.json",
       ".harness/policies/collaboration-policy.md",
-      ".harness/third-party-sources.json",
-      ".harness/project-skills.json"
+      ".harness/project.json",
+      ".harness/project.schema.json",
+      ".harness/third-party-installations.json",
+      ".harness/third-party-sources.json"
     ],
     "ignoredRuntimePaths": [
       ".ccg",
@@ -154,7 +156,10 @@
     "sourceManifestSha256": "748796e09774955811aa1d4a8ed165efb865d88643d493cd9cf211d835a34850",
     "globalSkills": [],
     "globalPlugins": [],
-    "projectSkills": [],
+    "projectSkills": [
+      "codebase-design",
+      "writing-great-skills"
+    ],
     "mcpCli": [],
     "excluded": []
   },
@@ -229,7 +234,7 @@
   },
   "unresolvedDecisions": [],
   "approval": {
-    "approvedAt": "2026-07-25T21:56:50.8840650+00:00",
+    "approvedAt": "2026-08-04T10:09:28.900Z",
     "approvedBy": "jed18859103958-cyber"
   },
   "productManager": {
