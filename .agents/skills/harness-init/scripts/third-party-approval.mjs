@@ -3685,7 +3685,10 @@ export async function applyThirdPartyProjectSkills({
         sourceManifestSha256: loaded.manifestSha256,
         sourceId: source.id,
         commit: source.commit,
-        paths: Object.fromEntries(targetInfo.filter((item) => item.candidate.id === candidate.id).map((item) => [item.name, { treeSha256: item.treeSha256 }])),
+        paths: Object.fromEntries(targetInfo.filter((item) => item.candidate.id === candidate.id).map((item) => [item.name, {
+          targetPath: item.targetPath.replaceAll("\\", "/"),
+          treeSha256: item.treeSha256,
+        }])),
       };
     }
     await faultInjector?.("before-ownership");

@@ -79,6 +79,12 @@ test("Harness exact-byte projections are pinned to LF", async () => {
     attributes,
     /^\.agents\/skills\/harness-init\/\*\* text=auto eol=lf$/m,
   );
+  for (const skill of ["codebase-design", "writing-great-skills"]) {
+    assert.match(
+      attributes,
+      new RegExp(`^\\.agents/skills/${skill}/\\*\\* text=auto eol=lf$`, "m"),
+    );
+  }
   assert.match(
     attributes,
     /^\.harness\/\*\* text=auto eol=lf$/m,

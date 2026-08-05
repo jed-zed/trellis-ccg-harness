@@ -1733,8 +1733,16 @@ test("ready Project Skill revision preserves third-party paths while replacing o
       ".harness",
       "ownership.json",
     );
+    const thirdPartyOwnershipPath = path.join(
+      value.repoRoot,
+      ".harness",
+      "third-party-installations.json",
+    );
     const project = JSON.parse(readFileSync(projectPath, "utf8"));
-    project.workflow.managedProjectPaths.push(thirdPartyPath);
+    project.workflow.managedProjectPaths.push(
+      thirdPartyPath,
+      ".harness/third-party-installations.json",
+    );
     project.thirdParty.projectSkills.push("third-party-helper");
     const projectBytes = `${JSON.stringify(project, null, 2)}\n`;
     writeFileSync(projectPath, projectBytes);
@@ -1742,8 +1750,28 @@ test("ready Project Skill revision preserves third-party paths while replacing o
     ownership.contractSha256 = createHash("sha256")
       .update(projectBytes)
       .digest("hex");
-    ownership.managedPaths.push(thirdPartyPath);
+    ownership.managedPaths.push(
+      thirdPartyPath,
+      ".harness/third-party-installations.json",
+    );
     writeFileSync(ownershipPath, `${JSON.stringify(ownership, null, 2)}\n`);
+    writeFileSync(
+      thirdPartyOwnershipPath,
+      `${JSON.stringify({
+        schemaVersion: 1,
+        owner: "trellis-ccg-harness",
+        installations: {
+          "third-party-helper": {
+            paths: {
+              "third-party-helper": {
+                targetPath: thirdPartyPath,
+                treeSha256: "a".repeat(64),
+              },
+            },
+          },
+        },
+      }, null, 2)}\n`,
+    );
 
     await reviseReadyProjectSkills({
       approved: true,
@@ -1772,6 +1800,24 @@ test("ready Project Skill revision preserves third-party paths while replacing o
       existsSync(path.join(value.repoRoot, ".agents", "skills", "test-first")),
       false,
     );
+    const replaced = JSON.parse(readFileSync(projectPath, "utf8"));
+    const replacedOwnership = JSON.parse(readFileSync(ownershipPath, "utf8"));
+    assert.equal(
+      replaced.workflow.managedProjectPaths.includes(".agents/skills/test-first"),
+      false,
+    );
+    assert.equal(
+      replacedOwnership.managedPaths.includes(".agents/skills/test-first"),
+      false,
+    );
+    for (const retained of [
+      thirdPartyPath,
+      ".harness/third-party-installations.json",
+      ".agents/skills/docs-helper",
+    ]) {
+      assert.equal(replaced.workflow.managedProjectPaths.includes(retained), true);
+      assert.equal(replacedOwnership.managedPaths.includes(retained), true);
+    }
     assert.equal(readFileSync(path.join(thirdPartyTarget, "SKILL.md"), "utf8"), "third-party-owned\n");
 
     await reviseReadyProjectSkills({
@@ -1786,6 +1832,21 @@ test("ready Project Skill revision preserves third-party paths while replacing o
     const cleared = JSON.parse(readFileSync(projectPath, "utf8"));
     assert.equal(cleared.workflow.managedProjectPaths.includes(thirdPartyPath), true);
     assert.deepEqual(cleared.skills.projectSelection, []);
+    const clearedOwnership = JSON.parse(readFileSync(ownershipPath, "utf8"));
+    for (const removed of [
+      ".agents/skills/test-first",
+      ".agents/skills/docs-helper",
+    ]) {
+      assert.equal(cleared.workflow.managedProjectPaths.includes(removed), false);
+      assert.equal(clearedOwnership.managedPaths.includes(removed), false);
+    }
+    for (const retained of [
+      thirdPartyPath,
+      ".harness/third-party-installations.json",
+    ]) {
+      assert.equal(cleared.workflow.managedProjectPaths.includes(retained), true);
+      assert.equal(clearedOwnership.managedPaths.includes(retained), true);
+    }
     assert.equal(
       existsSync(path.join(value.repoRoot, ".agents", "skills", "docs-helper")),
       false,

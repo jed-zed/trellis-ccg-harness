@@ -462,6 +462,43 @@ function checkProductManagerManagedAssets({ repoRoot, contract, add }) {
   }
 }
 
+const SAFE_PROJECT_SKILL_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+
+function projectSkillInstallationPaths(id, installation) {
+  const paths = installation?.paths;
+  if (
+    !paths ||
+    typeof paths !== "object" ||
+    Array.isArray(paths) ||
+    Object.keys(paths).length === 0
+  ) {
+    throw new Error(`Selected third-party Project Skill ${id} has invalid or empty paths.`);
+  }
+  return Object.entries(paths).map(([name, record]) => {
+    if (
+      !SAFE_PROJECT_SKILL_NAME.test(name) ||
+      !record ||
+      typeof record !== "object" ||
+      Array.isArray(record) ||
+      !/^[a-f0-9]{64}$/.test(String(record.treeSha256 ?? ""))
+    ) {
+      throw new Error(`Selected third-party Project Skill ${id} has an invalid path record.`);
+    }
+    const targetPath = String(
+      record.targetPath ?? `.agents/skills/${name}`,
+    ).replaceAll("\\", "/");
+    const segments = targetPath.split("/");
+    if (
+      !targetPath.startsWith(".agents/skills/") ||
+      segments.length < 3 ||
+      segments.some((segment) => !segment || segment === "." || segment === "..")
+    ) {
+      throw new Error(`Selected third-party Project Skill ${id} has an unsafe target path.`);
+    }
+    return targetPath;
+  });
+}
+
 function checkProjectSkillPathOwnership({ repoRoot, add }) {
   try {
     const harnessRoot = path.join(repoRoot, ".harness");
@@ -485,11 +522,9 @@ function checkProjectSkillPathOwnership({ repoRoot, add }) {
         ? {}
         : (JSON.parse(installationsText).installations ?? {});
     const missingInstallations = selected.filter((id) => !installations[id]);
-    const thirdPartyPaths = selected.flatMap((id) =>
-      Object.keys(installations[id]?.paths ?? {}).map(
-        (name) => `.agents/skills/${name}`,
-      ),
-    );
+    const thirdPartyPaths = selected
+      .filter((id) => installations[id])
+      .flatMap((id) => projectSkillInstallationPaths(id, installations[id]));
     const catalogPaths = new Set(
       catalog.skills.map((skill) => skill.targetPath),
     );

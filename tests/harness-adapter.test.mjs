@@ -694,7 +694,12 @@ test("catalog and third-party project Skill path overlap is a blocking conflict"
       {
         installations: {
           "third-party-shared": {
-            paths: { "shared-skill": { treeSha256: "a".repeat(64) } },
+            paths: {
+              "shared-skill": {
+                targetPath: ".agents/skills/shared-skill",
+                treeSha256: "a".repeat(64),
+              },
+            },
           },
         },
       },
@@ -753,6 +758,87 @@ test("selected third-party project Skill path must be managed by the project con
     assert.equal(conflictExitCode(report), 2);
   } finally {
     fixture.cleanup();
+  }
+});
+
+test("valid third-party project Skill ownership uses its recorded target path", async () => {
+  const fixture = createFixture();
+  try {
+    rewriteManagedProject(fixture, (project) => {
+      project.workflow = {
+        managedProjectPaths: [".agents/skills/aliased-target"],
+      };
+      project.skills = { projectSelection: [] };
+      project.thirdParty = { projectSkills: ["third-party-alias"] };
+    });
+    writeJson(path.join(fixture.repoRoot, ".harness", "project-skills.json"), {
+      skills: [],
+    });
+    writeJson(
+      path.join(fixture.repoRoot, ".harness", "third-party-installations.json"),
+      {
+        installations: {
+          "third-party-alias": {
+            paths: {
+              "source-name": {
+                targetPath: ".agents/skills/aliased-target",
+                treeSha256: "c".repeat(64),
+              },
+            },
+          },
+        },
+      },
+    );
+
+    const report = await auditConflicts(fixture.repoRoot, {
+      runner: fixture.runner,
+      homeDir: fixture.homeDir,
+    });
+    const finding = report.findings.find(
+      (item) => item.id === "project-skill-path-ownership",
+    );
+    assert.equal(finding.status, "ok");
+    assert.equal(conflictExitCode(report), 0);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("selected third-party project Skill ownership rejects missing or malformed paths", async () => {
+  for (const [label, installation] of [
+    ["missing", undefined],
+    ["empty", { paths: {} }],
+    ["array", { paths: [] }],
+    ["invalid entry", { paths: { broken: null } }],
+  ]) {
+    const fixture = createFixture();
+    try {
+      rewriteManagedProject(fixture, (project) => {
+        project.workflow = { managedProjectPaths: [] };
+        project.skills = { projectSelection: [] };
+        project.thirdParty = { projectSkills: ["third-party-broken"] };
+      });
+      writeJson(
+        path.join(fixture.repoRoot, ".harness", "third-party-installations.json"),
+        {
+          installations: installation
+            ? { "third-party-broken": installation }
+            : {},
+        },
+      );
+
+      const report = await auditConflicts(fixture.repoRoot, {
+        runner: fixture.runner,
+        homeDir: fixture.homeDir,
+      });
+      const finding = report.findings.find(
+        (item) => item.id === "project-skill-path-ownership",
+      );
+      assert.equal(finding.status, "conflict", label);
+      assert.equal(conflictExitCode(report), 2, label);
+    } finally {
+      fixture.cleanup();
+    }
   }
 });
 

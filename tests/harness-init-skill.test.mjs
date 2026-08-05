@@ -5,6 +5,8 @@ import path from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 
+import { snapshotThirdPartyTree } from '../.agents/skills/harness-init/scripts/third-party-approval.mjs'
+
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const SKILL_ROOT = path.join(ROOT, '.agents', 'skills', 'harness-init')
 const GRILL_WITH_DOCS_ROOT = path.join(
@@ -258,6 +260,12 @@ test('root Harness contract pins the 15-core and approved project third-party ba
   const ownership = JSON.parse(
     await readFile(path.join(ROOT, '.harness', 'ownership.json'), 'utf8'),
   )
+  const thirdPartyOwnership = JSON.parse(
+    await readFile(
+      path.join(ROOT, '.harness', 'third-party-installations.json'),
+      'utf8',
+    ),
+  )
   const distributionSchema = await readSkillFile(
     'assets',
     'project-contract.schema.json',
@@ -307,4 +315,12 @@ test('root Harness contract pins the 15-core and approved project third-party ba
   assert.ok(
     ownership.managedPaths.includes('.harness/third-party-sources.json'),
   )
+  for (const id of ['codebase-design', 'writing-great-skills']) {
+    const installed = thirdPartyOwnership.installations[id].paths[id]
+    assert.equal(installed.targetPath, `.agents/skills/${id}`)
+    const snapshot = await snapshotThirdPartyTree(
+      path.join(ROOT, ...installed.targetPath.split('/')),
+    )
+    assert.equal(snapshot.treeSha256, installed.treeSha256)
+  }
 })
