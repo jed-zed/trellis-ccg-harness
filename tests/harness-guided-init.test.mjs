@@ -1687,6 +1687,176 @@ test("ready Project Skill revision accepts a credential-free saved catalog remot
   }
 });
 
+test("ready Project Skill revision preserves third-party paths while replacing or clearing catalog Skills", async () => {
+  const value = fixture();
+  try {
+    const repository = path.join(value.root, "mixed-skill-catalog");
+    mkdirSync(repository);
+    writeCatalogSkill(repository, "test-first", "Use when tests lead changes.");
+    writeCatalogSkill(repository, "docs-helper", "Use when docs must stay current.");
+    initializeGitRepository(repository);
+    await runGlobalInit({
+      approved: true,
+      catalogMode: "local",
+      catalogPath: repository,
+      homeDir: value.homeDir,
+      providerActions: PROVIDER_LATER,
+      providerStatusOverrides: {
+        codex: "authenticated",
+        gemini: "not-installed",
+        grok: "not-installed",
+        claude: "not-installed",
+      },
+      skillRoot: SKILL_ROOT,
+    });
+    const contractPath = approvedContract(value.repoRoot, ["test-first"]);
+    await applyProjectContract({
+      contractPath,
+      repoRoot: value.repoRoot,
+      skillRoot: SKILL_ROOT,
+    });
+    await markProjectReady({
+      repoRoot: value.repoRoot,
+      skillRoot: SKILL_ROOT,
+    });
+
+    const thirdPartyPath = ".agents/skills/third-party-helper";
+    const thirdPartyTarget = path.join(
+      value.repoRoot,
+      ...thirdPartyPath.split("/"),
+    );
+    mkdirSync(thirdPartyTarget, { recursive: true });
+    writeFileSync(path.join(thirdPartyTarget, "SKILL.md"), "third-party-owned\n");
+    const projectPath = path.join(value.repoRoot, ".harness", "project.json");
+    const ownershipPath = path.join(
+      value.repoRoot,
+      ".harness",
+      "ownership.json",
+    );
+    const thirdPartyOwnershipPath = path.join(
+      value.repoRoot,
+      ".harness",
+      "third-party-installations.json",
+    );
+    const project = JSON.parse(readFileSync(projectPath, "utf8"));
+    project.workflow.managedProjectPaths.push(
+      thirdPartyPath,
+      ".harness/third-party-installations.json",
+    );
+    project.thirdParty.projectSkills.push("third-party-helper");
+    const projectBytes = `${JSON.stringify(project, null, 2)}\n`;
+    writeFileSync(projectPath, projectBytes);
+    const ownership = JSON.parse(readFileSync(ownershipPath, "utf8"));
+    ownership.contractSha256 = createHash("sha256")
+      .update(projectBytes)
+      .digest("hex");
+    ownership.managedPaths.push(
+      thirdPartyPath,
+      ".harness/third-party-installations.json",
+    );
+    writeFileSync(ownershipPath, `${JSON.stringify(ownership, null, 2)}\n`);
+    writeFileSync(
+      thirdPartyOwnershipPath,
+      `${JSON.stringify({
+        schemaVersion: 1,
+        owner: "trellis-ccg-harness",
+        installations: {
+          "third-party-helper": {
+            paths: {
+              "third-party-helper": {
+                targetPath: thirdPartyPath,
+                treeSha256: "a".repeat(64),
+              },
+            },
+          },
+        },
+      }, null, 2)}\n`,
+    );
+
+    await reviseReadyProjectSkills({
+      approved: true,
+      repoRoot: value.repoRoot,
+      homeDir: value.homeDir,
+      selectedSkills: ["test-first", "docs-helper"],
+      globalEssentialSkills: GLOBAL_PLATFORM_SKILLS,
+      skillRoot: SKILL_ROOT,
+    });
+    assert.equal(
+      JSON.parse(readFileSync(projectPath, "utf8"))
+        .workflow.managedProjectPaths.includes(thirdPartyPath),
+      true,
+    );
+
+    await reviseReadyProjectSkills({
+      approved: true,
+      replaceExisting: true,
+      repoRoot: value.repoRoot,
+      homeDir: value.homeDir,
+      selectedSkills: ["docs-helper"],
+      globalEssentialSkills: GLOBAL_PLATFORM_SKILLS,
+      skillRoot: SKILL_ROOT,
+    });
+    assert.equal(
+      existsSync(path.join(value.repoRoot, ".agents", "skills", "test-first")),
+      false,
+    );
+    const replaced = JSON.parse(readFileSync(projectPath, "utf8"));
+    const replacedOwnership = JSON.parse(readFileSync(ownershipPath, "utf8"));
+    assert.equal(
+      replaced.workflow.managedProjectPaths.includes(".agents/skills/test-first"),
+      false,
+    );
+    assert.equal(
+      replacedOwnership.managedPaths.includes(".agents/skills/test-first"),
+      false,
+    );
+    for (const retained of [
+      thirdPartyPath,
+      ".harness/third-party-installations.json",
+      ".agents/skills/docs-helper",
+    ]) {
+      assert.equal(replaced.workflow.managedProjectPaths.includes(retained), true);
+      assert.equal(replacedOwnership.managedPaths.includes(retained), true);
+    }
+    assert.equal(readFileSync(path.join(thirdPartyTarget, "SKILL.md"), "utf8"), "third-party-owned\n");
+
+    await reviseReadyProjectSkills({
+      approved: true,
+      replaceExisting: true,
+      repoRoot: value.repoRoot,
+      homeDir: value.homeDir,
+      selectedSkills: [],
+      globalEssentialSkills: GLOBAL_PLATFORM_SKILLS,
+      skillRoot: SKILL_ROOT,
+    });
+    const cleared = JSON.parse(readFileSync(projectPath, "utf8"));
+    assert.equal(cleared.workflow.managedProjectPaths.includes(thirdPartyPath), true);
+    assert.deepEqual(cleared.skills.projectSelection, []);
+    const clearedOwnership = JSON.parse(readFileSync(ownershipPath, "utf8"));
+    for (const removed of [
+      ".agents/skills/test-first",
+      ".agents/skills/docs-helper",
+    ]) {
+      assert.equal(cleared.workflow.managedProjectPaths.includes(removed), false);
+      assert.equal(clearedOwnership.managedPaths.includes(removed), false);
+    }
+    for (const retained of [
+      thirdPartyPath,
+      ".harness/third-party-installations.json",
+    ]) {
+      assert.equal(cleared.workflow.managedProjectPaths.includes(retained), true);
+      assert.equal(clearedOwnership.managedPaths.includes(retained), true);
+    }
+    assert.equal(
+      existsSync(path.join(value.repoRoot, ".agents", "skills", "docs-helper")),
+      false,
+    );
+    assert.equal(readFileSync(path.join(thirdPartyTarget, "SKILL.md"), "utf8"), "third-party-owned\n");
+  } finally {
+    value.cleanup();
+  }
+});
+
 test("ready Project Skill revision rejects ignored files that are absent from the claimed commit", async () => {
   const value = fixture();
   try {

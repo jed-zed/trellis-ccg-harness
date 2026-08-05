@@ -14,6 +14,7 @@ import {
 import { isAbsolute, relative, resolve } from 'node:path'
 import { buildExactGrokEnvironment } from './exact-env.mjs'
 import { assertExistingPathWithoutLinks } from './path-safety.mjs'
+import { resolveGrokExecutable } from './process.mjs'
 import { signalProcessTree } from './process-tree.mjs'
 import { canonicalizeSourceUrl } from './source-registry.mjs'
 
@@ -626,7 +627,7 @@ export function createGrokAcpClient({
       const args = [...prefixArgs, ...acpArgs]
       let child
       try {
-        child = spawnProcess(command, args, {
+        child = spawnProcess(resolveGrokExecutable(command, { env: childEnvironment }), args, {
           cwd,
           env: childEnvironment,
           stdio: ['pipe', 'pipe', 'pipe'],

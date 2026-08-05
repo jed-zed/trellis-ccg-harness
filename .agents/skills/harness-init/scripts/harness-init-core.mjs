@@ -1630,6 +1630,43 @@ export async function reviseReadyProjectSkills({
     ),
   );
 
+  const existingManifestFingerprint = await readFileFingerprint(
+    manifestPath,
+    "Project Skill manifest",
+  );
+  let existingManifest = null;
+  if (
+    currentOwnership.schemaVersion ===
+      PROJECT_SKILL_OWNERSHIP_SCHEMA_VERSION ||
+    existingManifestFingerprint.exists
+  ) {
+    if (
+      currentOwnership.schemaVersion !==
+        PROJECT_SKILL_OWNERSHIP_SCHEMA_VERSION ||
+      !existingManifestFingerprint.exists ||
+      existingManifestFingerprint.sha256 !==
+        currentOwnership.projectSkillsManifestSha256
+    ) {
+      throw new Error("Owned Project Skill manifest is missing or modified.");
+    }
+    existingManifest = validateProjectSkillManifest(
+      JSON.parse(existingManifestFingerprint.bytes.toString("utf8")),
+    );
+    for (const skill of existingManifest.skills) {
+      if (!currentOwnership.managedPaths.includes(skill.targetPath)) {
+        throw new Error(`Managed Project Skill ownership is missing: ${skill.name}`);
+      }
+      const target = path.join(root, ...skill.targetPath.split("/"));
+      const snapshot = await snapshotSkillTree(target);
+      if (snapshot.treeSha256 !== skill.treeSha256) {
+        throw new Error(`Managed Project Skill drifted: ${skill.name}`);
+      }
+    }
+  }
+  const previousSkillPaths = new Set(
+    existingManifest?.skills.map((entry) => entry.targetPath) ?? [],
+  );
+
   const catalog = await discoverSkillCatalog({
     repositoryPath: profile.repositoryPath,
   });
@@ -1674,7 +1711,7 @@ export async function reviseReadyProjectSkills({
   const nonSkillManagedPaths = contract.workflow.managedProjectPaths.filter(
     (entry) =>
       entry !== ".harness/project-skills.json" &&
-      !entry.startsWith(".agents/skills/"),
+      !previousSkillPaths.has(entry),
   );
   const approvedReasons = new Map(
     contract.skills.projectSelection.map((entry) => [
@@ -1718,42 +1755,6 @@ export async function reviseReadyProjectSkills({
     canonicalJson(candidateContract),
   );
   const manifestBytes = Buffer.from(canonicalJson(readyManifest));
-  const existingManifestFingerprint = await readFileFingerprint(
-    manifestPath,
-    "Project Skill manifest",
-  );
-  let existingManifest = null;
-  if (
-    currentOwnership.schemaVersion ===
-      PROJECT_SKILL_OWNERSHIP_SCHEMA_VERSION ||
-    existingManifestFingerprint.exists
-  ) {
-    if (
-      currentOwnership.schemaVersion !==
-        PROJECT_SKILL_OWNERSHIP_SCHEMA_VERSION ||
-      !existingManifestFingerprint.exists ||
-      existingManifestFingerprint.sha256 !==
-        currentOwnership.projectSkillsManifestSha256
-    ) {
-      throw new Error("Owned Project Skill manifest is missing or modified.");
-    }
-    existingManifest = validateProjectSkillManifest(
-      JSON.parse(existingManifestFingerprint.bytes.toString("utf8")),
-    );
-    for (const skill of existingManifest.skills) {
-      if (!currentOwnership.managedPaths.includes(skill.targetPath)) {
-        throw new Error(`Managed Project Skill ownership is missing: ${skill.name}`);
-      }
-      const target = path.join(root, ...skill.targetPath.split("/"));
-      const snapshot = await snapshotSkillTree(target);
-      if (snapshot.treeSha256 !== skill.treeSha256) {
-        throw new Error(`Managed Project Skill drifted: ${skill.name}`);
-      }
-    }
-  }
-  const previousSkillPaths = new Set(
-    existingManifest?.skills.map((entry) => entry.targetPath) ?? [],
-  );
   const nextOwnership = {
     ...currentOwnership,
     schemaVersion: PROJECT_SKILL_OWNERSHIP_SCHEMA_VERSION,

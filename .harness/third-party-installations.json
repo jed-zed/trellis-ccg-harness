@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "owner": "trellis-ccg-harness",
+  "installations": {
+    "codebase-design": {
+      "sourceManifestSha256": "748796e09774955811aa1d4a8ed165efb865d88643d493cd9cf211d835a34850",
+      "sourceId": "matt-skills",
+      "commit": "2ab958093e83e0ec752e6c1c5932da465bf23e0c",
+      "paths": {
+        "codebase-design": {
+          "targetPath": ".agents/skills/codebase-design",
+          "treeSha256": "b4d31008e22c785a68cac96f901237606bb1f9d252eb7ea7326e5bdbee2e9fd1"
+        }
+      }
+    },
+    "writing-great-skills": {
+      "sourceManifestSha256": "748796e09774955811aa1d4a8ed165efb865d88643d493cd9cf211d835a34850",
+      "sourceId": "matt-skills",
+      "commit": "2ab958093e83e0ec752e6c1c5932da465bf23e0c",
+      "paths": {
+        "writing-great-skills": {
+          "targetPath": ".agents/skills/writing-great-skills",
+          "treeSha256": "0904bcb01ab7b136ad4eaa472b13cd6205ebc254c48b6e35e79c2e14baef77e5"
+        }
+      }
+    }
+  }
+}

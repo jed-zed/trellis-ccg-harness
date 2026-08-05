@@ -75,6 +75,9 @@ and recovery tests; ordinary callers use only `repoRoot`.
   the actual installed bytes.
 - Repository attributes pin every exact-byte-owned projection to LF so a Git
   checkout cannot create ownership drift.
+- Approved third-party project Skill directories are also exact-byte-owned and
+  must be pinned to LF. The root contract test recomputes each installed tree
+  and requires it to match `.harness/third-party-installations.json`.
 - Readiness also binds the installed Schema and collaboration projection to the
   current `harness-init` Skill assets. Updating ownership alongside altered
   installed bytes does not make coordinated drift valid.
@@ -128,6 +131,13 @@ and recovery tests; ordinary callers use only `repoRoot`.
   blocked dependency never satisfies its dependents.
 - Drifted or unowned targets are reported but are never selectable or
   overwritten by the addon workflow.
+- Each installed project Skill path records both normalized `targetPath` and
+  `treeSha256`. Conflict inspection uses `targetPath`; schema-v1 records without
+  it retain the legacy `.agents/skills/<name>` fallback. A selected installation
+  with missing, empty, malformed, or unsafe paths is a blocking conflict.
+  Conflict inspection normalizes path separators before comparison and treats
+  equal, ancestor, or descendant catalog/third-party paths as overlapping
+  ownership.
 - Context7, Playwright, DeepWiki, and Exa are CCG-managed MCP handoffs. Harness
   validates and displays their latest-channel/service evidence, effects,
   and fixed `ccg config mcp` command, but never executes that command, installs
@@ -154,6 +164,10 @@ and recovery tests; ordinary callers use only `repoRoot`.
 | Intact contract is already `ready` | Return `status: unchanged` without writing |
 | Ready-project Skill source is a dirty checkout or has a credential-bearing remote | Refuse before mutation |
 | Existing Project Skill differs from its ownership record | Refuse replacement and preserve all bytes |
+| Selected third-party project Skill has no valid non-empty path record | Report a blocking conflict |
+| Recorded project Skill `targetPath` differs from its path name | Inspect the recorded normalized target path |
+| Catalog and third-party Skill paths are equal or one contains the other | Report a blocking ownership conflict |
+| A managed Skill path uses Windows separators | Normalize separators before ownership comparison |
 | Replacement is requested without `--replace-existing` | Refuse without mutation |
 | Replacement fails after any target is claimed or published | Restore the previous Skill, contract, manifest, and ownership |
 | `addons --status` receives a selection or approval flag | Refuse as a mixed read/write request |
@@ -211,6 +225,12 @@ Errors propagate to `scripts/harness-init.mjs`, which writes one
 - ready-project Skill revision preserves the 13-core global baseline, binds a
   clean credential-free catalog commit, requires `--replace-existing` for an
   owned revision, and rolls back the whole projection on failure.
+- ready-project Skill revision removes deselected catalog paths from both the
+  project contract and ownership while retaining third-party paths and ledgers.
+- root Harness contract tests recompute approved project Skill tree hashes and
+  verify their LF attributes and recorded target paths.
+- conflict tests reject exact and parent/child cross-ledger overlaps and accept
+  equivalent managed paths that differ only by path separator.
 
 `tests/harness-third-party-cli.test.mjs` must assert:
 

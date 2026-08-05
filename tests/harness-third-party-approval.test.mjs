@@ -1459,6 +1459,17 @@ test("project Skills install transactionally with ownership-last, idempotence, a
       true,
     );
     assert.equal(existsSync(path.join(value.repoRoot, ".claude")), false);
+    const ownership = JSON.parse(
+      readFileSync(
+        path.join(value.repoRoot, ".harness", "third-party-installations.json"),
+        "utf8",
+      ),
+    );
+    assert.equal(
+      ownership.installations["fixture-project-grill-me"].paths["grill-me"]
+        .targetPath,
+      ".agents/skills/grill-me",
+    );
     const second = await applyThirdPartyProjectSkills({
       approved: true,
       approvals,

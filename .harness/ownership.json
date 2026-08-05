@@ -1,8 +1,8 @@
 {
   "schemaVersion": 3,
   "owner": "trellis-ccg-harness",
-  "contractSha256": "5cb8c3fd03be7d132bb5e3009d84670bdef9543bf6a3721a129ad5c201cdae0e",
-  "schemaSha256": "edb39c8c428b3959ac0269c00cff82a696163e3f571cfacf949125fe521c4446",
+  "contractSha256": "7fad2bebfa925374afcc11d13d502dc40c618d0f09f73c9ac3fffacd5654e58c",
+  "schemaSha256": "c506917fe9094be16567e61f23205ca815ca4ef8fc1714d564b3228af129c6a9",
   "productManagerSchemaSha256": "5ee7d491645d37e17d6fe99ded51f849c3482e2409b1286c8ebd50e9ea2c5008",
   "policy": {
     "policyVersion": 7,

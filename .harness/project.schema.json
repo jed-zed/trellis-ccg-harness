@@ -118,10 +118,20 @@
             "type": "string",
             "pattern": "^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$"
           },
-          "minItems": 13,
-          "maxItems": 13,
+          "minItems": 15,
+          "maxItems": 15,
           "uniqueItems": true,
           "allOf": [
+            {
+              "contains": {
+                "const": "chatgpt-pro-sidebar"
+              }
+            },
+            {
+              "contains": {
+                "const": "grill-with-docs"
+              }
+            },
             {
               "contains": {
                 "const": "harness-init"

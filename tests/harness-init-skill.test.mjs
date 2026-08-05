@@ -5,6 +5,8 @@ import path from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 
+import { snapshotThirdPartyTree } from '../.agents/skills/harness-init/scripts/third-party-approval.mjs'
+
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const SKILL_ROOT = path.join(ROOT, '.agents', 'skills', 'harness-init')
 const GRILL_WITH_DOCS_ROOT = path.join(
@@ -202,6 +204,17 @@ test('harness-init refines and reuses the 15-Skill global platform profile', asy
     schema.properties.skills.properties.installMode.const,
     'copy',
   )
+  const globalEssentialSchema =
+    schema.properties.skills.properties.globalEssential
+  assert.equal(globalEssentialSchema.minItems, 15)
+  assert.equal(globalEssentialSchema.maxItems, 15)
+  for (const name of ['chatgpt-pro-sidebar', 'grill-with-docs']) {
+    assert.ok(
+      globalEssentialSchema.allOf.some(
+        (requirement) => requirement.contains?.const === name,
+      ),
+    )
+  }
 })
 
 test('root AGENTS projects the canonical collaboration policy', async () => {
@@ -227,7 +240,7 @@ test('root AGENTS projects the canonical collaboration policy', async () => {
   assert.equal(pinnedPolicy, policy)
 })
 
-test('root Harness contract pins the 15-core and reject-all third-party baseline', async () => {
+test('root Harness contract pins the 15-core and approved project third-party baseline', async () => {
   const contractText = await readFile(
     path.join(ROOT, '.harness', 'project.json'),
     'utf8',
@@ -246,6 +259,12 @@ test('root Harness contract pins the 15-core and reject-all third-party baseline
   )
   const ownership = JSON.parse(
     await readFile(path.join(ROOT, '.harness', 'ownership.json'), 'utf8'),
+  )
+  const thirdPartyOwnership = JSON.parse(
+    await readFile(
+      path.join(ROOT, '.harness', 'third-party-installations.json'),
+      'utf8',
+    ),
   )
   const distributionSchema = await readSkillFile(
     'assets',
@@ -276,7 +295,7 @@ test('root Harness contract pins the 15-core and reject-all third-party baseline
     sourceManifestSha256: sourceSha256,
     globalSkills: [],
     globalPlugins: [],
-    projectSkills: [],
+    projectSkills: ['codebase-design', 'writing-great-skills'],
     mcpCli: [],
     excluded: [],
   })
@@ -296,4 +315,12 @@ test('root Harness contract pins the 15-core and reject-all third-party baseline
   assert.ok(
     ownership.managedPaths.includes('.harness/third-party-sources.json'),
   )
+  for (const id of ['codebase-design', 'writing-great-skills']) {
+    const installed = thirdPartyOwnership.installations[id].paths[id]
+    assert.equal(installed.targetPath, `.agents/skills/${id}`)
+    const snapshot = await snapshotThirdPartyTree(
+      path.join(ROOT, ...installed.targetPath.split('/')),
+    )
+    assert.equal(snapshot.treeSha256, installed.treeSha256)
+  }
 })
