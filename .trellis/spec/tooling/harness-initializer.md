@@ -135,6 +135,9 @@ and recovery tests; ordinary callers use only `repoRoot`.
   `treeSha256`. Conflict inspection uses `targetPath`; schema-v1 records without
   it retain the legacy `.agents/skills/<name>` fallback. A selected installation
   with missing, empty, malformed, or unsafe paths is a blocking conflict.
+  Conflict inspection normalizes path separators before comparison and treats
+  equal, ancestor, or descendant catalog/third-party paths as overlapping
+  ownership.
 - Context7, Playwright, DeepWiki, and Exa are CCG-managed MCP handoffs. Harness
   validates and displays their latest-channel/service evidence, effects,
   and fixed `ccg config mcp` command, but never executes that command, installs
@@ -163,6 +166,8 @@ and recovery tests; ordinary callers use only `repoRoot`.
 | Existing Project Skill differs from its ownership record | Refuse replacement and preserve all bytes |
 | Selected third-party project Skill has no valid non-empty path record | Report a blocking conflict |
 | Recorded project Skill `targetPath` differs from its path name | Inspect the recorded normalized target path |
+| Catalog and third-party Skill paths are equal or one contains the other | Report a blocking ownership conflict |
+| A managed Skill path uses Windows separators | Normalize separators before ownership comparison |
 | Replacement is requested without `--replace-existing` | Refuse without mutation |
 | Replacement fails after any target is claimed or published | Restore the previous Skill, contract, manifest, and ownership |
 | `addons --status` receives a selection or approval flag | Refuse as a mixed read/write request |
@@ -224,6 +229,8 @@ Errors propagate to `scripts/harness-init.mjs`, which writes one
   project contract and ownership while retaining third-party paths and ledgers.
 - root Harness contract tests recompute approved project Skill tree hashes and
   verify their LF attributes and recorded target paths.
+- conflict tests reject exact and parent/child cross-ledger overlaps and accept
+  equivalent managed paths that differ only by path separator.
 
 `tests/harness-third-party-cli.test.mjs` must assert:
 

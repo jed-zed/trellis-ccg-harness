@@ -722,6 +722,57 @@ test("catalog and third-party project Skill path overlap is a blocking conflict"
   }
 });
 
+test("catalog and third-party project Skill parent-child overlap is a blocking conflict", async () => {
+  const fixture = createFixture();
+  try {
+    rewriteManagedProject(fixture, (project) => {
+      project.workflow = {
+        managedProjectPaths: [
+          ".agents/skills/shared-skill",
+          ".agents/skills/shared-skill/addon",
+        ],
+      };
+      project.skills = {
+        projectSelection: [{ name: "shared-skill" }],
+      };
+      project.thirdParty = { projectSkills: ["third-party-addon"] };
+    });
+    writeJson(path.join(fixture.repoRoot, ".harness", "project-skills.json"), {
+      skills: [{ targetPath: ".agents/skills/shared-skill" }],
+    });
+    writeJson(
+      path.join(fixture.repoRoot, ".harness", "third-party-installations.json"),
+      {
+        installations: {
+          "third-party-addon": {
+            paths: {
+              addon: {
+                targetPath: ".agents/skills/shared-skill/addon",
+                treeSha256: "d".repeat(64),
+              },
+            },
+          },
+        },
+      },
+    );
+
+    const report = await auditConflicts(fixture.repoRoot, {
+      runner: fixture.runner,
+      homeDir: fixture.homeDir,
+    });
+    const finding = report.findings.find(
+      (item) => item.id === "project-skill-path-ownership",
+    );
+    assert.equal(finding.status, "conflict");
+    assert.deepEqual(finding.evidence.overlaps, [
+      ".agents/skills/shared-skill/addon",
+    ]);
+    assert.equal(conflictExitCode(report), 2);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test("selected third-party project Skill path must be managed by the project contract", async () => {
   const fixture = createFixture();
   try {
@@ -761,12 +812,12 @@ test("selected third-party project Skill path must be managed by the project con
   }
 });
 
-test("valid third-party project Skill ownership uses its recorded target path", async () => {
+test("valid third-party project Skill ownership normalizes managed path separators", async () => {
   const fixture = createFixture();
   try {
     rewriteManagedProject(fixture, (project) => {
       project.workflow = {
-        managedProjectPaths: [".agents/skills/aliased-target"],
+        managedProjectPaths: [".agents\\skills\\aliased-target"],
       };
       project.skills = { projectSelection: [] };
       project.thirdParty = { projectSkills: ["third-party-alias"] };

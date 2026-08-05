@@ -464,6 +464,21 @@ function checkProductManagerManagedAssets({ repoRoot, contract, add }) {
 
 const SAFE_PROJECT_SKILL_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
+function normalizeProjectSkillPath(value, label) {
+  if (typeof value !== "string") {
+    throw new Error(`${label} must be a string.`);
+  }
+  return value.replaceAll("\\", "/");
+}
+
+function projectSkillPathsOverlap(left, right) {
+  return (
+    left === right ||
+    left.startsWith(`${right}/`) ||
+    right.startsWith(`${left}/`)
+  );
+}
+
 function projectSkillInstallationPaths(id, installation) {
   const paths = installation?.paths;
   if (
@@ -484,9 +499,10 @@ function projectSkillInstallationPaths(id, installation) {
     ) {
       throw new Error(`Selected third-party Project Skill ${id} has an invalid path record.`);
     }
-    const targetPath = String(
+    const targetPath = normalizeProjectSkillPath(
       record.targetPath ?? `.agents/skills/${name}`,
-    ).replaceAll("\\", "/");
+      `Selected third-party Project Skill ${id} target path`,
+    );
     const segments = targetPath.split("/");
     if (
       !targetPath.startsWith(".agents/skills/") ||
@@ -525,12 +541,25 @@ function checkProjectSkillPathOwnership({ repoRoot, add }) {
     const thirdPartyPaths = selected
       .filter((id) => installations[id])
       .flatMap((id) => projectSkillInstallationPaths(id, installations[id]));
-    const catalogPaths = new Set(
-      catalog.skills.map((skill) => skill.targetPath),
+    const catalogPaths = catalog.skills.map((skill) =>
+      normalizeProjectSkillPath(
+        skill?.targetPath,
+        "Catalog Project Skill target path",
+      ),
     );
-    const managedPaths = new Set(project.workflow?.managedProjectPaths ?? []);
+    const managedPaths = new Set(
+      (project.workflow?.managedProjectPaths ?? []).map((entry) =>
+        normalizeProjectSkillPath(entry, "Managed project path"),
+      ),
+    );
     const overlaps = [
-      ...new Set(thirdPartyPaths.filter((skillPath) => catalogPaths.has(skillPath))),
+      ...new Set(
+        thirdPartyPaths.filter((skillPath) =>
+          catalogPaths.some((catalogPath) =>
+            projectSkillPathsOverlap(skillPath, catalogPath),
+          ),
+        ),
+      ),
     ].sort();
     const unmanagedThirdPartyPaths = [
       ...new Set(thirdPartyPaths.filter((skillPath) => !managedPaths.has(skillPath))),
