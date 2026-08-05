@@ -15,6 +15,8 @@ import { createGrokAcpClient } from '../../../templates/engine/tools/grok-intell
 // @ts-expect-error Runtime is intentionally shipped as dependency-free ESM.
 import { createPrivateRunRoots } from '../../../templates/engine/tools/grok-intelligence/lib/private-temp.mjs'
 // @ts-expect-error Runtime is intentionally shipped as dependency-free ESM.
+import { resolveGrokExecutable } from '../../../templates/engine/tools/grok-intelligence/lib/process.mjs'
+// @ts-expect-error Runtime is intentionally shipped as dependency-free ESM.
 import { computeSourceId } from '../../../templates/engine/tools/grok-intelligence/lib/source-registry.mjs'
 
 const { ensureDedicatedGrokHome, getDefaultGrokIntelligencePaths, resolveDoctorAuthentication } = grokManage
@@ -67,6 +69,32 @@ describe('Grok intelligence distribution', () => {
       .toEqual({ authMode: 'browser_oauth', apiKey: undefined })
     expect(() => resolveDoctorAuthentication({ env: {}, loggedIn: false }))
       .toThrow(/login|XAI_API_KEY/i)
+  })
+
+  it('resolves the default Windows Grok command to its native executable without a shell', () => {
+    const dedicatedHome = 'C:\\PrivateData\\CCG\\grok-intelligence\\grok-home'
+    const nativeExecutable = `${dedicatedHome}\\bin\\grok.exe`
+    expect(resolveGrokExecutable('grok', {
+      platform: 'win32',
+      env: { GROK_HOME: dedicatedHome },
+      pathExists: (path: string) => path === nativeExecutable,
+    })).toBe(nativeExecutable)
+    const userHome = 'C:\\Users\\Boss'
+    const userExecutable = `${userHome}\\.grok\\bin\\grok.exe`
+    expect(resolveGrokExecutable('grok', {
+      platform: 'win32',
+      env: {},
+      userHome,
+      pathExists: (path: string) => path === userExecutable,
+    })).toBe(userExecutable)
+    expect(resolveGrokExecutable('grok', {
+      platform: 'win32',
+      env: {},
+      userHome,
+      pathExists: () => false,
+    })).toBe('grok')
+    expect(resolveGrokExecutable(process.execPath, { platform: 'win32' })).toBe(process.execPath)
+    expect(resolveGrokExecutable('grok', { platform: 'linux' })).toBe('grok')
   })
 
   it('ships strict command and skill surfaces without legacy MCP or unresolved variables', () => {

@@ -1,8 +1,27 @@
 import { spawn } from 'node:child_process'
+import { existsSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { win32 } from 'node:path'
 import { signalProcessTree } from './process-tree.mjs'
 
 const MAX_DIAGNOSTIC_BYTES = 1024 * 1024
 const DEFAULT_TIMEOUT_MS = 30000
+
+export function resolveGrokExecutable(command, {
+  platform = process.platform,
+  env = process.env,
+  userHome = homedir(),
+  pathExists = existsSync,
+} = {}) {
+  if (platform !== 'win32' || command !== 'grok')
+    return command
+  for (const root of [env.GROK_HOME, userHome && win32.resolve(userHome, '.grok')]) {
+    if (!root) continue
+    const candidate = win32.resolve(root, 'bin', 'grok.exe')
+    if (pathExists(candidate)) return candidate
+  }
+  return command
+}
 
 export class UnsafeCliContextError extends Error {
   constructor(message) {
@@ -39,7 +58,7 @@ export function runBoundedProcess(command, args, {
   if (typeof command !== 'string' || !command || !Array.isArray(args))
     throw new Error('Bounded process command and argument array are required')
   return new Promise((resolvePromise, rejectPromise) => {
-    const child = spawnProcess(command, args, {
+    const child = spawnProcess(resolveGrokExecutable(command, { env }), args, {
       cwd,
       env,
       windowsHide: true,

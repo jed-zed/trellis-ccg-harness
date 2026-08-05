@@ -9,7 +9,7 @@ import { clearCredentialHomeVolatileState, createGrokAcpClient, withCredentialHo
 import { cleanupIntelligenceArtifacts } from './lib/artifacts.mjs'
 import { buildExactGrokEnvironment } from './lib/exact-env.mjs'
 import { createPrivateRunRoots, securePrivateDirectory, validatePinnedGrokConfig, writePinnedGrokConfig } from './lib/private-temp.mjs'
-import { runBoundedProcess, runGrokDiagnostics } from './lib/process.mjs'
+import { resolveGrokExecutable, runBoundedProcess, runGrokDiagnostics } from './lib/process.mjs'
 import { runGrokIntelligence } from './runner.mjs'
 
 export const LOCAL_DOCTOR_ACP_TIMEOUT_MS = 120_000
@@ -104,7 +104,8 @@ async function readDedicatedStatus(paths = getDefaultGrokIntelligencePaths()) {
 
 function runInteractive(command, args, options) {
   return new Promise((resolvePromise, rejectPromise) => {
-    const child = spawn(command, args, { ...options, shell: false, stdio: 'inherit', windowsHide: false })
+    const executable = resolveGrokExecutable(command, { env: options.env })
+    const child = spawn(executable, args, { ...options, shell: false, stdio: 'inherit', windowsHide: false })
     child.once('error', rejectPromise)
     child.once('close', code => code === 0 ? resolvePromise() : rejectPromise(new Error(`${command} exited with ${String(code)}`)))
   })

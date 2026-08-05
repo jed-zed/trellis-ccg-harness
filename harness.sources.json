@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "capturedAt": "2026-08-03T21:32:28.695Z",
+  "capturedAt": "2026-08-05T05:41:30.452Z",
   "harness": {
     "repository": "https://github.com/jed-zed/trellis-ccg-harness",
     "visibility": "public"
@@ -24,8 +24,8 @@
     "authoritativeRepository": "https://github.com/jed-zed/ccg-gptpro-worflow",
     "authoritativeRemoteNameInSourceCheckout": "gptpro",
     "originalUpstream": "https://github.com/fengshao1227/ccg-workflow",
-    "commit": "a57cddd3577d48d9a07def766e54ab1ad7beabb5",
-    "gitTree": "c534f316c9461795527d6d55933e9d282498c661",
+    "commit": "ddfc70c09e2e06b158d0a972a677d2b02aedec21",
+    "gitTree": "4d914cdd03fd8e66a58a4d7555698b9045d3f903",
     "snapshotPath": "components/ccg-workflow",
     "sourceMode": "tracked-tree-from-explicit-personal-commit"
   }
