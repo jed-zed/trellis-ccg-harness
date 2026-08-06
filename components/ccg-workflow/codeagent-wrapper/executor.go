@@ -5,14 +5,12 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"os/signal"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -853,19 +851,28 @@ func runCodexTaskWithContext(parentCtx context.Context, taskSpec TaskSpec, backe
 	if cfg.WorkDir == "" {
 		cfg.WorkDir = defaultWorkdir
 	}
+	var grokSnapshot *grokReviewSnapshot
 	if len(cfg.GrokReviewTargets) > 0 {
 		if cfg.Backend != "grok" {
 			result.ExitCode = 1
 			result.Error = "--grok-review-target requires --backend grok"
 			return result
 		}
-		normalized, err := normalizeGrokReviewTargets(cfg.WorkDir, cfg.GrokReviewTargets)
+		if cfg.Mode != "new" || strings.TrimSpace(cfg.SessionID) != "" {
+			result.ExitCode = 1
+			result.Error = "Grok review targets require a fresh session"
+			return result
+		}
+		var err error
+		grokSnapshot, err = prepareGrokReviewSnapshot(cfg.WorkDir, taskSpec.Task, cfg.GrokReviewTargets)
 		if err != nil {
 			result.ExitCode = 1
 			result.Error = err.Error()
 			return result
 		}
-		cfg.GrokReviewTargets = normalized
+		defer grokSnapshot.cleanup()
+		cfg.GrokReviewTargets = grokSnapshot.targets
+		cfg.WorkDir = grokSnapshot.root
 	}
 
 	if cfg.Mode == "resume" && strings.TrimSpace(cfg.SessionID) == "" {
@@ -876,6 +883,10 @@ func runCodexTaskWithContext(parentCtx context.Context, taskSpec TaskSpec, backe
 
 	useStdin := taskSpec.UseStdin || cfg.Backend == "pi"
 	targetArg := taskSpec.Task
+	if grokSnapshot != nil {
+		useStdin = false
+		targetArg = grokSnapshot.promptFile
+	}
 
 	// Gemini/Antigravity/Pi CLI does not support "-" as stdin marker for the prompt.
 	// On macOS/Linux: pass the actual task text directly via -p (execve preserves
@@ -1011,6 +1022,11 @@ func runCodexTaskWithContext(parentCtx context.Context, taskSpec TaskSpec, backe
 	// 统一处理所有后端的环境变量
 	// 修复 Windows Git Bash 后台进程 PATH 继承问题
 	env := buildBackendEnv(commandName)
+	if grokSnapshot != nil {
+		for key, value := range grokReviewForcedEnv {
+			env[key] = value
+		}
+	}
 	cmd.SetEnv(env) // SetEnv 会自动合并 os.Environ() (executor.go:122-161)
 
 	// Set working directory for backends that don't support -C flag.
@@ -1428,7 +1444,9 @@ waitLoop:
 		return result
 	}
 	if len(cfg.GrokReviewTargets) > 0 {
-		if err := validateGrokReview(cfg.WorkDir, message, cfg.GrokReviewTargets, grokReview); err != nil {
+		var err error
+		message, err = finalizeGrokReview(message, cfg.GrokReviewTargets, grokReview)
+		if err != nil {
 			logErrorFn(err.Error())
 			result.ExitCode = 1
 			result.Error = attachStderr(err.Error())
@@ -1451,152 +1469,6 @@ waitLoop:
 	}
 
 	return result
-}
-
-const grokReviewMarker = "CCG_GROK_REVIEW_JSON:"
-
-func validateGrokReview(workDir, message string, targets []string, evidence *grokReviewEvidence) error {
-	if len(targets) == 0 {
-		return nil
-	}
-	if evidence == nil || !evidence.stopReasonSeen {
-		return errors.New("Grok review missing terminal stop reason")
-	}
-	if evidence.terminalError != "" {
-		return fmt.Errorf("Grok review failed with stop reason %q", evidence.terminalError)
-	}
-	if evidence.forbiddenTool != "" {
-		return fmt.Errorf("Grok review attempted forbidden tool %q", evidence.forbiddenTool)
-	}
-
-	reviewedFiles, err := parseGrokReviewEnvelope(message)
-	if err != nil {
-		return err
-	}
-	if err := requireSameGrokReviewTargets(targets, reviewedFiles); err != nil {
-		return err
-	}
-
-	completed := make(map[string]struct{}, len(targets))
-	for _, call := range evidence.calls {
-		if call == nil || !call.completed || (call.variant != "ReadFile" && call.variant != "Grep") {
-			continue
-		}
-		if normalized, ok := normalizeObservedGrokReviewPath(workDir, call.path); ok {
-			completed[grokReviewPathKey(normalized)] = struct{}{}
-		}
-	}
-
-	var missing []string
-	for _, target := range targets {
-		if _, ok := completed[grokReviewPathKey(target)]; !ok {
-			missing = append(missing, target)
-		}
-	}
-	if len(missing) > 0 {
-		return fmt.Errorf("Grok review missing completed read evidence for: %s", strings.Join(missing, ", "))
-	}
-	return nil
-}
-
-func parseGrokReviewEnvelope(message string) ([]string, error) {
-	if strings.Count(message, grokReviewMarker) != 1 {
-		return nil, errors.New("Grok review must end with exactly one CCG_GROK_REVIEW_JSON envelope")
-	}
-	index := strings.Index(message, grokReviewMarker)
-	if index > 0 && message[index-1] != '\n' {
-		return nil, errors.New("Grok review envelope must start on the final line")
-	}
-	payload := strings.TrimSpace(message[index+len(grokReviewMarker):])
-	if payload == "" {
-		return nil, errors.New("Grok review envelope is empty")
-	}
-	var envelope struct {
-		SchemaVersion int               `json:"schemaVersion"`
-		ReviewedFiles []string          `json:"reviewedFiles"`
-		Findings      []json.RawMessage `json:"findings"`
-	}
-	decoder := json.NewDecoder(strings.NewReader(payload))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&envelope); err != nil {
-		return nil, fmt.Errorf("invalid Grok review envelope: %w", err)
-	}
-	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
-		return nil, errors.New("invalid Grok review envelope: trailing content")
-	}
-	if envelope.SchemaVersion != 1 {
-		return nil, fmt.Errorf("invalid Grok review schemaVersion %d", envelope.SchemaVersion)
-	}
-	if envelope.ReviewedFiles == nil || envelope.Findings == nil {
-		return nil, errors.New("invalid Grok review envelope: reviewedFiles and findings are required")
-	}
-	return envelope.ReviewedFiles, nil
-}
-
-func requireSameGrokReviewTargets(expected, actual []string) error {
-	if len(expected) != len(actual) {
-		return fmt.Errorf("Grok review reviewedFiles mismatch: got %v, want %v", actual, expected)
-	}
-	want := make(map[string]struct{}, len(expected))
-	for _, target := range expected {
-		want[grokReviewPathKey(target)] = struct{}{}
-	}
-	seen := make(map[string]struct{}, len(actual))
-	for _, raw := range actual {
-		target := strings.TrimSpace(raw)
-		if target == "" || filepath.IsAbs(target) || filepath.VolumeName(target) != "" {
-			return fmt.Errorf("Grok review reviewedFiles contains invalid target %q", raw)
-		}
-		target = filepath.ToSlash(filepath.Clean(filepath.FromSlash(target)))
-		if target == "." || target == ".." || strings.HasPrefix(target, "../") {
-			return fmt.Errorf("Grok review reviewedFiles contains invalid target %q", raw)
-		}
-		key := grokReviewPathKey(target)
-		if _, duplicate := seen[key]; duplicate {
-			return fmt.Errorf("Grok review reviewedFiles contains duplicate target %q", raw)
-		}
-		seen[key] = struct{}{}
-		if _, ok := want[key]; !ok {
-			return fmt.Errorf("Grok review reviewedFiles mismatch: got %v, want %v", actual, expected)
-		}
-	}
-	return nil
-}
-
-func normalizeObservedGrokReviewPath(workDir, raw string) (string, bool) {
-	path := strings.TrimSpace(raw)
-	if path == "" {
-		return "", false
-	}
-	root, err := filepath.Abs(workDir)
-	if err != nil {
-		return "", false
-	}
-	root, err = filepath.EvalSymlinks(root)
-	if err != nil {
-		return "", false
-	}
-	path = filepath.FromSlash(path)
-	if !filepath.IsAbs(path) {
-		path = filepath.Join(root, path)
-	}
-	path, err = filepath.EvalSymlinks(path)
-	if err != nil {
-		return "", false
-	}
-	rel, err := filepath.Rel(root, path)
-	if err != nil || filepath.IsAbs(rel) || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return "", false
-	}
-	return filepath.ToSlash(filepath.Clean(rel)), true
-}
-
-func grokReviewPathKey(path string) string {
-	path = filepath.ToSlash(filepath.Clean(filepath.FromSlash(path)))
-	if isWindows() {
-		return strings.ToLower(path)
-	}
-	return path
 }
 
 func forwardSignals(ctx context.Context, cmd commandRunner, logErrorFn func(string)) {

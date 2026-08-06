@@ -30,10 +30,11 @@ When a selected provider is Grok, treat ordinary code review as local-only;
 do not run the external-intelligence route. Build the prompt from the bundled
 Grok reviewer template and an exact `CCG_REVIEW_TARGETS` list of the regular
 workspace-relative files being reviewed. Invoke the existing wrapper with one
-`--grok-review-target` per listed file. A zero exit and the validated final
-`CCG_GROK_REVIEW_JSON` envelope are required before claiming Grok reviewed the
-files. If no concrete target file can be bound, report missing Grok review
-evidence. Codex must independently verify every finding.
+`--grok-review-target` per listed file. The wrapper snapshots only those files,
+runs Grok without tools, and appends the exact scope envelope. A zero exit and
+the validated final `CCG_GROK_REVIEW_JSON` envelope are required before claiming
+Grok reviewed the files. If no concrete target file can be bound, report missing
+Grok review evidence. Codex must independently verify every finding.
 
 Claude is not a generic ordinary reviewer. It may participate only through an
 explicitly selected and authorized read-only `product-manager` contract.

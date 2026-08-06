@@ -24,9 +24,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   instruction, plugin, link, hardlink, race, and size defenses; reject malformed
   or stale manifests before Provider start and delete snapshot contents in
   `finally`.
-- **Bound local Grok reviews** — Restrict ordinary Grok code review to declared
-  local files, require completed read evidence for each target, and reject
-  malformed or incomplete review envelopes without enabling Web search.
+- **Bound local Grok reviews** — Snapshot only declared local files into a
+  private prompt, remove Provider tools, and append the validated scope envelope
+  without enabling Web search.
 
 ### Changed
 

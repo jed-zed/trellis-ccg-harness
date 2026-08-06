@@ -344,48 +344,18 @@ func normalizeGrokReviewTargets(workDir string, targets []string) ([]string, err
 		return nil, nil
 	}
 
-	root, err := filepath.Abs(workDir)
+	root, err := resolveGrokReviewRoot(workDir)
 	if err != nil {
-		return nil, fmt.Errorf("resolve Grok review workdir: %w", err)
-	}
-	root, err = filepath.EvalSymlinks(root)
-	if err != nil {
-		return nil, fmt.Errorf("resolve Grok review workdir: %w", err)
-	}
-	info, err := os.Stat(root)
-	if err != nil || !info.IsDir() {
-		return nil, fmt.Errorf("Grok review workdir is not a directory: %s", workDir)
+		return nil, err
 	}
 
 	normalized := make([]string, 0, len(targets))
 	seen := make(map[string]struct{}, len(targets))
 	for _, raw := range targets {
-		target := strings.TrimSpace(raw)
-		if target == "" || filepath.IsAbs(target) || filepath.VolumeName(target) != "" {
-			return nil, fmt.Errorf("Grok review target must be workspace-relative: %q", raw)
-		}
-		target = filepath.Clean(filepath.FromSlash(target))
-		if target == "." || target == ".." || strings.HasPrefix(target, ".."+string(filepath.Separator)) {
-			return nil, fmt.Errorf("Grok review target escapes workdir: %q", raw)
-		}
-
-		full := filepath.Join(root, target)
-		entry, err := os.Lstat(full)
+		rel, _, _, err := resolveGrokReviewTarget(root, raw)
 		if err != nil {
-			return nil, fmt.Errorf("Grok review target is unavailable: %q", raw)
+			return nil, err
 		}
-		if entry.Mode()&os.ModeSymlink != 0 || !entry.Mode().IsRegular() {
-			return nil, fmt.Errorf("Grok review target must be a regular non-link file: %q", raw)
-		}
-		resolved, err := filepath.EvalSymlinks(full)
-		if err != nil || !sameGrokReviewPath(full, resolved) {
-			return nil, fmt.Errorf("Grok review target contains a link or reparse point: %q", raw)
-		}
-		rel, err := filepath.Rel(root, resolved)
-		if err != nil || rel == ".." || filepath.IsAbs(rel) || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-			return nil, fmt.Errorf("Grok review target escapes workdir: %q", raw)
-		}
-		rel = filepath.ToSlash(filepath.Clean(rel))
 		key := rel
 		if isWindows() {
 			key = strings.ToLower(key)
@@ -397,6 +367,51 @@ func normalizeGrokReviewTargets(workDir string, targets []string) ([]string, err
 		normalized = append(normalized, rel)
 	}
 	return normalized, nil
+}
+
+func resolveGrokReviewRoot(workDir string) (string, error) {
+	root, err := filepath.Abs(workDir)
+	if err != nil {
+		return "", fmt.Errorf("resolve Grok review workdir: %w", err)
+	}
+	root, err = filepath.EvalSymlinks(root)
+	if err != nil {
+		return "", fmt.Errorf("resolve Grok review workdir: %w", err)
+	}
+	info, err := os.Stat(root)
+	if err != nil || !info.IsDir() {
+		return "", fmt.Errorf("Grok review workdir is not a directory: %s", workDir)
+	}
+	return root, nil
+}
+
+func resolveGrokReviewTarget(root, raw string) (string, string, os.FileInfo, error) {
+	target := strings.TrimSpace(raw)
+	if target == "" || filepath.IsAbs(target) || filepath.VolumeName(target) != "" {
+		return "", "", nil, fmt.Errorf("Grok review target must be workspace-relative: %q", raw)
+	}
+	target = filepath.Clean(filepath.FromSlash(target))
+	if target == "." || target == ".." || strings.HasPrefix(target, ".."+string(filepath.Separator)) {
+		return "", "", nil, fmt.Errorf("Grok review target escapes workdir: %q", raw)
+	}
+
+	full := filepath.Join(root, target)
+	entry, err := os.Lstat(full)
+	if err != nil {
+		return "", "", nil, fmt.Errorf("Grok review target is unavailable: %q", raw)
+	}
+	if entry.Mode()&os.ModeSymlink != 0 || !entry.Mode().IsRegular() {
+		return "", "", nil, fmt.Errorf("Grok review target must be a regular non-link file: %q", raw)
+	}
+	resolved, err := filepath.EvalSymlinks(full)
+	if err != nil || !sameGrokReviewPath(full, resolved) {
+		return "", "", nil, fmt.Errorf("Grok review target contains a link or reparse point: %q", raw)
+	}
+	rel, err := filepath.Rel(root, resolved)
+	if err != nil || rel == ".." || filepath.IsAbs(rel) || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", "", nil, fmt.Errorf("Grok review target escapes workdir: %q", raw)
+	}
+	return filepath.ToSlash(filepath.Clean(rel)), resolved, entry, nil
 }
 
 func sameGrokReviewPath(a, b string) bool {

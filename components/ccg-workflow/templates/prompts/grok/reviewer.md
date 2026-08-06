@@ -66,17 +66,12 @@ RECOMMENDATION: [PASS/NEEDS_IMPROVEMENT]
 3. **Suggestions** - Nice to have improvements
 4. **Positive Notes** - What's done well
 
-## .context Awareness
+## Snapshot Scope
 
-If the project has a `.context/` directory:
-1. Read `.context/prefs/coding-style.md` as the primary review standard
-2. Read `.context/prefs/workflow.md` to verify the full development flow was followed (tests written, docs updated, etc.)
-3. Check `.context/history/commits.jsonl` for past decisions on the same files — flag if current changes contradict previous architectural decisions without justification
+Review only the file snapshots supplied by the wrapper. Do not request or infer
+content from `.context/` or any other unbound workspace file.
 
-## Required Final Envelope
+## Final Output
 
-End with exactly one final line and no text after it:
-
-`CCG_GROK_REVIEW_JSON:{"schemaVersion":1,"reviewedFiles":["<workspace-relative path>"],"findings":[]}`
-
-`reviewedFiles` must contain exactly the `CCG_REVIEW_TARGETS` paths. Put all reported findings in `findings`; use an empty array only when there are none.
+Return review prose only. Do not emit `CCG_GROK_REVIEW_JSON`; the wrapper appends
+the exact validated scope envelope after a successful tool-less response.
