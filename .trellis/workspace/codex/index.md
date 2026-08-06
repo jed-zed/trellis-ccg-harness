@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 2
+- **Total Sessions**: 3
 - **Last Active**: 2026-08-06
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~51 | Active |
+| `journal-1.md` | ~78 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 3 | 2026-08-06 | Published Grok review draft PRs | `95a90ac`, `48ca7b3`, `75d3647` | `codex/grok-review-verification-harness` |
 | 2 | 2026-08-06 | Complete Pi selectable orchestrator | `69f0d76`, `e4441e3`, `8fcaef1` | `codex/pi-selectable-orchestrator` |
 | 1 | 2026-08-05 | Grok Windows distribution closeout | `39582e69da22e6acc83918eb7b25e14807d440e3`, `5c1367990b03a5ce53bcaa5162d199807b0f5e21` | `codex/grok-windows-distribution-closeout` |
 <!-- @@@/auto:session-history -->
