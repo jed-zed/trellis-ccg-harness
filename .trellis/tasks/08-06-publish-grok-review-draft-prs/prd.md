@@ -35,14 +35,14 @@ without reverting already-merged source or Harness changes.
 
 ## Acceptance Criteria
 
-- [ ] One source draft PR exists with a documented base/dependency and no
+- [x] One source draft PR exists with a documented base/dependency and no
       unrelated rollback.
-- [ ] One Harness draft PR exists after the source branch is remote-visible and
+- [x] One Harness draft PR exists after the source branch is remote-visible and
       its manifest identifies the integrated source commit/tree.
-- [ ] Both PR bodies explain root cause, scope, validation, dependency order,
+- [x] Both PR bodies explain root cause, scope, validation, dependency order,
       and any remaining merge prerequisite.
-- [ ] Required source and Harness checks pass on the exact PR heads.
-- [ ] Existing dirty files in the primary Harness worktree remain unchanged and
+- [x] Required source and Harness checks pass on the exact PR heads.
+- [x] Existing dirty files in the primary Harness worktree remain unchanged and
       uncommitted by this task.
 
 ## Out of Scope
@@ -73,6 +73,19 @@ without reverting already-merged source or Harness changes.
 - After the stacked source base is integrated into source `main`, the source PR
   can be retargeted or rebased in a later explicitly approved action.
 
-## Notes
+## Delivery Record
 
-- No remote branch or PR has been created by this task yet.
+- Source draft PR: https://github.com/jed-zed/ccg-gptpro-worflow/pull/28
+  - base: `codex/fix-windows-grok-cmd`
+  - head: `codex/grok-review-verification-pr`
+  - PR-created head: `a00f6ab0256532abcbabc9e035424f21030cb773`
+  - source tree: `9ec10fea2f83eb7d6934f377462cfde190af858c`
+- Harness draft PR: https://github.com/jed-zed/trellis-ccg-harness/pull/30
+  - base: `main`
+  - head: `codex/grok-review-verification-harness`
+  - PR-created head: `48ca7b30c47e587ad84933e99286bcb12e84f8c1`
+- Validation: reproducible six-target Go builds, source lint/typecheck/tests/build,
+  security and change gates, official Harness lifecycle, 454 Harness tests,
+  committed source verification, Doctor, and conflicts all passed.
+- Both PRs remain drafts. No release, wrapper install, merge, ready transition,
+  force push, or paid provider call was performed.
