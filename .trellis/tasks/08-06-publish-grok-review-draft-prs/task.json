@@ -1,0 +1,34 @@
+{
+  "id": "publish-grok-review-draft-prs",
+  "name": "publish-grok-review-draft-prs",
+  "title": "Publish Grok review fixes as draft PRs",
+  "description": "Publish the snapshot-only Grok review correction as linked source and Harness draft PRs.",
+  "status": "in_progress",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "codex",
+  "assignee": "codex",
+  "createdAt": "2026-08-06",
+  "completedAt": null,
+  "branch": "codex/grok-review-verification-harness",
+  "base_branch": "main",
+  "worktree_path": "D:/CodexWorktrees/grok-review-pr-harness",
+  "commit": "b30a6b83174ccf07c0c25192e5a3ed291665d452",
+  "pr_url": "https://github.com/jed-zed/trellis-ccg-harness/pull/30",
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    ".trellis/spec/tooling/grok-local-review-runtime.md",
+    "harness.sources.json"
+  ],
+  "notes": "Source PR #28 head 091773ac77e1b1147ebf67335a3503b3df4ce60a; Harness snapshot commit b30a6b83174ccf07c0c25192e5a3ed291665d452.",
+  "meta": {
+    "sourcePr": "https://github.com/jed-zed/ccg-gptpro-worflow/pull/28",
+    "sourceCommit": "091773ac77e1b1147ebf67335a3503b3df4ce60a",
+    "harnessPr": "https://github.com/jed-zed/trellis-ccg-harness/pull/30",
+    "harnessSnapshotCommit": "b30a6b83174ccf07c0c25192e5a3ed291665d452"
+  }
+}
