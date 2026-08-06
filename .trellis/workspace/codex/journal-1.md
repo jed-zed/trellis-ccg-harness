@@ -97,3 +97,25 @@ Removed Grok dynamic tool gateways before local review launch, regenerated the H
 ### Status
 
 [OK] **Completed**
+
+
+## Session 5: Publish snapshot-only Grok review draft PRs
+
+**Date**: 2026-08-06
+**Task**: Publish snapshot-only Grok review draft PRs
+**Branch**: `codex/grok-review-verification-harness`
+
+### Summary
+
+Published source PR #28 at 091773a and Harness PR #30 at b30a6b8, replaced provider file tools with a private pre-launch snapshot, verified source/component/Harness gates, and recorded the final task contract.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `b30a6b83174ccf07c0c25192e5a3ed291665d452` | (see git log) |
+| `99d715fd1f5356efe4b34eff343376c2fea1c126` | (see git log) |
+
+### Status
+
+[OK] **Completed**
