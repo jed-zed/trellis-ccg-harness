@@ -23,6 +23,8 @@ validation; its absence preserves ordinary Grok behavior.
   canonical resolution.
 - Review mode allows only `read_file`, `grep`, and `list_dir`, and disables web
   search, terminal, writes, MCP, memory, planning, and subagents.
+- Review launch removes the dynamic `search_tool` and `use_tool` gateways with
+  `--disallowed-tools`; post-run rejection is not a substitute for prevention.
 - Grok tool records are correlated by `toolCallId`. The wrapper accepts both
   ACP `session/update` records (`sessionUpdate=tool_call|tool_call_update`) and
   Grok's top-level streaming records (`type=tool_call|tool_call_update`).
@@ -66,7 +68,7 @@ CCG_GROK_REVIEW_JSON:{"schemaVersion":1,"reviewedFiles":["path"],"findings":[]}
 ## 6. Tests Required
 
 - Parse repeated target flags and reject invalid paths before provider launch.
-- Assert review arguments omit broad approval and disable non-review tools.
+- Assert review arguments omit broad approval and remove dynamic tool gateways.
 - Correlate ACP and top-level streaming metadata/completion updates by the same
   `toolCallId`.
 - Cover no read, unrelated read, one-of-two, valid ReadFile plus exact Grep,

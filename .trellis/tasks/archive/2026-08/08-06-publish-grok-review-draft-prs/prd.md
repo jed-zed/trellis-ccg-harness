@@ -87,5 +87,8 @@ without reverting already-merged source or Harness changes.
 - Validation: reproducible six-target Go builds, source lint/typecheck/tests/build,
   security and change gates, official Harness lifecycle, 454 Harness tests,
   committed source verification, Doctor, and conflicts all passed.
+- Post-review correction: source `212218f3e40ffdbab6b1af6d2c2d6ba79204d9c7`
+  (`0a432a6ea1dd76642a2f54213ffd7feef0f81abe`) removes dynamic tool gateways
+  before launch; the Harness snapshot was regenerated from that remote commit.
 - Both PRs remain drafts. No release, wrapper install, merge, ready transition,
   force push, or paid provider call was performed.

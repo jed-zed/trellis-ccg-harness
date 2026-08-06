@@ -205,6 +205,7 @@ func buildGrokArgs(cfg *Config, targetArg string) []string {
 	if len(cfg.GrokReviewTargets) > 0 {
 		args = []string{
 			"--tools", "read_file,grep,list_dir",
+			"--disallowed-tools", "search_tool,use_tool",
 			"--disable-web-search",
 			"--no-memory",
 			"--no-plan",

@@ -81,6 +81,7 @@ func TestGrokBuildArgs_ReviewModeIsReadOnly(t *testing.T) {
 	}
 	for _, want := range []string{
 		"--tools read_file,grep,list_dir",
+		"--disallowed-tools search_tool,use_tool",
 		"--disable-web-search",
 		"--no-memory",
 		"--no-plan",
