@@ -26,3 +26,26 @@ Restored Trellis default-Python task commands and synchronized the Harness CCG s
 ### Status
 
 [OK] **Completed**
+
+
+## Session 2: Complete Pi selectable orchestrator
+
+**Date**: 2026-08-06
+**Task**: Complete Pi selectable orchestrator
+**Branch**: `codex/pi-selectable-orchestrator`
+
+### Summary
+
+Added Pi as a selectable orchestrator, preserved sparse exclusion behavior, synchronized the hardened wrapper, and delivered the change through merged PR #25 with all CI checks passing.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `69f0d76` | (see git log) |
+| `e4441e3` | (see git log) |
+| `8fcaef1` | (see git log) |
+
+### Status
+
+[OK] **Completed**
