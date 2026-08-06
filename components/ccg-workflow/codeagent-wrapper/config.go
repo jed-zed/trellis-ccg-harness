@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -22,7 +23,8 @@ type Config struct {
 	MaxParallelWorkers int
 	GeminiModel        string // Gemini model name (empty = use default)
 	GrokModel          string // Grok model name (empty = use default)
-	Progress           bool   // Emit compact progress lines to stderr
+	GrokReviewTargets  []string
+	Progress           bool // Emit compact progress lines to stderr
 }
 
 // ParallelConfig defines the JSON schema for parallel execution
@@ -33,18 +35,19 @@ type ParallelConfig struct {
 
 // TaskSpec describes an individual task entry in the parallel config
 type TaskSpec struct {
-	ID           string          `json:"id"`
-	Task         string          `json:"task"`
-	WorkDir      string          `json:"workdir,omitempty"`
-	Dependencies []string        `json:"dependencies,omitempty"`
-	SessionID    string          `json:"session_id,omitempty"`
-	Backend      string          `json:"backend,omitempty"`
-	Progress     bool            `json:"-"`
-	Mode         string          `json:"-"`
-	UseStdin     bool            `json:"-"`
-	GeminiModel  string          `json:"-"`
-	GrokModel    string          `json:"-"`
-	Context      context.Context `json:"-"`
+	ID                string          `json:"id"`
+	Task              string          `json:"task"`
+	WorkDir           string          `json:"workdir,omitempty"`
+	Dependencies      []string        `json:"dependencies,omitempty"`
+	SessionID         string          `json:"session_id,omitempty"`
+	Backend           string          `json:"backend,omitempty"`
+	Progress          bool            `json:"-"`
+	Mode              string          `json:"-"`
+	UseStdin          bool            `json:"-"`
+	GeminiModel       string          `json:"-"`
+	GrokModel         string          `json:"-"`
+	GrokReviewTargets []string        `json:"-"`
+	Context           context.Context `json:"-"`
 }
 
 // TaskResult captures the execution outcome of a task
@@ -210,6 +213,7 @@ func parseArgs() (*Config, error) {
 	// Read environment variables (lowest precedence)
 	geminiModel := strings.TrimSpace(os.Getenv("GEMINI_MODEL"))
 	grokModel := strings.TrimSpace(os.Getenv("GROK_MODEL"))
+	var grokReviewTargets []string
 
 	backendName := defaultBackendName
 	skipPermissions := envFlagEnabled("CODEAGENT_SKIP_PERMISSIONS")
@@ -271,6 +275,20 @@ func parseArgs() (*Config, error) {
 			}
 			grokModel = value
 			continue
+		case arg == "--grok-review-target":
+			if i+1 >= len(args) || strings.TrimSpace(args[i+1]) == "" || strings.HasPrefix(args[i+1], "--") {
+				return nil, fmt.Errorf("--grok-review-target flag requires a workspace-relative file")
+			}
+			grokReviewTargets = append(grokReviewTargets, strings.TrimSpace(args[i+1]))
+			i++
+			continue
+		case strings.HasPrefix(arg, "--grok-review-target="):
+			value := strings.TrimSpace(strings.TrimPrefix(arg, "--grok-review-target="))
+			if value == "" {
+				return nil, fmt.Errorf("--grok-review-target flag requires a workspace-relative file")
+			}
+			grokReviewTargets = append(grokReviewTargets, value)
+			continue
 		case arg == "--skip-permissions", arg == "--dangerously-skip-permissions":
 			skipPermissions = true
 			continue
@@ -292,7 +310,7 @@ func parseArgs() (*Config, error) {
 	}
 	args = filtered
 
-	cfg := &Config{WorkDir: defaultWorkdir, Backend: backendName, SkipPermissions: skipPermissions, GeminiModel: geminiModel, GrokModel: grokModel, Progress: progress}
+	cfg := &Config{WorkDir: defaultWorkdir, Backend: backendName, SkipPermissions: skipPermissions, GeminiModel: geminiModel, GrokModel: grokModel, GrokReviewTargets: grokReviewTargets, Progress: progress}
 	cfg.MaxParallelWorkers = resolveMaxParallelWorkers()
 
 	if args[0] == "resume" {
@@ -319,6 +337,75 @@ func parseArgs() (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+func normalizeGrokReviewTargets(workDir string, targets []string) ([]string, error) {
+	if len(targets) == 0 {
+		return nil, nil
+	}
+
+	root, err := filepath.Abs(workDir)
+	if err != nil {
+		return nil, fmt.Errorf("resolve Grok review workdir: %w", err)
+	}
+	root, err = filepath.EvalSymlinks(root)
+	if err != nil {
+		return nil, fmt.Errorf("resolve Grok review workdir: %w", err)
+	}
+	info, err := os.Stat(root)
+	if err != nil || !info.IsDir() {
+		return nil, fmt.Errorf("Grok review workdir is not a directory: %s", workDir)
+	}
+
+	normalized := make([]string, 0, len(targets))
+	seen := make(map[string]struct{}, len(targets))
+	for _, raw := range targets {
+		target := strings.TrimSpace(raw)
+		if target == "" || filepath.IsAbs(target) || filepath.VolumeName(target) != "" {
+			return nil, fmt.Errorf("Grok review target must be workspace-relative: %q", raw)
+		}
+		target = filepath.Clean(filepath.FromSlash(target))
+		if target == "." || target == ".." || strings.HasPrefix(target, ".."+string(filepath.Separator)) {
+			return nil, fmt.Errorf("Grok review target escapes workdir: %q", raw)
+		}
+
+		full := filepath.Join(root, target)
+		entry, err := os.Lstat(full)
+		if err != nil {
+			return nil, fmt.Errorf("Grok review target is unavailable: %q", raw)
+		}
+		if entry.Mode()&os.ModeSymlink != 0 || !entry.Mode().IsRegular() {
+			return nil, fmt.Errorf("Grok review target must be a regular non-link file: %q", raw)
+		}
+		resolved, err := filepath.EvalSymlinks(full)
+		if err != nil || !sameGrokReviewPath(full, resolved) {
+			return nil, fmt.Errorf("Grok review target contains a link or reparse point: %q", raw)
+		}
+		rel, err := filepath.Rel(root, resolved)
+		if err != nil || rel == ".." || filepath.IsAbs(rel) || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return nil, fmt.Errorf("Grok review target escapes workdir: %q", raw)
+		}
+		rel = filepath.ToSlash(filepath.Clean(rel))
+		key := rel
+		if isWindows() {
+			key = strings.ToLower(key)
+		}
+		if _, exists := seen[key]; exists {
+			return nil, fmt.Errorf("duplicate Grok review target: %q", raw)
+		}
+		seen[key] = struct{}{}
+		normalized = append(normalized, rel)
+	}
+	return normalized, nil
+}
+
+func sameGrokReviewPath(a, b string) bool {
+	a = filepath.Clean(a)
+	b = filepath.Clean(b)
+	if isWindows() {
+		return strings.EqualFold(a, b)
+	}
+	return a == b
 }
 
 const maxParallelWorkersLimit = 100

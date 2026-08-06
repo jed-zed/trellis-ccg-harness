@@ -201,9 +201,22 @@ func buildGrokArgs(cfg *Config, targetArg string) []string {
 
 	// Grok CLI (native Rust binary, no .cmd shim) takes the prompt via -p on
 	// every platform — multi-line args survive CreateProcess/execve intact.
-	// --always-approve mirrors gemini's -y: the wrapper only ever runs
-	// autonomous orchestration sub-tasks, never interactive sessions.
 	args := []string{"--always-approve", "--output-format", "streaming-json"}
+	if len(cfg.GrokReviewTargets) > 0 {
+		args = []string{
+			"--tools", "read_file,grep,list_dir",
+			"--disable-web-search",
+			"--no-memory",
+			"--no-plan",
+			"--no-subagents",
+			"--permission-mode", "dontAsk",
+			"--allow", "read_file",
+			"--allow", "grep",
+			"--allow", "list_dir",
+			"--deny", "mcp__*",
+			"--output-format", "streaming-json",
+		}
+	}
 
 	if model := strings.TrimSpace(cfg.GrokModel); model != "" {
 		args = append(args, "-m", model)

@@ -24,9 +24,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   instruction, plugin, link, hardlink, race, and size defenses; reject malformed
   or stale manifests before Provider start and delete snapshot contents in
   `finally`.
+- **Bound local Grok reviews** — Restrict ordinary Grok code review to declared
+  local files, require completed read evidence for each target, and reject
+  malformed or incomplete review envelopes without enabling Web search.
 
 ### Changed
 
+- **codeagent-wrapper 5.12.5** — Parse the Grok CLI's live top-level tool-call
+  events so verified local reviews work with the current streaming protocol.
 - **Product-manager contract v2** — Bind workspace snapshot identity and Claude
   transport into the strict request contract; legacy v1 configuration is
   normalized without accepting v1 requests under the new exact schema.
