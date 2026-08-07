@@ -59,6 +59,38 @@ describe('Codex plugin release parity', () => {
       expect(fs.readFileSync(plugin, 'utf8'), plugin).toBe(fs.readFileSync(template, 'utf8'))
   })
 
+  it('separates local code review from external-fact verification', () => {
+    const reviewSurfaces = [
+      join(root, 'plugins', 'ccg', 'commands', 'review.md'),
+      join(root, 'plugins', 'ccg', 'skills', 'ccg-review', 'SKILL.md'),
+      join(root, 'templates', 'engine', 'strategies', 'review-audit.md'),
+      join(root, 'plugins', 'ccg', 'commands', 'team-review.md'),
+      join(root, 'plugins', 'ccg', 'skills', 'ccg-team-review', 'SKILL.md'),
+      join(root, 'templates', 'commands', 'spec-review.md'),
+      join(root, 'plugins', 'ccg', 'commands', 'spec-review.md'),
+      join(root, 'plugins', 'ccg', 'skills', 'ccg-spec-review', 'SKILL.md'),
+      join(root, 'templates', 'commands', 'gptpro-review.md'),
+      join(root, 'plugins', 'ccg', 'commands', 'gptpro-review.md'),
+      join(root, 'plugins', 'ccg', 'skills', 'ccg-gptpro-review', 'SKILL.md'),
+    ]
+    for (const path of reviewSurfaces) {
+      const content = fs.readFileSync(path, 'utf8')
+      expect(content, path).toMatch(/pure local code review/i)
+      expect(content, path).toMatch(/do not (?:run|invoke).*external-intelligence/i)
+    }
+
+    const verifySurfaces = [
+      join(root, 'templates', 'commands', 'grok-verify.md'),
+      join(root, 'plugins', 'ccg', 'commands', 'grok-verify.md'),
+      join(root, 'plugins', 'ccg', 'skills', 'ccg-grok-verify', 'SKILL.md'),
+    ]
+    for (const path of verifySurfaces) {
+      const content = fs.readFileSync(path, 'utf8')
+      expect(content, path).toContain('--official-domain')
+      expect(content, path).toMatch(/before[\s\S]*(?:Grok|provider)/i)
+    }
+  })
+
   it('keeps every Codex plugin surface independent from Claude runtime and evidence gates', () => {
     const pluginRoot = join(root, 'plugins', 'ccg')
     const pending = [pluginRoot]

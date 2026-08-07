@@ -401,6 +401,8 @@ export async function runManualCommand(action, options, runtime = {}) {
     digestBinding(repoRoot, 'diff', options.diff, { allowEmpty: options.allowEmptyDiff === true }),
     ...(options.dependencies || []).map(file => digestBinding(repoRoot, 'dependency', file)),
   ])).filter(Boolean)
+  if (action === 'verify' && officialDomains.length === 0)
+    throw new Error('External fact verification requires at least one predeclared --official-domain before Grok diagnostics')
   const allowedCcgPlanPaths = bindings
     .filter(item => item.kind === 'plan' && /^\.codex\/ccg\/plans\/[^/]+\.md$/i.test(item.path))
     .map(item => item.path)

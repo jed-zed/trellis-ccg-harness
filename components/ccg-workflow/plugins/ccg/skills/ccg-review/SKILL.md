@@ -3,13 +3,16 @@ name: review
 description: Review a CCG implementation with the applicable frontend, backend, or search providers and Codex as final verification owner. Use when the user invokes /ccg:review or asks for CCG review of a diff/plan.
 ---
 
-## External Intelligence Gate
+## Evidence Mode Selection
 
-Run the shared route only when the review requires current external information or the user explicitly requests web research:
+Classify the review before any external route:
+
+- For a pure local code review, use the bound diff, source, tests, CI, and local read-only Provider evidence. Do not run or invoke Grok external-intelligence, and do not apply an official-domain gate.
+- Only when a review conclusion depends on a current external API, version, advisory, incident, or other external fact, predeclare the authoritative domain from the explicit target or trusted package/repository metadata and run the shared route from the controller:
 
 `ccg route --workflow review --phase final-verify --task-file ".ccg/tasks/<task-id>/intelligence-request.md" --state-file ".ccg/tasks/<task-id>/intelligence-route.json"`
 
-For final review append --trigger final_diff_verify and bind the actual --diff plus any --plan, --target, and --dependency files. Add `--semantic-mode contract|incident --semantic-reason "<Codex judgment>"` only for an explicit semantic decision. The runtime honors disabled config, persists the decision reason, and must be re-run after plan, dependency, target, diff, or phase digest changes. Stop ordinary work on exit code `2`, `3`, or `4`.
+For that external-fact path, append `--trigger final_diff_verify`, repeated `--official-domain <domain>`, and the actual `--diff` plus any `--plan`, `--target`, and `--dependency` files. The domain must be chosen before Grok runs; never promote a domain merely because Grok returned it. Add `--semantic-mode contract|incident --semantic-reason "<Codex judgment>"` only for an explicit semantic decision. Stop ordinary work on exit code `2`, `3`, or `4`.
 
 # CCG Review
 
@@ -35,6 +38,12 @@ runs Grok without tools, and appends the exact scope envelope. A zero exit and
 the validated final `CCG_GROK_REVIEW_JSON` envelope are required before claiming
 Grok reviewed the files. If no concrete target file can be bound, report missing
 Grok review evidence. Codex must independently verify every finding.
+
+When a selected provider is Antigravity, bind the same concrete review files
+in the prompt and invoke `ccg wrapper --backend antigravity
+--antigravity-review`. Require a completed model report before claiming
+Antigravity review evidence; otherwise report it as missing. This review mode
+is restricted to sandboxed plan execution with slash commands disabled.
 
 Claude is not a generic ordinary reviewer. It may participate only through an
 explicitly selected and authorized read-only `product-manager` contract.

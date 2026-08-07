@@ -17,6 +17,10 @@ jobs:
         node-version: [20, 22]
 
     steps:
+      - name: Configure LF checkout on Windows
+        if: runner.os == 'Windows'
+        run: git config --global core.autocrlf false
+
       - uses: actions/checkout@v4
 
       - uses: pnpm/action-setup@v4
@@ -25,6 +29,11 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
           cache: pnpm
+
+      - uses: actions/setup-go@v5
+        if: matrix.node-version == 22
+        with:
+          go-version: '1.21.13'
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -47,6 +56,13 @@ jobs:
 
       - name: Build
         run: pnpm build
+
+      - name: Clean Codex install acceptance
+        if: matrix.node-version == 22
+        env:
+          CCG_CLEAN_INSTALL_E2E: '1'
+          CCG_CLEAN_INSTALL_GO: go
+        run: pnpm vitest run tests/clean-install-acceptance.test.mjs
 
       - name: Windows Grok offline security contract
         if: runner.os == 'Windows' && matrix.node-version == 22

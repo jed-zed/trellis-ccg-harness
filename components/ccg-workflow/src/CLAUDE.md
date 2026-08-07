@@ -275,7 +275,7 @@ export async function changeLanguage(lang: SupportedLang): Promise<void>
 | `ModelType` | `'codex' \| 'gemini' \| 'claude'` |
 | `CollaborationMode` | `'parallel' \| 'smart' \| 'sequential'` |
 | `RoutingStrategy` | `'parallel' \| 'fallback' \| 'round-robin'` |
-| `ModelRouting` | frontend/backend/search 三大角色的独立 Provider + 策略 |
+| `ModelRouting` | frontend/backend/search/product-manager 四个角色的独立 Provider + 策略 |
 | `CcgConfig` | 完整配置结构（general + routing + workflows + paths + mcp + performance）|
 | `WorkflowConfig` | 单个工作流定义（id, name, commands[], category, order）|
 | `InitOptions` | `init()` 函数参数（lang, skipPrompt, skipMcp, force, frontend, backend, ...）|

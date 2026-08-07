@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { REGISTERED_MODEL_TYPES, STANDARD_ROUTING_ROLES } from '../../types'
+import { STANDARD_ROUTING_ROLES } from '../../types'
 import {
+  allowedProvidersForRole,
   createDefaultRoleRouting,
   normalizeModelRouting,
   setRoleProvider,
@@ -58,9 +59,17 @@ describe('model routing', () => {
     }
   })
 
-  it('allows every standard role to select every registered provider', () => {
+  it('allows only providers supported by each role', () => {
+    const expected = {
+      frontend: ['codex', 'gemini', 'antigravity', 'grok', 'pi'],
+      backend: ['codex', 'gemini', 'antigravity', 'grok', 'pi'],
+      search: ['codex', 'grok'],
+      'product-manager': ['codex', 'gemini', 'claude'],
+    } as const
+
     for (const role of STANDARD_ROUTING_ROLES) {
-      for (const provider of REGISTERED_MODEL_TYPES) {
+      expect(allowedProvidersForRole(role)).toEqual(expected[role])
+      for (const provider of expected[role]) {
         const before = createDefaultRoleRouting()
         const after = setRoleProvider(before, role, provider)
 
@@ -71,6 +80,15 @@ describe('model routing', () => {
         }
       }
     }
+
+    expect(() => setRoleProvider(createDefaultRoleRouting(), 'frontend', 'claude'))
+      .toThrow('is not supported for role frontend')
+    expect(() => setRoleProvider(createDefaultRoleRouting(), 'search', 'antigravity'))
+      .toThrow('is not supported for role search')
+    expect(() => normalizeModelRouting({
+      ...createDefaultRoleRouting(),
+      'product-manager': { models: ['pi'], primary: 'pi', strategy: 'fallback' },
+    })).toThrow('is not supported for role product-manager')
   })
 
   it('rejects providers that are not registered by the wrapper', () => {

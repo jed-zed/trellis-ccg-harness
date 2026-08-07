@@ -11,8 +11,8 @@ Read ~/.claude/.ccg/config.toml
 ```
 
 从 `[routing]` 区块提取：
-- `frontend.primary` — 前端模型（默认 `gemini`，可选任一已注册 Provider，包括 `pi`）
-- `backend.primary` — 后端模型（默认 `codex`，可选任一已注册 Provider，包括 `pi`）
+- `frontend.primary` — 前端模型（默认 `gemini`，可选 `codex` / `gemini` / `antigravity` / `grok` / `pi`）
+- `backend.primary` — 后端模型（默认 `codex`，可选 `codex` / `gemini` / `antigravity` / `grok` / `pi`）
 - `geminiModel` — Gemini 型号（默认 `gemini-3.1-pro-preview`）
 - `grokModel` — Grok 型号（默认 `grok-4.5`，代码实施可选 `grok-composer-2.5-fast`）
 

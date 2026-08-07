@@ -8,7 +8,7 @@ import { createFocusedSnapshot } from './lib/snapshot.mjs'
 import { assertValidEvidencePackage } from './lib/validator.mjs'
 
 const EXIT = Object.freeze({ OK: 0, REQUIRED_UNAVAILABLE: 2, UNSAFE: 3, CONFIG: 4 })
-export const GROK_PROMPT_TEMPLATE_VERSION = 'ccg-grok-intelligence-prompt-v9-demote-ineligible-blockers'
+export const GROK_PROMPT_TEMPLATE_VERSION = 'ccg-grok-intelligence-prompt-v10-predeclared-official-domains'
 
 function failureText(error, secrets = []) {
   let text = error instanceof Error ? error.message : String(error)
@@ -81,7 +81,7 @@ function validateTopLevel(options) {
     throw new Error('External intelligence task must be non-empty')
 }
 
-function buildPrompt({ task, action, mode, requireWebSearch, xSearchPolicy }) {
+function buildPrompt({ task, action, mode, requireWebSearch, xSearchPolicy, officialDomains = [] }) {
   const xInstruction = xSearchPolicy === 'disabled'
     ? 'Do not perform an X-domain search.'
     : 'To satisfy X-domain evidence, you MUST run WebSearch with a site:x.com or site:twitter.com query. Native XSearch may be used only for discovery and does not count as source-backed evidence because its ACP update contains no source URLs.'
@@ -89,6 +89,9 @@ function buildPrompt({ task, action, mode, requireWebSearch, xSearchPolicy }) {
     'You are the external intelligence collector for a software engineering workflow.',
     'Use the built-in WebSearch tool. Do not use files, terminal, MCP, plugins, memory, subagents, or any write tool.',
     'Only state facts supported by URLs returned in WebSearch rawOutput.action.sources. Never invent or copy a URL from prose.',
+    officialDomains.length > 0
+      ? `Predeclared official domains: ${officialDomains.join(', ')}. Prioritize results from these domains. Do not add a domain to this policy because it appears in search output.`
+      : 'No official domain was predeclared. Preserve official_unknown provenance and do not guess an official source.',
     xInstruction,
     `Action: ${action}. Investigation mode: ${mode}. Web search required: ${requireWebSearch ? 'yes' : 'no'}. X-domain policy: ${xSearchPolicy}.`,
     'End the final response with exactly one compact JSON envelope on a new line using this marker:',
@@ -158,6 +161,7 @@ export async function runGrokIntelligence(options) {
       mode: options.mode || 'discover',
       requireWebSearch: options.config.require_web_search !== false,
       xSearchPolicy: options.config.x_search_policy || 'preferred',
+      officialDomains: options.officialDomains || [],
     })
     const selectedModel = String(options.model || options.config.default_model || 'grok-4.5').trim()
     if (!selectedModel || /[\u0000-\u001f\u007f]/.test(selectedModel))

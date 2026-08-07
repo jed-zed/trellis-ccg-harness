@@ -40,6 +40,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   transport into the strict request contract; legacy v1 configuration is
   normalized without accepting v1 requests under the new exact schema.
 
+## [3.4.6] - 2026-08-04
+
+### Added
+
+- **Codex provider execution layer** — Install the pinned `codeagent-wrapper`
+  under managed Codex ownership and expose `ccg wrapper`, which preserves the
+  wrapper Web UI unless `--lite` is explicitly requested.
+- **Route-aware diagnostics** — Fail Codex doctor checks for missing managed
+  wrapper files, unavailable selected provider CLIs, or unavailable selected
+  product-manager runtimes.
+
+### Changed
+
+- **Role capability matrix** — Restrict frontend/backend, search, and
+  product-manager routes to their supported provider sets; ordinary Claude
+  delegation remains prohibited.
+- **Pinned wrapper runtime** — Bump the wrapper to `5.12.5` for Pi execution,
+  make Codex doctor verify the pinned binary version and SHA-256, and provide
+  exact remediation for invalid persisted role routing.
+- **Bound local review** — Snapshot only the exact Grok target files into a
+  fresh tool-less review session, append scope evidence in the wrapper instead
+  of trusting model formatting, run Antigravity review in sandboxed plan mode,
+  reject ordinary Claude tasks from the managed wrapper, and let invalid role
+  routes be repaired one at a time.
+
 ## [3.4.5] - 2026-07-31
 
 ### Changed

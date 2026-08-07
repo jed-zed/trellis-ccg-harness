@@ -370,6 +370,7 @@ describe('isolated Grok runner lifecycle', () => {
       requirement: 'required',
       mode: 'contract',
       task: 'Verify the current contract.',
+      officialDomains: ['docs.x.ai'],
       repoRoot: repo,
       selectedPaths: ['src/feature.ts'],
       tempParent: root,
@@ -420,6 +421,7 @@ describe('isolated Grok runner lifecycle', () => {
     expect(seenAcpOptions.prompt).toContain('site:x.com')
     expect(seenAcpOptions.prompt).toContain('Native XSearch')
     expect(seenAcpOptions.prompt).toContain('does not count as source-backed evidence')
+    expect(seenAcpOptions.prompt).toContain('Predeclared official domains: docs.x.ai')
     expect(result).toMatchObject({ exitCode: 0, status: 'valid' })
     expect(result.evidence.model).toEqual({
       requested: 'grok-4.5',

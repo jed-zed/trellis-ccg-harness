@@ -105,8 +105,11 @@ call.
 Use the configured role provider as a helper, not as the executor of record.
 When the selected provider is Gemini, every call must use the bundled preview
 helper and should open the browser preview automatically unless the user asked
-for headless execution. For `claude`, `antigravity`, or `grok`, use the
-existing `codeagent-wrapper --backend <provider>` path.
+for headless execution. For `antigravity`, `grok`, or `pi`, use
+`ccg wrapper --backend <provider> ...`. This managed launcher validates the
+pinned wrapper and preserves its default Web UI; add `--lite` only when the
+user explicitly wants headless output. Ordinary Claude delegation is not
+allowed outside the product-manager contract.
 
 Codex-native trigger rules:
 

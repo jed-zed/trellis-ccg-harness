@@ -2,13 +2,13 @@
 description: '双模型交叉审查（独立工具，随时可用）'
 ---
 
-## Automatic External Intelligence Gate
+## Evidence Mode Selection
 
-Before ordinary work, run the shared route once from the controller:
+For a pure local code review, do not run or invoke Grok external-intelligence and do not apply an official-domain gate. Only when a conclusion depends on a current external fact, predeclare its authoritative domain and run the shared route from the controller:
 
 `ccg route --workflow spec-review --phase final-verify --task-file ".ccg/tasks/<task-id>/intelligence-request.md" --state-file ".ccg/tasks/<task-id>/intelligence-route.json"`
 
-Bind the proposal as --dependency, the selected artifact as --target, and any available plan/diff so Spec evidence is invalidated by real artifact changes. Add `--semantic-mode contract|incident --semantic-reason "<Codex judgment>"` only for an explicit semantic decision. The runtime honors disabled config, persists the decision reason, and must be re-run after plan, dependency, target, diff, or phase digest changes. Stop ordinary work on exit code `2`, `3`, or `4`.
+For that external-fact path, add repeated `--official-domain <domain>` chosen before Grok runs, and bind the proposal, target, plan, and diff. Stop ordinary work on exit code `2`, `3`, or `4`.
 <!-- CCG:SPEC:REVIEW:START -->
 **Core Philosophy**
 - Dual-model cross-validation catches blind spots single-model review would miss.

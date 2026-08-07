@@ -422,6 +422,7 @@ describe('Grok automatic intelligence routing', () => {
       plan: 'plan.md',
       diff: 'change.diff',
       dependencies: ['pnpm-lock.yaml'],
+      officialDomains: ['docs.x.ai'],
       stateFile,
     }
 
@@ -443,6 +444,26 @@ describe('Grok automatic intelligence routing', () => {
     const state = JSON.parse(readFileSync(stateFile, 'utf8'))
     expect(state.bindings.diff.sha256).toMatch(/^[a-f0-9]{64}$/)
     expect(state.bindings.dependencies[0].sha256).toMatch(/^[a-f0-9]{64}$/)
+  })
+
+  it('requires a predeclared official domain before final external verification invokes the runner', async () => {
+    let calls = 0
+    await expect((routeRuntime as any).runWorkflowRoute({
+      repoRoot: root,
+      config: enabledConfig(),
+      workflow: 'review',
+      phase: 'final-verify',
+      task: 'Verify the applied external SDK change.',
+      trigger: 'final_diff_verify',
+      diff: 'change.diff',
+      stateFile: statePath('missing-official-domain'),
+    }, {
+      invoke: async () => {
+        calls++
+        return validRunnerResult()
+      },
+    })).rejects.toThrow(/official-domain/i)
+    expect(calls).toBe(0)
   })
 
   it('does not short-circuit the manual cache for repeated or changed route requests', async () => {

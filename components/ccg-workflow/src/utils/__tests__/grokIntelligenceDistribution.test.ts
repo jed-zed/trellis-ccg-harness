@@ -168,6 +168,7 @@ describe('Grok intelligence distribution', () => {
         diff: 'change.diff',
         dependencies: ['pnpm-lock.yaml'],
         files: ['package.json'],
+        officialDomains: ['docs.x.ai'],
       }, {
         repoRoot: root,
         paths: { grokHome: join(root, 'grok'), tempParent: join(root, 'runs') },
@@ -199,7 +200,7 @@ describe('Grok intelligence distribution', () => {
       expect(runnerOptions.allowedCcgPlanPaths).toEqual(['.codex/ccg/plans/plan.md'])
       expect(await fs.readJson(join(root, result.manifestPath))).toMatchObject({ model: 'grok-4.5' })
       expect((await fs.readJson(join(root, result.manifestPath))).prompt_sha256).toBe(
-        createHash('sha256').update('ccg-grok-intelligence-prompt-v9-demote-ineligible-blockers').digest('hex'),
+        createHash('sha256').update('ccg-grok-intelligence-prompt-v10-predeclared-official-domains').digest('hex'),
       )
     }
     finally {
@@ -214,6 +215,7 @@ describe('Grok intelligence distribution', () => {
       fs.writeFile(join(root, 'config.toml'), '[intelligence]\nenabled = true\nauth_mode = "browser_oauth"\n'),
       fs.writeFile(join(root, 'package.json'), '{}\n'),
       fs.writeFile(join(root, 'empty.diff'), ''),
+      fs.writeFile(join(root, 'change.diff'), '+change\n'),
     ])
     try {
       await expect(runManualCommand('verify', { task: 'Verify current API.', config: join(root, 'config.toml'), files: ['package.json'] }, { repoRoot: root }))
@@ -222,6 +224,16 @@ describe('Grok intelligence distribution', () => {
       await expect(runManualCommand('verify', { task: 'Verify current API.', config: join(root, 'config.toml'), diff: 'empty.diff', files: ['package.json'] }, { repoRoot: root }))
         .rejects
         .toThrow(/empty diff/i)
+      const runDiagnostics = vi.fn()
+      await expect(runManualCommand('verify', {
+        task: 'Verify current API.',
+        config: join(root, 'config.toml'),
+        diff: 'change.diff',
+        files: ['package.json'],
+      }, { repoRoot: root, runDiagnostics }))
+        .rejects
+        .toThrow(/official-domain/i)
+      expect(runDiagnostics).not.toHaveBeenCalled()
     }
     finally {
       await fs.remove(root)
@@ -242,6 +254,7 @@ describe('Grok intelligence distribution', () => {
         config: join(root, 'config.toml'),
         diff: 'change.diff',
         files: ['package.json'],
+        officialDomains: ['docs.x.ai'],
       }, {
         repoRoot: root,
         paths: { grokHome: join(root, 'grok'), tempParent: join(root, 'runs') },
@@ -454,6 +467,7 @@ describe('Grok intelligence distribution', () => {
       config: join(alias, 'config.toml'),
       diff: 'change.diff',
       files: ['package.json'],
+      officialDomains: ['docs.x.ai'],
     }
     try {
       const first = await runManualCommand('verify', options, runtime)

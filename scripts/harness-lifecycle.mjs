@@ -498,13 +498,20 @@ function resolveSparseArchiveExclusions(checkout, previousCommit, targetCommit) 
   return assertSparseExclusionsUnchanged(exclusions, changedPaths);
 }
 
-async function exportCommit(checkout, commit, temporaryRoot, exclusions = []) {
+async function exportCommit(
+  checkout,
+  commit,
+  temporaryRoot,
+  exclusions = [],
+  preserveFrom = null,
+) {
   const exportRoot = path.join(temporaryRoot, "export");
   const materialized = await materializeGitTree({
     checkout,
     commit,
     destination: exportRoot,
     exclusions,
+    preserveFrom,
     execute: run,
   });
   return {
@@ -611,6 +618,7 @@ async function prepareUpdateCandidate(args, manifest, resolved, temporaryRoot) {
     source.commit,
     temporaryRoot,
     archiveExclusions,
+    path.resolve(args.repoRoot, String(manifest.ccg.snapshotPath)),
   );
   return {
     source,

@@ -14,9 +14,9 @@ diffs, findings, and tests let it focus on missed risks instead of inventing imp
 
 ## Contract
 
-Run `/ccg:grok-verify` through the shared automatic route: write the bounded review subject to the active task directory, then run
+For a pure local code review, do not run Grok external-intelligence or apply an official-domain gate. Only when a conclusion depends on a current external fact, predeclare its authoritative domain, write the bounded review subject to the active task directory, then run
 `ccg route --workflow gptpro-review --phase final-verify --task-file <request-file> --state-file <state-file> --trigger final_diff_verify --plan <plan> --diff <diff> --dependency <lockfile>`
-over the exact plan, applied diff, dependency locks, and relevant tests before
+with repeated `--official-domain <domain>` chosen before Grok runs, over the exact plan, applied diff, dependency locks, and relevant tests before
 ordinary `/ccg:review`. Required exit 2/3/4 stops GPT Pro bridge creation unless the user runs
 `ccg route waive --state-file <state-file> --reason "<user reason>"`; this records a route-state waiver without creating evidence or claiming verification passed. A waived route continues only through ordinary routing evidence and must omit the bridge's external-intelligence flags. Exit code `2`, `3`, or `4` stops before ordinary work. Add
 `--require-external-intelligence` together with `--expected-intelligence-mode <route investigation_mode>` and `--expected-intelligence-depth <route depth>` only when the inherited/re-evaluated route has `status=valid` and `requirement=required`.
@@ -59,7 +59,7 @@ fields into Trellis `task.json`.
 
 1. Locate the active task at `<task-dir>/task.json`.
 2. Resolve review scope from `$ARGUMENTS`, `git diff HEAD`, the active plan, or changed files.
-3. Run `/ccg:grok-verify` with the exact plan, diff, and every changed dependency/lock input.
+3. Only for a current external-fact dependency, run `/ccg:grok-verify` with predeclared `--official-domain` values, the exact plan, diff, and every changed dependency/lock input.
    Validate the canonical Grok artifact and manifest hashes plus the task pointer. Never pass raw JSONL.
 4. Run or verify the ordinary `/ccg:review` route first and write a concise routing evidence file,
    for example `<evidence-root>/evidence/routing.md`, plus a routing summary file.
@@ -99,7 +99,7 @@ Create a concise prompt file with:
   status; pasted diffs and local evidence override repository contents when they differ;
 - Base CCG Routing Evidence summary and artifact path;
 - Gemini evidence summary and artifact path;
-- validated Grok diff-bound summary, claims, evidence/manifest paths and hashes; never raw events;
+- validated Grok diff-bound summary, claims, evidence/manifest paths and hashes only when the external-fact path ran; never raw events;
 - explicit request for hidden bugs, security risks, compatibility risks, edge cases, test gaps,
   likely false positives, and missed findings in ordinary model evidence;
 - required output sections: `Critical`, `Major`, `Minor`, `False Positives`, and `Required Tests`.

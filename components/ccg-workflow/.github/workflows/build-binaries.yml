@@ -5,6 +5,7 @@ on:
     paths:
       - '.github/workflows/build-binaries.yml'
       - 'codeagent-wrapper/**'
+      - 'src/utils/installer.ts'
   workflow_dispatch:
 
 permissions:
@@ -45,6 +46,32 @@ jobs:
 
           echo "### Build artifacts" >> $GITHUB_STEP_SUMMARY
           ls -lh ../artifacts/ | awk 'NR>1{printf "- `%s` (%s)\n", $NF, $5}' >> $GITHUB_STEP_SUMMARY
+
+      - name: Verify pinned binary digests
+        run: |
+          node <<'NODE'
+          const { createHash } = require('node:crypto')
+          const { readFileSync, readdirSync } = require('node:fs')
+          const { join } = require('node:path')
+
+          const source = readFileSync('src/utils/installer.ts', 'utf8')
+          const expected = new Map(
+            [...source.matchAll(/^\s*'([^']+)': '([0-9a-f]{64})',?\s*$/gm)]
+              .filter(([, name]) => name.startsWith('codeagent-wrapper-'))
+              .map(([, name, digest]) => [name, digest]),
+          )
+          const artifacts = readdirSync('artifacts')
+            .filter(name => name.startsWith('codeagent-wrapper-'))
+            .sort()
+          if (expected.size !== 6 || artifacts.length !== 6)
+            throw new Error(`Expected 6 pinned digests and 6 artifacts; got ${expected.size} and ${artifacts.length}`)
+          for (const name of artifacts) {
+            const actual = createHash('sha256').update(readFileSync(join('artifacts', name))).digest('hex')
+            if (actual !== expected.get(name))
+              throw new Error(`${name} digest mismatch: expected ${expected.get(name)}, got ${actual}`)
+            console.log(`${name} ${actual}`)
+          }
+          NODE
 
       - name: Delete existing preset release
         if: github.ref == 'refs/heads/main'

@@ -212,6 +212,7 @@ export async function materializeGitTree({
   commit,
   destination,
   exclusions = [],
+  preserveFrom = null,
   execute,
 }) {
   const normalizedExclusions = exclusions.map(normalizeTreePath);
@@ -228,7 +229,8 @@ export async function materializeGitTree({
     ],
     { capture: true },
   );
-  const entries = parseGitTree(lsTree).filter(
+  const treeEntries = parseGitTree(lsTree);
+  const entries = treeEntries.filter(
     (entry) => !isExcluded(entry.path, normalizedExclusions),
   );
   if (entries.length === 0) {
@@ -247,7 +249,31 @@ export async function materializeGitTree({
     },
   );
   const blobs = parseBatchBlobs(blobOutput, entries);
-  for (const entry of entries) {
+  if (preserveFrom) {
+    const preserveRoot = path.resolve(preserveFrom);
+    for (const entry of treeEntries.filter(
+      (candidate) => isExcluded(candidate.path, normalizedExclusions),
+    )) {
+      const source = path.join(preserveRoot, ...entry.path.split("/"));
+      const details = await lstat(source);
+      if (details.isSymbolicLink() || !details.isFile()) {
+        throw new Error(`Preserved Git path is not a regular file: ${entry.path}.`);
+      }
+      const bytes = await readFile(source);
+      if (gitBlobSha1(bytes) !== entry.objectId) {
+        throw new Error(`Preserved Git blob mismatch: ${entry.path}.`);
+      }
+      if (process.platform !== "win32") {
+        const actualMode = (details.mode & 0o111) !== 0 ? "100755" : "100644";
+        if (actualMode !== entry.mode) {
+          throw new Error(`Preserved Git executable mode mismatch: ${entry.path}.`);
+        }
+      }
+      blobs.set(entry.path, bytes);
+    }
+  }
+  const materializedEntries = preserveFrom ? treeEntries : entries;
+  for (const entry of materializedEntries) {
     const target = path.join(destination, ...entry.path.split("/"));
     await mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
     await writeFile(target, blobs.get(entry.path), {
@@ -259,7 +285,7 @@ export async function materializeGitTree({
     }
   }
   return {
-    entries,
-    ...(await verifyMaterializedGitTree(destination, entries)),
+    entries: materializedEntries,
+    ...(await verifyMaterializedGitTree(destination, materializedEntries)),
   };
 }

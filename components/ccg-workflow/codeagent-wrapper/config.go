@@ -24,6 +24,7 @@ type Config struct {
 	GeminiModel        string // Gemini model name (empty = use default)
 	GrokModel          string // Grok model name (empty = use default)
 	GrokReviewTargets  []string
+	AntigravityReview  bool
 	Progress           bool // Emit compact progress lines to stderr
 }
 
@@ -47,6 +48,7 @@ type TaskSpec struct {
 	GeminiModel       string          `json:"-"`
 	GrokModel         string          `json:"-"`
 	GrokReviewTargets []string        `json:"-"`
+	AntigravityReview bool            `json:"-"`
 	Context           context.Context `json:"-"`
 }
 
@@ -188,6 +190,9 @@ func parseParallelConfig(data []byte) (*ParallelConfig, error) {
 		if task.Mode == "resume" && strings.TrimSpace(task.SessionID) == "" {
 			return nil, fmt.Errorf("task block #%d (%q) has empty session_id", taskIndex, task.ID)
 		}
+		if envFlagEnabled("CCG_CODEX_MANAGED_WRAPPER") && strings.EqualFold(strings.TrimSpace(task.Backend), "claude") {
+			return nil, fmt.Errorf("task block #%d (%q) cannot use Claude outside the product-manager contract", taskIndex, task.ID)
+		}
 		if _, exists := seen[task.ID]; exists {
 			return nil, fmt.Errorf("task block #%d has duplicate id: %s", taskIndex, task.ID)
 		}
@@ -214,6 +219,7 @@ func parseArgs() (*Config, error) {
 	geminiModel := strings.TrimSpace(os.Getenv("GEMINI_MODEL"))
 	grokModel := strings.TrimSpace(os.Getenv("GROK_MODEL"))
 	var grokReviewTargets []string
+	antigravityReview := false
 
 	backendName := defaultBackendName
 	skipPermissions := envFlagEnabled("CODEAGENT_SKIP_PERMISSIONS")
@@ -289,6 +295,9 @@ func parseArgs() (*Config, error) {
 			}
 			grokReviewTargets = append(grokReviewTargets, value)
 			continue
+		case arg == "--antigravity-review":
+			antigravityReview = true
+			continue
 		case arg == "--skip-permissions", arg == "--dangerously-skip-permissions":
 			skipPermissions = true
 			continue
@@ -310,7 +319,10 @@ func parseArgs() (*Config, error) {
 	}
 	args = filtered
 
-	cfg := &Config{WorkDir: defaultWorkdir, Backend: backendName, SkipPermissions: skipPermissions, GeminiModel: geminiModel, GrokModel: grokModel, GrokReviewTargets: grokReviewTargets, Progress: progress}
+	if antigravityReview && !strings.EqualFold(strings.TrimSpace(backendName), "antigravity") && !strings.EqualFold(strings.TrimSpace(backendName), "agy") {
+		return nil, fmt.Errorf("--antigravity-review requires --backend antigravity")
+	}
+	cfg := &Config{WorkDir: defaultWorkdir, Backend: backendName, SkipPermissions: skipPermissions, GeminiModel: geminiModel, GrokModel: grokModel, GrokReviewTargets: grokReviewTargets, AntigravityReview: antigravityReview, Progress: progress}
 	cfg.MaxParallelWorkers = resolveMaxParallelWorkers()
 
 	if args[0] == "resume" {
@@ -413,7 +425,6 @@ func resolveGrokReviewTarget(root, raw string) (string, string, os.FileInfo, err
 	}
 	return filepath.ToSlash(filepath.Clean(rel)), resolved, entry, nil
 }
-
 func sameGrokReviewPath(a, b string) bool {
 	a = filepath.Clean(a)
 	b = filepath.Clean(b)

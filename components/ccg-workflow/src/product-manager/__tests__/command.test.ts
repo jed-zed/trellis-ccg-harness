@@ -273,7 +273,7 @@ describe('product-manager command', () => {
     }
   })
 
-  it('fails closed when the unified route is not implemented or not allowed', async () => {
+  it('fails closed when the unified route is incompatible or not allowed', async () => {
     const value = await fixture()
     try {
       await writeFile(value.config, [
@@ -287,12 +287,9 @@ describe('product-manager command', () => {
         'contract_version = "1"',
         '',
       ].join('\n'), 'utf8')
-      const unimplemented = await productManagerStatus({ config: value.config })
-      expect(unimplemented.effective).toEqual({
-        status: 'unavailable',
-        reason: 'selected_provider_not_implemented',
-        selected: 'antigravity',
-      })
+      await expect(productManagerStatus({ config: value.config }))
+        .rejects
+        .toThrow('is not supported for role product-manager')
 
       await writeFile(value.config, [
         '[routing.product-manager]',
