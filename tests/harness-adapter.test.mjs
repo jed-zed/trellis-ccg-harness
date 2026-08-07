@@ -245,7 +245,8 @@ function adapterContract() {
         manualOnly: false,
         protocol: "chatgpt-pro-sidebar",
         skill: "chatgpt-pro-sidebar",
-        continuation: "codex-stop-hook",
+        transport: "agent-browser-cli-v2",
+        continuation: "codex-root-wait",
       },
     },
     conflicts: {
@@ -1181,10 +1182,17 @@ test("GPT Pro model and sidebar provider drift are blocking", async () => {
       },
     },
     {
-      name: "wrong continuation",
+      name: "wrong browser transport",
       findingId: "provider-separation",
       mutate: (contract) => {
-        contract.providers.gptPro.continuation = "cli-resume";
+        contract.providers.gptPro.transport = "windows-uia";
+      },
+    },
+    {
+      name: "obsolete Stop continuation",
+      findingId: "provider-separation",
+      mutate: (contract) => {
+        contract.providers.gptPro.continuation = "codex-stop-hook";
       },
     },
   ];

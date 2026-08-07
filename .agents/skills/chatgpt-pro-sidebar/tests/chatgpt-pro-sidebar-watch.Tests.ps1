@@ -9,6 +9,20 @@ BeforeAll {
     $script:BoundUrl = 'https://chatgpt.com/c/12345678-1234-1234-1234-123456789abc'
     $script:ThreadId = '019fa981-725e-7f02-93a7-bb1e1b7aefd3'
 
+    function New-TestTargetBinding {
+        param([string]$Url = $script:BoundUrl)
+
+        [pscustomobject]@{
+            browserId = 'browser-1'
+            profileId = 'profile-1'
+            profileLabel = 'work'
+            tabId = '101'
+            sessionKey = 'browser-1:profile-1:101'
+            origin = 'https://chatgpt.com'
+            url = $Url
+        }
+    }
+
     function New-WatchProbe {
         param(
             [bool]$Generating,
@@ -24,6 +38,7 @@ BeforeAll {
             url = $Url
             urlExact = $UrlExact
             category = $Category
+            targetBinding = New-TestTargetBinding -Url $Url
         }
         [pscustomobject]@{ ExitCode = $ExitCode; Payload = $payload }
     }
@@ -38,8 +53,9 @@ BeforeAll {
         Write-WatchJsonAtomic -Path (Join-Path $Directory 'state.json') -Value ([ordered]@{
             schemaVersion = 1
             phase = $Phase
+            transport = 'agent-browser-cli-v2'
             conversationUrlBound = $script:BoundUrl
-            windowRuntimeId = '42.198798'
+            targetBinding = New-TestTargetBinding
             promptSha256 = ('a' * 64)
             idempotencyKeySha256 = ('b' * 64)
         })
@@ -59,8 +75,9 @@ BeforeAll {
             phase = 'running'
             processId = $PID
             evidenceDirectory = $Directory
+            transport = 'agent-browser-cli-v2'
             conversationUrl = $script:BoundUrl
-            windowRuntimeId = '42.198798'
+            targetBinding = New-TestTargetBinding
             codexThreadId = $script:ThreadId
             pollSeconds = 1
             stableStopPolls = 1
@@ -92,19 +109,18 @@ Describe 'Watcher binding validation' {
         Test-WatchConversationUrl -Value 'https://example.com/c/12345678-1234-1234-1234-123456789abc' | Should -BeFalse
     }
 
-    It 'rejects launcher durations that outlive the Stop Hook registration' {
+    It 'rejects every launcher mode except RootWait' {
         $output = @(
-            & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $watcherPath `
+            & powershell.exe -NoProfile -File $watcherPath `
                 start `
                 -EvidenceDir $TestDrive `
                 -CodexThreadId $script:ThreadId `
-                -TimeoutSeconds 7300 `
-                -FinalizeTimeoutSeconds 45 2>&1
+                -TimeoutSeconds 7300 2>&1
         )
         $LASTEXITCODE | Should -Be 1
         $payload = $output[-1] | ConvertFrom-Json
         $payload.category | Should -Be 'WatcherError'
-        $payload.message | Should -Match 'Stop Hook horizon'
+        $payload.message | Should -Match 'must be started with RootWait'
     }
 
     It 'keeps the legacy timeout range when Stop Hook continuation is disabled' {
@@ -128,9 +144,46 @@ Describe 'Watcher binding validation' {
         $binding = Get-WatchEvidenceBinding -EvidenceDirectory $directory -ThreadId $script:ThreadId
 
         $binding.Phase | Should -Be 'sent'
+        $binding.Transport | Should -Be 'agent-browser-cli-v2'
         $binding.ConversationUrl | Should -Be $script:BoundUrl
-        $binding.WindowRuntimeId | Should -Be '42.198798'
+        $binding.TargetBinding.sessionKey | Should -Be 'browser-1:profile-1:101'
         $binding.CodexThreadId | Should -Be $script:ThreadId
+    }
+
+    It 'accepts only an acknowledged fresh sent state whose exact URL is pending' {
+        $directory = Join-Path $TestDrive 'pending-url-binding'
+        New-WatchFixtureEvidence -Directory $directory
+        $state = Read-WatchJson -Path (Join-Path $directory 'state.json') -Required
+        $state.conversationUrlBound = ''
+        $state.targetBinding.url = 'https://chatgpt.com/'
+        $state | Add-Member -NotePropertyName conversationUrlBeforeSend -NotePropertyValue '' -Force
+        $state | Add-Member -NotePropertyName conversationUrlBindingPending -NotePropertyValue $true -Force
+        $state | Add-Member -NotePropertyName submissionAcknowledged -NotePropertyValue $true -Force
+        $state | Add-Member -NotePropertyName invokeAttempted -NotePropertyValue $true -Force
+        $state | Add-Member -NotePropertyName invokeReturned -NotePropertyValue $true -Force
+        $state | Add-Member -NotePropertyName automaticResendAllowed -NotePropertyValue $false -Force
+        Write-WatchJsonAtomic -Path (Join-Path $directory 'state.json') -Value $state
+
+        $binding = Get-WatchEvidenceBinding -EvidenceDirectory $directory -ThreadId $script:ThreadId
+        $binding.ConversationUrl | Should -Be ''
+        $binding.UrlBindingPending | Should -BeTrue
+
+        $state.phase = 'send-uncertain'
+        Write-WatchJsonAtomic -Path (Join-Path $directory 'state.json') -Value $state
+        {
+            Get-WatchEvidenceBinding -EvidenceDirectory $directory -ThreadId $script:ThreadId
+        } | Should -Throw '*exact ChatGPT conversation URL*'
+    }
+
+    It 'treats bounded browser identities as opaque instead of parsing their format' {
+        $directory = Join-Path $TestDrive 'opaque-browser-identity'
+        New-WatchFixtureEvidence -Directory $directory
+        $state = Read-WatchJson -Path (Join-Path $directory 'state.json') -Required
+        $state.targetBinding.sessionKey = 'opaque:session/ABC_1'
+        Write-WatchJsonAtomic -Path (Join-Path $directory 'state.json') -Value $state
+
+        (Get-WatchEvidenceBinding -EvidenceDirectory $directory -ThreadId $script:ThreadId).TargetBinding.sessionKey |
+            Should -Be 'opaque:session/ABC_1'
     }
 
     It 'rejects a completed evidence directory as a new watcher source' {
@@ -151,6 +204,50 @@ Describe 'Watcher binding validation' {
         {
             Get-WatchEvidenceBinding -EvidenceDirectory $directory -ThreadId $script:ThreadId
         } | Should -Throw '*exact ChatGPT conversation URL*'
+    }
+}
+
+Describe 'Bounded adapter process execution' {
+    It 'does not wait for an inherited stdout handle after the adapter exits' {
+        $adapterPath = Join-Path $TestDrive 'adapter-with-inherited-stdout.ps1'
+        $childPidPath = Join-Path $TestDrive 'inherited-child.pid'
+        $adapterSource = @'
+param(
+    [Parameter(Position = 0)][string]$Command,
+    [string]$BrowserId,
+    [string]$Profile,
+    [string]$TabId,
+    [string]$SessionKey,
+    [string]$ExpectedConversationUrl
+)
+$startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+$startInfo.FileName = 'powershell.exe'
+$startInfo.Arguments = '-NoProfile -NonInteractive -Command "Start-Sleep -Seconds 30"'
+$startInfo.UseShellExecute = $false
+$startInfo.CreateNoWindow = $true
+$child = [System.Diagnostics.Process]::Start($startInfo)
+[System.IO.File]::WriteAllText($env:WATCH_TEST_CHILD_PID_FILE, [string]$child.Id)
+[Console]::Out.WriteLine('{"ok":true,"generating":false}')
+'@
+        [System.IO.File]::WriteAllText($adapterPath, $adapterSource, [System.Text.UTF8Encoding]::new($true))
+        $previousPidFile = $env:WATCH_TEST_CHILD_PID_FILE
+        $env:WATCH_TEST_CHILD_PID_FILE = $childPidPath
+        $timer = [System.Diagnostics.Stopwatch]::StartNew()
+        try {
+            $result = Invoke-WatchAdapterStatus -AdapterPath $adapterPath -TargetBinding (New-TestTargetBinding)
+            $timer.Stop()
+
+            $result.ExitCode | Should -Be 0
+            $result.Payload.ok | Should -BeTrue
+            $timer.Elapsed.TotalSeconds | Should -BeLessThan 10
+        }
+        finally {
+            $env:WATCH_TEST_CHILD_PID_FILE = $previousPidFile
+            if (Test-Path -LiteralPath $childPidPath) {
+                $childPid = [int][System.IO.File]::ReadAllText($childPidPath)
+                Stop-Process -Id $childPid -Force -ErrorAction SilentlyContinue
+            }
+        }
     }
 }
 
@@ -184,6 +281,60 @@ Describe 'Token-free watcher state machine' {
         $result.Observations | Should -Be 4
         $finalizeCounter.Value | Should -Be 1
         $observed.Count | Should -Be 4
+    }
+
+    It 'observes the fresh root until the same window exposes its first exact URL' {
+        $queue = [System.Collections.Queue]::new()
+        $queue.Enqueue((New-WatchProbe -Generating $true -Url 'https://chatgpt.com/' -UrlExact $false))
+        $queue.Enqueue((New-WatchProbe -Generating $false -Url $script:BoundUrl -UrlExact $true))
+        $observed = [System.Collections.ArrayList]::new()
+        $now = [datetime]'2026-07-28T20:00:00Z'
+
+        $result = Invoke-WatchLoop `
+            -BoundConversationUrl '' `
+            -UrlBindingPending `
+            -StablePollCount 1 `
+            -FailureLimit 3 `
+            -OverallTimeoutSeconds 300 `
+            -SleepSeconds 5 `
+            -ProbeAction { $queue.Dequeue() } `
+            -FinalizeAction {
+                [pscustomobject]@{
+                    ExitCode = 0
+                    Payload = [pscustomobject]@{ ok = $true; completed = $true; conversationUrl = $script:BoundUrl }
+                }
+            } `
+            -SleepAction { param($seconds) } `
+            -NowAction { $now } `
+            -ObservationAction { param($record) $null = $observed.Add($record) }
+
+        $result.Status | Should -Be 'completed'
+        @($observed | Where-Object { $_.boundConversationUrl -eq $script:BoundUrl }).Count | Should -Be 1
+        $observed[0].urlExact | Should -BeFalse
+        $observed[0].matchedBoundUrl | Should -BeFalse
+    }
+
+    It 'fails closed if the URL changes after a pending fresh send binds its first exact URL' {
+        $otherUrl = 'https://chatgpt.com/c/abcdef12-1234-1234-1234-123456789abc'
+        $queue = [System.Collections.Queue]::new()
+        $queue.Enqueue((New-WatchProbe -Generating $true -Url $script:BoundUrl -UrlExact $true))
+        $queue.Enqueue((New-WatchProbe -Generating $false -Url $otherUrl -UrlExact $true))
+        $now = [datetime]'2026-07-28T20:00:00Z'
+
+        $result = Invoke-WatchLoop `
+            -BoundConversationUrl '' `
+            -UrlBindingPending `
+            -StablePollCount 2 `
+            -FailureLimit 3 `
+            -OverallTimeoutSeconds 300 `
+            -SleepSeconds 5 `
+            -ProbeAction { $queue.Dequeue() } `
+            -FinalizeAction { throw 'must not finalize a changed conversation' } `
+            -SleepAction { param($seconds) } `
+            -NowAction { $now }
+
+        $result.Status | Should -Be 'conversation-changed'
+        $result.Reason | Should -Be 'bound-conversation-url-mismatch'
     }
 
     It 'wakes adjudication when generation stopped but finalization failed' {
@@ -368,13 +519,82 @@ Describe 'Token-free watcher state machine' {
         $finalizeCounter.Value | Should -Be 1
     }
 
-    It 'returns one abnormal event after bounded consecutive probe failures' {
+    It 'keeps monitoring through a temporarily unavailable bound surface' {
         $queue = [System.Collections.Queue]::new()
         1..3 | ForEach-Object {
-            $queue.Enqueue((New-WatchProbe -Generating $false -ExitCode 21 -Category 'EmbeddedDocumentMissing'))
+            $queue.Enqueue((New-WatchProbe -Generating $false -ExitCode 20 -Category 'AgentBrowserTargetMissing'))
+        }
+        $queue.Enqueue((New-WatchProbe -Generating $false))
+        $now = [datetime]'2026-07-28T20:00:00Z'
+        $finalizeCounter = [pscustomobject]@{ Value = 0 }
+        $observed = [System.Collections.ArrayList]::new()
+
+        $result = Invoke-WatchLoop `
+            -BoundConversationUrl $script:BoundUrl `
+            -StablePollCount 1 `
+            -FailureLimit 3 `
+            -OverallTimeoutSeconds 300 `
+            -SleepSeconds 5 `
+            -ProbeAction { $queue.Dequeue() } `
+            -FinalizeAction {
+                $finalizeCounter.Value++
+                [pscustomobject]@{ ExitCode = 0; Payload = [pscustomobject]@{ ok = $true; completed = $true } }
+            } `
+            -SleepAction { param($seconds) } `
+            -NowAction { $now } `
+            -ObservationAction { param($record) $null = $observed.Add($record) }
+
+        $result.Status | Should -Be 'completed'
+        $result.ConsecutiveProbeFailures | Should -Be 0
+        $finalizeCounter.Value | Should -Be 1
+        @($observed | Where-Object {
+            $_ -is [System.Collections.IDictionary] -and
+            $_.Contains('category') -and
+            $_['category'] -eq 'AgentBrowserTargetMissing' -and
+            $_['deferred']
+        }).Count | Should -Be 3
+    }
+
+    It 'times out with pending recovery when the bound surface never reappears' {
+        $times = [System.Collections.Queue]::new()
+        $times.Enqueue([datetime]'2026-07-28T20:00:00Z')
+        $times.Enqueue([datetime]'2026-07-28T20:00:00Z')
+        $times.Enqueue([datetime]'2026-07-28T20:00:00Z')
+        $times.Enqueue([datetime]'2026-07-28T20:00:31Z')
+
+        $result = Invoke-WatchLoop `
+            -BoundConversationUrl $script:BoundUrl `
+            -StablePollCount 2 `
+            -FailureLimit 3 `
+            -OverallTimeoutSeconds 30 `
+            -SleepSeconds 5 `
+            -ProbeAction { New-WatchProbe -Generating $false -ExitCode 20 -Category 'AgentBrowserTargetMissing' } `
+            -FinalizeAction { throw 'must not finalize' } `
+            -SleepAction { param($seconds) } `
+            -NowAction { $times.Dequeue() }
+
+        $event = New-WatchEvent -WatchState ([pscustomobject]@{
+            evidenceDirectory = 'evidence'
+            conversationUrl = $script:BoundUrl
+            transport = 'agent-browser-cli-v2'
+            targetBinding = New-TestTargetBinding
+            codexThreadId = $script:ThreadId
+        }) -LoopResult $result
+        $result.Status | Should -Be 'timeout'
+        $result.ConsecutiveProbeFailures | Should -Be 0
+        $result.LastFailureCategory | Should -Be 'AgentBrowserTargetMissing'
+        $event.recoveryStatus | Should -Be 'pending-manual'
+        $event.recoveryReason | Should -Be 'bound-surface-unavailable'
+        $event.recoveryCategory | Should -Be 'AgentBrowserTargetMissing'
+        $event.automaticResendAllowed | Should -BeFalse
+    }
+
+    It 'still fails closed after bounded non-surface probe failures' {
+        $queue = [System.Collections.Queue]::new()
+        1..3 | ForEach-Object {
+            $queue.Enqueue((New-WatchProbe -Generating $false -ExitCode 99 -Category 'ProbeUnavailable'))
         }
         $now = [datetime]'2026-07-28T20:00:00Z'
-        $finalizeCount = 0
 
         $result = Invoke-WatchLoop `
             -BoundConversationUrl $script:BoundUrl `
@@ -383,13 +603,13 @@ Describe 'Token-free watcher state machine' {
             -OverallTimeoutSeconds 300 `
             -SleepSeconds 5 `
             -ProbeAction { $queue.Dequeue() } `
-            -FinalizeAction { $finalizeCount++; $null } `
+            -FinalizeAction { throw 'must not finalize' } `
             -SleepAction { param($seconds) } `
             -NowAction { $now }
 
         $result.Status | Should -Be 'probe-failed'
         $result.ConsecutiveProbeFailures | Should -Be 3
-        $finalizeCount | Should -Be 0
+        $result.LastFailureCategory | Should -Be 'ProbeUnavailable'
     }
 
     It 'defers UI mutex contention without losing a stable stop observation' {
@@ -445,6 +665,9 @@ Describe 'Token-free watcher state machine' {
 
         $result.Status | Should -Be 'conversation-changed'
         $result.Observations | Should -Be 1
+        (New-WatchEvent -WatchState ([pscustomobject]@{
+            conversationUrl = $script:BoundUrl
+        }) -LoopResult $result).recoveryStatus | Should -Be 'pending-manual'
     }
 
     It 'times out without invoking a probe or finalizer after the deadline' {
@@ -508,6 +731,218 @@ Describe 'Codex Stop Hook continuation contract' {
         $acknowledgement.codexThreadId | Should -Be $script:ThreadId
         $acknowledgement.watcherId | Should -Be $watcherId
         $acknowledgement.terminalStatus | Should -Be 'probe-failed'
+    }
+
+    It 'acknowledges an exact agent-monitor event without synthesizing a Stop callback' {
+        $directory = Join-Path $TestDrive 'acknowledge-agent-monitor'
+        $watcherId = [guid]::NewGuid().ToString()
+        $null = New-Item -ItemType Directory -Path $directory -Force
+        Write-WatchJsonAtomic -Path (Join-Path $directory $Script:StateFileName) -Value ([ordered]@{
+            schemaVersion = 1
+            watcherId = $watcherId
+            codexThreadId = $script:ThreadId
+            noWake = $true
+            agentMonitor = $true
+        })
+        Write-WatchJsonAtomic -Path (Join-Path $directory $Script:EventFileName) -Value ([ordered]@{
+            schemaVersion = 1
+            watcherId = $watcherId
+            codexThreadId = $script:ThreadId
+            status = 'completed'
+            requiresCodexReview = $true
+            automaticResendAllowed = $false
+        })
+
+        $first = Acknowledge-AgentMonitor -EvidenceDirectory $directory -ThreadId $script:ThreadId
+        $second = Acknowledge-AgentMonitor -EvidenceDirectory $directory -ThreadId $script:ThreadId
+        $acknowledgement = Read-WatchJson -Path (Join-Path $directory $Script:ContinuationAckFileName) -Required
+
+        $first.reused | Should -BeFalse
+        $second.reused | Should -BeTrue
+        $acknowledgement.transport | Should -Be 'codex-agent-monitor'
+        $acknowledgement.acknowledgementType | Should -Be 'codex-agent-monitor-reviewed'
+        $acknowledgement.codexThreadId | Should -Be $script:ThreadId
+        $acknowledgement.watcherId | Should -Be $watcherId
+        Test-Path -LiteralPath (Join-Path $directory $Script:StopHookClaimFileName) | Should -BeFalse
+        Test-Path -LiteralPath (Join-Path $directory $Script:CallbackFileName) | Should -BeFalse
+    }
+
+    It 'waits locally for and acknowledges one exact root-wait event' {
+        $directory = Join-Path $TestDrive 'root-wait-terminal'
+        $watcherId = [guid]::NewGuid().ToString()
+        $statePath = Join-Path $directory $Script:StateFileName
+        $eventPath = Join-Path $directory $Script:EventFileName
+        $null = New-Item -ItemType Directory -Path $directory -Force
+        Write-WatchJsonAtomic -Path $statePath -Value ([ordered]@{
+            schemaVersion = 1
+            watcherId = $watcherId
+            codexThreadId = $script:ThreadId
+            phase = 'running'
+            noWake = $true
+            rootWait = $true
+        })
+
+        $wait = Wait-RootWatchEvent `
+            -EvidenceDirectory $directory `
+            -ThreadId $script:ThreadId `
+            -WaitTimeoutSeconds 30 `
+            -NowAction { [datetime]'2026-08-05T18:00:00Z' } `
+            -SleepAction {
+                Write-WatchJsonAtomic -Path $eventPath -Value ([ordered]@{
+                    schemaVersion = 1
+                    watcherId = $watcherId
+                    codexThreadId = $script:ThreadId
+                    status = 'completed'
+                    requiresCodexReview = $true
+                    automaticResendAllowed = $false
+                })
+                $terminalState = Read-WatchJson -Path $statePath -Required
+                $terminalState | Add-Member -NotePropertyName phase -NotePropertyValue 'terminal' -Force
+                $terminalState | Add-Member -NotePropertyName terminalStatus -NotePropertyValue 'completed' -Force
+                Write-WatchJsonAtomic -Path $statePath -Value $terminalState
+            }
+        $first = Acknowledge-RootWait -EvidenceDirectory $directory -ThreadId $script:ThreadId
+        $second = Acknowledge-RootWait -EvidenceDirectory $directory -ThreadId $script:ThreadId
+        $acknowledgement = Read-WatchJson -Path (Join-Path $directory $Script:ContinuationAckFileName) -Required
+
+        $wait.command | Should -Be 'wait-root'
+        $wait.terminalStatus | Should -Be 'completed'
+        $wait.watcherId | Should -Be $watcherId
+        $first.reused | Should -BeFalse
+        $second.reused | Should -BeTrue
+        $acknowledgement.transport | Should -Be 'codex-root-wait'
+        $acknowledgement.acknowledgementType | Should -Be 'codex-root-wait-reviewed'
+        Test-Path -LiteralPath (Join-Path $directory $Script:StopHookClaimFileName) | Should -BeFalse
+        Test-Path -LiteralPath (Join-Path $directory $Script:CallbackFileName) | Should -BeFalse
+    }
+
+    It 'rejects a root-wait event from another watcher' {
+        $directory = Join-Path $TestDrive 'root-wait-watcher-mismatch'
+        $null = New-Item -ItemType Directory -Path $directory -Force
+        Write-WatchJsonAtomic -Path (Join-Path $directory $Script:StateFileName) -Value ([ordered]@{
+            schemaVersion = 1
+            watcherId = [guid]::NewGuid().ToString()
+            codexThreadId = $script:ThreadId
+            noWake = $true
+            rootWait = $true
+        })
+        Write-WatchJsonAtomic -Path (Join-Path $directory $Script:EventFileName) -Value ([ordered]@{
+            schemaVersion = 1
+            watcherId = [guid]::NewGuid().ToString()
+            codexThreadId = $script:ThreadId
+            status = 'completed'
+            requiresCodexReview = $true
+            automaticResendAllowed = $false
+        })
+
+        { Wait-RootWatchEvent -EvidenceDirectory $directory -ThreadId $script:ThreadId -WaitTimeoutSeconds 30 } |
+            Should -Throw '*another watcher*'
+    }
+
+    It 'times out the root file wait without creating continuation evidence' {
+        $directory = Join-Path $TestDrive 'root-wait-timeout'
+        $watcherId = [guid]::NewGuid().ToString()
+        $times = [System.Collections.Queue]::new()
+        $times.Enqueue([datetime]'2026-08-05T18:00:00Z')
+        $times.Enqueue([datetime]'2026-08-05T18:00:31Z')
+        $null = New-Item -ItemType Directory -Path $directory -Force
+        Write-WatchJsonAtomic -Path (Join-Path $directory $Script:StateFileName) -Value ([ordered]@{
+            schemaVersion = 1
+            watcherId = $watcherId
+            codexThreadId = $script:ThreadId
+            noWake = $true
+            rootWait = $true
+        })
+
+        {
+            Wait-RootWatchEvent `
+                -EvidenceDirectory $directory `
+                -ThreadId $script:ThreadId `
+                -WaitTimeoutSeconds 30 `
+                -NowAction { $times.Dequeue() } `
+                -SleepAction { throw 'must not sleep after deadline' }
+        } | Should -Throw '*Timed out waiting*'
+        Test-Path -LiteralPath (Join-Path $directory $Script:ContinuationAckFileName) | Should -BeFalse
+    }
+
+    It 'terminates root wait when the watcher process exits without an event' {
+        $directory = Join-Path $TestDrive 'root-wait-worker-crashed'
+        $watcherId = [guid]::NewGuid().ToString()
+        $null = New-Item -ItemType Directory -Path $directory -Force
+        Write-WatchJsonAtomic -Path (Join-Path $directory $Script:StateFileName) -Value ([ordered]@{
+            schemaVersion = 1
+            watcherId = $watcherId
+            codexThreadId = $script:ThreadId
+            phase = 'running'
+            processId = 424242
+            noWake = $true
+            rootWait = $true
+            automaticResendAllowed = $false
+        })
+
+        $wait = Wait-RootWatchEvent `
+            -EvidenceDirectory $directory `
+            -ThreadId $script:ThreadId `
+            -WaitTimeoutSeconds 30 `
+            -NowAction { [datetime]'2026-08-05T18:00:00Z' } `
+            -SleepAction { } `
+            -ProcessAliveAction { $false }
+        $event = Read-WatchJson -Path (Join-Path $directory $Script:EventFileName) -Required
+        $state = Read-WatchJson -Path (Join-Path $directory $Script:StateFileName) -Required
+
+        $wait.terminalStatus | Should -Be 'worker-crashed'
+        $event.reason | Should -Be 'root-wait-worker-not-running'
+        $event.requiresCodexReview | Should -BeTrue
+        $event.automaticResendAllowed | Should -BeFalse
+        $state.phase | Should -Be 'terminal'
+        $state.terminalStatus | Should -Be 'worker-crashed'
+    }
+
+    It 'rejects agent-monitor acknowledgement for a Stop Hook watcher' {
+        $directory = Join-Path $TestDrive 'reject-monitor-ack-for-stop'
+        $watcherId = [guid]::NewGuid().ToString()
+        $null = New-Item -ItemType Directory -Path $directory -Force
+        Write-WatchJsonAtomic -Path (Join-Path $directory $Script:StateFileName) -Value ([ordered]@{
+            schemaVersion = 1
+            watcherId = $watcherId
+            codexThreadId = $script:ThreadId
+            noWake = $false
+        })
+        Write-WatchJsonAtomic -Path (Join-Path $directory $Script:EventFileName) -Value ([ordered]@{
+            schemaVersion = 1
+            watcherId = $watcherId
+            codexThreadId = $script:ThreadId
+            status = 'completed'
+            requiresCodexReview = $true
+            automaticResendAllowed = $false
+        })
+
+        { Acknowledge-AgentMonitor -EvidenceDirectory $directory -ThreadId $script:ThreadId } |
+            Should -Throw '*not started in agent-monitor mode*'
+    }
+
+    It 'rejects a non-terminal agent-monitor event' {
+        $directory = Join-Path $TestDrive 'reject-monitor-ack-for-running-event'
+        $watcherId = [guid]::NewGuid().ToString()
+        $null = New-Item -ItemType Directory -Path $directory -Force
+        Write-WatchJsonAtomic -Path (Join-Path $directory $Script:StateFileName) -Value ([ordered]@{
+            schemaVersion = 1
+            watcherId = $watcherId
+            codexThreadId = $script:ThreadId
+            noWake = $true
+            agentMonitor = $true
+        })
+        Write-WatchJsonAtomic -Path (Join-Path $directory $Script:EventFileName) -Value ([ordered]@{
+            schemaVersion = 1
+            watcherId = $watcherId
+            codexThreadId = $script:ThreadId
+            status = 'running'
+            requiresCodexReview = $true
+            automaticResendAllowed = $false
+        })
+
+        { Acknowledge-AgentMonitor -EvidenceDirectory $directory -ThreadId $script:ThreadId } |
+            Should -Throw '*terminal no-resend event*'
     }
 
     It 'acknowledges an eventless worker crash only when claim and callback match' {
@@ -749,6 +1184,13 @@ Describe 'Codex Stop Hook continuation contract' {
         $source | Should -Not -Match 'CodexWakeModel'
     }
 
+    It 'contains no encoded command or execution policy bypass launcher' {
+        $source = [System.IO.File]::ReadAllText($watcherPath)
+
+        $source | Should -Not -Match ('Encoded' + 'Command')
+        $source | Should -Not -Match ('ExecutionPolicy' + '\s+' + 'Bypass')
+    }
+
     It 'records no continuation when worker runs in no-wake mode' {
         $directory = Join-Path $TestDrive 'worker-no-wake'
         New-WatchFixtureEvidence -Directory $directory
@@ -770,6 +1212,69 @@ Describe 'Codex Stop Hook continuation contract' {
         Test-Path -LiteralPath (Join-Path $directory $Script:EventFileName) | Should -BeTrue
         Test-Path -LiteralPath (Join-Path $directory $Script:StopHookClaimFileName) | Should -BeFalse
         Test-Path -LiteralPath (Join-Path $directory $Script:CallbackFileName) | Should -BeFalse
+    }
+
+    It 'preserves root-wait transport when the detached worker completes' {
+        $directory = Join-Path $TestDrive 'worker-root-wait'
+        New-WatchFixtureEvidence -Directory $directory
+        $token = [guid]::NewGuid().ToString('N')
+        New-WorkerState -Directory $directory -Token $token -DisableWake $true
+        $state = Read-WatchJson -Path (Join-Path $directory $Script:StateFileName) -Required
+        $state | Add-Member -NotePropertyName rootWait -NotePropertyValue $true -Force
+        Write-WatchJsonAtomic -Path (Join-Path $directory $Script:StateFileName) -Value $state
+
+        Mock Invoke-WatchAdapterStatus {
+            New-WatchProbe -Generating $false
+        }
+        Mock Invoke-WatchAdapterFinalize {
+            [pscustomobject]@{ ExitCode = 0; Payload = [pscustomobject]@{ ok = $true; completed = $true } }
+        }
+
+        $result = Invoke-WatchWorker `
+            -EvidenceDirectory $directory `
+            -ThreadId $script:ThreadId `
+            -Token $token `
+            -RootWait
+        $terminalState = Read-WatchJson -Path (Join-Path $directory $Script:StateFileName) -Required
+
+        $result.terminalStatus | Should -Be 'completed'
+        $result.continuationRegistered | Should -BeFalse
+        $result.continuationTransport | Should -Be 'codex-root-wait'
+        $terminalState.rootWait | Should -BeTrue
+        Test-Path -LiteralPath (Join-Path $directory $Script:StopHookClaimFileName) | Should -BeFalse
+        Test-Path -LiteralPath (Join-Path $directory $Script:CallbackFileName) | Should -BeFalse
+    }
+
+    It 'keeps the worker alive through temporary bound-surface loss without rebinding or resending' {
+        $directory = Join-Path $TestDrive 'worker-recovery-resume'
+        New-WatchFixtureEvidence -Directory $directory
+        $token = [guid]::NewGuid().ToString('N')
+        New-WorkerState -Directory $directory -Token $token -DisableWake $true
+        $probes = [System.Collections.Queue]::new()
+        $probes.Enqueue((New-WatchProbe -Generating $false -ExitCode 20 -Category 'AgentBrowserTargetMissing'))
+        $probes.Enqueue((New-WatchProbe -Generating $false -ExitCode 20 -Category 'AgentBrowserTargetMissing'))
+        $probes.Enqueue((New-WatchProbe -Generating $false))
+
+        Mock Invoke-WatchAdapterStatus {
+            $probes.Dequeue()
+        }
+        Mock Invoke-WatchAdapterFinalize {
+            [pscustomobject]@{ ExitCode = 0; Payload = [pscustomobject]@{ ok = $true; completed = $true } }
+        }
+        Mock Start-Sleep { }
+
+        $result = Invoke-WatchWorker -EvidenceDirectory $directory -ThreadId $script:ThreadId -Token $token
+        $event = Read-WatchJson -Path (Join-Path $directory $Script:EventFileName) -Required
+        $terminalState = Read-WatchJson -Path (Join-Path $directory $Script:StateFileName) -Required
+
+        $result.terminalStatus | Should -Be 'completed'
+        $event.recoveryStatus | Should -Be 'not-pending'
+        $event.conversationUrl | Should -Be $script:BoundUrl
+        $event.transport | Should -Be 'agent-browser-cli-v2'
+        $event.targetBinding.sessionKey | Should -Be 'browser-1:profile-1:101'
+        $event.automaticResendAllowed | Should -BeFalse
+        $terminalState.phase | Should -Be 'terminal'
+        Should -Invoke Invoke-WatchAdapterFinalize -Times 1 -Exactly
     }
 
     It 'writes the terminal event and leaves continuation to the registered Stop Hook' {
@@ -835,13 +1340,18 @@ Describe 'Codex Stop Hook continuation contract' {
             -EvidenceDirectory $directory `
             -ThreadId $script:ThreadId `
             -Token ([guid]::NewGuid().ToString('N')) `
-            -ExpectedWatcherId $watcherId
+            -ExpectedWatcherId $watcherId `
+            -AgentMonitor
         $event = Read-WatchJson -Path (Join-Path $directory $Script:EventFileName) -Required
+        $terminalState = Read-WatchJson -Path (Join-Path $directory $Script:StateFileName) -Required
 
         $result.terminalStatus | Should -Be 'worker-crashed'
+        $result.continuationTransport | Should -Be 'codex-agent-monitor'
         $event.status | Should -Be 'worker-crashed'
         $event.watcherId | Should -Be $watcherId
         $event.codexThreadId | Should -Be $script:ThreadId
+        $terminalState.noWake | Should -BeTrue
+        $terminalState.agentMonitor | Should -BeTrue
     }
 }
 
@@ -861,6 +1371,7 @@ Describe 'Detached launcher behavior' {
         try {
             $quotedWatcher = $watcherPath.Replace("'", "''")
             $quotedDirectory = $directory.Replace("'", "''")
+            $childPath = Join-Path $TestDrive 'watcher-mutex-child.ps1'
             $childCommand = @"
 . '$quotedWatcher'
 try {
@@ -872,8 +1383,8 @@ catch {
     exit 41
 }
 "@
-            $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($childCommand))
-            & powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand $encoded
+            [System.IO.File]::WriteAllText($childPath, $childCommand, [System.Text.UTF8Encoding]::new($true))
+            & powershell.exe -NoProfile -File $childPath
             $LASTEXITCODE | Should -Be 41
         }
         finally {
@@ -882,44 +1393,181 @@ catch {
     }
 
     It 'returns promptly with one process id and reuses an active watcher' {
-        $directory = Join-Path $TestDrive 'launcher'
+        $directory = Join-Path $TestDrive "launcher's evidence"
         New-WatchFixtureEvidence -Directory $directory
         $script:fakePid = $PID
+        $script:launch = $null
 
         Mock Start-Process {
+            $script:launch = [pscustomobject]@{
+                FilePath = $FilePath
+                ArgumentList = @($ArgumentList)
+                WindowStyle = $WindowStyle
+            }
             [pscustomobject]@{ Id = $script:fakePid }
         }
 
-        $first = Start-WatchProcess -EvidenceDirectory $directory -ThreadId $script:ThreadId
-        $second = Start-WatchProcess -EvidenceDirectory $directory -ThreadId $script:ThreadId
+        $first = Start-WatchProcess -EvidenceDirectory $directory -ThreadId $script:ThreadId -RootWait
+        $second = Start-WatchProcess -EvidenceDirectory $directory -ThreadId $script:ThreadId -RootWait
 
         $first.started | Should -BeTrue
         $first.pollingConsumesModelTokens | Should -BeFalse
-        $first.continuationRegistered | Should -BeTrue
-        $first.continuationTransport | Should -Be 'codex-stop-hook'
-        Test-Path -LiteralPath $first.stopHookRegistrationPath | Should -BeTrue
+        $first.continuationRegistered | Should -BeFalse
+        $first.continuationTransport | Should -Be 'codex-root-wait'
+        $first.stopHookRegistrationPath | Should -BeNullOrEmpty
         $second.started | Should -BeFalse
         $second.reused | Should -BeTrue
         $second.processId | Should -Be $PID
+        $script:launch.FilePath | Should -Be 'powershell.exe'
+        $script:launch.WindowStyle | Should -Be 'Hidden'
+        $script:launch.ArgumentList | Should -Contain '-File'
+        $script:launch.ArgumentList | Should -Contain ('"' + $watcherPath + '"')
+        $script:launch.ArgumentList | Should -Contain ('"' + $directory + '"')
+        $script:launch.ArgumentList | Should -Not -Contain '-WindowStyle'
         Assert-MockCalled Start-Process -Times 1
     }
 
-    It 'does not register a Stop Hook when no-wake mode is explicit' {
+    It 'rejects the deprecated no-wake launcher mode' {
         $directory = Join-Path $TestDrive 'launcher-no-wake'
         New-WatchFixtureEvidence -Directory $directory
+        $script:launchArguments = $null
+        $script:launchStdout = $null
+        $script:launchStderr = $null
         Mock Start-Process {
+            $script:launchArguments = @($ArgumentList)
+            $script:launchStdout = $RedirectStandardOutput
+            $script:launchStderr = $RedirectStandardError
+            [pscustomobject]@{ Id = $PID }
+        }
+
+        {
+            Start-WatchProcess `
+                -EvidenceDirectory $directory `
+                -ThreadId $script:ThreadId `
+                -DisableContinuation
+        } | Should -Throw '*supports RootWait only*'
+        Should -Invoke Start-Process -Times 0 -Exactly
+        Get-ChildItem -LiteralPath $Script:StopHookRegistryRootOverride -ErrorAction SilentlyContinue | Should -BeNullOrEmpty
+    }
+
+    It 'rejects the deprecated model-monitor launcher mode' {
+        $directory = Join-Path $TestDrive 'launcher-agent-monitor'
+        New-WatchFixtureEvidence -Directory $directory
+        $script:launchArguments = $null
+        Mock Start-Process {
+            $script:launchArguments = @($ArgumentList)
+            [pscustomobject]@{ Id = $PID }
+        }
+
+        {
+            Start-WatchProcess `
+                -EvidenceDirectory $directory `
+                -ThreadId $script:ThreadId `
+                -AgentMonitor
+        } | Should -Throw '*supports RootWait only*'
+        Should -Invoke Start-Process -Times 0 -Exactly
+        Get-ChildItem -LiteralPath $Script:StopHookRegistryRootOverride -ErrorAction SilentlyContinue | Should -BeNullOrEmpty
+    }
+
+    It 'uses the pure-script root-wait transport without a Stop registration' {
+        $directory = Join-Path $TestDrive 'launcher-root-wait'
+        New-WatchFixtureEvidence -Directory $directory
+        $script:launchArguments = $null
+        $script:launchStdout = $null
+        $script:launchStderr = $null
+        Mock Start-Process {
+            $script:launchArguments = @($ArgumentList)
+            $script:launchStdout = $RedirectStandardOutput
+            $script:launchStderr = $RedirectStandardError
             [pscustomobject]@{ Id = $PID }
         }
 
         $result = Start-WatchProcess `
             -EvidenceDirectory $directory `
             -ThreadId $script:ThreadId `
-            -DisableContinuation
+            -RootWait
+        $state = Read-WatchJson -Path (Join-Path $directory $Script:StateFileName) -Required
 
         $result.started | Should -BeTrue
         $result.continuationRegistered | Should -BeFalse
-        $result.continuationTransport | Should -Be 'disabled'
+        $result.continuationTransport | Should -Be 'codex-root-wait'
+        $result.launcherHostRetained | Should -BeFalse
+        $state.noWake | Should -BeTrue
+        $state.rootWait | Should -BeTrue
+        $state.launcherHostRetained | Should -BeFalse
+        $script:launchArguments | Should -Contain '-NoWake'
+        $script:launchArguments | Should -Contain '-RootWait'
+        $script:launchStdout | Should -Be (Join-Path $directory $Script:WorkerStdoutFileName)
+        $script:launchStderr | Should -Be (Join-Path $directory $Script:WorkerStderrFileName)
         Get-ChildItem -LiteralPath $Script:StopHookRegistryRootOverride -ErrorAction SilentlyContinue | Should -BeNullOrEmpty
+    }
+
+    It 'retains the launcher host only when root-wait explicitly requests it' {
+        $directory = Join-Path $TestDrive 'launcher-root-wait-retained'
+        New-WatchFixtureEvidence -Directory $directory
+        Mock Start-Process { [pscustomobject]@{ Id = $PID } }
+        Mock Wait-Process { }
+
+        $result = Start-WatchProcess `
+            -EvidenceDirectory $directory `
+            -ThreadId $script:ThreadId `
+            -RootWait `
+            -KeepLauncherAlive
+        $state = Read-WatchJson -Path (Join-Path $directory $Script:StateFileName) -Required
+
+        $result.launcherHostRetained | Should -BeTrue
+        $state.launcherHostRetained | Should -BeTrue
+        Should -Invoke Wait-Process -Times 1 -Exactly -ParameterFilter { $Id -contains $PID }
+    }
+
+    It 'rejects launcher retention outside root-wait mode' {
+        $directory = Join-Path $TestDrive 'launcher-retained-invalid-mode'
+        New-WatchFixtureEvidence -Directory $directory
+        Mock Start-Process { throw 'must not launch' }
+
+        {
+            Start-WatchProcess `
+                -EvidenceDirectory $directory `
+                -ThreadId $script:ThreadId `
+                -DisableContinuation `
+                -KeepLauncherAlive
+        } | Should -Throw '*valid only with RootWait*'
+        Should -Invoke Start-Process -Times 0 -Exactly
+    }
+
+    It 'rejects changing root-wait evidence to another continuation transport' {
+        $directory = Join-Path $TestDrive 'launcher-root-wait-mode-change'
+        New-WatchFixtureEvidence -Directory $directory
+        Mock Start-Process { [pscustomobject]@{ Id = $PID } }
+
+        $null = Start-WatchProcess `
+            -EvidenceDirectory $directory `
+            -ThreadId $script:ThreadId `
+            -RootWait
+
+        { Start-WatchProcess -EvidenceDirectory $directory -ThreadId $script:ThreadId -AgentMonitor } |
+            Should -Throw '*supports RootWait only*'
+    }
+
+    It 'rejects launching without the selected RootWait transport' {
+        $directory = Join-Path $TestDrive 'launcher-missing-root-wait'
+        New-WatchFixtureEvidence -Directory $directory
+        Mock Start-Process { [pscustomobject]@{ Id = $PID } }
+
+        { Start-WatchProcess -EvidenceDirectory $directory -ThreadId $script:ThreadId } |
+            Should -Throw '*supports RootWait only*'
+        Should -Invoke Start-Process -Times 0 -Exactly
+    }
+
+    It 'rejects an ambiguous worker process path' {
+        {
+            New-WatchWorkerArgumentList `
+                -ScriptPath 'C:\bad"path\watcher.ps1' `
+                -EvidenceDirectory $TestDrive `
+                -ThreadId $script:ThreadId `
+                -Token ([guid]::NewGuid().ToString('N')) `
+                -ExpectedWatcherId ([guid]::NewGuid().ToString())
+        } | Should -Throw '*cannot contain a double quote*'
     }
 
     It 'reports an existing terminal watcher without launching another process' {
@@ -929,13 +1577,15 @@ catch {
             watcherId = [guid]::NewGuid().ToString()
             phase = 'terminal'
             processId = 999999
+            noWake = $true
+            rootWait = $true
         })
         Write-WatchJsonAtomic -Path (Join-Path $directory $Script:EventFileName) -Value ([ordered]@{
             status = 'completed'
         })
         Mock Start-Process { throw 'must not relaunch' }
 
-        $result = Start-WatchProcess -EvidenceDirectory $directory -ThreadId $script:ThreadId
+        $result = Start-WatchProcess -EvidenceDirectory $directory -ThreadId $script:ThreadId -RootWait
 
         $result.started | Should -BeFalse
         $result.alreadyTerminal | Should -BeTrue
@@ -949,11 +1599,13 @@ catch {
             watcherId = [guid]::NewGuid().ToString()
             phase = 'running'
             processId = 999999
+            noWake = $true
+            rootWait = $true
         })
         Mock Start-Process { throw 'must not relaunch' }
 
         {
-            Start-WatchProcess -EvidenceDirectory $directory -ThreadId $script:ThreadId
+            Start-WatchProcess -EvidenceDirectory $directory -ThreadId $script:ThreadId -RootWait
         } | Should -Throw '*stale watcher state*'
         Assert-MockCalled Start-Process -Times 0
     }

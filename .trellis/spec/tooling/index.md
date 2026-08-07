@@ -16,6 +16,7 @@ snapshot and is verified through root commands.
 |---|---|
 | [Harness Initializer](./harness-initializer.md) | Changing contract apply, project ownership, or readiness promotion |
 | [Product Manager Review](./product-manager-review.md) | Changing reviewer providers, task projection, evidence, gates, or lifecycle integration |
+| [ChatGPT Pro Agent Browser V2](./chatgpt-pro-agent-browser-v2.md) | Changing external Chrome discovery, exact-once behavior, or RootWait monitoring |
 | [Grok Local Review Runtime](./grok-local-review-runtime.md) | Changing Grok local-review target binding, tool evidence, or result validation |
 
 ## Pre-Development Checklist

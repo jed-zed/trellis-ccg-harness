@@ -150,7 +150,8 @@
       "manualOnly": false,
       "protocol": "chatgpt-pro-sidebar",
       "skill": "chatgpt-pro-sidebar",
-      "continuation": "codex-stop-hook"
+      "transport": "agent-browser-cli-v2",
+      "continuation": "codex-root-wait"
     }
   },
   "conflicts": {

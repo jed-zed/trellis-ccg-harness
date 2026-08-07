@@ -309,17 +309,18 @@ function checkProviderSeparation({ contract, add }) {
     gptPro?.manualOnly === false &&
     gptPro?.protocol === "chatgpt-pro-sidebar" &&
     gptPro?.skill === "chatgpt-pro-sidebar" &&
-    gptPro?.continuation === "codex-stop-hook";
+    gptPro?.transport === "agent-browser-cli-v2" &&
+    gptPro?.continuation === "codex-root-wait";
   const valid = distinct && gptProValid;
   add(
     "provider-separation",
     "blocking",
     valid ? "ok" : "conflict",
     valid
-      ? "Official and compatible Grok credentials are separate; GPT Pro uses the credential-free sidebar Skill boundary."
-      : "Provider credential namespaces overlap or the GPT Pro sidebar boundary drifted.",
+      ? "Official and compatible Grok credentials are separate; GPT Pro uses the credential-free external Chrome Skill boundary."
+      : "Provider credential namespaces overlap or the GPT Pro browser boundary drifted.",
     { credentialEnvNames: names, gptPro },
-    "Assign unique provider credentials and restore the GPT Pro sidebar Skill with Codex Stop Hook continuation.",
+    "Assign unique provider credentials and restore the GPT Pro Skill with agent-browser-cli-v2 and pure-script RootWait continuation.",
   );
 }
 
