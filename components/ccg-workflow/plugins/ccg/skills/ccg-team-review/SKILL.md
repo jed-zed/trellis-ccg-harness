@@ -25,5 +25,6 @@ Review team results before delivery.
 - Same-file conflict risks are resolved.
 - Security-sensitive changes are reviewed.
 
-The applicable frontend, backend, and/or search provider may provide a
-second-pass review; Codex delivers final judgment in Chinese.
+Follow the shared **Companion Role Contract** for the second-pass review:
+frontend or backend makes search required and evaluates the mapped
+product-manager gate. Codex delivers final judgment in Chinese.

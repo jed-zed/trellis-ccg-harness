@@ -249,7 +249,7 @@ node bin/ccg.mjs doctor --platform codex  # 显式检查 Codex 所有权与版�
 node bin/ccg.mjs status                   # 安装概况
 node bin/ccg.mjs codex-mode install       # 安装 Codex 主导模式
 node bin/ccg.mjs codex-mode uninstall     # 卸载 Codex 主导模式
-node bin/ccg.mjs routing list             # 查看三个大角色的 Provider
+node bin/ccg.mjs routing list             # 查看四个大角色的 Provider
 node bin/ccg.mjs routing set frontend claude # 只切换一个职责
 node bin/ccg.mjs uninstall                # 卸载 CCG
 node bin/ccg.mjs config mcp               # 配置已批准的 MCP
@@ -260,10 +260,12 @@ node bin/ccg.mjs doctor --grok            # 非付费 Grok 合约检查
 node bin/ccg.mjs doctor --grok-live       # 显式付费 Web/X 冒烟
 ```
 
-Codex 模式只分别设置 `frontend`、`backend`、`search` 三个大角色，并可为
-每个角色选择 `codeagent-wrapper` 已注册的 `codex`、`gemini`、`claude`、
-`antigravity`、`grok` 或 `pi`。分析、计划和审查是每个大角色内部的工作阶段，
-不是独立路由项。Codex 仍负责真实工作区的最终写入和验证。
+Codex 模式分别设置 `frontend`、`backend`、`search`、`product-manager`
+四个大角色。前三者可选择 `codeagent-wrapper` 已注册的 `codex`、`gemini`、
+`claude`、`antigravity`、`grok` 或 `pi`；product-manager 仍受只读合同和项目
+allowlist 限制。使用 frontend/backend 时会自动加入必需的 search 证据并
+评估 product-manager 授权门；实际 Provider 调用仍需逐次显式批准。Codex
+仍负责真实工作区的最终写入和验证。
 
 ## 配置
 

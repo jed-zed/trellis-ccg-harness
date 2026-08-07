@@ -23,6 +23,6 @@ The user invoked:
 Use the installed CCG plugin skill `ccg:analyze`.
 
 This command is read-only unless the user later asks for implementation.
-Classify the requested analysis as frontend, backend, search, or a combination,
-then resolve those top-level roles. Analysis is an internal phase of each role,
-not a separate provider setting.
+Follow the shared **Companion Role Contract**, classify the requested analysis
+as frontend, backend, search, or a combination, then resolve the required
+top-level roles. Analysis is an internal phase, not a provider setting.

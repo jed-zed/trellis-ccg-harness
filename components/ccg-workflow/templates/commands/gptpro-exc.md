@@ -77,8 +77,13 @@ fields into Trellis `task.json`.
    advice can still change the path safely. Write a concise routing evidence file, for example
    `<evidence-root>/evidence/routing.md`, plus a routing summary file. The routing evidence
    must identify the current orchestrator, the routed model evidence that actually exists, the
-   `claudeEvidenceStatus: automatic|manual_handoff|skipped_by_user|blocked`, ordinary execute
-   conclusion so far, and any skipped/failed model steps.
+   `claudeEvidenceStatus: automatic|manual_handoff|skipped_by_user|blocked`,
+   `searchStatus: invoked|failed|not_applicable`, `productManagerStatus:
+   authorization_required|authorized|declined|disabled|unavailable|completed|not_applicable`, ordinary
+   execute conclusion so far, and any skipped/failed model steps. The ordinary
+   Companion Role Contract makes search required for frontend/backend, where
+   `not_applicable` is forbidden; a
+   product-manager call still needs explicit per-call authorization.
 5. Decide whether ordinary routing produced Gemini frontend/full-stack evidence:
    - backend/tooling-only: use `--gemini-policy optional --gemini-evidence-role frontend-prototype`
      without forcing a Gemini run;

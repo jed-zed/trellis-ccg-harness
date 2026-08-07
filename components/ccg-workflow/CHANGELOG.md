@@ -30,8 +30,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **codeagent-wrapper 5.12.5** — Parse the Grok CLI's live top-level tool-call
-  events so verified local reviews work with the current streaming protocol.
+- **codeagent-wrapper 5.12.5** — Run Grok local review from pre-opened UTF-8
+  snapshots in tool-less sessions and append deterministic scope evidence.
+- **Companion role routing** — Ordinary CCG and GPT Pro workflows now require
+  configured search evidence whenever frontend or backend participates and
+  automatically evaluate the mapped product-manager authorization gate without
+  silently invoking a Provider.
 - **Product-manager contract v2** — Bind workspace snapshot identity and Claude
   transport into the strict request contract; legacy v1 configuration is
   normalized without accepting v1 requests under the new exact schema.

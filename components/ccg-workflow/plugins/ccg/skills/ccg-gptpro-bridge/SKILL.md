@@ -60,10 +60,15 @@ bridge `status.json` records only GPT Pro evidence state.
 ## Base Routing Evidence
 
 Before `/ccg:gptpro-plan`, `/ccg:gptpro-review`, or `/ccg:gptpro-exc`, run the matching ordinary CCG
-semantics and write Base CCG Routing Evidence containing:
+semantics, including its **Companion Role Contract**, and write Base CCG
+Routing Evidence containing:
 
 - the current orchestrator and command semantics;
 - routed frontend/backend/search evidence that actually exists;
+- `searchStatus`: `invoked`, `failed`, or `not_applicable`; the last state is
+  forbidden when frontend or backend participated;
+- `productManagerStatus`: `authorization_required`, `authorized`, `declined`,
+  `disabled`, `unavailable`, `completed`, or `not_applicable`;
 - the ordinary orchestrator conclusion;
 - skipped, failed, or intentionally absent model steps.
 
@@ -73,6 +78,9 @@ Pass it with:
 --routing-evidence-file <routing-evidence-file> --routing-summary-file <routing-summary-file> --require-routing-evidence
 ```
 
+Search is required whenever ordinary routing used frontend or backend. A
+product-manager candidate may stop at `authorization_required`; GPT Pro must
+not convert that state into authorization or fabricated Provider evidence.
 Gemini remains optional and is included only when ordinary role routing actually used it. If present,
 pass its real non-empty response and concise summary. Never invent provider evidence. Preserve the
 existing required/waived Grok external-intelligence flags and provenance.

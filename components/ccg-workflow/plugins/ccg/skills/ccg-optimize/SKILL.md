@@ -22,9 +22,9 @@ Use this as the Codex-native equivalent of the original CCG `/ccg:optimize` comm
 - Identify the optimization target and current bottleneck before editing.
 - Prefer measurements, profiler output, tests, or static evidence over speculation.
 - Preserve public behavior unless the user explicitly requests behavior changes.
-- Resolve the applicable frontend, backend, and/or search role for alternatives
-  and regression-risk review. If a selected provider is Gemini, use the
-  bundled preview helper with `--prompt-template optimizer`.
+- Follow the shared **Companion Role Contract** when resolving roles for
+  alternatives and regression-risk review. If a selected provider is Gemini,
+  use the bundled preview helper with `--prompt-template optimizer`.
 - Codex owns final edits, benchmarks/tests, diff review, and Chinese delivery.
 
 ## Verification

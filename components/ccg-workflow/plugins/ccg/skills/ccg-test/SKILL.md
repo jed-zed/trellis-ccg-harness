@@ -21,8 +21,8 @@ Use this as the Codex-native equivalent of the original CCG `/ccg:test` command.
 
 - Treat the user argument as a testing task: add coverage, repair failing tests, design fixtures, or improve validation.
 - Inspect existing test style before adding new test infrastructure.
-- Resolve the applicable frontend, backend, and/or search role for test design
-  and test-gap review. If a selected provider is Gemini, use the bundled
+- Follow the shared **Companion Role Contract** when resolving roles for test
+  design and test-gap review. If a selected provider is Gemini, use the bundled
   preview helper with `--prompt-template tester`.
 - Codex owns final test code, test execution, failures, and Chinese delivery.
 

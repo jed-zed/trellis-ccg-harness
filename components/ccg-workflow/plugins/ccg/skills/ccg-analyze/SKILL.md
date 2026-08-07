@@ -20,8 +20,9 @@ Load and follow `skills/ccg-executor/SKILL.md` for context search and reporting 
 - Treat the user argument as an analysis request.
 - Inspect relevant files, docs, git status, and project rules.
 - Do not edit files, commit, install dependencies, or run destructive commands.
-- Read `../../rules/ccg-role-routing.md`, classify the request as frontend,
-  backend, search, or a combination, then resolve only those top-level roles.
+- Read `../../rules/ccg-role-routing.md`, follow its **Companion Role
+  Contract**, classify the request as frontend, backend, search, or a
+  combination, then resolve the required top-level roles.
 - Ask each applicable role provider for its read-only analysis. If it is
   Gemini, use the bundled preview helper with `--prompt-template analyzer`;
   otherwise use the existing provider adapter described by the routing rule.

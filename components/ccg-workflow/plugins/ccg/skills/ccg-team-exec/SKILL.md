@@ -24,5 +24,6 @@ Execute scoped worker plans conservatively.
 - Maintain `.codex/ccg/team/<task>/status.json` as the execution evidence artifact.
 - Codex applies or reconciles final changes, reviews the diff, runs verification, and reports in Chinese.
 
-The applicable frontend, backend, and/or search provider may provide read-only
-review, but cannot own the real workspace.
+Follow the shared **Companion Role Contract** for routed evidence: frontend or
+backend makes search required and evaluates the mapped product-manager gate.
+Providers remain read-only and cannot own the real workspace.

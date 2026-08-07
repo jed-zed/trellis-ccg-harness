@@ -58,8 +58,12 @@ If `$ARGUMENTS` is empty, show the available CCG commands in Chinese:
 - `/ccg:verify-module <module-path>` - check module completeness.
 - `/ccg:verify-quality <changed-path>` - check quality issues.
 - `/ccg:verify-security <changed-path>` - check security-sensitive changes.
-- `ccg routing list` - show the three top-level role providers.
+- `ccg routing list` - show the four top-level role providers.
 - `ccg routing set <role> <provider>` - change one role independently.
+
+All ordinary routes follow the shared **Companion Role Contract**: frontend or
+backend work adds required search evidence and evaluates the product-manager
+authorization gate; an actual Provider call still needs explicit authorization.
 
 If `$ARGUMENTS` contains a plan path or task, treat it as `/ccg:execute $ARGUMENTS`.
 

@@ -27,9 +27,9 @@ second opinion after ordinary routing evidence exists. In this command GPT Pro i
 external reviewer for hidden bugs, security risks, compatibility risks, edge cases, test gaps, and
 ordinary model false positives or missed findings.
 
-The ordinary review stage follows the applicable frontend, backend, and search
-providers. This named command then adds GPT Pro without changing the saved
-roles.
+The ordinary review stage follows the **Companion Role Contract**: frontend or
+backend makes search required and evaluates the product-manager authorization
+gate. This named command then adds GPT Pro without changing saved roles.
 
 GPT Pro is not a `codeagent-wrapper` backend and must not be routed through `model-router.md` as an
 automated model. Do not replace routed models, skip ordinary review, or use GPT Pro to invent
@@ -62,7 +62,9 @@ fields into Trellis `task.json`.
 4. Run or verify the ordinary `/ccg:review` route first and write a concise routing evidence file,
    for example `<evidence-root>/evidence/routing.md`, plus a routing summary file.
    The routing evidence must identify the current orchestrator, the routed model evidence that
-   actually exists, the ordinary reviewer conclusion, and any skipped/failed model steps.
+   actually exists, the ordinary reviewer conclusion, `searchStatus`,
+   `productManagerStatus`, and any skipped/failed model steps. Product-manager
+   invocation still needs explicit per-call authorization.
 5. If ordinary review used Gemini, validate its optional gate evidence from
    `<evidence-root>/evidence.json`. Legacy `task.json.gemini_evidence` or
    `task.json.gemini_gate` may be normalized for read compatibility, but do not

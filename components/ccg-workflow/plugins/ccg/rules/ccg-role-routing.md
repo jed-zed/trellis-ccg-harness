@@ -41,3 +41,24 @@ one or introduce fallback.
 Routing changes never install, authenticate, invoke, or grant permissions to a
 Provider. Product-manager calls remain read-only and require explicit per-call
 authorization.
+
+## Companion Role Contract
+
+When a workflow uses `frontend` or `backend`, the controller must also resolve
+exactly one logical `search` operation for that task phase. Search is required
+companion evidence, not an optional classification. The operation may make at
+most two total attempts against the same configured `search` Provider. Keep one
+stable operation/evidence identity, record `attemptCount`, keep the output
+read-only, and do not fall back to another Provider. If the required search
+evidence still fails after those attempts, stop and report the missing channel.
+
+The same workflow must evaluate the mapped product-manager event at the next
+eligible checkpoint described by `ccg-product-manager.md`. A candidate opens
+an explicit per-call authorization gate; it never authorizes or silently starts
+the Provider call. Record both outcomes in workflow evidence:
+
+- `searchStatus`: `invoked`, `failed`, or `not_applicable`.
+  `not_applicable` is valid only when neither frontend/backend nor an
+  independent search slice participates;
+- `productManagerStatus`: `authorization_required`, `authorized`, `declined`,
+  `disabled`, `unavailable`, `completed`, or `not_applicable`.

@@ -25,8 +25,9 @@ Use the installed CCG plugin skill `ccg:plan`.
 This command is Codex-native:
 
 - Codex owns context search, requirement enhancement, final plan synthesis, and writing new plans under `.codex/ccg/plans/*.md`.
-- Classify plan slices as frontend, backend, and/or search, then resolve those
-  top-level roles. Planning is an internal phase of each role.
+- Follow the shared **Companion Role Contract**: frontend or backend makes
+  search required and evaluates the product-manager authorization gate.
+  Planning is an internal phase of each role.
 - If the selected provider is external, do not write or present a final plan
   until Codex has read its non-empty output.
 - If Gemini is selected, use the bundled preview helper with

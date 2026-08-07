@@ -16,10 +16,10 @@ For final review append --trigger final_diff_verify and bind the actual --diff p
 Load and follow `skills/ccg-executor/SKILL.md`.
 
 Review the current diff or the implementation associated with the supplied
-plan/task. Read `../../rules/ccg-role-routing.md`, classify changed areas as
-frontend, backend, search, or a combination, then resolve those top-level
-providers. Review is a phase inside each role. Have Codex verify every finding
-before reporting it.
+plan/task. Read `../../rules/ccg-role-routing.md`, follow its **Companion Role
+Contract**, classify changed areas as frontend, backend, search, or a
+combination, then resolve the required top-level providers. Review is a phase
+inside each role. Have Codex verify every finding before reporting it.
 
 When a selected provider is Gemini, call the bundled preview helper with
 `--prompt-template review`; do not call the raw Gemini CLI. For another

@@ -250,7 +250,7 @@ node bin/ccg.mjs status                   # Installation overview
 node bin/ccg.mjs codex-mode install       # Install Codex-Led mode
 node bin/ccg.mjs codex-mode uninstall     # Uninstall Codex-Led mode
 node bin/ccg.mjs codex-mode recover       # Recover an interrupted Codex transaction
-node bin/ccg.mjs routing list              # Show three top-level role providers
+node bin/ccg.mjs routing list              # Show four top-level role providers
 node bin/ccg.mjs routing set frontend claude # Change one role only
 node bin/ccg.mjs uninstall                # Uninstall CCG
 node bin/ccg.mjs config mcp               # Configure approved MCPs
@@ -261,11 +261,13 @@ node bin/ccg.mjs doctor --grok            # Non-paid Grok contract doctor
 node bin/ccg.mjs doctor --grok-live       # Explicit paid Web/X smoke
 ```
 
-Codex mode routes `frontend`, `backend`, and `search` independently to any
-provider already registered by `codeagent-wrapper`: `codex`, `gemini`,
-`claude`, `antigravity`, `grok`, or `pi`. Analysis, planning, and review run inside
-the applicable top-level role. Codex remains the final real-workspace writer
-and verifier.
+Codex mode stores routing for `frontend`, `backend`, `search`, and
+`product-manager`. The first three may use any provider already registered by
+`codeagent-wrapper`: `codex`, `gemini`, `claude`, `antigravity`, `grok`, or `pi`;
+product-manager remains limited by its read-only contract and project allowlist.
+Frontend or backend work automatically adds required search evidence and
+evaluates the product-manager authorization gate; the Provider call still
+requires explicit per-call approval. Codex remains the final writer and verifier.
 
 ## Configuration
 

@@ -22,6 +22,6 @@ The user invoked:
 
 Use the installed CCG plugin skill `ccg:backend`.
 
-Resolve `ccg routing get backend --json` and use that provider for bounded
-backend drafting or analysis. Codex applies the final workspace changes and
-verifies them.
+Follow the shared **Companion Role Contract**: resolve backend plus required
+search evidence and evaluate the product-manager gate. Codex applies the final
+workspace changes and verifies them.

@@ -12,6 +12,12 @@
 
 > 完整变更历史请查看 [CHANGELOG.md](./CHANGELOG.md)
 
+### Unreleased
+
+- CCG 普通流程和 GPT Pro 系列统一遵循 Companion Role Contract：使用
+  frontend/backend 时自动加入 search 证据，并在下一适用检查点自动评估
+  product-manager 授权门；实际 Provider 调用仍需逐次显式批准。
+
 ### 2026-07-31 (v3.4.5)
 
 - fast-context、CodeGraph、Context7、Playwright 和 Exa 的可选 npm add-on

@@ -23,9 +23,9 @@ The user invoked:
 Use the installed CCG plugin skill `ccg:review`.
 
 Review the current diff or the implementation associated with `$ARGUMENTS`.
-Classify changed areas as frontend, backend, and/or search, then use those
-top-level providers for bounded review evidence. Review is an internal phase of
-each role. Codex verifies findings before reporting them. When a selected role
+Follow the shared **Companion Role Contract**, then use the required providers
+for bounded review evidence. Review is an internal phase of each role.
+Codex verifies findings before reporting them. When a selected role
 uses Gemini, invoke the bundled browser preview helper automatically and do not
 call the raw Gemini CLI.
 

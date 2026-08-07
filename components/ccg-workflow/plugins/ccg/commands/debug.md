@@ -22,6 +22,6 @@ The user invoked:
 
 Use the installed CCG plugin skill `ccg:debug`.
 
-Classify the bug as frontend, backend, and/or search, then use those role
-providers for hypotheses and second-pass review. Codex owns reproduction,
-fixes, and verification.
+Follow the shared **Companion Role Contract** when classifying the bug and
+collecting hypotheses or second-pass review. Codex owns reproduction, fixes,
+and verification.
