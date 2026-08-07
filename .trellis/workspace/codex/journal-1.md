@@ -119,3 +119,40 @@ Published source PR #28 at 091773a and Harness PR #30 at b30a6b8, replaced provi
 ### Status
 
 [OK] **Completed**
+
+
+## Session 6: Publish route target and timeout fixes
+
+**Date**: 2026-08-07
+**Task**: Publish route target and timeout fixes
+**Branch**: `codex/publish-route-target-timeout`
+
+### Summary
+
+Published the two approved CCG fixes, synchronized the verified source snapshot into Harness, installed the matching runtime, and archived the Trellis task.
+
+### Main Changes
+
+- Merged source PR #31 and published wrapper 5.12.6 assets.
+- Synchronized Harness to source commit 8f6d981bac05257e7bc6333bfb6ccbbb5d62fe05 and opened PR #32.
+- Installed CCG 3.4.6, plugin 3.4.6+codex.2, and wrapper 5.12.6.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `de45565f4f32a87f9460cd352c988017641a6e66` | (see git log) |
+| `43792199526a5b0f1cc6ea7d45957ead76c5924c` | (see git log) |
+
+### Testing
+
+- [OK] CCG lint, typecheck, build, Vitest, Go tests, and release CI passed.
+- [OK] Harness 455-test gate, doctor, conflicts, and source digest verification passed.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Merge Harness PR #32 after required checks pass.
