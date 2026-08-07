@@ -125,7 +125,7 @@ install dependencies or broaden into live tests.
   `08339c37e12c6e8c4392e1c5caeee8efc19e34656033613baacc7bee897dbae1`.
 - Formal `harness:update` bound tree
   `0822c4f6f8c6eaddfad3b36e4c1d1219d6362fb9`; both CCG gate passes and the
-  Harness 455-test gate passed.
+  Harness 455-test gate passed. Harness publication is tracked by PR `#32`.
 - Installed identity is CCG `3.4.6`, plugin `3.4.6+codex.2`, and wrapper
   `5.12.6` with the same pinned Windows digest. Harness doctor and conflicts
   report zero blocking or warning findings.
