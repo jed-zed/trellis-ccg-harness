@@ -3,6 +3,7 @@ import {
   chmodSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -130,6 +131,41 @@ test("materialization excludes protected literal paths before checkout", async (
       false,
     );
     assert.equal(materialized.files, 3);
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("materialization preserves exact sparse paths and rejects drift", async () => {
+  const value = fixture();
+  const preserved = path.join(value.root, "preserved");
+  mkdirSync(preserved);
+  writeFileSync(path.join(preserved, "keep.txt"), "tracked\n");
+  try {
+    const destination = path.join(value.root, "preserved projection");
+    const materialized = await materializeGitTree({
+      checkout: value.repo,
+      commit: value.commit,
+      destination,
+      exclusions: ["keep.txt"],
+      preserveFrom: preserved,
+      execute,
+    });
+    assert.equal(materialized.files, 4);
+    assert.equal(readFileSync(path.join(destination, "keep.txt"), "utf8"), "tracked\n");
+
+    writeFileSync(path.join(preserved, "keep.txt"), "changed\n");
+    await assert.rejects(
+      materializeGitTree({
+        checkout: value.repo,
+        commit: value.commit,
+        destination: path.join(value.root, "drifted projection"),
+        exclusions: ["keep.txt"],
+        preserveFrom: preserved,
+        execute,
+      }),
+      /preserved Git blob mismatch: keep\.txt/i,
+    );
   } finally {
     value.cleanup();
   }
