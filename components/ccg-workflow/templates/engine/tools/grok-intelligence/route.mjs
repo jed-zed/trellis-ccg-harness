@@ -790,6 +790,7 @@ async function main(argv = process.argv.slice(2)) {
     semanticReason: args.semanticReason,
     inheritedRequirement: args.inheritedRequirement,
     depth: args.depth,
+    target: args.target,
     plan: args.plan,
     diff: args.diff,
     dependencies: args.dependencies,
