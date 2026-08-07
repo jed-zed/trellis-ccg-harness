@@ -122,9 +122,9 @@ fail-closed boundaries that should remain.
       and tests; `10000` and `10001` resolve to their exact second values.
 - [x] Focused TypeScript and Go tests pass without a Provider, credential,
       install, commit, push, or manual snapshot edit.
-- [ ] The source commit is pushed through a scoped PR and its required CI passes.
-- [ ] The published `5.12.6` wrapper assets match all six pinned digests.
-- [ ] The Harness snapshot, source manifest, installed CLI, and installed plugin
+- [x] The source commit is pushed through a scoped PR and its required CI passes.
+- [x] The published `5.12.6` wrapper assets match all six pinned digests.
+- [x] The Harness snapshot, source manifest, installed CLI, and installed plugin
       are updated through supported commands and report one matching identity.
 
 ## Out of Scope

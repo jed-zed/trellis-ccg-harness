@@ -106,11 +106,37 @@ install dependencies or broaden into live tests.
 - [x] Bump wrapper/plugin release identity, reproduce all six wrapper digests
       with Go 1.21.13 release flags, and run source lint, typecheck, tests, build,
       Go short tests, and Go build.
-- [ ] Commit only the reviewed source diff, push the scoped branch, open the PR,
+- [x] Commit only the reviewed source diff, push the scoped branch, open the PR,
       and require CI before merging to `main` and publishing `preset` assets.
-- [ ] Commit this task amendment, create a clean Harness publication worktree,
+- [x] Commit this task amendment, create a clean Harness publication worktree,
       and run formal `harness:update` against the accepted 40-character source
       commit.
-- [ ] Install the matching CLI/plugin through the supported Harness flow; verify
+- [x] Install the matching CLI/plugin through the supported Harness flow; verify
       source commit/tree, CLI, plugin, wrapper version/digest, conflicts, and
       focused live `route --target` / `CODEX_TIMEOUT` behavior.
+
+## 10. Publication evidence
+
+- Source PR `#31` was squash-merged as
+  `8f6d981bac05257e7bc6333bfb6ccbbb5d62fe05`; branch CI and the `main`
+  `preset` publication workflow passed.
+- Release CI verified all six pinned Go 1.21.13 artifacts. The independently
+  downloaded Windows AMD64 asset reported wrapper `5.12.6` and SHA-256
+  `08339c37e12c6e8c4392e1c5caeee8efc19e34656033613baacc7bee897dbae1`.
+- Formal `harness:update` bound tree
+  `0822c4f6f8c6eaddfad3b36e4c1d1219d6362fb9`; both CCG gate passes and the
+  Harness 455-test gate passed.
+- Installed identity is CCG `3.4.6`, plugin `3.4.6+codex.2`, and wrapper
+  `5.12.6` with the same pinned Windows digest. Harness doctor and conflicts
+  report zero blocking or warning findings.
+- The installed CLI persisted the exact `target.md` path, SHA-256, and 10-byte
+  binding with intelligence disabled. `TestRunResolveTimeout` proves `10000`
+  and `10001` remain exact seconds; the installed wrapper is bound to that
+  source by its published SHA-256.
+- Full Global Init was intentionally not forced over unrelated drift in the
+  existing global `chatgpt-pro-sidebar` Skill. The supported plugin-only setup
+  completed and left `.claude` unchanged.
+- The applicable shared `codex-provider-runtime.md` exists only as unrelated
+  untracked work in the original dirty checkout. This publication does not
+  duplicate or claim it; the executable contracts remain captured in this
+  task design plus the source help, maintainer docs, and regression tests.
