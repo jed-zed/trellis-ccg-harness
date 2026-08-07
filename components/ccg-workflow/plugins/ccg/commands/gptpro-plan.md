@@ -75,7 +75,10 @@ fields into Trellis `task.json`.
 4. Run or verify the ordinary `/ccg:plan` route first and write a concise routing evidence file,
    for example `<evidence-root>/evidence/routing.md`, plus a routing summary file.
    The routing evidence must identify the current orchestrator, the routed model evidence that
-   actually exists, the ordinary planner conclusion, and any skipped/failed model steps.
+   actually exists, the ordinary planner conclusion, `searchStatus`,
+   `productManagerStatus`, and any skipped/failed model steps. It inherits the
+   ordinary **Companion Role Contract**; product-manager invocation still needs
+   explicit per-call authorization.
 5. If ordinary planning used Gemini, validate its optional gate evidence from
    `<evidence-root>/evidence.json`. Legacy `task.json.gemini_evidence` or
    `task.json.gemini_gate` may be normalized for read compatibility, but do not

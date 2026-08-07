@@ -25,5 +25,6 @@ Review spec-driven work for consistency and scope control.
 - Security-sensitive deltas were reviewed.
 - Review output is written or summarized in Chinese and may update `.codex/ccg/specs/<name>/review.md` when requested.
 
-The applicable frontend, backend, and/or search provider may provide a bounded
-second-pass review; Codex makes the final judgment.
+Follow the shared **Companion Role Contract** for the bounded second-pass
+review: frontend or backend makes search required and evaluates the mapped
+product-manager gate. Codex makes the final judgment.

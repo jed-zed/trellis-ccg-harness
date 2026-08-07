@@ -53,14 +53,16 @@ If the user provided no argument, answer in Chinese with the CCG command index:
 - `/ccg:verify-module <module-path>` - check module structure and required documentation.
 - `/ccg:verify-quality <changed-path>` - inspect complexity, duplication, naming, and code smells.
 - `/ccg:verify-security <changed-path>` - scan security-sensitive changes.
-- `ccg routing list` - show the provider selected for the three top-level roles.
+- `ccg routing list` - show the provider selected for the four top-level roles.
 - `ccg routing set <role> <provider>` - change one role without changing the others.
 
 If the user provided a plan path or task, treat it as `/ccg:execute`.
 
-Core rule: `frontend`, `backend`, and `search` resolve their providers through
-`ccg routing`; analysis, planning, and review occur inside those roles. Codex
-remains the orchestrator, sole real-workspace writer, and final verifier.
+Core rule: all four roles resolve through `ccg routing`; analysis, planning,
+and review occur inside those roles. Follow the shared **Companion Role
+Contract**: frontend or backend adds required search evidence and evaluates the
+product-manager authorization gate. Codex remains the orchestrator, sole
+real-workspace writer, and final verifier.
 Whenever a role selects Gemini, invoke the bundled browser preview helper
 automatically. Explicit provider commands bypass default role routing without
 changing it.

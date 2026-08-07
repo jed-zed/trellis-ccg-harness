@@ -24,8 +24,10 @@ Use the installed CCG plugin skill `ccg:executor`.
 
 Explain or execute the Codex-native CCG workflow:
 
-- Codex resolves three independent top-level role mappings from `ccg routing`.
-- Analysis, planning, and review are phases inside frontend, backend, or search.
+- Codex resolves four top-level role mappings from `ccg routing`.
+- The shared **Companion Role Contract** makes search required for frontend or
+  backend work and evaluates the product-manager authorization gate.
+- Analysis, planning, and review are phases inside those roles.
 - The selected provider assists with bounded plans, drafts, UI prototypes,
   analysis, search, tests, or review.
 - Codex orchestrates the work and owns final code edits.

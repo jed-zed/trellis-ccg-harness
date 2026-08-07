@@ -72,8 +72,12 @@ type codexHeader struct {
 // to avoid multiple JSON unmarshal operations per event
 type UnifiedEvent struct {
 	// Common fields
-	Type string `json:"type"`
-	ID   string `json:"id,omitempty"`
+	Type   string `json:"type"`
+	ID     string `json:"id,omitempty"`
+	Method string `json:"method,omitempty"`
+	Params struct {
+		Update json.RawMessage `json:"update,omitempty"`
+	} `json:"params,omitempty"`
 
 	// Codex-specific fields
 	ThreadID string          `json:"thread_id,omitempty"`
@@ -103,6 +107,77 @@ type UnifiedEvent struct {
 	Message json.RawMessage `json:"message,omitempty"`
 }
 
+type grokReviewEvidence struct {
+	stopReasonSeen bool
+	terminalError  string
+	forbiddenTool  string
+}
+
+func newGrokReviewEvidence() *grokReviewEvidence {
+	return &grokReviewEvidence{}
+}
+
+func (e *grokReviewEvidence) observeACP(raw json.RawMessage) {
+	if e == nil || len(raw) == 0 {
+		return
+	}
+	var update struct {
+		SessionUpdate string `json:"sessionUpdate"`
+		StopReason    string `json:"stop_reason"`
+		RawInput      struct {
+			Variant string `json:"variant"`
+		} `json:"rawInput"`
+	}
+	if json.Unmarshal(raw, &update) != nil {
+		return
+	}
+	if update.SessionUpdate == "turn_completed" {
+		e.observeStopReason(update.StopReason)
+		return
+	}
+	if update.SessionUpdate != "tool_call" && update.SessionUpdate != "tool_call_update" {
+		return
+	}
+	e.observeToolCall(update.RawInput.Variant)
+}
+
+func (e *grokReviewEvidence) observeStreamingJSON(raw json.RawMessage) bool {
+	if e == nil || len(raw) == 0 {
+		return false
+	}
+	var update struct {
+		Type     string `json:"type"`
+		ToolName string `json:"toolName"`
+	}
+	if json.Unmarshal(raw, &update) != nil || (update.Type != "tool_call" && update.Type != "tool_call_update") {
+		return false
+	}
+	e.observeToolCall(update.ToolName)
+	return true
+}
+
+func (e *grokReviewEvidence) observeToolCall(tool string) {
+	if e == nil || e.forbiddenTool != "" {
+		return
+	}
+	tool = strings.TrimSpace(tool)
+	if tool == "" {
+		tool = "unknown"
+	}
+	e.forbiddenTool = tool
+}
+
+func (e *grokReviewEvidence) observeStopReason(reason string) {
+	if e == nil || strings.TrimSpace(reason) == "" {
+		return
+	}
+	e.stopReasonSeen = true
+	normalized := strings.NewReplacer("_", "", "-", "").Replace(strings.ToLower(strings.TrimSpace(reason)))
+	if normalized != "endturn" && e.terminalError == "" {
+		e.terminalError = reason
+	}
+}
+
 // GetSessionID returns the session ID from either snake_case or camelCase field.
 // Gemini CLI uses "sessionId" (camelCase), Claude/Codex use "session_id" (snake_case).
 func (e *UnifiedEvent) GetSessionID() string {
@@ -124,6 +199,10 @@ func parseJSONStreamInternal(r io.Reader, warnFn func(string), infoFn func(strin
 }
 
 func parseJSONStreamInternalWithContent(r io.Reader, warnFn func(string), infoFn func(string), onMessage func(), onComplete func(), onContent func(content, contentType string), onProgress func(line string), onSessionStarted func(id string)) (message, threadID, terminalError string) {
+	return parseJSONStreamInternalWithReview(r, warnFn, infoFn, onMessage, onComplete, onContent, onProgress, onSessionStarted, nil)
+}
+
+func parseJSONStreamInternalWithReview(r io.Reader, warnFn func(string), infoFn func(string), onMessage func(), onComplete func(), onContent func(content, contentType string), onProgress func(line string), onSessionStarted func(id string), grokReview *grokReviewEvidence) (message, threadID, terminalError string) {
 	reader := bufio.NewReaderSize(r, jsonLineReaderSize)
 
 	if warnFn == nil {
@@ -183,6 +262,9 @@ func parseJSONStreamInternalWithContent(r io.Reader, warnFn func(string), infoFn
 			warnFn(fmt.Sprintf("Skipped overlong JSON line (> %d bytes): %s", jsonLineMaxBytes, truncateBytes(line, 100)))
 			continue
 		}
+		if grokReview.observeStreamingJSON(line) {
+			continue
+		}
 
 		// Single unmarshal for all backend types
 		var event UnifiedEvent
@@ -199,6 +281,10 @@ func parseJSONStreamInternalWithContent(r io.Reader, warnFn func(string), infoFn
 			continue
 		}
 	parsed:
+		if (event.Method == "session/update" || event.Method == "_x.ai/session/update") && len(event.Params.Update) > 0 {
+			grokReview.observeACP(event.Params.Update)
+			continue
+		}
 
 		// Extract session_id early (works for all backends)
 		if event.GetSessionID() != "" && threadID == "" {
@@ -445,10 +531,11 @@ func parseJSONStreamInternalWithContent(r io.Reader, warnFn func(string), infoFn
 					onContent(event.Data, "message")
 				}
 			case "thought":
-				// Reasoning token deltas — not part of the final message.
-				// Skip per-token logging: a single turn can emit thousands of
-				// thought events and flood the log line limit.
+			// Reasoning token deltas — not part of the final message.
+			// Skip per-token logging: a single turn can emit thousands of
+			// thought events and flood the log line limit.
 			case "end":
+				grokReview.observeStopReason(event.StopReason)
 				infoFn(fmt.Sprintf("Parsed Grok end event #%d stop_reason=%s session_id=%s message_len=%d", totalEvents, event.StopReason, event.SessionIDCamel, grokBuffer.Len()))
 				if grokBuffer.Len() > 0 {
 					notifyMessage()

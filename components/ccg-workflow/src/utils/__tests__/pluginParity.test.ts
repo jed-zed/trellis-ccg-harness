@@ -115,6 +115,76 @@ describe('Codex plugin release parity', () => {
     expect(phaseGuide).toContain('Trellis remains the only task')
   })
 
+  it('keeps search and product-manager companion routing on every affected skill surface', () => {
+    const pluginRoot = join(root, 'plugins', 'ccg')
+    const routingRule = fs.readFileSync(join(pluginRoot, 'rules', 'ccg-role-routing.md'), 'utf8')
+    expect(routingRule).toContain('## Companion Role Contract')
+    expect(routingRule).toContain('searchStatus')
+    expect(routingRule).toContain('productManagerStatus')
+    expect(routingRule).toContain('explicit per-call authorization gate')
+    expect(routingRule).toContain('`not_applicable` is valid only when neither frontend/backend')
+    expect(routingRule).toContain('exactly one logical `search` operation')
+    expect(routingRule).toMatch(/at\s+most two total attempts/)
+    expect(routingRule).toContain('attemptCount')
+    expect(routingRule).not.toContain('invoke `search` exactly once')
+    expect(routingRule).not.toContain('`searchStatus`: `invoked`, `skipped`')
+
+    for (const skill of ['ccg-executor', 'ccg-plan']) {
+      const content = fs.readFileSync(join(pluginRoot, 'skills', skill, 'SKILL.md'), 'utf8')
+      expect(content, skill).toMatch(/at\s+most two total attempts/)
+      expect(content, skill).not.toContain('invoke `search` once')
+      expect(content, skill).not.toContain('after two attempts')
+      expect(content, skill).not.toContain('at most twice')
+    }
+
+    const directSkills = [
+      'ccg-executor',
+      'ccg-plan',
+      'ccg-analyze',
+      'ccg-review',
+      'ccg-feat',
+      'ccg-debug',
+      'ccg-enhance',
+      'ccg-optimize',
+      'ccg-test',
+      'ccg-frontend',
+      'ccg-backend',
+      'ccg-team-exec',
+      'ccg-team-review',
+      'ccg-spec-plan',
+      'ccg-spec-research',
+      'ccg-spec-review',
+      'ccg-gptpro-plan',
+      'ccg-gptpro-exc',
+      'ccg-gptpro-review',
+      'ccg-gptpro-bridge',
+      'ccg',
+      'ccg-workflow',
+      'ccg-go',
+    ]
+    for (const skill of directSkills) {
+      const content = fs.readFileSync(join(pluginRoot, 'skills', skill, 'SKILL.md'), 'utf8')
+      expect(content, skill).toMatch(/Companion Role\s+Contract/)
+    }
+
+    for (const skill of ['ccg-execute', 'ccg-excute', 'ccg-codex-exec']) {
+      const content = fs.readFileSync(join(pluginRoot, 'skills', skill, 'SKILL.md'), 'utf8')
+      expect(content, skill).toContain('ccg-executor/SKILL.md')
+    }
+
+    const gptProEvidenceSurfaces = [
+      ...['plan', 'exc', 'review'].map(name => join(pluginRoot, 'skills', `ccg-gptpro-${name}`, 'SKILL.md')),
+      join(pluginRoot, 'skills', 'ccg-gptpro-bridge', 'SKILL.md'),
+      ...['plan', 'exc', 'review'].map(name => join(pluginRoot, 'commands', `gptpro-${name}.md`)),
+      ...['plan', 'exc', 'review'].map(name => join(root, 'templates', 'commands', `gptpro-${name}.md`)),
+    ]
+    for (const path of gptProEvidenceSurfaces) {
+      const content = fs.readFileSync(path, 'utf8')
+      expect(content, path).toContain('searchStatus')
+      expect(content, path).toContain('productManagerStatus')
+    }
+  })
+
   it('ships no pre-approved executable MCP or automatic semantic-search route', () => {
     const pluginRoot = join(root, 'plugins', 'ccg')
     const mcpManifest = readJson(join(pluginRoot, '.mcp.json'))

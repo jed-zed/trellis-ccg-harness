@@ -33,6 +33,7 @@ Create a zero-decision implementation plan from `.codex/ccg/specs/<name>/constra
 - 实施顺序
 - 验证命令
 - 风险表
-- Codex 与适用的 frontend/backend/search Provider 规划分析
+- Codex 与按 **Companion Role Contract** 解析的 Provider 规划分析；使用
+  frontend/backend 时必须包含 search，并评估 product-manager 授权门
 
 Saved plan content must be Chinese by default, matching `/ccg:plan`.

@@ -22,6 +22,6 @@ The user invoked:
 
 Use the installed CCG plugin skill `ccg:test`.
 
-Use the applicable frontend, backend, and/or search role providers for edge
-cases, fixture ideas, or review gaps. Codex owns final test implementation and
-execution.
+Follow the shared **Companion Role Contract** for edge cases, fixture ideas, or
+review gaps. Frontend or backend makes search required and evaluates the
+product-manager gate. Codex owns final test implementation and execution.

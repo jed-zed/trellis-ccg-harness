@@ -20,7 +20,10 @@ Use this as the Codex-native equivalent of the original CCG `/ccg:frontend` comm
 ## Behavior
 
 - Treat the user argument as a frontend, UI, UX, component, styling, accessibility, or responsive-design task.
-- Read `../../rules/ccg-role-routing.md`, then run `ccg routing get frontend --json` before assigning the frontend draft or review.
+- Read `../../rules/ccg-role-routing.md`, follow its **Companion Role Contract**,
+  then resolve `frontend` and its required `search` companion before assigning
+  the frontend draft or review; evaluate the mapped product-manager gate at the
+  next eligible checkpoint.
 - Ask the configured frontend provider for UI structure, interaction states, accessibility, responsive behavior, and visual risks. If it is Gemini, use the bundled browser preview helper with `--prompt-template frontend`; otherwise use the existing provider adapter described by the routing rule.
 - Codex must adapt provider output to the local framework, design system, and existing component patterns. External output is not authoritative.
 - Codex owns final edits, screenshot/playwright verification where applicable, tests, diff review, and Chinese delivery.

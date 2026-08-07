@@ -20,7 +20,10 @@ Use this as the Codex-native equivalent of the original CCG `/ccg:backend` comma
 ## Behavior
 
 - Treat the user argument as backend-heavy work: APIs, services, data flow, storage, jobs, migrations, auth, validation, or backend architecture.
-- Read `../../rules/ccg-role-routing.md`, then run `ccg routing get backend --json` before assigning backend drafting or analysis.
+- Read `../../rules/ccg-role-routing.md`, follow its **Companion Role Contract**,
+  then resolve `backend` and its required `search` companion before assigning
+  backend drafting or analysis; evaluate the mapped product-manager gate at the
+  next eligible checkpoint.
 - Use the configured backend provider for implementation drafts, design alternatives, risky edge cases, concurrency, data integrity, or tests. If it is Gemini, use the bundled preview helper and prefer `--prompt-template architect` or `--prompt-template tester`; otherwise use the existing provider adapter described by the routing rule.
 - Codex owns final edits, migration safety, tests, diff review, and Chinese delivery.
 

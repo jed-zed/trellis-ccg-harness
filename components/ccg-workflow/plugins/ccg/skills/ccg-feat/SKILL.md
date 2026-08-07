@@ -27,9 +27,9 @@ Use this as the Codex-native equivalent of the original CCG `/ccg:feat` command.
   configured, or enabled by this workflow. Do not invoke ace-tool or create a
   CodeGraph index automatically.
 - Codex owns all file edits, verification, diff review, and Chinese delivery.
-- Resolve only the applicable frontend, backend, and/or search roles through
-  `ccg routing get <role> --json`; use their providers for analysis, planning,
-  drafting, and review of each slice.
+- Follow the shared **Companion Role Contract** and resolve the required roles
+  through `ccg routing get <role> --json`; frontend or backend automatically
+  adds search evidence and evaluates the mapped product-manager gate.
 - When a selected provider is Gemini, use the bundled preview helper and the
   appropriate `prototype` or `review` prompt template.
 

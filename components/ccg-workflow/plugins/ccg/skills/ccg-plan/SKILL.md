@@ -15,7 +15,9 @@ Append existing --plan, --diff, --target, and repeatable --dependency paths when
 
 Create decision-complete CCG plans for later `/ccg:execute`. Codex gathers
 context and writes the final plan under `.codex/ccg/plans/`. Planning is an
-internal phase of the applicable frontend, backend, and search roles; their
+internal phase of the applicable frontend, backend, and search roles. The
+shared **Companion Role Contract** makes search required whenever frontend or
+backend participates and evaluates the product-manager authorization gate;
 configured providers supply bounded analysis when a real plan is created or
 revised.
 
@@ -23,9 +25,9 @@ revised.
 
 - Write and revise plans only under `.codex/ccg/plans/*.md`.
 - Do not modify product code, tests, migrations, package files, or original Claude CCG plugin files.
-- Read `../../rules/ccg-role-routing.md`, classify plan slices as frontend,
-  backend, and/or search, then resolve those top-level roles before assigning
-  planning analysis.
+- Read `../../rules/ccg-role-routing.md`, follow its **Companion Role
+  Contract**, classify plan slices as frontend, backend, and/or search, then
+  resolve the required top-level roles before assigning planning analysis.
 - Claude is disabled for ordinary delegation. It may run only when unified CCG
   routing selects Claude for the read-only `product-manager` role and the
   project allows the explicit provider call.
@@ -49,7 +51,9 @@ Internal prompts to tools or providers may use English when that improves retrie
 ## Role-provider planning evidence gate
 
 For any real plan creation or plan revision, classify the task into frontend,
-backend, and search slices first. Resolve every top-level role used by the plan.
+backend, and search slices first. Resolve every required top-level role; using
+frontend or backend makes search required companion evidence and automatically
+evaluates the mapped product-manager authorization gate.
 Before writing or presenting a final plan:
 
 - when a selected role provider is `codex`, Codex may perform that role's
@@ -61,13 +65,14 @@ Before writing or presenting a final plan:
   file;
 - include Codex analysis, applicable role-provider analysis, and the final
   synthesis.
-- record whether unified `product-manager` routing selected Claude, whether the
-  project allowed the call, and, if invoked, the validated task-local evidence
-  identity.
+- record `searchStatus` and `productManagerStatus`; when the latter is
+  `authorization_required`, stop before the Provider call until the user
+  explicitly authorizes it. If invoked, record the validated task-local
+  evidence identity.
 
 If a selected external provider cannot start or still has no usable response
-after two attempts, stop and report the failure in Chinese. Do not write or
-present a final plan and do not emit fake multi-model evidence.
+after at most two total attempts, stop and report the failure in Chinese. Do
+not write or present a final plan and do not emit fake multi-model evidence.
 
 This gate does not apply to empty-input usage/help responses.
 
@@ -102,8 +107,9 @@ This gate does not apply to empty-input usage/help responses.
      `../../rules/ccg-role-routing.md` for bounded read-only analysis of that
      role's slice.
    - Include the enhanced requirement, context evidence, and a request for concise analysis: alternative approaches, edge cases, UI/UX concerns when relevant, tests, risks, and recommended plan steps.
-   - Retry a failed external provider call at most twice, then stop without
-     writing a plan.
+   - Make at most two total attempts for a failed external provider call, using
+     the same configured Provider and stable operation/evidence identity, then
+     stop without writing a plan.
    - Read the non-empty provider response before writing the final plan.
 
 5. **Synthesize the plan**
@@ -129,9 +135,10 @@ Use this Chinese Markdown structure:
 **生成者**：Codex CCG Planner
 **任务类型**：后端 / 前端 / 全栈 / 文档 / 重构
 **计划路径**：`.codex/ccg/plans/<file>.md`
-**职责 Providers**：`frontend=<provider>`、`backend=<provider>`、`search=<provider>`（仅列适用项）
+**职责 Providers**：`frontend=<provider>`、`backend=<provider>`、`search=<provider>`（frontend/backend 出现时 search 必填）
 **外部证据**：`<role=response-file-or-inline-codex>`
-**Claude 产品经理**：<未选择 / 已选择但本次未调用 / 已调用；证据标识>
+**伴随状态**：`searchStatus=<invoked|failed|not_applicable>`（frontend/backend 出现时不得为 `not_applicable`）、`productManagerStatus=<authorization_required|authorized|declined|disabled|unavailable|completed|not_applicable>`
+**产品经理证据**：<未调用 / 已调用；证据标识>
 
 ## 1. 增强需求
 

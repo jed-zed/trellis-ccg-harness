@@ -11,15 +11,20 @@ and completion authority.
   facts are collected. A plan draft may create a `PLAN_REVIEW` candidate before
   user approval. A material evidence, scope, risk, or plan change may create a
   `DRIFT_REVIEW` candidate.
-- Ordinary implementation and evidence collection do not call the product
-  manager. Candidate milestone completion may create `MILESTONE_REVIEW`;
-  independent analysis or review has at most one implicit final milestone.
+- When a workflow uses `frontend` or `backend`, automatically evaluate its
+  mapped product-manager candidate at the next eligible checkpoint. Candidate
+  milestone completion may create `MILESTONE_REVIEW`; independent analysis or
+  review has at most one implicit final milestone.
 - `FINAL_REVIEW` is prepared only after milestone evidence and required quality
   gates are complete. It does not replace the final milestone review.
 - Skills, commands, hooks, and helpers report event candidates only. The current
   Codex task explicitly invokes `ccg product-manager review`, validates the
   result, applies it through the Harness adapter, and presents any user hard
   gate.
+- Candidate detection automatically opens the explicit per-call authorization
+  gate. It must not silently invoke, authenticate, install, or fall back to a
+  Provider. Record `authorization_required`, `declined`, `disabled`, or
+  `unavailable` when no valid call completes; never fabricate review evidence.
 - `product-manager` is the fourth formal CCG unified routing role. Read or
   change its selected Provider only through `ccg routing get/set
   product-manager`; `[product_manager]` stores behavior parameters only.

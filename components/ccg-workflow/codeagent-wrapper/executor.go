@@ -822,14 +822,15 @@ func runCodexTaskWithContext(parentCtx context.Context, taskSpec TaskSpec, backe
 	logger := injectedLogger
 
 	cfg := &Config{
-		Mode:        taskSpec.Mode,
-		Task:        taskSpec.Task,
-		SessionID:   taskSpec.SessionID,
-		WorkDir:     taskSpec.WorkDir,
-		Backend:     defaultBackendName,
-		Progress:    taskSpec.Progress,
-		GeminiModel: taskSpec.GeminiModel,
-		GrokModel:   taskSpec.GrokModel,
+		Mode:              taskSpec.Mode,
+		Task:              taskSpec.Task,
+		SessionID:         taskSpec.SessionID,
+		WorkDir:           taskSpec.WorkDir,
+		Backend:           defaultBackendName,
+		Progress:          taskSpec.Progress,
+		GeminiModel:       taskSpec.GeminiModel,
+		GrokModel:         taskSpec.GrokModel,
+		GrokReviewTargets: taskSpec.GrokReviewTargets,
 	}
 
 	commandName := codexCommand
@@ -850,6 +851,29 @@ func runCodexTaskWithContext(parentCtx context.Context, taskSpec TaskSpec, backe
 	if cfg.WorkDir == "" {
 		cfg.WorkDir = defaultWorkdir
 	}
+	var grokSnapshot *grokReviewSnapshot
+	if len(cfg.GrokReviewTargets) > 0 {
+		if cfg.Backend != "grok" {
+			result.ExitCode = 1
+			result.Error = "--grok-review-target requires --backend grok"
+			return result
+		}
+		if cfg.Mode != "new" || strings.TrimSpace(cfg.SessionID) != "" {
+			result.ExitCode = 1
+			result.Error = "Grok review targets require a fresh session"
+			return result
+		}
+		var err error
+		grokSnapshot, err = prepareGrokReviewSnapshot(cfg.WorkDir, taskSpec.Task, cfg.GrokReviewTargets)
+		if err != nil {
+			result.ExitCode = 1
+			result.Error = err.Error()
+			return result
+		}
+		defer grokSnapshot.cleanup()
+		cfg.GrokReviewTargets = grokSnapshot.targets
+		cfg.WorkDir = grokSnapshot.root
+	}
 
 	if cfg.Mode == "resume" && strings.TrimSpace(cfg.SessionID) == "" {
 		result.ExitCode = 1
@@ -859,6 +883,10 @@ func runCodexTaskWithContext(parentCtx context.Context, taskSpec TaskSpec, backe
 
 	useStdin := taskSpec.UseStdin || cfg.Backend == "pi"
 	targetArg := taskSpec.Task
+	if grokSnapshot != nil {
+		useStdin = false
+		targetArg = grokSnapshot.promptFile
+	}
 
 	// Gemini/Antigravity/Pi CLI does not support "-" as stdin marker for the prompt.
 	// On macOS/Linux: pass the actual task text directly via -p (execve preserves
@@ -994,6 +1022,11 @@ func runCodexTaskWithContext(parentCtx context.Context, taskSpec TaskSpec, backe
 	// 统一处理所有后端的环境变量
 	// 修复 Windows Git Bash 后台进程 PATH 继承问题
 	env := buildBackendEnv(commandName)
+	if grokSnapshot != nil {
+		for key, value := range grokReviewForcedEnv {
+			env[key] = value
+		}
+	}
 	cmd.SetEnv(env) // SetEnv 会自动合并 os.Environ() (executor.go:122-161)
 
 	// Set working directory for backends that don't support -C flag.
@@ -1089,6 +1122,10 @@ func runCodexTaskWithContext(parentCtx context.Context, taskSpec TaskSpec, backe
 			fmt.Fprintln(os.Stderr, line)
 		}
 	}
+	var grokReview *grokReviewEvidence
+	if len(cfg.GrokReviewTargets) > 0 {
+		grokReview = newGrokReviewEvidence()
+	}
 
 	// Emit Session-ID to stderr as soon as the backend reports it.
 	// This lets Claude Code capture the real session ID even if the
@@ -1151,7 +1188,7 @@ func runCodexTaskWithContext(parentCtx context.Context, taskSpec TaskSpec, backe
 			return
 		}
 
-		msg, tid, terminalError := parseJSONStreamInternalWithContent(stdoutReader, logWarnFn, logInfoFn, func() {
+		msg, tid, terminalError := parseJSONStreamInternalWithReview(stdoutReader, logWarnFn, logInfoFn, func() {
 			// os/exec.Wait closes StdoutPipe after the process exits. Do not let a
 			// fast process win that race before the parser has captured its message.
 			allowWait()
@@ -1169,7 +1206,7 @@ func runCodexTaskWithContext(parentCtx context.Context, taskSpec TaskSpec, backe
 			if globalWebServer != nil && webSessionID != "" {
 				globalWebServer.EndSession(webSessionID, cfg.Backend)
 			}
-		}, onContentCallback, onProgressCallback, onSessionStartedCallback)
+		}, onContentCallback, onProgressCallback, onSessionStartedCallback, grokReview)
 		select {
 		case completeSeen <- struct{}{}:
 		default:
@@ -1405,6 +1442,16 @@ waitLoop:
 		result.ExitCode = 1
 		result.Error = attachStderr(fmt.Sprintf("%s completed without agent_message output", commandName))
 		return result
+	}
+	if len(cfg.GrokReviewTargets) > 0 {
+		var err error
+		message, err = finalizeGrokReview(message, cfg.GrokReviewTargets, grokReview)
+		if err != nil {
+			logErrorFn(err.Error())
+			result.ExitCode = 1
+			result.Error = attachStderr(err.Error())
+			return result
+		}
 	}
 
 	if stdoutLogger != nil {

@@ -23,10 +23,14 @@ Load and follow `skills/ccg-gptpro-bridge/SKILL.md`.
 - Run ordinary `/ccg:plan` semantics first. Preserve Codex as the planning
   authority and use the applicable frontend/backend/search planning evidence from that
   workflow.
+- Inherit the ordinary **Companion Role Contract**: frontend or backend makes
+  search evidence required and evaluates the mapped product-manager gate. The
+  Provider call still requires explicit per-call authorization.
 - Before GPT Pro, write Base CCG Routing Evidence that records the current orchestrator, actual
-  routed model evidence, ordinary planning conclusion, and skipped/failed
-  model steps.
-- Run whichever frontend/backend/search providers ordinary planning classifies as applicable.
+  routed model evidence, ordinary planning conclusion, `searchStatus`,
+  `productManagerStatus`, and skipped/failed model steps.
+- Run every required provider from ordinary planning; search is mandatory when
+  frontend or backend participates.
   Gemini is optional and must not be added merely because GPT Pro is requested.
 - When ordinary planning actually used Gemini, pass its real non-empty
   `CCG_GEMINI_RESPONSE_FILE` through the optional evidence path. Do not invent findings.

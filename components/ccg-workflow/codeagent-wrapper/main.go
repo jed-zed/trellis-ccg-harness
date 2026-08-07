@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	version               = "5.12.3"
+	version               = "5.12.5"
 	defaultWorkdir        = "."
 	defaultTimeout        = 7200 // seconds (2 hours)
 	defaultCoverageTarget = 90.0
@@ -508,15 +508,16 @@ func run() (exitCode int) {
 	logInfo(fmt.Sprintf("%s running...", cfg.Backend))
 
 	taskSpec := TaskSpec{
-		Task:        taskText,
-		WorkDir:     cfg.WorkDir,
-		Mode:        cfg.Mode,
-		SessionID:   cfg.SessionID,
-		UseStdin:    useStdin,
-		Progress:    cfg.Progress,
-		Backend:     cfg.Backend,
-		GeminiModel: cfg.GeminiModel,
-		GrokModel:   cfg.GrokModel,
+		Task:              taskText,
+		WorkDir:           cfg.WorkDir,
+		Mode:              cfg.Mode,
+		SessionID:         cfg.SessionID,
+		UseStdin:          useStdin,
+		Progress:          cfg.Progress,
+		Backend:           cfg.Backend,
+		GeminiModel:       cfg.GeminiModel,
+		GrokModel:         cfg.GrokModel,
+		GrokReviewTargets: cfg.GrokReviewTargets,
 	}
 
 	result := runTaskFn(taskSpec, false, cfg.Timeout)
@@ -615,6 +616,9 @@ Options:
                           Can also be set via GROK_MODEL environment variable
                           CLI parameter takes precedence over environment variable
                           Examples: grok-4.5, grok-composer-2.5-fast
+    --grok-review-target <path>
+                          Require completed local-read evidence for this review file
+                          Repeat once per workspace-relative regular file
     --progress            Emit compact progress lines to stderr during execution
 
 Environment Variables:

@@ -27,8 +27,8 @@ This command is Codex-native:
 - Planning may come from `/ccg:plan` or an existing CCG plan file.
 - CCG plan artifacts live under `.codex/ccg/plans/*.md`.
 - Codex is the orchestrator and final code owner.
-- Resolve each needed top-level role with
-  `ccg routing get <frontend|backend|search> --json`.
+- Follow the shared **Companion Role Contract** and resolve each required role
+  with `ccg routing get <frontend|backend|search|product-manager> --json`.
 - Use the selected provider for bounded drafting, analysis, prototypes, or
   review; Codex applies and verifies all changes.
 - Claude is disabled for ordinary delegation. It may run only when unified CCG

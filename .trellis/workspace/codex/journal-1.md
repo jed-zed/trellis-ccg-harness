@@ -49,3 +49,73 @@ Added Pi as a selectable orchestrator, preserved sparse exclusion behavior, sync
 ### Status
 
 [OK] **Completed**
+
+
+## Session 3: Published Grok review draft PRs
+
+**Date**: 2026-08-06
+**Task**: Published Grok review draft PRs
+**Branch**: `codex/grok-review-verification-harness`
+
+### Summary
+
+Created source draft PR #28 and Harness draft PR #30, bound the Harness snapshot to source a00f6ab/9ec10fea, passed source and Harness gates, and preserved unrelated work.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `95a90ac` | (see git log) |
+| `48ca7b3` | (see git log) |
+| `75d3647` | (see git log) |
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Keep both PRs draft until the stacked source base and source PR #28 are integrated.
+
+
+## Session 4: Fix Grok review dynamic tool boundary
+
+**Date**: 2026-08-06
+**Task**: Fix Grok review dynamic tool boundary
+**Branch**: `codex/grok-review-verification-harness`
+
+### Summary
+
+Removed Grok dynamic tool gateways before local review launch, regenerated the Harness snapshot from source commit 212218f, and passed source provenance, Doctor, conflict, change, quality, and security checks.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `62da924` | (see git log) |
+
+### Status
+
+[OK] **Completed**
+
+
+## Session 5: Publish snapshot-only Grok review draft PRs
+
+**Date**: 2026-08-06
+**Task**: Publish snapshot-only Grok review draft PRs
+**Branch**: `codex/grok-review-verification-harness`
+
+### Summary
+
+Published source PR #28 at 091773a and Harness PR #30 at b30a6b8, replaced provider file tools with a private pre-launch snapshot, verified source/component/Harness gates, and recorded the final task contract.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `b30a6b83174ccf07c0c25192e5a3ed291665d452` | (see git log) |
+| `99d715fd1f5356efe4b34eff343376c2fea1c126` | (see git log) |
+
+### Status
+
+[OK] **Completed**

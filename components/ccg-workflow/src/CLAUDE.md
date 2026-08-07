@@ -10,7 +10,7 @@
 
 ### 2026-07-22 (v3.3.0)
 - 新增 `commands/grok.ts`、Grok doctor 分层和 `external_intelligence` opt-in 配置迁移。
-- 安装器分发独立的 Grok ACP runtime、fixtures、commands 与 skills；generic Grok backend 由 codeagent-wrapper v5.12.3 处理。
+- 安装器分发独立的 Grok ACP runtime、fixtures、commands 与 skills；generic Grok backend 由 codeagent-wrapper v5.12.5 处理。
 - Grok 情报登录默认走浏览器 OAuth；无头 CI 可显式提供 `XAI_API_KEY`，live smoke 仅手动触发。
 
 ### 2026-07-24（v3.3.0 安全复审加固）
@@ -168,7 +168,7 @@ v1.7.83 将原 1878 行单文件拆分为 5 个聚焦模块，各自边界清晰
 #### Binary 管理（`src/utils/installer.ts:61`）
 
 ```typescript
-const EXPECTED_BINARY_VERSION = '5.12.3'  // 必须与 codeagent-wrapper/main.go 中 version 常量保持一致
+const EXPECTED_BINARY_VERSION = '5.12.5'  // 必须与 codeagent-wrapper/main.go 中 version 常量保持一致
 
 // 唯一可执行来源：个人仓库 preset Release
 const BINARY_SOURCES = [

@@ -24,9 +24,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   instruction, plugin, link, hardlink, race, and size defenses; reject malformed
   or stale manifests before Provider start and delete snapshot contents in
   `finally`.
+- **Bound local Grok reviews** — Snapshot only declared local files into a
+  private prompt, remove Provider tools, and append the validated scope envelope
+  without enabling Web search.
 
 ### Changed
 
+- **codeagent-wrapper 5.12.5** — Run Grok local review from pre-opened UTF-8
+  snapshots in tool-less sessions and append deterministic scope evidence.
+- **Companion role routing** — Ordinary CCG and GPT Pro workflows now require
+  configured search evidence whenever frontend or backend participates and
+  automatically evaluate the mapped product-manager authorization gate without
+  silently invoking a Provider.
 - **Product-manager contract v2** — Bind workspace snapshot identity and Claude
   transport into the strict request contract; legacy v1 configuration is
   normalized without accepting v1 requests under the new exact schema.

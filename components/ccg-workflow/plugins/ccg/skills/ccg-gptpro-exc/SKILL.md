@@ -26,9 +26,12 @@ the execution route is worth local implementation before real code landing.
 - Preserve the current CCG orchestrator as the ordinary execution owner after that route gate.
 - Preserve Codex as the CCG orchestrator and ordinary execution owner. Ordinary
   execution evidence follows the configured role providers.
+- Inherit the ordinary **Companion Role Contract**: frontend or backend makes
+  search evidence required and evaluates the mapped product-manager gate. The
+  Provider call still requires explicit per-call authorization.
 - Before GPT Pro, write Base CCG Routing Evidence that records the current orchestrator, actual
-  routed model evidence, ordinary execute conclusion so far, and
-  skipped/failed model steps.
+  routed model evidence, ordinary execute conclusion so far, `searchStatus`,
+  `productManagerStatus`, and skipped/failed model steps.
 - For backend-only tasks, follow ordinary execute routing and do not run Gemini by default.
 - For frontend or full-stack tasks, pass real Gemini frontend evidence when ordinary execute
   produced it through the bundled Gemini preview helper.

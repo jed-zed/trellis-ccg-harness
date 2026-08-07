@@ -141,9 +141,11 @@ describe('Codex plugin unified role-routing parity', () => {
     expect(planCommand).not.toContain('ccg routing get planning --json')
     expect(planSkill).not.toContain('ccg routing get planning --json')
     expect(planSkill).not.toContain('Gemini participation is mandatory')
-    expect(planSkill).toContain('**Claude 产品经理**')
+    expect(planSkill).toContain('**伴随状态**')
+    expect(planSkill).toContain('searchStatus')
+    expect(planSkill).toContain('productManagerStatus')
     expect(planSkill).not.toContain('### Claude 分析')
-    expect(planSkill).toContain('说明 Claude 产品经理是否由已安装配置选中')
+    expect(planSkill).toContain('产品经理是否由已安装配置选中')
   })
 
   it('keeps execute contracts tied to risky/M+ triggers with Codex as final owner', () => {

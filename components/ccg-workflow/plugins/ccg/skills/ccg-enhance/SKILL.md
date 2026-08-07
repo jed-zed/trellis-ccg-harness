@@ -21,8 +21,8 @@ Use this as the Codex-native equivalent of the original CCG `/ccg:enhance` comma
 
 - Identify current behavior, user-visible contract, tests, and constraints before editing.
 - Keep the enhancement scoped; avoid unrelated refactors.
-- Resolve the applicable frontend, backend, and/or search role. Use that
-  provider for the role's analysis and review phases. If a selected provider is
+- Follow the shared **Companion Role Contract** when resolving roles. Use each
+  provider for its analysis and review phases. If a selected provider is
   Gemini, use the corresponding bundled prompt template.
 - Codex owns final edits, tests, review, and Chinese delivery.
 

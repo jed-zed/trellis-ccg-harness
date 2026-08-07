@@ -22,5 +22,6 @@ The user invoked:
 
 Use the installed CCG plugin skill `ccg:frontend`.
 
-Resolve `ccg routing get frontend --json`, use that provider for the bounded UI
-draft or review, and keep Codex responsible for final edits and verification.
+Follow the shared **Companion Role Contract**: resolve frontend plus required
+search evidence and evaluate the product-manager gate. Keep Codex responsible
+for final edits and verification.

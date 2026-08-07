@@ -199,11 +199,26 @@ func buildGrokArgs(cfg *Config, targetArg string) []string {
 		return nil
 	}
 
-	// Grok CLI (native Rust binary, no .cmd shim) takes the prompt via -p on
-	// every platform — multi-line args survive CreateProcess/execve intact.
-	// --always-approve mirrors gemini's -y: the wrapper only ever runs
-	// autonomous orchestration sub-tasks, never interactive sessions.
 	args := []string{"--always-approve", "--output-format", "streaming-json"}
+	if len(cfg.GrokReviewTargets) > 0 {
+		args = []string{
+			"--tools", "",
+			"--disallowed-tools", "read_file,grep,list_dir,search_tool,use_tool",
+			"--disable-web-search",
+			"--no-memory",
+			"--no-plan",
+			"--no-subagents",
+			"--permission-mode", "dontAsk",
+			"--deny", "mcp__*",
+			"--max-turns", "1",
+			"--system-prompt-override", grokReviewSystemPrompt,
+			"--verbatim",
+			"--output-format", "streaming-json",
+		}
+		if !isWindows() {
+			args = append(args, "--sandbox", "strict")
+		}
+	}
 
 	if model := strings.TrimSpace(cfg.GrokModel); model != "" {
 		args = append(args, "-m", model)
@@ -213,12 +228,12 @@ func buildGrokArgs(cfg *Config, targetArg string) []string {
 		args = append(args, "-r", cfg.SessionID)
 	}
 
-	// Working directory comes from cmd.Dir (executor.go), same as the claude
-	// backend — do NOT pass --cwd: grok resolves it against its own process
-	// cwd, which IS cmd.Dir already, breaking relative paths.
-
-	// -p carries the prompt text directly (grok has no stdin task mode).
-	args = append(args, "-p", targetArg)
+	if len(cfg.GrokReviewTargets) > 0 {
+		args = append(args, "--prompt-file", targetArg)
+	} else {
+		// Grok is a native binary, so multi-line prompt args survive on every platform.
+		args = append(args, "-p", targetArg)
+	}
 	return args
 }
 
