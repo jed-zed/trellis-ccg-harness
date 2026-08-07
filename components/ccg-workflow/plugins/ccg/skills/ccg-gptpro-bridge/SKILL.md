@@ -3,11 +3,11 @@ name: gptpro-bridge
 description: Shared automated ChatGPT Pro sidebar bridge for CCG planning, review, and execution route review flows.
 ---
 
-# CCG GPT Pro Sidebar Bridge
+# CCG GPT Pro Browser Bridge
 
-This bridge delegates bounded work to the user's already logged-in ChatGPT Pro session in the Codex
-Desktop side panel. It uses the installed `chatgpt-pro-sidebar` Skill for every UI operation, detached
-monitoring, same-task wakeup, and response capture. There is no normal copy/paste handoff.
+This bridge delegates bounded work to the user's already logged-in ChatGPT Pro session in an approved
+external Chrome tab. It uses the installed `chatgpt-pro-sidebar` Skill for every browser operation,
+local RootWait monitoring, and response capture. There is no normal copy/paste handoff.
 
 Codex remains the final owner. Ordinary CCG roles use their configured providers before this named
 GPT Pro step. GPT Pro is untrusted, read-only helper evidence; it never becomes a workspace writer,
@@ -20,13 +20,14 @@ Prefer the approved project copy at `<project-root>/.agents/skills/chatgpt-pro-s
 fall back to `~/.codex/skills/chatgpt-pro-sidebar/SKILL.md` only when no project copy exists.
 
 - Fail closed if neither installed Skill location or its scripts are available.
-- Use `chatgpt-pro-sidebar.ps1` as the only ChatGPT side-panel UI entry point.
-- Use `chatgpt-pro-sidebar-watch.ps1` for detached token-free monitoring and same-task Stop Hook
-  continuation.
-- Do not copy Windows UI Automation logic into CCG.
+- Use `chatgpt-pro-sidebar.ps1` as the only ChatGPT browser entry point; its active transport must be
+  `agent-browser-cli-v2`.
+- Use `chatgpt-pro-sidebar-watch.ps1 run-root` for the atomic send and local RootWait lifecycle.
+- Do not copy browser automation or fixed DOM extraction logic into CCG.
+- Do not register Stop Hook or start a model watcher.
 - Do not use the legacy localhost preview page for a normal CCG handoff.
-- Never use an external browser, Playwright, CDP, browser-internal APIs, cookies, tokens, or browser
-  profile data.
+- Never bypass the installed Skill with Playwright, CDP, arbitrary browser-internal APIs, cookies,
+  tokens, or browser profile secrets.
 - Never automate login, account selection, CAPTCHA, password, passkey, MFA, recovery, billing, or
   entitlement. Skill exit `22` pauses for the user; all other normal bridge operations are automatic.
 - Never automatically resend after `send-uncertain`.
@@ -51,11 +52,10 @@ bridge `status.json` records only GPT Pro evidence state.
   high-risk follow-up.
 - Decompose independent complex workstreams into separate bridge sessions and separate ChatGPT Pro
   conversations.
-- When multiple existing Codex Desktop windows are available, bind one conversation to each selected
-  `windowRuntimeId`, submit each prompt in turn, then let the generations and detached watchers run
-  concurrently.
-- With one available window, queue separate conversations sequentially; do not claim parallel UI
-  control.
+- When multiple connected external Chrome tabs are available, bind each conversation to its exact
+  browser/profile/tab/session/URL identity.
+- One root task waits on one active RootWait at a time. Use separate Codex tasks for concurrent
+  workstreams or queue conversations sequentially.
 
 ## Base Routing Evidence
 
@@ -92,16 +92,15 @@ existing required/waived Grok external-intelligence flags and provenance.
    `--detach-preview`, `--open-preview`, or `--open-chatgpt`.
 2. Read `CCG_GPTPRO_SESSION_DIR`, `CCG_GPTPRO_PROMPT_FILE`, and `CCG_GPTPRO_STATUS_FILE`.
 3. Set the Skill evidence directory to `<session-dir>/<round-name>/sidebar`; it must be new and empty.
-4. Run Skill `status` and preserve its selected `windowRuntimeId`. Exit `22` is the only normal user
-   action barrier.
-5. For round 1, run Skill `new-chat`, then Skill `send -FreshConversation` with the bridge prompt,
-   sidebar evidence directory, selected window, and a unique opaque idempotency key.
-6. Immediately start the detached watcher with the same evidence directory and exact current
-   `CODEX_THREAD_ID`. After every intended workstream is registered, end the Codex turn without
-   model-driven polling.
-7. On the Stop Hook continuation, inspect `watch-event.json`. Only `completed` may enter the import
-   command; all other terminal states require diagnosis and never automatic resend.
-8. Import the captured response:
+4. Run Skill `status` and preserve its exact browser/profile/tab/session/URL target binding. Exit `22`
+   is the only normal user action barrier.
+5. For round 1, run Skill `new-chat`, then invoke watcher `run-root -FreshConversation` once with the
+   bridge prompt, sidebar evidence directory, a unique opaque idempotency key, and the exact current
+   `CODEX_THREAD_ID`. The command performs one send, starts the local watcher immediately, and keeps
+   this root turn blocked until terminal evidence without model polling.
+6. After `run-root` returns, inspect `watch-event.json`. Only `completed` may enter the import command;
+   all other terminal states require diagnosis and never automatic resend.
+7. Import the captured response:
 
 ```text
 python scripts/gptpro_bridge.py \
@@ -110,10 +109,10 @@ python scripts/gptpro_bridge.py \
   --expected-codex-thread-id <CODEX_THREAD_ID>
 ```
 
-9. Require `CCG_GPTPRO_SIDEBAR_IMPORTED=1`, non-empty `response.md`, exact conversation URL,
+8. Require `CCG_GPTPRO_SIDEBAR_IMPORTED=1`, non-empty `response.md`, exact conversation URL,
    response/evidence hashes, `automaticResendAllowed=false`, and the untrusted-output/Codex-writer
    authority fields.
-10. Independently classify the response, adapt any useful proposal, run required tests, and decide
+9. Independently classify the response, adapt any useful proposal, run required tests, and decide
     the CCG workflow outcome.
 
 The import is exact-once. Re-importing the same response succeeds idempotently; a different response

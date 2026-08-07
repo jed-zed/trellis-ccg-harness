@@ -151,5 +151,5 @@ Good triggers:
 
 Before creating the GPT Pro bridge, required Gemini gate evidence must be present in
 `.ccg/tasks/<task-id>/evidence.json`. After bridge creation, set `task.json.gate` to
-`gptpro_sidebar_running` and stop after the detached watcher is registered. Resume through the
-same-task Stop Hook and import the completed GPT Pro sidebar response.
+`gptpro_sidebar_running` and remain in the atomic `run-root` call until local RootWait returns.
+Then import the completed GPT Pro browser response.

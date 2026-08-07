@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""ChatGPT Pro sidebar bridge for Codex-native CCG workflows.
+"""ChatGPT Pro browser bridge for Codex-native CCG workflows.
 
 This helper creates local prompt/response artifacts and imports bounded output
 produced by the separately installed ``chatgpt-pro-sidebar`` Skill. The Skill
-uses Windows UI Automation against the user's already logged-in Codex Desktop
-side panel; this helper never handles authentication, browser internals, or
+uses agent-browser-cli against a user-approved external Chrome tab; this helper
+never handles authentication, browser credentials, or
 workspace writes from ChatGPT Pro.
 """
 
@@ -30,6 +30,8 @@ from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 PROVIDER = "chatgpt-pro-sidebar"
+ACTIVE_BROWSER_TRANSPORT = "agent-browser-cli-v2"
+HISTORICAL_BROWSER_TRANSPORT = "windows-uia"
 LEGACY_PROVIDERS = {"chatgpt-pro-manual", PROVIDER}
 MANUAL_QUESTIONS_EXPECTED = 1
 MANUAL_QUESTIONS_MAX = 2
@@ -43,7 +45,7 @@ TEMPLATE_DIR = (
 ENDPOINTS = ("GET /", "GET /state", "POST /save-response", "POST /mark-copied")
 BOUNDARIES = (
     "Do not automate ChatGPT web login",
-    "Do not read ChatGPT web DOM",
+    "Use only the installed Skill's fixed bounded ChatGPT DOM extractor",
     "Use only the installed chatgpt-pro-sidebar Skill for UI transport",
 )
 GEMINI_POLICIES = ("required", "optional", "none")
@@ -1341,8 +1343,8 @@ class BridgeSession:
             "response_saved": bool(status["rounds"][self.round_name]["response_saved"]),
             "manual_questions_expected": MANUAL_QUESTIONS_EXPECTED,
             "manual_questions_max": MANUAL_QUESTIONS_MAX,
-            "web_automation": False,
-            "dom_extraction": False,
+            "web_automation": True,
+            "dom_extraction": True,
             "manual_copy_required": False,
             "sidebar_transport_required": True,
         }
@@ -1512,9 +1514,10 @@ def create_session(
         "workdir": str(workdir_path),
         "manual_copy_required": False,
         "sidebar_transport_required": True,
+        "browser_transport_required": ACTIVE_BROWSER_TRANSPORT,
         "preview_token": str(status.get("preview_token") or secrets.token_urlsafe(32)),
-        "web_automation": False,
-        "dom_extraction": False,
+        "web_automation": True,
+        "dom_extraction": True,
         "cookie_storage": False,
         "auto_submit": True,
         "auto_output_read": True,
@@ -1659,6 +1662,31 @@ def write_sidebar_import_ack(
     return ack_path
 
 
+def validate_agent_browser_target_binding(
+    value: Any,
+    *,
+    label: str,
+    conversation_url: str,
+) -> dict[str, str]:
+    if not isinstance(value, dict):
+        raise ValueError(f"ChatGPT Pro browser {label} is missing.")
+    normalized: dict[str, str] = {}
+    for key in ("browserId", "profileId", "tabId", "sessionKey"):
+        item = value.get(key)
+        if not isinstance(item, str) or not item.strip() or len(item) > 512 or any(char in item for char in "\r\n"):
+            raise ValueError(f"ChatGPT Pro browser {label} has an invalid {key}.")
+        normalized[key] = item
+    profile_label = value.get("profileLabel") or ""
+    if not isinstance(profile_label, str) or len(profile_label) > 512 or any(char in profile_label for char in "\r\n"):
+        raise ValueError(f"ChatGPT Pro browser {label} has an invalid profileLabel.")
+    normalized["profileLabel"] = profile_label
+    if value.get("origin") != "https://chatgpt.com" or value.get("url") != conversation_url:
+        raise ValueError(f"ChatGPT Pro browser {label} does not match the exact conversation URL.")
+    normalized["origin"] = "https://chatgpt.com"
+    normalized["url"] = conversation_url
+    return normalized
+
+
 def import_sidebar_evidence(
     session: BridgeSession,
     evidence_directory: str | Path,
@@ -1691,12 +1719,20 @@ def import_sidebar_evidence(
     ):
         if value != "chatgpt-pro-sidebar":
             raise ValueError(f"Invalid ChatGPT Pro sidebar {label}.")
-    for label, value in (
-        ("state transport", state.get("transport")),
-        ("manifest transport", sidebar_evidence.get("transport")),
-    ):
-        if value != "windows-uia":
-            raise ValueError(f"Invalid ChatGPT Pro sidebar {label}.")
+    state_transport = state.get("transport")
+    manifest_transport = sidebar_evidence.get("transport")
+    if state_transport != manifest_transport or state_transport not in {
+        ACTIVE_BROWSER_TRANSPORT,
+        HISTORICAL_BROWSER_TRANSPORT,
+    }:
+        raise ValueError("Invalid or mismatched ChatGPT Pro browser transport.")
+    required_transport = session.status().get("browser_transport_required")
+    if required_transport is not None and required_transport != ACTIVE_BROWSER_TRANSPORT:
+        raise ValueError("Invalid required ChatGPT Pro browser transport in session status.")
+    if required_transport and state_transport != required_transport:
+        raise ValueError("ChatGPT Pro browser transport does not match this session.")
+    if required_transport is None and state_transport != HISTORICAL_BROWSER_TRANSPORT:
+        raise ValueError("Legacy GPT Pro sessions only accept completed historical windows-uia evidence.")
     if state.get("live") is not True or sidebar_evidence.get("live") is not True:
         raise ValueError("ChatGPT Pro sidebar import requires live evidence.")
     if state.get("phase") != "completed" or event.get("status") != "completed":
@@ -1775,6 +1811,24 @@ def import_sidebar_evidence(
         or event.get("conversationUrl") != conversation_url
     ):
         raise ValueError("ChatGPT Pro sidebar conversation binding mismatch.")
+    if state_transport == ACTIVE_BROWSER_TRANSPORT:
+        if event.get("transport") != ACTIVE_BROWSER_TRANSPORT:
+            raise ValueError("ChatGPT Pro browser watch event transport mismatch.")
+        bindings = (
+            validate_agent_browser_target_binding(
+                state.get("targetBinding"), label="state target binding", conversation_url=conversation_url
+            ),
+            validate_agent_browser_target_binding(
+                (sidebar_evidence.get("extractor") or {}).get("targetBinding"),
+                label="manifest target binding",
+                conversation_url=conversation_url,
+            ),
+            validate_agent_browser_target_binding(
+                event.get("targetBinding"), label="watch target binding", conversation_url=conversation_url
+            ),
+        )
+        if bindings[0] != bindings[1] or bindings[0] != bindings[2]:
+            raise ValueError("ChatGPT Pro browser target bindings do not match.")
     acknowledged = submission_entry.get("acknowledged") is True
     observational_recovery = submission_entry.get("observationalRecovery") is True
     if not acknowledged and not observational_recovery:
@@ -1785,6 +1839,7 @@ def import_sidebar_evidence(
 
     transport_metadata = {
         "transport": "chatgpt-pro-sidebar",
+        "browserTransport": state_transport,
         "sidebarEvidenceDirectory": display_path(evidence_dir, session.workdir),
         "sidebarEvidenceFile": display_path(evidence_path, session.workdir),
         "sidebarEvidenceSha256": evidence_sha256,
@@ -1870,6 +1925,7 @@ def append_gptpro_evidence(
         item.update(
             {
                 "transport": transport_metadata["transport"],
+                "browserTransport": transport_metadata["browserTransport"],
                 "conversationUrl": transport_metadata["conversationUrl"],
                 "codexThreadId": transport_metadata["codexThreadId"],
                 "submissionAcknowledged": transport_metadata["submissionAcknowledged"],
