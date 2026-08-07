@@ -93,7 +93,7 @@ strategy = "fallback"
 enabled = false
 contract_version = "2"
 max_retries = 1
-timeout_ms = 180000
+timeout_ms = 7200000
 max_output_bytes = 1048576
 ```
 

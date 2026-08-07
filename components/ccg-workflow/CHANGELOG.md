@@ -37,6 +37,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Product-manager timeout** — Give each Provider attempt the original CCG
+  two-hour limit by setting the default and accepted maximum to 7200000 ms.
 - **codeagent-wrapper 5.12.6** — Run Grok local review from pre-opened UTF-8
   snapshots in tool-less sessions and append deterministic scope evidence.
 - **Companion role routing** — Ordinary CCG and GPT Pro workflows now require
