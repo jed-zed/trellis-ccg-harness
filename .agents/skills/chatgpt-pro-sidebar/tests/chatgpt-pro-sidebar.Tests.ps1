@@ -1876,6 +1876,28 @@ Describe 'agent-browser-cli V2 transport' {
         }
     }
 
+    It 'accepts one new response after ChatGPT virtualizes an unchanged baseline prefix' {
+        $oldA = New-TestResponse -Text 'old-a' -Ordinal 0
+        $oldB = New-TestResponse -Text 'old-b' -Ordinal 1
+        $new = New-TestResponse -Text 'new-only' -Ordinal 2
+
+        $comparison = Compare-ResponseBaseline `
+            -BaselineHashes @($oldA.ContentSha256, $oldB.ContentSha256) `
+            -CurrentResponses @($oldB, $new)
+
+        $comparison.Status | Should -Be 'one'
+        $comparison.NewResponse.Content | Should -Be 'new-only'
+    }
+
+    It 'rejects a response list when every recorded baseline turn disappeared' {
+        $old = New-TestResponse -Text 'old'
+        $new = New-TestResponse -Text 'new'
+
+        Assert-ThrowsCategory -Category 'ResponseBaselineMismatch' -ExitCode 28 -Action {
+            Compare-ResponseBaseline -BaselineHashes @($old.ContentSha256) -CurrentResponses @($new)
+        }
+    }
+
     It 'reads one bounded CLI process without waiting for daemon-inherited pipe EOF' {
         $source = [System.IO.File]::ReadAllText($scriptPath)
         $invoker = [regex]::Match($source, '(?s)function Invoke-AgentBrowserCliJson\s*\{.*?(?=\r?\nfunction Test-BoundedAgentBrowserIdentity)').Value
@@ -2073,6 +2095,25 @@ Describe 'agent-browser-cli V2 transport' {
 
         Assert-ThrowsCategory -Category 'UserTurnAcknowledgementMismatch' -ExitCode 28 -Action {
             Assert-AgentBrowserUserTurnAcknowledgement -BaselineHashes @($old.ContentSha256) -CurrentTurns @($old, (New-TestResponse -Text 'other prompt')) -PromptSha256 $promptSha
+        }
+    }
+
+    It 'acknowledges one prompt after ChatGPT virtualizes an unchanged user-turn prefix' {
+        $oldA = New-TestResponse -Text 'old prompt a' -Ordinal 0
+        $oldB = New-TestResponse -Text 'old prompt b' -Ordinal 1
+        $matching = New-TestResponse -Text 'expected prompt' -Ordinal 2
+        $promptSha = $matching.ContentSha256
+
+        (Assert-AgentBrowserUserTurnAcknowledgement `
+            -BaselineHashes @($oldA.ContentSha256, $oldB.ContentSha256) `
+            -CurrentTurns @($oldB, $matching) `
+            -PromptSha256 $promptSha) | Should -BeTrue
+
+        Assert-ThrowsCategory -Category 'UserTurnBaselineMismatch' -ExitCode 28 -Action {
+            Assert-AgentBrowserUserTurnAcknowledgement `
+                -BaselineHashes @($oldA.ContentSha256, $oldB.ContentSha256) `
+                -CurrentTurns @($matching) `
+                -PromptSha256 $promptSha
         }
     }
 

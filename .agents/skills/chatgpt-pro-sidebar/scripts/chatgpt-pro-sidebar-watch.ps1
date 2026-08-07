@@ -7,6 +7,8 @@ param(
 
     [string]$EvidenceDir,
     [string]$CodexThreadId = $env:CODEX_THREAD_ID,
+    [string]$PromptPath,
+    [string]$IdempotencyKey,
     [string]$WorkerToken,
     [string]$WatcherId,
 
@@ -19,6 +21,7 @@ param(
     [switch]$NoWake,
     [switch]$AgentMonitor,
     [switch]$RootWait,
+    [switch]$FreshConversation,
     [switch]$KeepLauncherAlive
 )
 
@@ -65,6 +68,9 @@ function Get-WatchProperty {
 
     if ($null -eq $InputObject) {
         return $Default
+    }
+    if ($InputObject -is [System.Collections.IDictionary] -and $InputObject.Contains($Name)) {
+        return $InputObject[$Name]
     }
     $property = $InputObject.PSObject.Properties[$Name]
     if ($null -eq $property) {
@@ -584,7 +590,23 @@ function Invoke-WatchAdapterStatus {
     if (Test-WatchConversationUrl -Value $expectedUrl) {
         $arguments += @('-ExpectedConversationUrl', $expectedUrl)
     }
-    return Invoke-WatchAdapterProcess -Arguments $arguments -ProcessTimeoutSeconds 120
+    $result = Invoke-WatchAdapterProcess -Arguments $arguments -ProcessTimeoutSeconds 120
+    $payload = Get-WatchProperty $result 'Payload' $null
+    if (
+        [int](Get-WatchProperty $result 'ExitCode' 99) -eq 24 -and
+        [string](Get-WatchProperty $payload 'category' '') -eq 'GenerationAlreadyActive'
+    ) {
+        $details = Get-WatchProperty $payload 'details' $null
+        if (
+            $null -ne $details -and
+            [bool](Get-WatchProperty $details 'ok' $false) -and
+            [string](Get-WatchProperty $details 'command' '') -eq 'status' -and
+            [bool](Get-WatchProperty $details 'generating' $false)
+        ) {
+            return [pscustomobject]@{ ExitCode = 0; Payload = $details }
+        }
+    }
+    return $result
 }
 
 function Invoke-WatchAdapterFinalize {
@@ -603,6 +625,33 @@ function Invoke-WatchAdapterFinalize {
     return Invoke-WatchAdapterProcess `
         -Arguments $arguments `
         -ProcessTimeoutSeconds ([Math]::Min(600, $FinalizeTimeout + 60))
+}
+
+function Invoke-WatchAdapterSend {
+    param(
+        [Parameter(Mandatory = $true)][string]$AdapterPath,
+        [Parameter(Mandatory = $true)][string]$PromptFile,
+        [Parameter(Mandatory = $true)][string]$EvidenceDirectory,
+        [Parameter(Mandatory = $true)][string]$IdempotencyKeyValue,
+        [switch]$RequireFreshConversation
+    )
+
+    if ([string]::IsNullOrWhiteSpace($PromptFile)) {
+        throw 'PromptPath is required for run-root.'
+    }
+    if ([string]::IsNullOrWhiteSpace($IdempotencyKeyValue)) {
+        throw 'IdempotencyKey is required for run-root.'
+    }
+    $arguments = @(
+        '-NoProfile', '-NonInteractive', '-File', $AdapterPath, 'send',
+        '-PromptPath', $PromptFile,
+        '-EvidenceDir', $EvidenceDirectory,
+        '-IdempotencyKey', $IdempotencyKeyValue
+    )
+    if ($RequireFreshConversation) {
+        $arguments += '-FreshConversation'
+    }
+    return Invoke-WatchAdapterProcess -Arguments $arguments -ProcessTimeoutSeconds 600
 }
 
 function Invoke-WatchLoop {
@@ -1611,12 +1660,95 @@ function Acknowledge-RootWait {
         -CommandName 'acknowledge-root'
 }
 
+function Invoke-RootWaitRound {
+    param(
+        [Parameter(Mandatory = $true)][string]$EvidenceDirectory,
+        [Parameter(Mandatory = $true)][string]$ThreadId,
+        [Parameter(Mandatory = $true)][string]$PromptFile,
+        [Parameter(Mandatory = $true)][string]$IdempotencyKeyValue,
+        [switch]$RequireFreshConversation
+    )
+
+    $adapterPath = Get-WatchAdapterPath
+    $sendResult = $null
+    $sendFailure = ''
+    try {
+        $sendResult = Invoke-WatchAdapterSend `
+            -AdapterPath $adapterPath `
+            -PromptFile $PromptFile `
+            -EvidenceDirectory $EvidenceDirectory `
+            -IdempotencyKeyValue $IdempotencyKeyValue `
+            -RequireFreshConversation:$RequireFreshConversation
+    }
+    catch {
+        $sendFailure = $_.Exception.Message
+    }
+
+    try {
+        $binding = Get-WatchEvidenceBinding -EvidenceDirectory $EvidenceDirectory -ThreadId $ThreadId
+    }
+    catch {
+        $payload = Get-WatchProperty $sendResult 'Payload' $null
+        $message = [string](Get-WatchProperty $payload 'message' '')
+        if (-not [string]::IsNullOrWhiteSpace($sendFailure)) {
+            throw ('Adapter send failed before a waitable post-send state: ' + $sendFailure)
+        }
+        if (-not [string]::IsNullOrWhiteSpace($message)) {
+            throw ('Adapter send failed before a waitable post-send state: ' + $message)
+        }
+        throw
+    }
+
+    $startResult = Start-WatchProcess `
+        -EvidenceDirectory $EvidenceDirectory `
+        -ThreadId $ThreadId `
+        -RootWait
+    $waitResult = Wait-RootWatchEvent `
+        -EvidenceDirectory $EvidenceDirectory `
+        -ThreadId $ThreadId `
+        -WaitTimeoutSeconds $TimeoutSeconds
+    $sendPayload = Get-WatchProperty $sendResult 'Payload' $null
+
+    return [ordered]@{
+        ok = $true
+        command = 'run-root'
+        sendExitCode = Get-WatchProperty $sendResult 'ExitCode' $null
+        sendOk = Get-WatchProperty $sendPayload 'ok' $null
+        sendCategory = Get-WatchProperty $sendPayload 'category' $null
+        sendFailure = if ([string]::IsNullOrWhiteSpace($sendFailure)) { $null } else { $sendFailure }
+        submittedExactlyOnce = Get-WatchProperty $sendPayload 'submittedExactlyOnce' $null
+        sendActionInvokedOnce = Get-WatchProperty $sendPayload 'sendActionInvokedOnce' $null
+        submissionAcknowledged = Get-WatchProperty $sendPayload 'submissionAcknowledged' $null
+        evidencePhaseAtStart = $binding.Phase
+        watcherStarted = [bool](Get-WatchProperty $startResult 'started' $false)
+        watcherReused = [bool](Get-WatchProperty $startResult 'reused' $false)
+        watcherId = [string](Get-WatchProperty $waitResult 'watcherId' '')
+        codexThreadId = [string](Get-WatchProperty $waitResult 'codexThreadId' '')
+        terminalStatus = [string](Get-WatchProperty $waitResult 'terminalStatus' '')
+        eventFile = [string](Get-WatchProperty $waitResult 'eventFile' $Script:EventFileName)
+        continuationTransport = 'codex-root-wait'
+        pollingConsumesModelTokens = $false
+        acknowledgementPending = $true
+    }
+}
+
 function Invoke-WatchMain {
-    if (@('start', 'worker', 'status', 'wait-root', 'acknowledge', 'acknowledge-monitor', 'acknowledge-root') -notcontains $Command) {
-        throw 'Command must be start, worker, status, wait-root, acknowledge, acknowledge-monitor, or acknowledge-root.'
+    if (@('run-root', 'start', 'worker', 'status', 'wait-root', 'acknowledge', 'acknowledge-monitor', 'acknowledge-root') -notcontains $Command) {
+        throw 'Command must be run-root, start, worker, status, wait-root, acknowledge, acknowledge-monitor, or acknowledge-root.'
     }
     $directory = Resolve-WatchEvidenceDirectory -Path $EvidenceDir
     switch ($Command) {
+        'run-root' {
+            if ($NoWake -or $AgentMonitor -or $KeepLauncherAlive) {
+                throw 'run-root owns the RootWait lifecycle; NoWake, AgentMonitor, and KeepLauncherAlive are invalid.'
+            }
+            return Invoke-RootWaitRound `
+                -EvidenceDirectory $directory `
+                -ThreadId $CodexThreadId `
+                -PromptFile $PromptPath `
+                -IdempotencyKeyValue $IdempotencyKey `
+                -RequireFreshConversation:$FreshConversation
+        }
         'start' {
             if (-not $RootWait -or $NoWake -or $AgentMonitor) {
                 throw 'The V2 watcher must be started with RootWait; NoWake, AgentMonitor, and Stop Hook modes are disabled.'

@@ -54,8 +54,11 @@ powershell.exe -NoProfile -File $adapter wait -EvidenceDir <dir> -TimeoutSeconds
 powershell.exe -NoProfile -File $adapter response -EvidenceDir <dir>
 powershell.exe -NoProfile -File $adapter run -PromptPath <prompt.md> -EvidenceDir <empty-dir> -IdempotencyKey <opaque-key> -TimeoutSeconds 900
 
-# Start this command as a background local process when the tool host reaps
-# detached children. Keep the same root Codex turn active.
+# Preferred complete round: send once, start the local watcher immediately,
+# and keep this same root Codex turn blocked until terminal evidence exists.
+powershell.exe -NoProfile -File $watcher run-root -PromptPath <prompt.md> -EvidenceDir <empty-dir> -IdempotencyKey <opaque-key> -CodexThreadId $env:CODEX_THREAD_ID -TimeoutSeconds 7200
+
+# Recovery/diagnostic commands for an already post-send evidence directory.
 powershell.exe -NoProfile -File $watcher start -RootWait -KeepLauncherAlive -EvidenceDir <dir> -CodexThreadId $env:CODEX_THREAD_ID
 powershell.exe -NoProfile -File $watcher wait-root -EvidenceDir <dir> -CodexThreadId $env:CODEX_THREAD_ID -TimeoutSeconds 7200
 powershell.exe -NoProfile -File $watcher status -EvidenceDir <dir>
@@ -77,9 +80,12 @@ transport.
 3. For an existing conversation, use ordinary `send`; it requires an exact
    canonical conversation URL. Use `-FreshConversation` only on a proved empty
    homepage.
-4. After `send`, start the watcher with `-RootWait`, then call `wait-root` in the
-   same still-running root turn. The watcher uses only local scripts and local
-   evidence; it never registers a Stop Hook or starts a model.
+4. For a complete round, call watcher `run-root` once. It invokes one adapter
+   `send`, immediately starts the local RootWait watcher, and does not return to
+   Codex until terminal evidence exists in the same still-running root turn. It
+   never registers a Stop Hook. Do not split new rounds into separate `send`,
+   `start`, and `wait-root` model steps. The recovery commands remain available
+   only for evidence that is already post-send.
 5. Re-read `watch-event.json`, `state.json`, `evidence.json`, and `response.md`.
    Validate thread/watcher identity, target binding, URL, hashes, baseline, and
    `automaticResendAllowed=false` before using the response.
@@ -100,6 +106,10 @@ directory to bypass uncertain evidence.
 - Any failure at or after the click: treat as send-uncertain and never retry.
 - Temporary browser loss during wait is observational only. Exact URL recovery
   may reopen in background; no recovery path may send.
+- A normal generating page may surface as adapter `GenerationAlreadyActive`;
+  the watcher accepts it only from matching structured status details. Long
+  conversations may omit an old rendered turn prefix, but response isolation
+  still requires an unchanged baseline hash suffix and one exact new turn.
 - Historical incomplete `windows-uia` evidence is no-resend evidence and cannot
   be resumed by V2.
 

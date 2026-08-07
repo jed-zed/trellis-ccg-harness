@@ -1005,25 +1005,58 @@ function Assert-SendPreconditions {
     }
 }
 
+function Find-TurnBaselineSuffix {
+    param(
+        [Parameter(Mandatory = $true)][AllowEmptyCollection()][string[]]$BaselineHashes,
+        [Parameter(Mandatory = $true)][AllowEmptyCollection()][object[]]$CurrentTurns
+    )
+
+    $currentHashes = @($CurrentTurns | ForEach-Object { [string](Get-ObjectProperty $_ 'ContentSha256' '') })
+    if ($BaselineHashes.Count -eq 0) {
+        return [pscustomobject]@{
+            CurrentHashes = $currentHashes
+            OmittedBaselinePrefixCount = 0
+            RetainedBaselineCount = 0
+            NewCount = $currentHashes.Count
+        }
+    }
+
+    for ($omitted = 0; $omitted -lt $BaselineHashes.Count; $omitted++) {
+        $retained = $BaselineHashes.Count - $omitted
+        if ($currentHashes.Count -lt $retained) {
+            continue
+        }
+        $matches = $true
+        for ($index = 0; $index -lt $retained; $index++) {
+            if ($currentHashes[$index] -cne $BaselineHashes[$omitted + $index]) {
+                $matches = $false
+                break
+            }
+        }
+        if ($matches) {
+            return [pscustomobject]@{
+                CurrentHashes = $currentHashes
+                OmittedBaselinePrefixCount = $omitted
+                RetainedBaselineCount = $retained
+                NewCount = $currentHashes.Count - $retained
+            }
+        }
+    }
+    return $null
+}
+
 function Compare-ResponseBaseline {
     param(
         [Parameter(Mandatory = $true)][AllowEmptyCollection()][string[]]$BaselineHashes,
         [Parameter(Mandatory = $true)][AllowEmptyCollection()][object[]]$CurrentResponses
     )
 
-    $currentHashes = @($CurrentResponses | ForEach-Object { [string](Get-ObjectProperty $_ 'ContentSha256' '') })
-
-    if ($currentHashes.Count -lt $BaselineHashes.Count) {
-        Throw-SidebarError -ExitCode $Script:ExitCodes.ResponseIsolation -Category 'ResponseBaselineMismatch' -Message 'The current response list is shorter than the recorded baseline.' -Details ([ordered]@{ baselineCount = $BaselineHashes.Count; currentCount = $currentHashes.Count })
+    $match = Find-TurnBaselineSuffix -BaselineHashes $BaselineHashes -CurrentTurns $CurrentResponses
+    if ($null -eq $match) {
+        Throw-SidebarError -ExitCode $Script:ExitCodes.ResponseIsolation -Category 'ResponseBaselineMismatch' -Message 'Rendered assistant responses do not retain an unchanged ordered suffix of the recorded baseline.' -Details ([ordered]@{ baselineCount = $BaselineHashes.Count; currentCount = $CurrentResponses.Count })
     }
 
-    for ($index = 0; $index -lt $BaselineHashes.Count; $index++) {
-        if ($currentHashes[$index] -ne $BaselineHashes[$index]) {
-            Throw-SidebarError -ExitCode $Script:ExitCodes.ResponseIsolation -Category 'ResponseBaselineMismatch' -Message 'Existing assistant responses no longer match the recorded ordered baseline.' -Details ([ordered]@{ mismatchIndex = $index; baselineCount = $BaselineHashes.Count; currentCount = $currentHashes.Count })
-        }
-    }
-
-    $newCount = $currentHashes.Count - $BaselineHashes.Count
+    $newCount = $match.NewCount
     if ($newCount -eq 0) {
         return [pscustomobject]@{ Status = 'none'; NewResponse = $null }
     }
@@ -4315,20 +4348,15 @@ function Assert-AgentBrowserUserTurnAcknowledgement {
         [Parameter(Mandatory = $true)][string]$PromptSha256
     )
 
-    $currentHashes = @($CurrentTurns | ForEach-Object { [string](Get-ObjectProperty $_ 'ContentSha256' '') })
-    if ($currentHashes.Count -lt $BaselineHashes.Count) {
-        Throw-SidebarError -ExitCode $Script:ExitCodes.ResponseIsolation -Category 'UserTurnBaselineMismatch' -Message 'The current user-turn list is shorter than the pre-send baseline.'
+    $match = Find-TurnBaselineSuffix -BaselineHashes $BaselineHashes -CurrentTurns $CurrentTurns
+    if ($null -eq $match) {
+        Throw-SidebarError -ExitCode $Script:ExitCodes.ResponseIsolation -Category 'UserTurnBaselineMismatch' -Message 'Rendered user turns do not retain an unchanged ordered suffix of the pre-send baseline.'
     }
-    for ($index = 0; $index -lt $BaselineHashes.Count; $index++) {
-        if ($currentHashes[$index] -cne $BaselineHashes[$index]) {
-            Throw-SidebarError -ExitCode $Script:ExitCodes.ResponseIsolation -Category 'UserTurnBaselineMismatch' -Message 'An existing user turn changed after the send action.'
-        }
-    }
-    $newCount = $currentHashes.Count - $BaselineHashes.Count
+    $newCount = $match.NewCount
     if ($newCount -eq 0) {
         return $false
     }
-    if ($newCount -ne 1 -or $currentHashes[$currentHashes.Count - 1] -cne $PromptSha256) {
+    if ($newCount -ne 1 -or $match.CurrentHashes[$match.CurrentHashes.Count - 1] -cne $PromptSha256) {
         Throw-SidebarError -ExitCode $Script:ExitCodes.ResponseIsolation -Category 'UserTurnAcknowledgementMismatch' -Message 'The one new user turn does not match the submitted prompt hash.'
     }
     return $true

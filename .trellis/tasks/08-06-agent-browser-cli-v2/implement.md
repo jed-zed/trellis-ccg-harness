@@ -1,6 +1,6 @@
 # 实施计划：GPT Pro agent-browser-cli V2
 
-> Boss 已通过 `/ccg:execute` 批准执行；任务保持 `in_progress`。权威源同步、仓库总检和主要真实 E2E 已完成，当前仅保留 diff/提交复核、任务切换专项 live smoke 与 Boss 最终验收。
+> Boss 已通过 `/ccg:execute` 批准执行。原子 RootWait、生成态观察、长会话 turn 虚拟化兼容与完整长任务 E2E 均已完成，进入最终质量门禁、提交与 Trellis 收尾。
 
 ## 1. 冻结边界与建立回归
 
@@ -37,7 +37,8 @@
 
 - [x] 把 watcher 的 `WindowRuntimeId` 状态和 adapter 调用改为 V2 target binding；保留 worker、terminal evidence、RootWait、ack 和 hash 复核。
 - [x] 保证 watcher 不调用模型、不写 Codex composer、不依赖 Stop Hook；旧 Stop Hook 文件不注册为活动路径，也不作为 fallback。
-- [x] 用自动化回归覆盖任务切换不改变 target binding、Chrome 非活动标签、目标标签关闭后 exact URL 恢复和超时 no-resend；真实切换仍待 E2E。
+- [x] 用自动化回归覆盖任务切换不改变 target binding、Chrome 非活动标签、目标标签关闭后 exact URL 恢复和超时 no-resend；真实任务与应用切换 E2E 已通过。
+- [x] 增加单一 `run-root` 命令，把一次 `send`、立即启动 watcher 与本地 RootWait 合并在一个工具调用中；保留拆分命令仅用于已有 post-send evidence 的恢复/诊断。
 
 ## 4. 收紧 Harness 与 CCG 合同
 
@@ -89,28 +90,34 @@ pnpm --dir components\ccg-workflow test -- gptproBridge
 node scripts\harness-adapter.mjs conflicts
 ```
 
-- [x] 再运行仓库要求的 `pnpm harness:test`、`pnpm doctor`、`pnpm verify:sources`、`pnpm ccg:lint`、`pnpm ccg:typecheck`、`pnpm ccg:test`、`pnpm ccg:build`；live-fix 后另跑 Pester 224/224、Harness Node 31/31 与 conflicts 0 blocking/0 warning。
+- [ ] 上游与 Harness 快照同步后，重跑仓库要求的 `pnpm harness:test`、`pnpm doctor`、`pnpm verify:sources`、`pnpm ccg:lint`、`pnpm ccg:typecheck`、`pnpm ccg:test`、`pnpm ccg:build`；RootWait live-fix 已通过 Pester 234/234、Harness Node 31/31 与 conflicts 0 blocking/0 warning。
 - [x] 检查 diff，并以暂存区独立 worktree 验证；旧 Stop Hook 线程映射、Codex provider/Grok 规格和其他任务改动均保留在工作树但排除出本提交。
+- [x] Phase 3.3 规格判断：RootWait 原子命令、生成态归一化与虚拟化 turn 后缀属于活动传输合同，已同步更新 `chatgpt-pro-agent-browser-v2.md`；无需修改其他层规格。
 
 ### 真实 E2E（需要 Boss 保持已登录 Chrome，可随时终止）
 
 - [x] 能力门禁：唯一 Profile/标签 live 成功；重复 exact URL、未登录、MFA/CAPTCHA、权限挑战由自动化 fixture 验证零发送。
 - [x] 首页 fresh round：一次 fill、一次 click、同一发送标签获得 canonical URL、唯一新 assistant 回复、hash 稳定。
 - [x] no-resend：真实 composer 回读失败发生在 click 前；真实 click 后断连进入 `send-uncertain` 并只观察恢复；重复幂等键由回归确认零次第二 click。
-- [ ] 后台：目标标签非活动，Boss 切换 Codex 任务并使用其他应用，watcher 仍在超时内完成。
+- [x] 后台：目标标签非活动，Boss 切换 Codex 任务并使用其他应用，watcher 仍在超时内完成。
 - [x] 恢复：关闭目标标签或重启 Chrome 后，以同一持久 Profile + exact URL 在后台重开并继续观察，不重新发送；至少保留一个连接的普通页面，最后页面关闭时明确 fail closed。
 - [x] 焦点：已记录 status/open/fill/click/watcher 前后前台窗口；产品路径未改变前台窗口，测试辅助启动最后一个 Chrome 窗口不属于产品恢复能力。
 - [x] RootWait：同一 root turn 对已完成真实发送证据做隔离回放，独立核对 thread/watcher/prompt-response-evidence hash/URL/response 后只写一次 matching ack；回放没有发送或修改 prompt。
+- [x] 原子长任务 E2E：使用新 evidence 目录与新幂等键，在一个 `run-root` 调用内发送、启动 watcher、等待终态；完成后独立复核并 acknowledgement。
 
 ### Live evidence 说明
 
 - 真实发送证据位于忽略目录 `live-e2e-20260807-061129-retry2/evidence`；一次 click 后进入 `send-uncertain`，随后仅观察恢复并得到两行稳定回复。
 - RootWait 回放终态位于忽略目录 `live-e2e-20260807-061129-rootwait-replay7/evidence`；`terminalStatus=completed`、两次稳定 status、一次 finalize、零模型轮询、一次 matching ack。
 - 回放发现并修复两项真实缺陷：watcher 等待 daemon 继承 stdout EOF，以及普通 `tabs` 截断长 URL 后误报会话漂移。
-- “Boss 在同一等待窗口内切换 Codex 任务并继续使用其他应用”尚未做专项 live smoke，因此对应清单继续保持开放，不以架构推断代替实测。
+- 任务/应用切换专项 live smoke 位于忽略目录 `live-e2e-20260807-061129-task-switch-confirmed-retry3/evidence`；Boss 确认在约 75 秒窗口内切换到另一 Codex 会话并使用其他软件，watcher 完成 10 次探测、0 次失败，`terminalStatus=completed`、`pollingConsumesModelTokens=false`，四个 evidence hash 匹配并只写一次 matching acknowledgement。
+- 失败的组合长任务证据位于忽略目录 `live-e2e-20260807-long-10m/evidence`：发送发生于 `2026-08-07T18:38:47Z`，watcher 直到约 13 分钟后才启动，只观察到已完成回复；RootWait 未实际运行，因此没有 acknowledgement。该证据只作为根因记录，不计为通过。
+- 原子 v2 证据位于忽略目录 `live-e2e-20260807-atomic-rootwait-long-v2/evidence`：发送后约 0.23 秒启动 watcher，但正常 `GenerationAlreadyActive` 被误计为探测失败；同一 evidence 后续只观察恢复，零重发。
+- 原子 v3 证据位于忽略目录 `live-e2e-20260807-atomic-rootwait-long-v3/evidence`：54 次探测连续观察约 10 分钟生成，0 次探测失败；ChatGPT DOM 卸载旧 turn 前缀导致 finalize `ResponseBaselineMismatch`。同一 evidence 经 hash 后缀修复只观察恢复，零重发。
+- 最终通过证据位于忽略目录 `live-e2e-20260807-atomic-rootwait-long-v4/evidence`：一次 `run-root` 阻塞约 7 分 29 秒，`submittedExactlyOnce=true`、发送到 watcher 创建/启动约 0.28/0.36 秒、35 次探测（33 次生成中、2 次稳定停止、0 失败）、`terminalStatus=completed`；prompt/response/URL/evidence 四个 SHA-256 独立匹配，exact URL、thread/watcher 绑定一致，末行 marker 匹配，复核后只写一次 `codex-root-wait-reviewed` acknowledgement。
 
 ## 7. 回退点
 
 - [x] V2 变更保持为可单独回退的提交范围；失败时用 Git 恢复旧实现，不生成 `.legacy` 副本。
 - [x] 回退不得删除任何 evidence、canonical URL 或幂等预约；`send-uncertain` 继续禁止重发。
-- [ ] 若真实 E2E 证明 CLI 必然抢焦点或后台标签不可在合同超时内观察，停止交付并报告实测限制，不启用 UIA fallback。
+- [x] 真实 E2E 未发现 CLI 必然抢焦点或后台标签超时限制；继续交付且不启用 UIA fallback。

@@ -40,6 +40,7 @@
 - watcher 只观察精确绑定标签中的新 assistant turn；切换 Codex 任务或使用其他应用时仍应继续工作。
 - 新回复必须相对发送前 baseline 唯一出现、生成已停止，并在连续轮询中保持同一规范化内容；旧回复、生成中内容、被中断内容和页面控件文本都不得成为完成证据。
 - root task 通过同一 turn 的 RootWait 等待本地终态，随后独立复核 thread/watcher/hash/URL/response 绑定并写入匹配 acknowledgement。
+- 新 round 必须用一个原子 RootWait 命令完成一次发送、立即启动 watcher 与本地等待；不得在三个动作之间返回模型回合。
 - 默认不抢焦点。若任何输入/发送动作在实际 Chrome 中会抢焦点，live smoke 必须如实报告，不能把文档推断当作后台安全证明。
 - live smoke 必须让目标标签保持后台/非活动状态，验证 Chrome 节流不会让 watcher 在合同超时内失效；未通过时不得宣称支持后台等待。
 
@@ -63,9 +64,10 @@
 - [x] 从 `https://chatgpt.com/` 可发送一条唯一测试请求，且发送动作证明为一次；获得 exact conversation URL 后写入不可漂移绑定。
 - [x] 首页到 `/c/<id>` 的绑定发生在同一发送标签；Chrome 重启后的临时 browser/tab/session 标识只在相同持久 Profile 与 exact URL 均有证明时重绑。
 - [x] composer 回读、发送确认或 URL 绑定任一不确定时进入失败或 `send-uncertain`，重复执行使用同一幂等键时零重发。
-- [ ] watcher 在 Boss 切换到另一个 Codex 任务并使用其他应用期间继续观察同一 Chrome 标签，不要求原 Codex 顶层窗口保持活动。
+- [x] watcher 在 Boss 切换到另一个 Codex 任务并使用其他应用期间继续观察同一 Chrome 标签，不要求原 Codex 顶层窗口保持活动。
 - [x] 目标 Chrome 标签保持非活动状态时，watcher 仍能在合同超时内识别唯一且稳定的新 assistant turn；生成中或中断状态不会提前完成。
 - [x] terminal evidence 包含匹配的 thread、watcher、prompt/response hash、canonical URL 与稳定的新 assistant turn；RootWait 复核后只写一次匹配 acknowledgement。
+- [x] 原子 RootWait 命令在同一工具调用内完成 `send -> watcher start -> local wait`，发送后 watcher 启动无模型回合空窗，并通过新的长任务 E2E。
 - [x] 关闭目标标签或重启 Chrome 后，仅在相同 Profile、已持久绑定 exact URL 且至少一个普通页面仍连接时恢复；最后一个普通页面关闭或身份不确定时 fail closed。
 - [x] live smoke 分别记录 `open`、composer 输入、发送与 watcher 阶段的焦点行为；产品路径未请求焦点，最后窗口关闭后的测试辅助启动不计入产品恢复能力。
 - [x] 现有 transport-independent 单元/集成测试继续通过，并新增最小的 agent-browser CLI child-process/JSON 合同、exact-once、response isolation、RootWait 与 Harness import 回归测试。

@@ -91,6 +91,10 @@ BeforeAll {
 }
 
 Describe 'Watcher binding validation' {
+    It 'reads ordered command results without dropping their fields' {
+        Get-WatchProperty ([ordered]@{ started = $true }) 'started' $false | Should -BeTrue
+    }
+
     It 'accepts a UUID thread id and rejects ambiguous values' {
         Test-WatchThreadId -Value $script:ThreadId | Should -BeTrue
         Test-WatchThreadId -Value 'last' | Should -BeFalse
@@ -248,6 +252,178 @@ $child = [System.Diagnostics.Process]::Start($startInfo)
                 Stop-Process -Id $childPid -Force -ErrorAction SilentlyContinue
             }
         }
+    }
+
+    It 'treats the adapter generation-active status as a successful watcher observation' {
+        Mock Invoke-WatchAdapterProcess {
+            [pscustomobject]@{
+                ExitCode = 24
+                Payload = [pscustomobject]@{
+                    ok = $false
+                    category = 'GenerationAlreadyActive'
+                    details = [pscustomobject]@{
+                        ok = $true
+                        command = 'status'
+                        generating = $true
+                        url = $script:BoundUrl
+                        urlExact = $true
+                        targetBinding = New-TestTargetBinding
+                    }
+                }
+            }
+        }
+
+        $result = Invoke-WatchAdapterStatus -AdapterPath 'adapter.ps1' -TargetBinding (New-TestTargetBinding)
+
+        $result.ExitCode | Should -Be 0
+        $result.Payload.generating | Should -BeTrue
+        $result.Payload.url | Should -Be $script:BoundUrl
+    }
+
+    It 'does not normalize malformed generation-active error details' {
+        Mock Invoke-WatchAdapterProcess {
+            [pscustomobject]@{
+                ExitCode = 24
+                Payload = [pscustomobject]@{
+                    ok = $false
+                    category = 'GenerationAlreadyActive'
+                    details = [pscustomobject]@{ ok = $true; command = 'status'; generating = $false }
+                }
+            }
+        }
+
+        $result = Invoke-WatchAdapterStatus -AdapterPath 'adapter.ps1' -TargetBinding (New-TestTargetBinding)
+
+        $result.ExitCode | Should -Be 24
+        $result.Payload.category | Should -Be 'GenerationAlreadyActive'
+    }
+}
+
+Describe 'Atomic RootWait round' {
+    BeforeEach {
+        $script:roundDirectory = Join-Path $TestDrive ('run-root-' + [guid]::NewGuid().ToString('N'))
+        $null = New-Item -ItemType Directory -Path $script:roundDirectory -Force
+        $script:roundPrompt = Join-Path $script:roundDirectory 'request.md'
+        [System.IO.File]::WriteAllText($script:roundPrompt, 'bounded request', [System.Text.UTF8Encoding]::new($false))
+        $script:roundOrder = [System.Collections.ArrayList]::new()
+
+        Mock Get-WatchAdapterPath { 'adapter.ps1' }
+        Mock Get-WatchEvidenceBinding {
+            $null = $script:roundOrder.Add('binding')
+            [pscustomobject]@{ Phase = 'sent' }
+        }
+        Mock Start-WatchProcess {
+            $null = $script:roundOrder.Add('start')
+            [pscustomobject]@{ started = $true; reused = $false }
+        }
+        Mock Wait-RootWatchEvent {
+            $null = $script:roundOrder.Add('wait')
+            [pscustomobject]@{
+                watcherId = 'watcher-1'
+                codexThreadId = $script:ThreadId
+                terminalStatus = 'completed'
+                eventFile = $Script:EventFileName
+            }
+        }
+    }
+
+    It 'forwards one bounded send request to the adapter' {
+        $script:adapterArguments = $null
+        Mock Invoke-WatchAdapterProcess {
+            param($Arguments, $ProcessTimeoutSeconds)
+            $script:adapterArguments = @($Arguments)
+            [pscustomobject]@{ ExitCode = 0; Payload = [pscustomobject]@{ ok = $true } }
+        }
+
+        $null = Invoke-WatchAdapterSend `
+            -AdapterPath 'adapter.ps1' `
+            -PromptFile $script:roundPrompt `
+            -EvidenceDirectory $script:roundDirectory `
+            -IdempotencyKeyValue 'atomic-root-round-forward' `
+            -RequireFreshConversation
+
+        $script:adapterArguments | Should -Contain 'send'
+        $script:adapterArguments | Should -Contain '-PromptPath'
+        $script:adapterArguments | Should -Contain $script:roundPrompt
+        $script:adapterArguments | Should -Contain '-IdempotencyKey'
+        $script:adapterArguments | Should -Contain 'atomic-root-round-forward'
+        $script:adapterArguments | Should -Contain '-FreshConversation'
+        Should -Invoke Invoke-WatchAdapterProcess -Times 1 -Exactly -ParameterFilter {
+            $ProcessTimeoutSeconds -eq 600
+        }
+    }
+
+    It 'sends, starts the watcher, and waits in one ordered command' {
+        Mock Invoke-WatchAdapterSend {
+            $null = $script:roundOrder.Add('send')
+            [pscustomobject]@{
+                ExitCode = 0
+                Payload = [pscustomobject]@{
+                    ok = $true
+                    submittedExactlyOnce = $true
+                    sendActionInvokedOnce = $true
+                    submissionAcknowledged = $true
+                }
+            }
+        }
+
+        $result = Invoke-RootWaitRound `
+            -EvidenceDirectory $script:roundDirectory `
+            -ThreadId $script:ThreadId `
+            -PromptFile $script:roundPrompt `
+            -IdempotencyKeyValue 'atomic-root-round-1'
+
+        @($script:roundOrder) | Should -Be @('send', 'binding', 'start', 'wait')
+        $result.command | Should -Be 'run-root'
+        $result.terminalStatus | Should -Be 'completed'
+        $result.submittedExactlyOnce | Should -BeTrue
+        $result.acknowledgementPending | Should -BeTrue
+        $result.pollingConsumesModelTokens | Should -BeFalse
+        Should -Invoke Invoke-WatchAdapterSend -Times 1 -Exactly
+        Should -Invoke Start-WatchProcess -Times 1 -Exactly
+        Should -Invoke Wait-RootWatchEvent -Times 1 -Exactly
+    }
+
+    It 'continues observation when the adapter process fails after waitable evidence exists' {
+        Mock Invoke-WatchAdapterSend {
+            $null = $script:roundOrder.Add('send')
+            throw 'adapter process ended after the click boundary'
+        }
+        Mock Get-WatchEvidenceBinding {
+            $null = $script:roundOrder.Add('binding')
+            [pscustomobject]@{ Phase = 'send-uncertain' }
+        }
+
+        $result = Invoke-RootWaitRound `
+            -EvidenceDirectory $script:roundDirectory `
+            -ThreadId $script:ThreadId `
+            -PromptFile $script:roundPrompt `
+            -IdempotencyKeyValue 'atomic-root-round-2'
+
+        @($script:roundOrder) | Should -Be @('send', 'binding', 'start', 'wait')
+        $result.evidencePhaseAtStart | Should -Be 'send-uncertain'
+        $result.sendFailure | Should -Match 'after the click boundary'
+        Should -Invoke Start-WatchProcess -Times 1 -Exactly
+    }
+
+    It 'does not start a watcher when send has no waitable post-send evidence' {
+        Mock Invoke-WatchAdapterSend {
+            [pscustomobject]@{
+                ExitCode = 23
+                Payload = [pscustomobject]@{ ok = $false; message = 'composer unavailable' }
+            }
+        }
+        Mock Get-WatchEvidenceBinding { throw 'current phase is pre-invoke-failed' }
+
+        {
+            Invoke-RootWaitRound `
+                -EvidenceDirectory $script:roundDirectory `
+                -ThreadId $script:ThreadId `
+                -PromptFile $script:roundPrompt `
+                -IdempotencyKeyValue 'atomic-root-round-3'
+        } | Should -Throw '*composer unavailable*'
+        Should -Invoke Start-WatchProcess -Times 0 -Exactly
+        Should -Invoke Wait-RootWatchEvent -Times 0 -Exactly
     }
 }
 
