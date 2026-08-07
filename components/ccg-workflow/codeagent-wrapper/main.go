@@ -467,7 +467,11 @@ func run() (exitCode int) {
 	// Print startup information to stderr
 	fmt.Fprintf(os.Stderr, "[%s]\n", name)
 	fmt.Fprintf(os.Stderr, "  Backend: %s\n", cfg.Backend)
-	fmt.Fprintf(os.Stderr, "  Command: %s %s\n", codexCommand, strings.Join(codexArgs, " "))
+	if len(cfg.GrokReviewTargets) > 0 {
+		fmt.Fprintf(os.Stderr, "  Command: %s <isolated review snapshot prepared at execution>\n", codexCommand)
+	} else {
+		fmt.Fprintf(os.Stderr, "  Command: %s %s\n", codexCommand, strings.Join(codexArgs, " "))
+	}
 	fmt.Fprintf(os.Stderr, "  PID: %d\n", os.Getpid())
 	fmt.Fprintf(os.Stderr, "  Log: %s\n", logger.Path())
 
@@ -518,6 +522,7 @@ func run() (exitCode int) {
 		GeminiModel:       cfg.GeminiModel,
 		GrokModel:         cfg.GrokModel,
 		GrokReviewTargets: cfg.GrokReviewTargets,
+		AntigravityReview: cfg.AntigravityReview,
 	}
 
 	result := runTaskFn(taskSpec, false, cfg.Timeout)
@@ -616,10 +621,11 @@ Options:
                           Can also be set via GROK_MODEL environment variable
                           CLI parameter takes precedence over environment variable
                           Examples: grok-4.5, grok-composer-2.5-fast
-    --grok-review-target <path>
-                          Require completed local-read evidence for this review file
-                          Repeat once per workspace-relative regular file
-    --progress            Emit compact progress lines to stderr during execution
+	    --grok-review-target <path>
+	                          Embed this exact file in a fresh tool-less Grok review
+	                          Repeat once per workspace-relative regular file
+	    --antigravity-review  Run Antigravity in sandboxed plan mode for local review
+	    --progress            Emit compact progress lines to stderr during execution
 
 Environment Variables:
     CODEX_TIMEOUT              Timeout in milliseconds (default: 7200000)

@@ -28,7 +28,21 @@ ccg routing set <role> <provider>
 ```
 
 The registered providers are `codex`, `gemini`, `claude`, `antigravity`,
-`grok`, and `pi`. Route only to an existing registered provider. Codex remains the
+`grok`, and `pi`. Registration does not imply that every role can use every
+provider:
+
+| Role | Allowed providers |
+| --- | --- |
+| `frontend` | `codex`, `gemini`, `antigravity`, `grok`, `pi` |
+| `backend` | `codex`, `gemini`, `antigravity`, `grok`, `pi` |
+| `search` | `codex`, `grok` |
+| `product-manager` | `codex`, `gemini`, `claude` |
+
+Use `ccg wrapper --backend <provider> ...` for managed Antigravity, Grok, or
+Pi delegation. The launcher keeps the wrapper Web UI enabled unless `--lite`
+is explicit. Direct Codex and Gemini wrapper invocations are also accepted but
+do not change role routing; ordinary Claude is always rejected. Claude remains
+restricted to the read-only product-manager contract. Codex remains the
 orchestrator, sole real-workspace writer, final verifier, and delivery owner
 regardless of the selected role provider.
 

@@ -147,7 +147,14 @@ func buildAntigravityArgs(cfg *Config, targetArg string) []string {
 
 	var args []string
 
-	if cfg.SkipPermissions {
+	if cfg.AntigravityReview {
+		args = append(args,
+			"--sandbox",
+			"--mode", "plan",
+			"--dangerously-skip-permissions",
+			"--disable-slash-commands",
+		)
+	} else if cfg.SkipPermissions {
 		args = append(args, "--dangerously-skip-permissions")
 	}
 
@@ -224,7 +231,7 @@ func buildGrokArgs(cfg *Config, targetArg string) []string {
 		args = append(args, "-m", model)
 	}
 
-	if cfg.Mode == "resume" && cfg.SessionID != "" {
+	if cfg.Mode == "resume" && cfg.SessionID != "" && len(cfg.GrokReviewTargets) == 0 {
 		args = append(args, "-r", cfg.SessionID)
 	}
 

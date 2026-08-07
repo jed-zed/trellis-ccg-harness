@@ -13,9 +13,11 @@ Load and follow `skills/ccg-gptpro-bridge/SKILL.md`.
 ## Behavior
 
 - Gather review input: plan, diff, touched files, test summary, or user-provided target.
-- Before ordinary review or any Gemini or GPT Pro handoff, write the bounded subject and run
+- For a pure local code review, do not run Grok external-intelligence or apply an official-domain
+  gate. Only when a conclusion depends on a current external fact, predeclare its authoritative
+  domain, write the bounded subject, and run
   `ccg route --workflow gptpro-review --phase final-verify --task-file <request-file> --state-file <state-file> --trigger final_diff_verify --plan <plan> --diff <diff> --dependency <lockfile>`.
-  Let the current orchestrator inherit or re-evaluate whether external verification is required. When required, bind it to
+  Add repeated `--official-domain <domain>` chosen before Grok runs. Bind the external verification to
   the exact plan, diff, dependency locks, and test summary; require its canonical artifact, manifest,
   hashes, and active-task pointer. Exit `2`, `3`, or `4` stops the workflow, and raw Grok output is
   never embedded in the GPT Pro prompt.
@@ -47,7 +49,7 @@ Load and follow `skills/ccg-gptpro-bridge/SKILL.md`.
 - Delegate, monitor, wake, and import through the installed `chatgpt-pro-sidebar` Skill exactly as defined by the shared bridge Skill.
 - After the sidebar response import succeeds, classify Critical/Major/Minor findings, false positives, required tests,
   and Codex actions.
-- Report in Chinese and synthesize validated Grok external intelligence, ordinary review evidence,
+- Report in Chinese and synthesize validated Grok external intelligence when that external-fact path ran, ordinary review evidence,
   optional Gemini evidence when present, and GPT Pro findings.
 - The current CCG orchestrator remains final owner.
 - Do not automate ChatGPT web login.

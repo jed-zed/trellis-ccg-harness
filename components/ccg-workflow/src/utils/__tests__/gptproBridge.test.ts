@@ -630,17 +630,17 @@ describe('GPT Pro sidebar bridge', () => {
     }
   })
 
-  it('keeps Grok evidence ahead of ordinary GPT Pro workflow routing on every surface', () => {
+  it('keeps conditional Grok evidence ahead of ordinary GPT Pro workflow routing on every surface', () => {
     const surfaces = [
       ['templates/commands/gptpro-plan.md', 'Run the Grok intelligence decision', 'Then run ordinary `/ccg:plan`'],
       ['templates/commands/gptpro-exc.md', 'Run the Grok intelligence decision', 'Then run ordinary'],
-      ['templates/commands/gptpro-review.md', 'Run `/ccg:grok-verify`', 'Then run ordinary `/ccg:review`'],
+      ['templates/commands/gptpro-review.md', 'Only when a conclusion depends on a current external fact', 'Then run ordinary `/ccg:review`'],
       ['plugins/ccg/commands/gptpro-plan.md', 'Run the Grok intelligence decision', 'Then run ordinary `/ccg:plan`'],
       ['plugins/ccg/commands/gptpro-exc.md', 'Run the Grok intelligence decision', 'Then run ordinary'],
-      ['plugins/ccg/commands/gptpro-review.md', 'Run `/ccg:grok-verify`', 'Then run ordinary `/ccg:review`'],
+      ['plugins/ccg/commands/gptpro-review.md', 'Only when a conclusion depends on a current external fact', 'Then run ordinary `/ccg:review`'],
       ['plugins/ccg/skills/ccg-gptpro-plan/SKILL.md', 'Before ordinary planning', 'Run ordinary `/ccg:plan`'],
       ['plugins/ccg/skills/ccg-gptpro-exc/SKILL.md', 'Before ordinary execution', 'Preserve the current CCG orchestrator'],
-      ['plugins/ccg/skills/ccg-gptpro-review/SKILL.md', 'Before ordinary review', 'Run ordinary `/ccg:review`'],
+      ['plugins/ccg/skills/ccg-gptpro-review/SKILL.md', 'Only when a conclusion depends on a current external fact', 'Run ordinary `/ccg:review`'],
     ] as const
 
     for (const [relativePath, grokMarker, ordinaryMarker] of surfaces) {

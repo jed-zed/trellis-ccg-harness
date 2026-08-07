@@ -8,9 +8,11 @@ import type { ModelRouting, ModelType } from '../types'
 import type { ProductManagerProvider } from '../product-manager/contracts'
 import { STANDARD_ROUTING_ROLES } from '../types'
 import { IMPLEMENTED_PRODUCT_MANAGER_PROVIDERS } from '../product-manager/provider-registry'
+import { resolveClaudeExecutable, resolveGeminiEntrypoint } from './product-manager'
 import { readCcgConfig, readCcgConfigAt } from '../utils/config'
 import { resolveCodexHome, validateOwnershipManifest } from '../utils/codex-mode'
 import { EXPECTED_BINARY_VERSION, verifyBinaryVersion } from '../utils/installer'
+import { createDefaultRoleRouting, isRoutingRole } from '../utils/model-routing'
 import { assertManagedPath } from '../utils/managed-path'
 import { PACKAGE_ROOT } from '../utils/installer-template'
 import { version as packageVersion } from '../../package.json'
@@ -83,6 +85,19 @@ export function routingStatusRows(routing?: Partial<ModelRouting>): Array<{ role
     role,
     provider: routing?.[role]?.primary || '—',
   }))
+}
+
+export function providerCliCommand(provider: ModelType): string | null {
+  return ({
+    gemini: 'gemini',
+    antigravity: 'agy',
+    grok: 'grok',
+    pi: 'pi',
+  } as Partial<Record<ModelType, string>>)[provider] ?? null
+}
+
+function commandAvailable(command: string): boolean {
+  return execFileSafe(process.platform === 'win32' ? 'where.exe' : 'which', [command]) !== null
 }
 
 export function buildGrokDoctorArguments(options: DoctorOptions, intelligence?: Partial<NonNullable<Awaited<ReturnType<typeof readCcgConfig>>>['intelligence']>): string[] {
@@ -253,7 +268,13 @@ async function inspectCodexOwnership(
     }
   }
 
-  for (const requiredPath of ['.ccg-version', 'ccg/config.toml', 'hooks/ccg-workflow.py']) {
+  const wrapperName = process.platform === 'win32' ? 'codeagent-wrapper.exe' : 'codeagent-wrapper'
+  for (const requiredPath of [
+    '.ccg-version',
+    'ccg/config.toml',
+    `ccg/bin/${wrapperName}`,
+    'hooks/ccg-workflow.py',
+  ]) {
     if (!managedPaths.has(requiredPath))
       issues.push(`ownership missing required path: ${requiredPath}`)
   }
@@ -328,6 +349,20 @@ async function doctorCodex(): Promise<DoctorResult> {
     detail: ownership.detail,
   })
 
+  const wrapperName = process.platform === 'win32' ? 'codeagent-wrapper.exe' : 'codeagent-wrapper'
+  const wrapperPath = join(codexHome, 'ccg', 'bin', wrapperName)
+  const wrapperExists = await fileExists(wrapperPath)
+  const wrapperValid = wrapperExists && await verifyBinaryVersion(join(codexHome, 'ccg'))
+  checks.push({
+    label: 'Codex wrapper',
+    status: wrapperValid ? OK : FAIL,
+    detail: wrapperValid
+      ? `Pinned SHA-256 and version v${EXPECTED_BINARY_VERSION} verified`
+      : wrapperExists
+        ? `Pinned SHA-256 or version check failed (expected v${EXPECTED_BINARY_VERSION})`
+        : `Not found (${wrapperPath})`,
+  })
+
   const transactionPath = join(codexHome, '.ccg', 'transaction.json')
   const hasPendingTransaction = await fileExists(transactionPath)
   checks.push({
@@ -360,13 +395,45 @@ async function doctorCodex(): Promise<DoctorResult> {
     productManagerProvider
     && IMPLEMENTED_PRODUCT_MANAGER_PROVIDERS.includes(productManagerProvider as ProductManagerProvider),
   )
+  const productManagerRuntime = productManagerProvider === 'claude'
+    ? Boolean(resolveClaudeExecutable())
+    : productManagerProvider === 'gemini'
+      ? Boolean(resolveGeminiEntrypoint())
+      : productManagerProvider === 'codex'
   checks.push({
     label: 'Product manager route',
-    status: productManagerImplemented ? OK : FAIL,
+    status: productManagerImplemented && productManagerRuntime ? OK : FAIL,
     detail: productManagerProvider
-      ? `${productManagerProvider}${productManagerImplemented ? '; read-only adapter implemented' : '; adapter unavailable, no fallback'}`
+      ? `${productManagerProvider}${
+        !productManagerImplemented
+          ? '; adapter unavailable, no fallback'
+          : productManagerRuntime
+            ? '; read-only adapter and runtime available'
+            : '; selected runtime unavailable, no fallback'
+      }`
       : 'No unified product-manager route',
   })
+
+  const routedProviders = new Set<ModelType>(
+    STANDARD_ROUTING_ROLES
+      .filter(role => role !== 'product-manager')
+      .flatMap((role) => {
+        const route = codexConfig?.routing?.[role]
+        return [route?.primary, ...(route?.models || [])]
+      })
+      .filter((provider): provider is ModelType => Boolean(provider)),
+  )
+  for (const provider of routedProviders) {
+    const command = providerCliCommand(provider)
+    if (!command)
+      continue
+    const available = commandAvailable(command)
+    checks.push({
+      label: `Provider CLI (${provider})`,
+      status: available ? OK : FAIL,
+      detail: available ? `${command} available on PATH` : `${command} not found; selected route cannot execute`,
+    })
+  }
 
   console.log()
   console.log(ansis.cyan.bold(`  CCG Doctor (Codex) v${packageVersion}`))
@@ -380,9 +447,13 @@ async function doctorCodex(): Promise<DoctorResult> {
     console.log(ansis.green('  All Codex checks passed.'))
   }
   else {
+    const invalidRole = routingError?.match(/not supported for role ([a-z-]+);/u)?.[1]
+    const routingRepair = invalidRole && isRoutingRole(invalidRole)
+      ? `ccg routing set ${invalidRole} ${createDefaultRoleRouting()[invalidRole].primary}`
+      : null
     const repairCommand = hasPendingTransaction
       ? 'ccg codex-mode recover'
-      : 'ccg codex-mode install'
+      : routingRepair || 'ccg codex-mode install'
     console.log(ansis.red(`  ${failures.length} issue(s) found. Run ${ansis.cyan(repairCommand)}, then rerun this check.`))
   }
   console.log()

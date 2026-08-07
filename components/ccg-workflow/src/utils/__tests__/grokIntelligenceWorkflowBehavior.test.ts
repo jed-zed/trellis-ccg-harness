@@ -236,6 +236,7 @@ describe('Grok workflow routing behavior', () => {
       phase,
       trigger,
       ...(trigger === 'final_diff_verify' ? { diff } : {}),
+      ...(trigger === 'final_diff_verify' ? { officialDomains: ['docs.x.ai'] } : {}),
       task: 'Use the latest SDK API contract in this workflow.',
       stateFile,
     }, {
@@ -295,6 +296,7 @@ describe('Grok workflow routing behavior', () => {
       phase: 'final-verify',
       trigger: 'final_diff_verify',
       diff,
+      officialDomains: ['docs.x.ai'],
     }, runtime)).toMatchObject({ invoked: true, phase: 'final-verify' })
     await fs.writeFile(diff, 'diff-v2')
     expect(await (routeRuntime as any).runWorkflowRoute({
@@ -302,6 +304,7 @@ describe('Grok workflow routing behavior', () => {
       phase: 'final-verify',
       trigger: 'final_diff_verify',
       diff,
+      officialDomains: ['docs.x.ai'],
     }, runtime)).toMatchObject({ invoked: true })
     expect(invocations).toHaveLength(7)
   })

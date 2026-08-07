@@ -108,13 +108,13 @@ describe('Codex-native CCG route CLI', () => {
       'strategy = "fallback"',
       '',
       '[routing.backend]',
-      'models = ["codex"]',
-      'primary = "codex"',
+      'models = ["claude"]',
+      'primary = "claude"',
       'strategy = "fallback"',
       '',
       '[routing.search]',
-      'models = ["grok"]',
-      'primary = "grok"',
+      'models = ["antigravity"]',
+      'primary = "antigravity"',
       'strategy = "fallback"',
       '',
       '[routing.product-manager]',
@@ -145,10 +145,19 @@ describe('Codex-native CCG route CLI', () => {
       },
     )
 
-    const changed = run(['routing', 'set', 'frontend', 'claude'])
+    const repaired = run(['routing', 'set', 'search', 'grok'])
+    expect(repaired.status, repaired.stderr).toBe(0)
+    let document = parse(await readFile(configPath, 'utf8')) as any
+    expect(document.routing.search.primary).toBe('grok')
+    expect(document.routing.backend.primary).toBe('claude')
+
+    const repairedBackend = run(['routing', 'set', 'backend', 'codex'])
+    expect(repairedBackend.status, repairedBackend.stderr).toBe(0)
+
+    const changed = run(['routing', 'set', 'frontend', 'antigravity'])
     expect(changed.status, changed.stderr).toBe(0)
-    const document = parse(await readFile(configPath, 'utf8')) as any
-    expect(document.routing.frontend.primary).toBe('claude')
+    document = parse(await readFile(configPath, 'utf8')) as any
+    expect(document.routing.frontend.primary).toBe('antigravity')
     expect(document.routing.backend.primary).toBe('codex')
     expect(document.routing.search.primary).toBe('grok')
     expect(document.routing['product-manager'].primary).toBe('claude')
@@ -160,7 +169,7 @@ describe('Codex-native CCG route CLI', () => {
     expect(getResult.status, getResult.stderr).toBe(0)
     expect(JSON.parse(getResult.stdout)).toEqual({
       role: 'frontend',
-      provider: 'claude',
+      provider: 'antigravity',
     })
     expect(await fs.pathExists(join(home, '.claude'))).toBe(false)
   })

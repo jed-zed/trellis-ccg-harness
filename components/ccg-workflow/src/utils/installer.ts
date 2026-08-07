@@ -73,16 +73,16 @@ export const BINARY_INSTALL_FAILURE_POLICY = 'fatal' as const
 /**
  * Trusted digests published by the authoritative personal fork's `preset`
  * release. A candidate must match before it is made executable or started.
- * Generated from byte-identical Go 1.21.13 builds with CGO disabled and the
- * release workflow's `-buildvcs=false -trimpath -ldflags="-s -w"` settings.
+ * Generated from the authoritative GitHub Actions LF checkout with Go 1.21.13,
+ * CGO disabled, and `-buildvcs=false -trimpath -ldflags="-s -w"`.
  */
 export const EXPECTED_BINARY_SHA256: Readonly<Record<string, string>> = Object.freeze({
-  'codeagent-wrapper-darwin-amd64': '599b9a97eb477e2712422148b2835c9269bd0a5ae90a7acdba7ead4c1b22e3bc',
-  'codeagent-wrapper-darwin-arm64': 'ea8f8eac05091c07fed982bcb87d0114883434455b771363b886f2436407d78b',
-  'codeagent-wrapper-linux-amd64': '9f31ebcea0f6d811b6980d35ca83563ad8399d29ab03a57d3af3bc720cf97066',
-  'codeagent-wrapper-linux-arm64': '69e968a4339e492706c3a7d869ee9a5faeab93f932b9be57ff82d6b521f51ca9',
-  'codeagent-wrapper-windows-amd64.exe': 'e301afa3a2ba157f050a29e10b1baccf7f682664e446feea7b97cf78ba576e16',
-  'codeagent-wrapper-windows-arm64.exe': '82bd9e0ba8340ee83a52e4203c9ed4ad4b9fa8bd9d0d2bf8df0d7dff598001de',
+  'codeagent-wrapper-darwin-amd64': '79e9d2354895215e9e41d60380c308517003256e782b6344e14487c36f989474',
+  'codeagent-wrapper-darwin-arm64': 'ed29f2903dda738dccd8f8d605756c093eaefbd08fbc7ba5f075dfe5e318347d',
+  'codeagent-wrapper-linux-amd64': 'e5a60e743f1b89724c99f68b962dc92bf61114ac6ae161eba5337d9da7e1a3c8',
+  'codeagent-wrapper-linux-arm64': '1c00bbd536d5acdde2434f3042b1248611b6c09b8a119378f9c7864329b31a6f',
+  'codeagent-wrapper-windows-amd64.exe': '7baa030a1866958f13fb4a75007937bd5f901e666390ce5e5e5a9eb8fc8d1c28',
+  'codeagent-wrapper-windows-arm64.exe': 'dfaeaf476eaa8cda9db1a5d01358a11d596d13e3dbb63efb3e6f7cff7db7bcd5',
 })
 
 // ═══════════════════════════════════════════════════════
@@ -749,7 +749,10 @@ export function showBinaryInstallFailure(binDir: string): void {
   console.log()
 }
 
-function recordFatalBinaryFailure(ctx: InstallContext, message: string): void {
+function recordFatalBinaryFailure(
+  ctx: Pick<InstallContext, 'result'>,
+  message: string,
+): void {
   ctx.result.binInstalled = false
   ctx.result.success = false
   ctx.result.errors.push(`Fatal codeagent-wrapper installation failure: ${message}`)
@@ -759,7 +762,7 @@ function recordFatalBinaryFailure(ctx: InstallContext, message: string): void {
  * Download and install codeagent-wrapper for the current platform.
  * Existing and downloaded bytes must match the pinned digest before execution.
  */
-async function installBinaryFile(ctx: InstallContext): Promise<void> {
+async function installBinaryFile(ctx: Pick<InstallContext, 'installDir' | 'result'>): Promise<void> {
   let candidateBinary: string | null = null
   try {
     const binDir = join(ctx.installDir, 'bin')
@@ -855,6 +858,24 @@ async function installBinaryFile(ctx: InstallContext): Promise<void> {
   finally {
     if (candidateBinary) await fs.remove(candidateBinary).catch(() => {})
   }
+}
+
+/** Install one pinned, verified wrapper without installing legacy workflow assets. */
+export async function installVerifiedBinaryAt(installDir: string): Promise<string> {
+  const result: InstallResult = {
+    success: true,
+    installedCommands: [],
+    installedPrompts: [],
+    errors: [],
+    configPath: '',
+  }
+  await installBinaryFile({ installDir, result })
+  if (!result.binInstalled || !result.binPath)
+    throw new Error(result.errors.join('\n') || 'codeagent-wrapper installation failed')
+  return join(
+    result.binPath,
+    process.platform === 'win32' ? 'codeagent-wrapper.exe' : 'codeagent-wrapper',
+  )
 }
 
 // ═══════════════════════════════════════════════════════

@@ -9,7 +9,7 @@
     {
       "name": "ccg",
       "description": "Codex-side CCG workflow with automatic Grok external intelligence, GPT Pro evidence, spec, team, and quality gates.",
-      "version": "3.4.5",
+      "version": "3.4.6",
       "source": "./plugins/ccg",
       "author": {
         "name": "jed-zed",

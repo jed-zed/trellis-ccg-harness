@@ -153,7 +153,7 @@ describe('product-manager provider runner', () => {
         },
         cwd: root,
         input: '',
-        timeoutMs: 100,
+        timeoutMs: 2_000,
         maxOutputBytes: 1024,
       })).rejects.toThrow(/timed out/i)
 

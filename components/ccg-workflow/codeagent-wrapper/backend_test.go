@@ -372,6 +372,26 @@ func TestGrokBuildArgs_NewMode(t *testing.T) {
 	t.Fatalf("args missing -p: %v", args)
 }
 
+func TestAntigravityBuildArgs_ReviewModeIsSandboxedPlan(t *testing.T) {
+	cfg := &Config{
+		Mode:              "new",
+		WorkDir:           "/tmp/project",
+		Backend:           "antigravity",
+		AntigravityReview: true,
+	}
+	want := []string{
+		"--sandbox",
+		"--mode", "plan",
+		"--dangerously-skip-permissions",
+		"--disable-slash-commands",
+		"--add-dir", "/tmp/project",
+		"-p", "review the task",
+	}
+	if got := buildAntigravityArgs(cfg, "review the task"); !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
 func TestGrokBuildArgs_ResumeMode(t *testing.T) {
 	cfg := &Config{Mode: "resume", SessionID: "sess-123", WorkDir: "/tmp/project", Backend: "grok"}
 	args := buildGrokArgs(cfg, "continue")

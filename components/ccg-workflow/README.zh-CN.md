@@ -249,8 +249,10 @@ node bin/ccg.mjs doctor --platform codex  # 显式检查 Codex 所有权与版�
 node bin/ccg.mjs status                   # 安装概况
 node bin/ccg.mjs codex-mode install       # 安装 Codex 主导模式
 node bin/ccg.mjs codex-mode uninstall     # 卸载 Codex 主导模式
+node bin/ccg.mjs codex-mode recover       # 恢复中断的 Codex 事务
+node bin/ccg.mjs wrapper --backend antigravity "任务" . # 托管执行，默认打开网页
 node bin/ccg.mjs routing list             # 查看四个大角色的 Provider
-node bin/ccg.mjs routing set frontend claude # 只切换一个职责
+node bin/ccg.mjs routing set frontend antigravity # 只切换一个兼容职责
 node bin/ccg.mjs uninstall                # 卸载 CCG
 node bin/ccg.mjs config mcp               # 配置已批准的 MCP
 node bin/ccg.mjs diagnose-mcp             # 静态 MCP 诊断
@@ -260,12 +262,14 @@ node bin/ccg.mjs doctor --grok            # 非付费 Grok 合约检查
 node bin/ccg.mjs doctor --grok-live       # 显式付费 Web/X 冒烟
 ```
 
-Codex 模式分别设置 `frontend`、`backend`、`search`、`product-manager`
-四个大角色。前三者可选择 `codeagent-wrapper` 已注册的 `codex`、`gemini`、
-`claude`、`antigravity`、`grok` 或 `pi`；product-manager 仍受只读合同和项目
-allowlist 限制。使用 frontend/backend 时会自动加入必需的 search 证据并
-评估 product-manager 授权门；实际 Provider 调用仍需逐次显式批准。Codex
-仍负责真实工作区的最终写入和验证。
+Codex 模式按能力矩阵设置四个角色：frontend/backend 支持 `codex`、
+`gemini`、`antigravity`、`grok`、`pi`；search 只支持 `codex`、`grok`；
+product-manager 只支持 `codex`、`gemini` 和只读 `claude`。CCG 工作流用
+`ccg wrapper` 托管 Antigravity/Grok/Pi；直接命令也接受普通 Codex/Gemini
+wrapper 后端，但永远拒绝 Claude，也不会修改角色路由。除非显式传入
+`--lite`，否则默认打开浏览器网页。使用 frontend/backend 时还会自动加入
+必需的 search 证据，并在下一适用检查点评估 product-manager 授权门；每次
+Provider 调用仍需显式批准。Codex 仍负责真实工作区的最终写入和验证。
 
 ## 配置
 
@@ -358,4 +362,4 @@ MIT
 
 ---
 
-v3.4.5 | [Issues](https://github.com/jed-zed/ccg-gptpro-worflow/issues) | [Contributing](./CONTRIBUTING.md)
+v3.4.6 | [Issues](https://github.com/jed-zed/ccg-gptpro-worflow/issues) | [Contributing](./CONTRIBUTING.md)

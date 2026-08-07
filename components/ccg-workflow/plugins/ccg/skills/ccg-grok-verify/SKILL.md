@@ -9,6 +9,10 @@ Load `skills/ccg-grok-intel/SKILL.md`, then run its shared
 `scripts/grok-intelligence/command.mjs verify` entry.
 
 - Put task text in a file and pass `--task-file`.
+- Use this command only for current external-fact verification, not pure local code review. Before
+  invoking Grok, derive at least one authoritative domain from the explicit verification target or
+  trusted package/repository metadata and pass each with `--official-domain`. Never derive the
+  whitelist from Grok's returned URLs.
 - Bind the exact plan with `--plan`, a mandatory non-empty applied diff with `--diff`, and every
   dependency/lock input with repeated `--dependency`. Generate a bounded Git diff when no trusted
   diff artifact was supplied. The runtime records their SHA-256 digests.

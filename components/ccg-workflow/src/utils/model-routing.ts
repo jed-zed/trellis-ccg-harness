@@ -2,6 +2,12 @@ import type { ModelRouting, ModelType, RoleRouting, RoutingRole } from '../types
 import { REGISTERED_MODEL_TYPES, STANDARD_ROUTING_ROLES } from '../types'
 
 const REGISTERED_MODELS = new Set<ModelType>(REGISTERED_MODEL_TYPES)
+const ROLE_PROVIDER_CAPABILITIES: Record<RoutingRole, readonly ModelType[]> = {
+  frontend: ['codex', 'gemini', 'antigravity', 'grok', 'pi'],
+  backend: ['codex', 'gemini', 'antigravity', 'grok', 'pi'],
+  search: ['codex', 'grok'],
+  'product-manager': ['codex', 'gemini', 'claude'],
+}
 
 function route(primary: ModelType): RoleRouting {
   return {
@@ -26,6 +32,22 @@ function assertRegisteredModel(value: unknown, field: string): asserts value is 
     throw new Error(`${field} must be a registered provider: ${REGISTERED_MODEL_TYPES.join(', ')}`)
 }
 
+export function allowedProvidersForRole(role: RoutingRole): readonly ModelType[] {
+  return ROLE_PROVIDER_CAPABILITIES[role]
+}
+
+export function isRoleProviderAllowed(role: RoutingRole, provider: ModelType): boolean {
+  return allowedProvidersForRole(role).includes(provider)
+}
+
+function assertRoleProvider(role: RoutingRole, provider: ModelType, field: string): void {
+  if (!isRoleProviderAllowed(role, provider)) {
+    throw new Error(
+      `${field} provider ${provider} is not supported for role ${role}; allowed: ${allowedProvidersForRole(role).join(', ')}`,
+    )
+  }
+}
+
 function normalizeRole(
   value: Partial<RoleRouting> | undefined,
   fallback: RoleRouting,
@@ -33,10 +55,13 @@ function normalizeRole(
 ): RoleRouting {
   const primary = value?.primary || value?.models?.[0] || fallback.primary
   assertRegisteredModel(primary, `routing.${role}.primary`)
+  assertRoleProvider(role, primary, `routing.${role}.primary`)
 
   const models = [...new Set(value?.models?.length ? value.models : fallback.models)]
   for (const model of models)
     assertRegisteredModel(model, `routing.${role}.models`)
+  for (const model of models)
+    assertRoleProvider(role, model, `routing.${role}.models`)
   if (!models.includes(primary))
     models.unshift(primary)
 
@@ -71,6 +96,7 @@ export function setRoleProvider(
   provider: ModelType,
 ): ModelRouting {
   assertRegisteredModel(provider, `routing.${role}.primary`)
+  assertRoleProvider(role, provider, `routing.${role}.primary`)
   const routing = normalizeModelRouting(value)
   return {
     ...routing,

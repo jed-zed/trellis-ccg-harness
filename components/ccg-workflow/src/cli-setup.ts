@@ -13,6 +13,7 @@ import { doctor, status } from './commands/doctor'
 import { grokAccount } from './commands/grok'
 import { productManagerCommand } from './commands/product-manager'
 import { runCodexRoute } from './commands/route'
+import { runWrapper } from './commands/wrapper'
 import { diagnoseMcp, fixMcp } from './commands/diagnose-mcp'
 import { init } from './commands/init'
 import { showMainMenu } from './commands/menu'
@@ -38,6 +39,7 @@ function customizeHelp(sections: any[]): any[] {
       `  ${ansis.cyan('ccg doctor')}       Check installation health`,
       `  ${ansis.cyan('ccg grok login')}   Sign in to the isolated Grok intelligence profile`,
       `  ${ansis.cyan('ccg routing')}      List or change CCG role-to-provider routing`,
+      `  ${ansis.cyan('ccg wrapper')}      Run a managed provider with Web UI enabled by default`,
       `  ${ansis.cyan('ccg product-manager status')}  Show the read-only product-manager contract status`,
       `  ${ansis.cyan('ccg routing')}      List or change Codex role-to-provider routing`,
       `  ${ansis.cyan('ccg status')}       Show installation overview`,
@@ -118,7 +120,7 @@ export function printCodexModeHelp(): void {
 }
 
 export function isCodexNativeRequest(args: readonly string[]): boolean {
-  if (['route', 'routing', 'codex-mode', 'product-manager'].includes(args[0]))
+  if (['route', 'routing', 'wrapper', 'codex-mode', 'product-manager'].includes(args[0]))
     return true
   if (args[0] !== 'doctor')
     return false
@@ -255,6 +257,20 @@ export async function setupCommands(cli: CAC): Promise<void> {
     .action(() => {
       const index = process.argv.indexOf('route')
       process.exitCode = runCodexRoute(process.argv.slice(index + 1))
+    })
+
+  cli
+    .command('wrapper', 'Run the managed codeagent-wrapper')
+    .allowUnknownOptions()
+    .action(async () => {
+      const index = process.argv.indexOf('wrapper')
+      try {
+        process.exitCode = await runWrapper(process.argv.slice(index + 1))
+      }
+      catch (error) {
+        console.error(String(error))
+        process.exitCode = 1
+      }
     })
 
   cli

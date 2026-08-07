@@ -831,6 +831,7 @@ func runCodexTaskWithContext(parentCtx context.Context, taskSpec TaskSpec, backe
 		GeminiModel:       taskSpec.GeminiModel,
 		GrokModel:         taskSpec.GrokModel,
 		GrokReviewTargets: taskSpec.GrokReviewTargets,
+		AntigravityReview: taskSpec.AntigravityReview,
 	}
 
 	commandName := codexCommand

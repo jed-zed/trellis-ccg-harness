@@ -592,11 +592,14 @@ async function prepareWorkflowRoute(input, runtime) {
   const config = await resolveConfig(input)
   const decision = classifyWorkflowRoute(input, config, previous)
   emit(runtime, 'decision')
+  const officialDomains = (input.officialDomains || []).map(value => String(value).trim()).filter(Boolean)
   const bindings = await collectBindings({ ...input, task: String(input.task || '') }, repoRoot, repoInput)
   if (decision.action === 'verify' && (!bindings.diff || bindings.diff.bytes === 0))
     throw new Error('Final external verification requires a non-empty --diff binding')
+  if (decision.action === 'verify' && officialDomains.length === 0)
+    throw new Error('External fact verification requires at least one predeclared --official-domain before Grok invocation')
   const inputDigest = routeInputDigest(input, decision, bindings, config)
-  return { repoRoot, repoInput, statePath, previous, config, decision, bindings, officialDomains: [...(input.officialDomains || [])], inputDigest, clock: runtime.clock || (() => new Date()) }
+  return { repoRoot, repoInput, statePath, previous, config, decision, bindings, officialDomains, inputDigest, clock: runtime.clock || (() => new Date()) }
 }
 
 async function completeSkippedRoute(input, context, runtime) {
