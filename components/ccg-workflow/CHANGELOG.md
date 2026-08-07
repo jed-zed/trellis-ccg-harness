@@ -18,6 +18,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   add an environment-only SSH bridge protocol-v2 opt-in with remote cleanup and
   no automatic transport fallback.
 
+### Fixed
+
+- **Route target binding** — Forward the CLI `--target` value into workflow
+  routing so target path, digest, and byte changes invalidate prior evidence.
+- **Timeout unit consistency** — Interpret every positive integer
+  `CODEX_TIMEOUT` as seconds and remove the magnitude-based unit switch.
+
 ### Security
 
 - **Bounded read-only projection** — Reuse the Grok snapshot core for secret,
@@ -30,7 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **codeagent-wrapper 5.12.5** — Run Grok local review from pre-opened UTF-8
+- **codeagent-wrapper 5.12.6** — Run Grok local review from pre-opened UTF-8
   snapshots in tool-less sessions and append deterministic scope evidence.
 - **Companion role routing** — Ordinary CCG and GPT Pro workflows now require
   configured search evidence whenever frontend or backend participates and

@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	version               = "5.12.5"
+	version               = "5.12.6"
 	defaultWorkdir        = "."
 	defaultTimeout        = 7200 // seconds (2 hours)
 	defaultCoverageTarget = 90.0
@@ -628,7 +628,7 @@ Options:
 	    --progress            Emit compact progress lines to stderr during execution
 
 Environment Variables:
-    CODEX_TIMEOUT              Timeout in milliseconds (default: 7200000)
+    CODEX_TIMEOUT              Timeout in seconds (default: 7200)
     CODEX_REQUIRE_APPROVAL     Require manual approval for file operations (default: false)
     CODEX_DISABLE_SKIP_GIT_CHECK  Disable skip-git-repo-check flag (default: false)
     CODEAGENT_ASCII_MODE       Use ASCII symbols instead of Unicode (PASS/WARN/FAIL)
