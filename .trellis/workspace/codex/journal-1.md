@@ -156,3 +156,24 @@ Published the two approved CCG fixes, synchronized the verified source snapshot 
 ### Next Steps
 
 - Merge Harness PR #32 after required checks pass.
+
+
+## Session 7: Publish Grok unverified read-only intake
+
+**Date**: 2026-08-08
+**Task**: Publish Grok unverified read-only intake
+**Branch**: `codex/archive-grok-readonly-intake`
+
+### Summary
+
+Published accepted Grok receipt-state changes through CCG PR #33 and Harness PR #34, installed CLI 3.4.6 plus plugin 3.4.6+codex.3 without Provider calls, and preserved unrelated global Skill drift.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `034f411bf4262b8857717bdf05ed6cbce140ad04` | (see git log) |
+
+### Status
+
+[OK] **Completed**
