@@ -652,10 +652,9 @@ describe('deterministic evidence policy', () => {
     })).toMatchObject({ valid: false, errors: [expect.stringMatching(/X-only/i)] })
   })
 
-  it('preserves the configured X policy for every investigation mode', () => {
-    expect(resolveEffectiveXPolicy('preferred', 'incident')).toBe('preferred')
+  it('elevates preferred X only for incidents and never elevates disabled', () => {
+    expect(resolveEffectiveXPolicy('preferred', 'incident')).toBe('required')
     expect(resolveEffectiveXPolicy('preferred', 'landscape')).toBe('preferred')
-    expect(resolveEffectiveXPolicy('required', 'incident')).toBe('required')
     expect(resolveEffectiveXPolicy('disabled', 'incident')).toBe('disabled')
   })
 
@@ -671,15 +670,6 @@ describe('deterministic evidence policy', () => {
       claims: [],
       requireWebSearch: false,
       xSearchPolicy: 'preferred',
-      mode: 'incident',
-    })).toMatchObject({ valid: true, warnings: [expect.stringMatching(/Preferred X/i)] })
-
-    expect(validateEvidencePackage({
-      normalized: xNormalized,
-      registry: xRegistry,
-      claims: [],
-      requireWebSearch: false,
-      xSearchPolicy: 'required',
       mode: 'incident',
     })).toMatchObject({ valid: false, errors: [expect.stringMatching(/required X/i)] })
 

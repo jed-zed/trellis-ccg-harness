@@ -111,7 +111,7 @@ function normalizeSearchResult(update, startedCall) {
   }
 }
 
-export function normalizeAcpEvents(messages, { requireComplete = true, requireSearch = requireComplete, promptCompleted = false } = {}) {
+export function normalizeAcpEvents(messages, { requireComplete = true, promptCompleted = false } = {}) {
   if (!Array.isArray(messages))
     throw new Error('ACP messages must be an array')
 
@@ -214,7 +214,7 @@ export function normalizeAcpEvents(messages, { requireComplete = true, requireSe
         observed: false,
       }
     }
-    if (requireSearch && searches.length === 0)
+    if (searches.length === 0)
       throw new Error('Required ACP stream contains no completed search update')
     if (agentMessages.length === 0)
       throw new Error('Required ACP stream contains no final agent message')

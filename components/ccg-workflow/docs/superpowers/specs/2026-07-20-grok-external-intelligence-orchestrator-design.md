@@ -141,31 +141,31 @@ Each run uses:
 
 Research current libraries, open-source foundations, official recommendations, maintenance health, releases, unresolved defects, alternatives, migration cost, and production feedback.
 
-Web Search is requested for source qualification but is not an intake gate. Without it, the response remains `received_unverified`. X follows the configured policy.
+Web Search is required. Source-backed X-domain evidence may become required only when the configured policy permits it and current maintainer direction or ecosystem activity materially affects the decision.
 
 ### 7.2 `contract`
 
 Verify third-party APIs, SDK behavior, deprecations, compatibility, cloud limits, database behavior, financial rules, regulations, standards, CVEs, and security advisories.
 
-Web Search is requested for source qualification but is not an intake gate. Without it, the response remains `received_unverified`. X follows the configured policy.
+Web Search is required. Source-backed X-domain evidence may become required only when the configured policy permits it and the contract depends on a recent maintainer statement, rollout, or breaking-change report.
 
 ### 7.3 `incident`
 
 Investigate current outages, newly released regressions, recent GitHub reports, status pages, certificates, DNS, CDN, regions, and maintainer workarounds.
 
-Web Search is requested for source qualification but is not an intake gate. X follows the configured policy unchanged; `preferred` lets Grok decide whether X is useful, including in incident mode. An explicit `required` or `disabled` policy remains authoritative.
+Web Search is required. When the configured X policy is `preferred`, incident mode elevates it to required. An explicit `disabled` policy is never elevated.
 
 ### 7.4 `landscape`
 
 Research competitors, product changes, user complaints, demand trends, pricing, business models, emerging projects, and market language.
 
-Web Search and X are optional collection tools. Their absence leaves the response `received_unverified` rather than blocking landscape research.
+Web Search is required. X evidence is preferred but not mandatory; landscape research must remain useful when no source-backed X result exists.
 
 ### 7.5 `verify`
 
 Review a plan, applied diff, dependency changes, and tests against current external reality. Check current documentation, known defects, advisories, compatibility, deprecations, and realistic failure scenarios.
 
-Web Search is requested for source qualification but is not an intake gate. X follows the configured policy unchanged.
+Web Search is required. X evidence follows the configured policy and is required for an incident/current rollout only when that policy permits elevation.
 
 ## 8. Commands and Configuration
 
@@ -357,7 +357,7 @@ The final package separates official claims, observed implementation behavior, c
 
 ## 13. Search Validation and Failure Handling
 
-A `verified` receipt requires:
+A successful run requires:
 
 - successful ACP turn completion;
 - all mode-required built-in WebSearch events and source-registry entries;
@@ -366,13 +366,11 @@ A `verified` receipt requires:
 - at least one eligible source for every `verified` claim;
 - complete retrieval time and applicable version or scope.
 
-Transient CLI, network, or JSON failures retry at most twice in new sessions. If no usable terminal response arrives, the intake records `invocation_failed`; any usable terminal response is retained and classified independently of verification.
+Transient CLI, network, or JSON failures retry at most twice in new sessions. Mandatory gates fail closed after retries. Optional intelligence may continue with `degraded` status and a visible final warning.
 
-Required X evidence affects advisory verification only when the configured policy is required. Missing preferred X evidence never blocks a received response. A URL that appears only in model prose is excluded from source qualification. Unreachable or unsupported sources downgrade affected claims to `unresolved`. Contradictions are preserved for Codex adjudication.
+Required X evidence failure blocks incident mode only when the effective policy is required. Missing preferred X evidence never blocks landscape mode. A URL that appears only in model prose is rejected. Unreachable or unsupported sources downgrade affected claims to `unresolved`. Contradictions are preserved for Codex adjudication.
 
-Provider intake has three explicit outcomes: `invocation_failed` when there is no usable terminal response, `received_unverified` when a response exists without qualifying verification, and `verified` when source qualification succeeds. Evidence validation classifies a received response but never turns it into an invocation failure or a blocked workflow.
-
-A user may explicitly waive a gate. The decision becomes `waived`; the workflow may continue but must not claim external verification passed.
+A user may explicitly waive a gate. The decision becomes `external_intelligence_waived`; the workflow may continue but must not claim external verification passed.
 
 ## 14. Freshness and Cache Invalidation
 

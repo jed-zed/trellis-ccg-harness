@@ -1,6 +1,6 @@
 ---
-description: "Collect current external evidence for a plan, diff, or dependency change"
-argument-hint: "<task> --diff <file> [--official-domain <domain>] [--plan <file>] [--dependency <file>] [--force-refresh] [--export <dir>]"
+description: "Verify a plan, diff, or dependency change against current external evidence"
+argument-hint: "<task> --diff <file> --official-domain <domain> [--plan <file>] [--dependency <file>] [--force-refresh] [--export <dir>]"
 allowed-tools: [Read, Glob, Grep, Bash, Write]
 ---
 
@@ -13,10 +13,10 @@ runner used by `/ccg:grok-intel`. Never use the legacy Grok Search MCP as eviden
 
 ## Procedure
 
-1. Use this command only for current external facts, not pure local code review. When an authoritative
-   domain is known from the explicit target or trusted package/repository metadata, pass it with
-   `--official-domain`; otherwise keep `official_unknown` instead of blocking or guessing. Never derive
-   the whitelist from Grok's returned URLs. Resolve the exact plan, applied diff, and dependency/lock files in scope. `--diff`
+1. Use this command only for current external-fact verification, not pure local code review. Resolve
+   at least one authoritative domain from the explicit target or trusted package/repository metadata
+   before invoking Grok, and pass each with `--official-domain`. Never derive the whitelist from
+   Grok's returned URLs. Resolve the exact plan, applied diff, and dependency/lock files in scope. `--diff`
    is mandatory and must normally be non-empty; generate it from the bounded Git worktree when the
    user did not provide a trusted diff artifact. Use `--allow-empty-diff` only when the explicit
    verification subject is that no repository change exists.
@@ -25,13 +25,12 @@ runner used by `/ccg:grok-intel`. Never use the legacy Grok Search MCP as eviden
 3. Run:
 
 ```text
-node ~/.claude/.ccg/engine/tools/grok-intelligence/command.mjs verify --task-file <task-file> --diff <file> [--official-domain <domain>] [--plan <file>] [--dependency <file>] [--force-refresh] [--export <dir>]
+node ~/.claude/.ccg/engine/tools/grok-intelligence/command.mjs verify --task-file <task-file> --diff <file> --official-domain <domain> [--plan <file>] [--dependency <file>] [--force-refresh] [--export <dir>]
 ```
 
 The runner computes and records a plan digest, diff digest, and every dependency digest. Missing or
 changed inputs invalidate the verification scope; do not reuse evidence bound to different bytes.
 
 Print `requirement`, `status`, search counts, bound digests, evidence/manifest paths, and both hashes.
-Treat `received_unverified` as a usable response, not a failed invocation. Propagate exit 2
-(`invocation_failed`), exit 3 (unsafe context/policy violation), and exit 4
+Propagate exit 2 (required evidence unavailable), exit 3 (unsafe context/policy violation), and exit 4
 (login/consent/configuration missing) without downgrade. Codex remains the final adjudicator.

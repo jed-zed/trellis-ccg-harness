@@ -3,7 +3,7 @@
 > [根目录](../CLAUDE.md) > **codeagent-wrapper**
 
 **Last Updated**: 2026-07-22
-**Binary Version**: v5.12.6
+**Binary Version**: v5.12.5
 **Go Version**: 1.21+（`go.mod:1`）
 
 ---
@@ -66,7 +66,7 @@ Claude 后端不追加 `--model`，避免触发 Claude CLI 的模型 flag 兼容
 
 | 变量 | 说明 | 默认 |
 |------|------|------|
-| `CODEX_TIMEOUT` | 超时秒数 | 7200s |
+| `CODEX_TIMEOUT` | 超时毫秒数（>10000）或秒数 | 7200s |
 | `CODEX_REQUIRE_APPROVAL` | 启用文件操作审批 | false |
 | `CODEX_DISABLE_SKIP_GIT_CHECK` | 禁止跳过 Git 仓库检查 | false |
 | `CODEAGENT_ASCII_MODE` | 使用 ASCII 状态符（PASS/WARN/FAIL） | false |
@@ -278,8 +278,8 @@ bash build-all.sh
 
 | 文件 | 位置 | 当前值 |
 |------|------|--------|
-| `codeagent-wrapper/main.go` | `version = "5.12.6"` （`main.go:17`） | `5.12.6` |
-| `src/utils/installer.ts` | `EXPECTED_BINARY_VERSION = '5.12.6'` | `5.12.6` |
+| `codeagent-wrapper/main.go` | `version = "5.12.5"` （`main.go:17`） | `5.12.5` |
+| `src/utils/installer.ts` | `EXPECTED_BINARY_VERSION = '5.12.5'` | `5.12.5` |
 
 两边不一致的后果：用户运行 `npx ccg-workflow update` 时无法触发 binary 重新下载，继续使用旧版 binary。
 

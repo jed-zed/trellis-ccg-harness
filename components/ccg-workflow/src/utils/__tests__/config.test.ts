@@ -240,20 +240,9 @@ describe('product-manager configuration', () => {
       enabled: false,
       contract_version: '2',
       max_retries: 1,
-      timeout_ms: 7200000,
+      timeout_ms: 180000,
       max_output_bytes: 1048576,
     })
-  })
-
-  it('accepts the two-hour timeout boundary and rejects values above it', () => {
-    expect(normalizeProductManagerConfig(
-      { timeout_ms: 7_200_000 },
-      { existingInstall: true },
-    ).timeout_ms).toBe(7_200_000)
-    expect(() => normalizeProductManagerConfig(
-      { timeout_ms: 7_200_001 },
-      { existingInstall: true },
-    )).toThrow(/timeout_ms.*between 1000 and 7200000/i)
   })
 
   it('normalizes legacy product-manager contract v1 configuration to v2', () => {

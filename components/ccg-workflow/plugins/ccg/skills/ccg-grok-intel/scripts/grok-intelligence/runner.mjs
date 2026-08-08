@@ -5,10 +5,10 @@ import { createPrivateRunRoots } from './lib/private-temp.mjs'
 import { runGrokDiagnostics } from './lib/process.mjs'
 import { bindClaimsFromObservedUrls, buildSourceRegistry, canonicalizeSourceUrl, extractClaimsEnvelope } from './lib/source-registry.mjs'
 import { createFocusedSnapshot } from './lib/snapshot.mjs'
-import { validateEvidencePackage } from './lib/validator.mjs'
+import { assertValidEvidencePackage } from './lib/validator.mjs'
 
 const EXIT = Object.freeze({ OK: 0, REQUIRED_UNAVAILABLE: 2, UNSAFE: 3, CONFIG: 4 })
-export const GROK_PROMPT_TEMPLATE_VERSION = 'ccg-grok-intelligence-prompt-v11-advisory-verification'
+export const GROK_PROMPT_TEMPLATE_VERSION = 'ccg-grok-intelligence-prompt-v10-predeclared-official-domains'
 
 function failureText(error, secrets = []) {
   let text = error instanceof Error ? error.message : String(error)
@@ -84,18 +84,16 @@ function validateTopLevel(options) {
 function buildPrompt({ task, action, mode, requireWebSearch, xSearchPolicy, officialDomains = [] }) {
   const xInstruction = xSearchPolicy === 'disabled'
     ? 'Do not perform an X-domain search.'
-    : xSearchPolicy === 'required'
-      ? 'Run WebSearch with a site:x.com or site:twitter.com query. Native XSearch may be used for discovery, but it does not provide source URLs for verification.'
-      : 'Use an X-domain search only when it is useful for this request. If used, prefer WebSearch with a site:x.com or site:twitter.com query so the result can carry source URLs.'
+    : 'To satisfy X-domain evidence, you MUST run WebSearch with a site:x.com or site:twitter.com query. Native XSearch may be used only for discovery and does not count as source-backed evidence because its ACP update contains no source URLs.'
   return [
     'You are the external intelligence collector for a software engineering workflow.',
-    'You may use the built-in WebSearch tool when it is useful. Do not use files, terminal, MCP, plugins, memory, subagents, or any write tool.',
+    'Use the built-in WebSearch tool. Do not use files, terminal, MCP, plugins, memory, subagents, or any write tool.',
     'Only state facts supported by URLs returned in WebSearch rawOutput.action.sources. Never invent or copy a URL from prose.',
     officialDomains.length > 0
       ? `Predeclared official domains: ${officialDomains.join(', ')}. Prioritize results from these domains. Do not add a domain to this policy because it appears in search output.`
       : 'No official domain was predeclared. Preserve official_unknown provenance and do not guess an official source.',
     xInstruction,
-    `Action: ${action}. Investigation mode: ${mode}. Web-search verification requested: ${requireWebSearch ? 'yes' : 'no'}. X-domain policy: ${xSearchPolicy}.`,
+    `Action: ${action}. Investigation mode: ${mode}. Web search required: ${requireWebSearch ? 'yes' : 'no'}. X-domain policy: ${xSearchPolicy}.`,
     'End the final response with exactly one compact JSON envelope on a new line using this marker:',
     'CCG_CLAIMS_JSON:{"schemaVersion":1,"claims":[{"id":"claim-1","claim":"fact without URLs","status":"verified|partially_verified|contradicted|unresolved|early_warning","severity":"blocker|warning|info","applies_to":["specific bound file, dependency, platform, or version"],"repo_impact":["concrete impact"],"urls":["only URLs observed in WebSearch sources"]}]}',
     'Every verified or partially_verified claim must include a non-empty applies_to array. Omit applies_to only for unresolved, contradicted, or early_warning claims.',
@@ -105,10 +103,10 @@ function buildPrompt({ task, action, mode, requireWebSearch, xSearchPolicy, offi
   ].join('\n')
 }
 
-function invocationFailedResult(requirement, reason, attempts, runRoot) {
+function unavailableResult(requirement, status, reason, attempts, runRoot) {
   return {
     exitCode: requirement === 'required' ? EXIT.REQUIRED_UNAVAILABLE : EXIT.OK,
-    status: 'invocation_failed',
+    status,
     reason,
     attempts,
     ...(runRoot ? { runRoot } : {}),
@@ -209,44 +207,26 @@ export async function runGrokIntelligence(options) {
         }
         const normalized = normalizeAcpEvents(acpResult.notifications, {
           requireComplete: true,
-          requireSearch: false,
           promptCompleted: acpResult.completion?.promptResponse === true,
         })
         const retrievedAt = (options.clock ? options.clock() : new Date()).toISOString()
-        let registry = { schemaVersion: 1, retrieved_at: retrievedAt, sources: [], searches: [] }
+        const registry = buildSourceRegistry(normalized, {
+          retrievedAt,
+          officialDomains: options.officialDomains || [],
+          officialXAccounts: options.officialXAccounts || [],
+          domainTiers: options.domainTiers || {},
+        })
         const bindingDiagnostics = []
-        let claims = []
-        let validation
-        try {
-          registry = buildSourceRegistry(normalized, {
-            retrievedAt,
-            officialDomains: options.officialDomains || [],
-            officialXAccounts: options.officialXAccounts || [],
-            domainTiers: options.domainTiers || {},
-          })
-          claims = bindClaimsFromObservedUrls(extractClaimsEnvelope(normalized.finalText), registry, { bindingDiagnostics })
-          validation = validateEvidencePackage({
-            normalized,
-            registry,
-            claims,
-            requireWebSearch: options.config.require_web_search !== false,
-            xSearchPolicy: options.config.x_search_policy || 'preferred',
-            mode: options.mode || 'discover',
-            requireClaims: true,
-          })
-        }
-        catch (error) {
-          validation = {
-            valid: false,
-            package_status: 'invalid',
-            verification_outcome: 'unresolved',
-            qualifying_claims: [],
-            errors: [failureText(error, secrets)],
-            warnings: [],
-            effective_x_policy: options.config.x_search_policy || 'preferred',
-            evaluated_claims: [],
-          }
-        }
+        const claims = bindClaimsFromObservedUrls(extractClaimsEnvelope(normalized.finalText), registry, { bindingDiagnostics })
+        const validation = assertValidEvidencePackage({
+          normalized,
+          registry,
+          claims,
+          requireWebSearch: options.config.require_web_search !== false,
+          xSearchPolicy: options.config.x_search_policy || 'preferred',
+          mode: options.mode || 'discover',
+          requireClaims: true,
+        })
         const model = observedModelProvenance(acpResult.notifications, selectedModel)
         const evidence = {
           retrieved_at: retrievedAt,
@@ -257,12 +237,15 @@ export async function runGrokIntelligence(options) {
           claim_binding: { dropped_unobserved_urls: bindingDiagnostics },
           validation,
         }
-        const verificationSatisfied = validation.valid === true
-          && ['verified', 'partially_verified'].includes(validation.verification_outcome)
+        const verificationSatisfied = ['verified', 'partially_verified'].includes(validation.verification_outcome)
           && validation.qualifying_claims.length > 0
+        const blockedVerification = options.action === 'verify'
+          && options.requirement === 'required'
+          && !verificationSatisfied
         result = {
-          exitCode: EXIT.OK,
-          status: verificationSatisfied ? 'verified' : 'received_unverified',
+          exitCode: blockedVerification ? EXIT.REQUIRED_UNAVAILABLE : EXIT.OK,
+          status: blockedVerification ? 'verification_unresolved' : 'valid',
+          ...(blockedVerification ? { reason: `Required verification outcome is ${validation.verification_outcome}` } : {}),
           attempts,
           runRoot: roots.runRoot,
           snapshot,
@@ -278,12 +261,12 @@ export async function runGrokIntelligence(options) {
           break
         }
         if (!isTransient(error) || attempts > maxRetries) {
-          result = invocationFailedResult(options.requirement, failureText(error, secrets), attempts, roots.runRoot)
+          result = unavailableResult(options.requirement, 'unavailable', failureText(error, secrets), attempts, roots.runRoot)
           break
         }
       }
     }
-    result ||= invocationFailedResult(options.requirement, failureText(lastError, secrets), attempts, roots.runRoot)
+    result ||= unavailableResult(options.requirement, 'unavailable', failureText(lastError, secrets), attempts, roots.runRoot)
   }
   catch (error) {
     result = isUnsafe(error)

@@ -8,7 +8,11 @@ import { canonicalizeSourceUrl, computeSourceId } from './source-registry.mjs'
 export function resolveEffectiveXPolicy(policy, mode) {
   if (!X_SEARCH_POLICIES.includes(policy))
     throw new Error(`Unsupported X search policy: ${String(policy)}`)
-  return policy
+  if (policy === 'disabled')
+    return 'disabled'
+  if (policy === 'required')
+    return 'required'
+  return mode === 'incident' ? 'required' : 'preferred'
 }
 
 function validateRegistry(registry, errors) {

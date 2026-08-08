@@ -1823,14 +1823,14 @@ func TestRunResolveTimeout(t *testing.T) {
 		want   int
 	}{
 		{"empty env", "", 7200},
-		{"large seconds", "7200000", 7200000},
+		{"milliseconds", "7200000", 7200},
 		{"seconds", "3600", 3600},
 		{"invalid", "invalid", 7200},
 		{"negative", "-100", 7200},
 		{"zero", "0", 7200},
-		{"small seconds", "5000", 5000},
+		{"small milliseconds", "5000", 5000},
 		{"boundary", "10000", 10000},
-		{"above old boundary", "10001", 10001},
+		{"above boundary", "10001", 10},
 	}
 
 	for _, tt := range tests {
@@ -2355,7 +2355,7 @@ func TestBackendPrintHelp(t *testing.T) {
 		"--antigravity-review",
 		"grok",
 		"--grok-model",
-		"CODEX_TIMEOUT              Timeout in seconds (default: 7200)",
+		"CODEX_TIMEOUT",
 		"Exit Codes:",
 	}
 	for _, phrase := range expected {
@@ -3371,7 +3371,7 @@ func TestVersionFlag(t *testing.T) {
 		}
 	})
 
-	want := "codeagent-wrapper version 5.12.6\n"
+	want := "codeagent-wrapper version 5.12.5\n"
 
 	if output != want {
 		t.Fatalf("output = %q, want %q", output, want)
@@ -3387,7 +3387,7 @@ func TestVersionShortFlag(t *testing.T) {
 		}
 	})
 
-	want := "codeagent-wrapper version 5.12.6\n"
+	want := "codeagent-wrapper version 5.12.5\n"
 
 	if output != want {
 		t.Fatalf("output = %q, want %q", output, want)
@@ -3403,7 +3403,7 @@ func TestVersionLegacyAlias(t *testing.T) {
 		}
 	})
 
-	want := "codex-wrapper version 5.12.6\n"
+	want := "codex-wrapper version 5.12.5\n"
 
 	if output != want {
 		t.Fatalf("output = %q, want %q", output, want)

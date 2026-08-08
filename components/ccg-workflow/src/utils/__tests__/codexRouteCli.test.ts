@@ -50,7 +50,6 @@ describe('Codex-native CCG route CLI', () => {
     const repo = join(home, 'repo')
     await fs.ensureDir(join(home, '.codex', 'ccg'))
     await fs.ensureDir(repo)
-    await writeFile(join(repo, 'target.md'), 'target-v1\n')
     await writeFile(
       join(home, '.codex', 'ccg', 'config.toml'),
       '[intelligence]\nenabled = false\nauto_route = false\n',
@@ -72,8 +71,6 @@ describe('Codex-native CCG route CLI', () => {
         'intake',
         '--task',
         'local-only task',
-        '--target',
-        'target.md',
         '--state-file',
         '.codex/ccg/route/status.json',
       ],
@@ -91,17 +88,7 @@ describe('Codex-native CCG route CLI', () => {
     )
 
     expect(result.status, result.stderr).toBe(0)
-    expect(JSON.parse(result.stdout)).toMatchObject({
-      invoked: false,
-      exitCode: 0,
-      bindings: {
-        target: {
-          path: 'target.md',
-          sha256: expect.stringMatching(/^[a-f0-9]{64}$/),
-          bytes: 10,
-        },
-      },
-    })
+    expect(JSON.parse(result.stdout)).toMatchObject({ invoked: false, exitCode: 0 })
     expect(await fs.pathExists(join(home, '.claude'))).toBe(false)
   })
 

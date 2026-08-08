@@ -482,8 +482,8 @@ def validate_required_external_intelligence(
     except json.JSONDecodeError as error:
         raise ValueError("Canonical Grok evidence artifact is malformed") from error
     decision = artifact.get("decision") or {}
-    if decision.get("requirement") != "required" or decision.get("status") not in {"verified", "received_unverified", "waived"}:
-        raise ValueError("Canonical Grok evidence decision is not a usable required receipt")
+    if decision.get("requirement") != "required" or decision.get("status") not in {"valid", "waived"}:
+        raise ValueError("Canonical Grok evidence decision is not a valid required gate")
     action = str(decision.get("action") or "")
     if action != expected_action:
         raise ValueError(f"Canonical Grok evidence action does not match the {expected_action} handoff")
@@ -641,7 +641,7 @@ def validate_required_external_intelligence(
         if status != "verified" or not qualifies:
             all_claims_fully_verified = False
     recomputed_outcome = "verified" if qualifying_claim_ids and all_claims_fully_verified else "partially_verified" if qualifying_claim_ids else "contradicted" if any(isinstance(claim, dict) and claim.get("status") == "contradicted" for claim in list(evidence_payload.get("claims") or [])) else "unresolved"
-    if decision.get("status") == "verified":
+    if decision.get("status") == "valid":
         if decision.get("package_status") != "valid":
             raise ValueError("Canonical Grok evidence package status is not valid")
         if recomputed_outcome not in {"verified", "partially_verified"} or not qualifying_claim_ids:
@@ -1006,7 +1006,7 @@ def compose_external_intelligence(external_intelligence: dict[str, Any] | None) 
     claims = json.dumps(evidence.get("claims") or [], ensure_ascii=False, separators=(",", ":"))
     sources = json.dumps(evidence.get("sources") or [], ensure_ascii=False, separators=(",", ":"))
     return "\n".join([
-        "## Received Grok External Intelligence",
+        "## Validated Grok External Intelligence",
         "",
         f"Decision: {evidence.get('requirement') or ''}/{evidence.get('status') or ''}",
         f"Mode: {evidence.get('mode') or ''}",

@@ -19,7 +19,7 @@ function sha256(value: string | Buffer) {
 function validDecision(overrides: Record<string, unknown> = {}) {
   return createIntelligenceDecision({
     requirement: 'required',
-    status: 'verified',
+    status: 'valid',
     mode: 'contract',
     reason: 'Current external contract verified.',
     created_at: NOW,
@@ -379,7 +379,7 @@ describe('versioned Grok evidence cache', () => {
     const entry = {
       fingerprint: fingerprint.key,
       created_at: NOW,
-      status: 'verified',
+      status: 'valid',
       evidence_id: 'cache-hit',
       evidence: { claims: [] },
     }
@@ -395,6 +395,7 @@ describe('versioned Grok evidence cache', () => {
       ['degraded', { status: 'degraded' }, 'unusable_status'],
       ['contradicted', { evidence: { claims: [{ status: 'contradicted' }] } }, 'contradicted_evidence'],
       ['early-warning', { evidence: { claims: [{ status: 'early_warning' }] } }, 'early_warning_evidence'],
+      ['required-unresolved', { requirement: 'required', evidence: { claims: [{ status: 'unresolved' }] } }, 'unresolved_required_evidence'],
     ] as const) {
       const alternate = createCacheFingerprint(fingerprintInput({ diffDigest: name }))
       await writeCacheEntry({ cacheRoot, fingerprint: alternate.key, entry: { ...entry, fingerprint: alternate.key, ...patch } })
@@ -402,15 +403,6 @@ describe('versioned Grok evidence cache', () => {
         .resolves
         .toMatchObject({ hit: false, reason })
     }
-    const unverified = createCacheFingerprint(fingerprintInput({ diffDigest: 'received-unverified' }))
-    await writeCacheEntry({
-      cacheRoot,
-      fingerprint: unverified.key,
-      entry: { ...entry, fingerprint: unverified.key, status: 'received_unverified', verification_outcome: 'unresolved' },
-    })
-    await expect(readCacheEntry({ cacheRoot, fingerprint: unverified.key, now: new Date(NOW), ttlMs: 60_000 }))
-      .resolves
-      .toMatchObject({ hit: true, reason: 'usable' })
     await expect(readCacheEntry({ cacheRoot, fingerprint: '../escape', now: new Date(NOW), ttlMs: 60_000 })).rejects.toThrow(/fingerprint/i)
   })
 })
@@ -439,12 +431,12 @@ describe('canonical task intelligence pointers', () => {
     expect(createTaskIntelligencePointer({ evidenceId: 'contract-1', decision: validDecision(), bundle }))
       .toEqual({
         requirement: 'required',
-        status: 'verified',
+        status: 'valid',
         action: 'intel',
         investigation_mode: 'contract',
         depth: 'normal',
         package_status: 'valid',
-        verification_outcome: 'verified',
+        verification_outcome: 'unresolved',
         evidence_id: 'contract-1',
         manifest_file: bundle.manifestRelativePath,
         manifest_sha256: 'manifest-sha',

@@ -23,6 +23,9 @@ func resolveTimeout() int {
 		return defaultTimeout
 	}
 
+	if parsed > 10000 {
+		return parsed / 1000
+	}
 	return parsed
 }
 

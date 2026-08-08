@@ -19,7 +19,7 @@ For a pure local code review, do not run Grok external-intelligence or apply an 
 with repeated `--official-domain <domain>` chosen before Grok runs, over the exact plan, applied diff, dependency locks, and relevant tests before
 ordinary `/ccg:review`. Required exit 2/3/4 stops GPT Pro bridge creation unless the user runs
 `ccg route waive --state-file <state-file> --reason "<user reason>"`; this records a route-state waiver without creating evidence or claiming verification passed. A waived route continues only through ordinary routing evidence and must omit the bridge's external-intelligence flags. Exit code `2`, `3`, or `4` stops before ordinary work. Add
-`--require-external-intelligence` together with `--expected-intelligence-mode <route investigation_mode>` and `--expected-intelligence-depth <route depth>` only when the inherited/re-evaluated route has `status=verified or status=received_unverified` and `requirement=required`.
+`--require-external-intelligence` together with `--expected-intelligence-mode <route investigation_mode>` and `--expected-intelligence-depth <route depth>` only when the inherited/re-evaluated route has `status=valid` and `requirement=required`.
 Then run ordinary `/ccg:review`. Preserve the current CCG orchestrator semantics and the normal
 cross-review/model routing for this installation, including any configured role providers that
 ordinary review would use. GPT Pro is additional evidence: it is appended as a sidebar review
@@ -101,7 +101,7 @@ python "<installed-ccg-plugin>/skills/ccg-gptpro-bridge/scripts/gptpro_bridge.py
   --routing-evidence-file "<routing-evidence-file>" \
   --routing-summary-file "<routing-summary-file>" \
   --require-routing-evidence \
-  [--require-external-intelligence --expected-intelligence-mode <route investigation_mode> --expected-intelligence-depth <route depth> when route status=verified or status=received_unverified and requirement=required]
+  [--require-external-intelligence --expected-intelligence-mode <route investigation_mode> --expected-intelligence-depth <route depth> when route status=valid and requirement=required]
 ```
 
 When ordinary review produced genuine Gemini evidence, also pass

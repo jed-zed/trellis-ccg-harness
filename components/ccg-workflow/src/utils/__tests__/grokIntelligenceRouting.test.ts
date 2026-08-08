@@ -33,7 +33,7 @@ function validRunnerResult(
   artifactRoot = '.codex/ccg/intelligence',
   action = 'intel',
   depth = 'normal',
-  effectiveXPolicy = 'preferred',
+  effectiveXPolicy = mode === 'incident' ? 'required' : 'preferred',
   bindings: any[] = [],
   officialDomains: string[] = [],
   bundleRoot = root,
@@ -49,7 +49,7 @@ function validRunnerResult(
     schemaVersion: 2,
     decision: {
       requirement: 'required',
-      status: 'verified',
+      status: 'valid',
       action,
       investigation_mode: mode,
       mode,
@@ -115,7 +115,7 @@ function validRunnerResult(
   fs.writeFileSync(join(bundleDir, 'manifest.json'), manifest)
   return {
     exitCode: 0,
-    status: 'verified',
+    status: 'valid',
     model,
     evidencePath: `${artifactRoot}/${evidenceId}/evidence.json`,
     evidenceSha256: hash(artifact),
@@ -211,7 +211,7 @@ describe('Grok automatic intelligence routing', () => {
         requirement: 'required',
         mode: 'contract',
         trigger: 'dependency_api_contract',
-        status: 'verified',
+        status: 'valid',
         effective_x_policy: 'preferred',
       },
     })
@@ -229,7 +229,7 @@ describe('Grok automatic intelligence routing', () => {
     ])
     expect(events).toEqual(['decision', 'state:pending', 'invoke', 'state:complete'])
     expect(fs.readJsonSync(stateFile)).toMatchObject({
-      execution: { status: 'verified', exit_code: 0 },
+      execution: { status: 'valid', exit_code: 0 },
       bindings: { dependencies: [{ path: 'pnpm-lock.yaml', sha256: expect.stringMatching(/^[a-f0-9]{64}$/) }] },
     })
   })
@@ -256,7 +256,7 @@ describe('Grok automatic intelligence routing', () => {
       trigger: 'current_incident',
       require_web_search: true,
       configured_x_policy: 'preferred',
-      effective_x_policy: 'preferred',
+      effective_x_policy: 'required',
     })
     expect(invocation.argv).toEqual([
       'intel',
@@ -269,16 +269,16 @@ describe('Grok automatic intelligence routing', () => {
     ])
   })
 
-  it('inherits incident mode and depth without promoting preferred X', () => {
+  it('inherits the incident investigation mode, required X policy, and depth into final verification', () => {
     const previous = {
       decision: {
         requirement: 'required',
-        status: 'verified',
+        status: 'valid',
         action: 'intel',
         investigation_mode: 'incident',
         mode: 'incident',
         depth: 'deep',
-        effective_x_policy: 'preferred',
+        effective_x_policy: 'required',
       },
     }
     const input = {
@@ -292,7 +292,7 @@ describe('Grok automatic intelligence routing', () => {
       investigation_mode: 'incident',
       mode: 'incident',
       depth: 'deep',
-      effective_x_policy: 'preferred',
+      effective_x_policy: 'required',
     })
     expect((routeRuntime as any).buildRouteCommandArgv(decision, input)).toEqual([
       'verify',
@@ -446,9 +446,9 @@ describe('Grok automatic intelligence routing', () => {
     expect(state.bindings.dependencies[0].sha256).toMatch(/^[a-f0-9]{64}$/)
   })
 
-  it('allows final external verification without a predeclared official domain', async () => {
+  it('requires a predeclared official domain before final external verification invokes the runner', async () => {
     let calls = 0
-    const result = await (routeRuntime as any).runWorkflowRoute({
+    await expect((routeRuntime as any).runWorkflowRoute({
       repoRoot: root,
       config: enabledConfig(),
       workflow: 'review',
@@ -458,13 +458,12 @@ describe('Grok automatic intelligence routing', () => {
       diff: 'change.diff',
       stateFile: statePath('missing-official-domain'),
     }, {
-      invoke: async (request: any) => {
+      invoke: async () => {
         calls++
-        return validRunnerResultForRequest(request)
+        return validRunnerResult()
       },
-    })
-    expect(result).toMatchObject({ exitCode: 0, decision: { status: 'verified' } })
-    expect(calls).toBe(1)
+    })).rejects.toThrow(/official-domain/i)
+    expect(calls).toBe(0)
   })
 
   it('does not short-circuit the manual cache for repeated or changed route requests', async () => {
@@ -514,12 +513,12 @@ describe('Grok automatic intelligence routing', () => {
       task: 'Upgrade the current dependency API.',
       stateFile,
     }, {
-      invoke: async () => ({ exitCode: 2, status: 'invocation_failed', reason: 'No usable terminal response.' }),
+      invoke: async () => ({ exitCode: 2, status: 'required_evidence_unavailable', reason: 'No source-backed Web result.' }),
     })
 
     expect(result).toMatchObject({ exitCode: 2, invoked: true })
     expect(fs.readJsonSync(stateFile)).toMatchObject({
-      execution: { exit_code: 2, status: 'invocation_failed' },
+      execution: { exit_code: 2, status: 'required_evidence_unavailable' },
       decision: { status: 'blocked' },
     })
   })
@@ -538,13 +537,13 @@ describe('Grok automatic intelligence routing', () => {
       task: 'Upgrade the current dependency API.',
       stateFile: routeState,
     }, {
-      invoke: async () => ({ exitCode: 2, status: 'invocation_failed', reason: 'No usable terminal response.' }),
+      invoke: async () => ({ exitCode: 2, status: 'verification_unresolved', reason: 'No qualifying current claim.' }),
     })
 
     const waived = await (routeRuntime as any).waiveWorkflowRoute({
       repoRoot: root,
       stateFile: routeState,
-      reason: 'User accepts the failed external-intelligence call for this task.',
+      reason: 'User accepts the unresolved external-contract risk for this task.',
     }, { clock: () => new Date('2026-07-22T12:00:00.000Z') })
     expect(waived).toMatchObject({
       exitCode: 0,
@@ -552,11 +551,11 @@ describe('Grok automatic intelligence routing', () => {
         status: 'waived',
         waiver: {
           actor: 'user',
-          reason: 'User accepts the failed external-intelligence call for this task.',
+          reason: 'User accepts the unresolved external-contract risk for this task.',
           created_at: '2026-07-22T12:00:00.000Z',
         },
       },
-      execution: { status: 'invocation_failed', exit_code: 2 },
+      execution: { status: 'verification_unresolved', exit_code: 2 },
     })
     expect(await fs.readJson(evidenceFile)).toEqual({ schemaVersion: 1, items: [{ id: 'existing-non-grok-evidence' }] })
     await expect((routeRuntime as any).waiveWorkflowRoute({ repoRoot: root, stateFile: routeState, reason: '' }))
@@ -572,7 +571,7 @@ describe('Grok automatic intelligence routing', () => {
       phase: 'intake',
       task: 'Upgrade the current dependency API.',
       stateFile: statePath('missing-bundle'),
-    }, { invoke: async () => ({ exitCode: 0, status: 'verified' }) })
+    }, { invoke: async () => ({ exitCode: 0, status: 'valid' }) })
     expect(result).toMatchObject({ exitCode: 3, decision: { status: 'blocked' }, execution: { status: 'unsafe_context' } })
   })
 
@@ -623,7 +622,7 @@ describe('Grok automatic intelligence routing', () => {
       schemaVersion: 2,
       decision: {
         requirement: 'required',
-        status: 'verified',
+        status: 'valid',
         action: 'intel',
         investigation_mode: 'contract',
         mode: 'contract',
@@ -696,7 +695,7 @@ describe('Grok automatic intelligence routing', () => {
     }, {
       invoke: async () => ({
         exitCode: 0,
-        status: 'verified',
+        status: 'valid',
         evidencePath: `.codex/ccg/intelligence/${evidenceId}/evidence.json`,
         evidenceSha256: artifactSha256,
         manifestPath: `.codex/ccg/intelligence/${evidenceId}/manifest.json`,
@@ -717,7 +716,7 @@ describe('Grok automatic intelligence routing', () => {
     }))
     expect(fs.readJsonSync(join(taskDir, 'task.json')).intelligence).toMatchObject({
       requirement: 'required',
-      status: 'verified',
+      status: 'valid',
       evidence_id: evidenceId,
       manifest_sha256: manifestSha256,
       localOnly: true,
@@ -794,7 +793,7 @@ describe('Grok automatic intelligence routing', () => {
         invoke: async (request: any) => validRunnerResultForRequest(request, { pathRoot: alias }),
       })
 
-      expect(result, JSON.stringify(result, null, 2)).toMatchObject({ exitCode: 0, decision: { status: 'verified' } })
+      expect(result, JSON.stringify(result, null, 2)).toMatchObject({ exitCode: 0, decision: { status: 'valid' } })
       expect(await fs.pathExists(join(taskDir, 'intelligence-route.json'))).toBe(true)
       expect(await fs.pathExists(join(taskDir, 'evidence.json'))).toBe(true)
     }

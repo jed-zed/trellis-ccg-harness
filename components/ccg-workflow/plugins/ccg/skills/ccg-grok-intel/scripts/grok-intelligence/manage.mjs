@@ -371,7 +371,7 @@ async function liveDoctor(options = {}) {
   finally {
     await rm(probeRoot, { recursive: true, force: true })
   }
-  if (live.exitCode !== 0 || live.status !== 'verified')
+  if (live.exitCode !== 0 || live.status !== 'valid')
     throw new Error(`Paid Grok Web/X smoke failed: ${live.status || 'unknown'} (${live.reason || 'no reason'})`)
   const searches = live.evidence?.normalized?.searches || []
   const validation = live.evidence?.validation || {}

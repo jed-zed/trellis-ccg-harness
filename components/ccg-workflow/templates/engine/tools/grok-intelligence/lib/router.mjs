@@ -1,5 +1,5 @@
 const REQUIREMENTS = new Set(['required', 'preferred', 'disabled'])
-const STATUSES = new Set(['verified', 'received_unverified', 'skipped', 'waived'])
+const STATUSES = new Set(['valid', 'skipped', 'waived'])
 const ACTIONS = new Set(['intel', 'verify'])
 const MODES = new Set(['discover', 'contract', 'incident', 'landscape'])
 const DEPTHS = new Set(['normal', 'deep'])
@@ -50,9 +50,8 @@ export function createIntelligenceDecision(input) {
   const legacyMode = requireString(input.mode || input.investigation_mode || input.investigationMode, 'mode')
   const investigationMode = requireString(input.investigation_mode || input.investigationMode || (legacyMode === 'deep' ? 'discover' : legacyMode), 'investigation_mode')
   const depth = requireString(input.depth || (legacyMode === 'deep' ? 'deep' : 'normal'), 'depth')
-  const received = status === 'verified' || status === 'received_unverified'
-  const packageStatus = requireString(input.package_status || (received ? 'valid' : 'not_collected'), 'package_status')
-  const verificationOutcome = requireString(input.verification_outcome || (status === 'verified' ? 'verified' : received ? 'unresolved' : 'not_run'), 'verification_outcome')
+  const packageStatus = requireString(input.package_status || (status === 'valid' ? 'valid' : 'not_collected'), 'package_status')
+  const verificationOutcome = requireString(input.verification_outcome || (status === 'valid' ? 'unresolved' : 'not_run'), 'verification_outcome')
   if (!REQUIREMENTS.has(requirement))
     throw new Error(`Unsupported intelligence requirement: ${requirement}`)
   if (!STATUSES.has(status))
@@ -69,8 +68,8 @@ export function createIntelligenceDecision(input) {
     throw new Error(`Unsupported intelligence verification outcome: ${verificationOutcome}`)
   if (status === 'skipped' && requirement !== 'disabled')
     throw new Error('Only a disabled intelligence route may be skipped')
-  if (received && requirement === 'disabled')
-    throw new Error('A disabled intelligence route cannot produce evidence')
+  if (status === 'valid' && requirement === 'disabled')
+    throw new Error('A disabled intelligence route cannot produce valid evidence')
 
   const decision = {
     requirement,
@@ -132,7 +131,7 @@ export function createCanonicalEvidenceItem({ evidenceId, decision, bundle, summ
     depth: normalizedDecision.depth,
     packageStatus: normalizedDecision.package_status,
     verificationOutcome: normalizedDecision.verification_outcome,
-    available: ['verified', 'received_unverified', 'waived'].includes(normalizedDecision.status),
+    available: normalizedDecision.status === 'valid' || normalizedDecision.status === 'waived',
     artifactFile: pointer.artifactRelativePath,
     artifactSha256: pointer.artifactSha256,
     manifestFile: pointer.manifestRelativePath,

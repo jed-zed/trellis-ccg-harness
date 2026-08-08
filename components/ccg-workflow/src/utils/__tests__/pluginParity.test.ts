@@ -87,8 +87,7 @@ describe('Codex plugin release parity', () => {
     for (const path of verifySurfaces) {
       const content = fs.readFileSync(path, 'utf8')
       expect(content, path).toContain('--official-domain')
-      expect(content, path).toContain('official_unknown')
-      expect(content, path).toContain('received_unverified')
+      expect(content, path).toMatch(/before[\s\S]*(?:Grok|provider)/i)
     }
   })
 

@@ -50,5 +50,5 @@ x_search_policy = "preferred"
 enabled = false
 contract_version = "2"
 max_retries = 1
-timeout_ms = 7200000
+timeout_ms = 180000
 max_output_bytes = 1048576
