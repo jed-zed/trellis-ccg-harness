@@ -21,15 +21,20 @@ Publish accepted Grok receipt-state changes to the personal CCG fork, update the
 
 ## Acceptance Criteria
 
-- [ ] CCG PR #33 is merged after all required CI checks pass.
-- [ ] The Harness manifest and component snapshot bind the accepted CCG commit
+- [x] CCG PR #33 is merged after all required CI checks pass.
+- [x] The Harness manifest and component snapshot bind the accepted CCG commit
       and exact Git tree.
-- [ ] Source, Harness, global CLI, and installed Codex plugin report one matching
+- [x] Source, Harness, global CLI, and installed Codex plugin report one matching
       `3.4.6` / `3.4.6+codex.3` identity.
-- [ ] Harness conflicts and relevant offline tests pass with no live Provider.
+- [x] Harness conflicts and relevant offline tests pass with no live Provider.
 - [ ] The Harness publication PR is merged and the task is archived.
 
 ## Notes
 
 - Boss approved the complete commit/publish/update chain on 2026-08-08.
 - Authoritative CCG source commit before merge: `cffda18a5140df366abd1b0d83da6db2075c802d`.
+- Accepted CCG main commit: `1ff5af862fdc7ec7634ca49484f3e69bdaed1ca6`;
+  Git tree: `d4ec1a1455149e66d9aeb8c44e6ed49202a19d34`.
+- Full setup installed the matching CLI/plugin, then stopped at unrelated managed
+  global Skill drift for `chatgpt-pro-sidebar`. The supported plugin-only flow
+  completed afterward without overwriting that user-modified Skill.
