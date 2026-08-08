@@ -1,0 +1,194 @@
+{
+  "schemaVersion": 1,
+  "milestone": "M3",
+  "verifiedAtUtc": "2026-08-08T14:54:03Z",
+  "status": "passed",
+  "harnessGitHead": "1297a5e77c70858036984612362bdd827383f441",
+  "sourceGitHead": "79b7f819f72048239c79a4048760d9b1fe9eb2a0",
+  "sourceGitTree": "7959e76ab97e1645c3d5687ad5f0e77d2f5e0b04",
+  "harnessTrackedDiffSha256": "1fe850c65830441ae8d5c2d0fb09967c34b94dda39859fee45d9e573c5c2f733",
+  "harnessDiffScope": "SHA-256 of `git diff --binary` at re-attestation time excluding this self-referential m3-verification-evidence.json file. The recorded Harness commit is the committed feature/code baseline; the three source hashes independently bind the current implementation bytes.",
+  "checks": [
+    {
+      "name": "GPT Pro sidebar Pester suite after live fixes",
+      "status": "passed",
+      "testsPassed": 235,
+      "testsFailed": 0,
+      "testsSkipped": 0,
+      "files": [
+        {
+          "path": ".agents/skills/chatgpt-pro-sidebar/tests/chatgpt-pro-sidebar.Tests.ps1",
+          "testsPassed": 160,
+          "testsFailed": 0,
+          "testsSkipped": 0,
+          "durationMilliseconds": 7303.806
+        },
+        {
+          "path": ".agents/skills/chatgpt-pro-sidebar/tests/chatgpt-pro-sidebar-watch.Tests.ps1",
+          "testsPassed": 75,
+          "testsFailed": 0,
+          "testsSkipped": 0,
+          "durationMilliseconds": 8218.547
+        }
+      ],
+      "countReconciliation": "The exact two-file Pester invocation discovers 160 + 75 = 235 tests. No durable command or log for the earlier 247 figure exists in the task evidence, so 235 is the authoritative reproducible scope and 247 is not retained as a delivery claim."
+    },
+    {
+      "name": "Harness full suite",
+      "status": "passed",
+      "testsPassed": 452,
+      "testsSkipped": 3,
+      "testsFailed": 0,
+      "durationMilliseconds": 801280.4946
+    },
+    {
+      "name": "authoritative CCG full suite",
+      "status": "passed",
+      "testsPassed": 600,
+      "testsSkipped": 3,
+      "testsFailed": 0,
+      "lint": "passed",
+      "typecheck": "passed",
+      "build": "passed"
+    },
+    {
+      "name": "Harness CCG snapshot full suite",
+      "status": "passed",
+      "testsPassed": 600,
+      "testsSkipped": 3,
+      "testsFailed": 0,
+      "lint": "passed",
+      "typecheck": "passed",
+      "build": "passed"
+    },
+    {
+      "name": "CCG source-to-Harness snapshot parity",
+      "status": "passed",
+      "filesCompared": 13,
+      "byteIdentical": true
+    },
+    {
+      "name": "Harness conflicts",
+      "status": "passed",
+      "findingsPassed": 19,
+      "blocking": 0,
+      "warnings": 0
+    },
+    {
+      "name": "PowerShell syntax",
+      "status": "passed",
+      "filesParsed": 2,
+      "parseErrors": 0
+    },
+    {
+      "name": "durable-evidence negative regressions",
+      "status": "passed",
+      "facts": [
+        "Locked child stdout cannot promote nonterminal or send-uncertain durable evidence to completed.",
+        "An unproved send-uncertain slot remains isolated as ConcurrencySlotRecoveryRequired and is not released."
+      ]
+    },
+    {
+      "name": "independent post-live repair review",
+      "status": "passed",
+      "provider": "antigravity",
+      "model": "claude-opus-4-6-thinking",
+      "verdict": "No blocking findings.",
+      "evidence": ".ccg/tasks/08-07-gptpro-multi-window-cross-task/antigravity-m3-postlive-review.txt",
+      "evidenceSha256": "82900e4595186ef9fb6f48d14b68dfaf6517852f61a69358fac265f4c9502faf",
+      "reviewedRegions": [
+        {
+          "path": ".agents/skills/chatgpt-pro-sidebar/scripts/chatgpt-pro-sidebar-watch.ps1",
+          "lines": "1772-1816",
+          "symbols": "Get-CapacityProcessIdentity, Test-CapacityOwnerAlive",
+          "fix": "UTC process-start ownership round trip"
+        },
+        {
+          "path": ".agents/skills/chatgpt-pro-sidebar/scripts/chatgpt-pro-sidebar.ps1",
+          "lines": "4292-4397",
+          "symbols": "Test-AgentBrowserTargetMatchesBinding, Resolve-AgentBrowserTarget",
+          "fix": "exact target resolution and background exact-URL reopen"
+        },
+        {
+          "path": ".agents/skills/chatgpt-pro-sidebar/scripts/chatgpt-pro-sidebar-watch.ps1",
+          "lines": "1818-1916,2172-2249,2348-2365",
+          "symbols": "Get-CapacityReleaseProof, Release-CapacitySlot, Read-BatchRoundProcessResult, Invoke-RootWaitBatch",
+          "fix": "durable terminal fallback and fail-closed slot retention"
+        }
+      ],
+      "reviewedRegionsAttribution": "Antigravity reviewed these files and reported no blocking findings. Codex mapped the three reviewed live fixes to the exact current source ranges above; the provider output itself did not enumerate line ranges."
+    },
+    {
+      "name": "CCG change scanner",
+      "status": "passed_with_expected_heuristic_warning",
+      "note": "The scanner sees tests and durable Trellis/Skill documentation but expects a generic components/ccg-workflow/DESIGN.md; the authoritative task spec and Skill contracts are updated instead."
+    },
+    {
+      "name": "CCG quality scanner",
+      "status": "passed_with_existing_warnings",
+      "errors": 0,
+      "note": "Repository-wide existing file-size and complexity warnings remain; project lint, typecheck, tests, build, and diff checks pass."
+    },
+    {
+      "name": "CCG security scanner on changed security surfaces",
+      "status": "passed",
+      "critical": 0,
+      "high": 0,
+      "medium": 0,
+      "low": 0,
+      "note": "The whole-repository heuristic reports unrelated historical paths, so the delivery gate is scoped to the changed sidebar Skill, GPT Pro bridge, and Harness adapter; the earlier crafted status-path escape has a regression and remains fixed."
+    },
+    {
+      "name": "CCG module scanner",
+      "status": "not_applicable",
+      "note": "No new module was created."
+    },
+    {
+      "name": "doctor",
+      "status": "passed_with_path_warning",
+      "note": "All checks passed; the only warning is that the optional global pnpm bin directory is not in PATH. The pinned runtime pnpm command used by this Harness is available."
+    },
+    {
+      "name": "verify:sources",
+      "status": "passed",
+      "note": "The published CCG commit 79b7f819f72048239c79a4048760d9b1fe9eb2a0 and tree 7959e76ab97e1645c3d5687ad5f0e77d2f5e0b04 match the committed 13-file Harness snapshot."
+    },
+    {
+      "name": "live cross-task 3/6 E2E",
+      "status": "passed",
+      "evidence": "research/m3-live-current-task-evidence.json"
+    },
+    {
+      "name": "site throttling branch acceptance",
+      "status": "passed_on_unit_evidence_only",
+      "note": "No live throttle occurred and concurrency was not increased to manufacture one. Acceptance uses the M2 pre-click challenge/throttle terminal-failure test and post-click send-uncertain single-click/no-resend test; no live throttle claim is made."
+    },
+    {
+      "name": "batch timeout default contract",
+      "status": "passed",
+      "literalDefaultSeconds": 7200,
+      "evidence": ".agents/skills/chatgpt-pro-sidebar/tests/chatgpt-pro-sidebar-watch.Tests.ps1:495-510",
+      "assertion": "(Read-RootWaitBatchManifest -Path $path).TimeoutSeconds | Should -Be 7200",
+      "liveQueueProofNote": "The live fourth- and seventh-round queue proofs deliberately used about 30-second timeouts; they prove pre-click queuing and timeout behavior, not a full 7200-second end-to-end wait."
+    },
+    {
+      "name": "Trellis Phase 3.3 spec-update judgment",
+      "status": "passed_updated",
+      "note": "The tooling spec now records UTC process-start JSON identity and locked-stdout durable terminal fallback plus negative tests; existing tabtree --full recovery language already covered the second live repair."
+    }
+  ],
+  "sourceSha256": {
+    "adapter": "fcbef6b9c31a27b02a65c1cbb4c87f512030d790f515deb7db4305063050380d",
+    "watcher": "baf2299246f0843f0220fcdf00f2f90e3f51bf5b37c1577d013cc39278bef65b",
+    "ccgBridge": "2d24f607b6ccd3d9b0de0937b98c7f7354dade73eb7a6358d618398e3ba9b7b2"
+  },
+  "rollback": {
+    "independentlyRevertibleCommits": {
+      "ccgSource": "79b7f819f72048239c79a4048760d9b1fe9eb2a0",
+      "harnessSourceSync": "87a335b1b4bf9c9ea9ae7772795f30d13feedaac",
+      "harnessFeature": "1297a5e77c70858036984612362bdd827383f441"
+    },
+    "durableEvidenceRetention": "Rollback must not delete target claims, idempotency reservations, canonical URLs, batch results, or evidence. Any clicked but unconfirmed item remains no-resend."
+  },
+  "remaining": []
+}

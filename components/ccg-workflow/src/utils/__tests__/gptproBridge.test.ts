@@ -65,6 +65,7 @@ function writeSidebarEvidence(
   response: string,
   threadId = '019fa981-725e-7f02-93a7-bb1e1b7aefd3',
   conversationUrl = 'https://chatgpt.com/c/6a6a1d6a-5df4-83ea-8685-43559f3e47e8',
+  transport = 'agent-browser-cli-v2',
 ): void {
   fs.ensureDirSync(sidebarDir)
   const promptBytes = Buffer.from(prompt, 'utf-8')
@@ -73,13 +74,25 @@ function writeSidebarEvidence(
   fs.writeFileSync(join(sidebarDir, 'prompt.md'), promptBytes)
   fs.writeFileSync(join(sidebarDir, 'response.md'), responseBytes)
   fs.writeFileSync(join(sidebarDir, 'url.txt'), urlBytes)
+  const targetBinding = {
+    browserId: 'browser-1',
+    profileId: 'profile-1',
+    profileLabel: 'work',
+    tabId: '101',
+    sessionKey: 'browser-1:profile-1:101',
+    origin: 'https://chatgpt.com',
+    url: conversationUrl,
+  }
   const manifest = `${JSON.stringify({
     schemaVersion: 1,
     tool: 'chatgpt-pro-sidebar',
-    transport: 'windows-uia',
+    transport,
     live: true,
     prompt: { file: 'prompt.md', sha256: sha256(promptBytes) },
     response: { file: 'response.md', sha256: sha256(responseBytes), characters: response.length },
+    ...(transport === 'agent-browser-cli-v2' ? {
+      extractor: { version: 'dom-agent-turn-v1', targetBinding, turnKey: 'assistant-1' },
+    } : {}),
     conversation: {
       file: 'url.txt',
       url: conversationUrl,
@@ -104,7 +117,7 @@ function writeSidebarEvidence(
   fs.writeJsonSync(join(sidebarDir, 'state.json'), {
     schemaVersion: 1,
     tool: 'chatgpt-pro-sidebar',
-    transport: 'windows-uia',
+    transport,
     live: true,
     phase: 'completed',
     promptFile: 'prompt.md',
@@ -117,6 +130,7 @@ function writeSidebarEvidence(
     evidenceSha256: sha256(manifest),
     conversationUrl,
     conversationUrlBound: conversationUrl,
+    ...(transport === 'agent-browser-cli-v2' ? { targetBinding } : {}),
     automaticResendAllowed: false,
   })
   fs.writeJsonSync(join(sidebarDir, 'watch-event.json'), {
@@ -126,6 +140,8 @@ function writeSidebarEvidence(
     status: 'completed',
     requiresCodexReview: true,
     automaticResendAllowed: false,
+    transport,
+    ...(transport === 'agent-browser-cli-v2' ? { targetBinding } : {}),
     evidenceDirectory: sidebarDir,
     conversationUrl,
     codexThreadId: threadId,
@@ -356,11 +372,269 @@ describe('GPT Pro sidebar bridge', () => {
     runPython(PYTHON!, ['-m', 'py_compile', PLUGIN_BRIDGE])
   })
 
+  maybeIt('creates 20 sessions concurrently without directory collisions', () => {
+    const root = join(TMP_ROOT, 'concurrent-session-create')
+    fs.ensureDirSync(root)
+    const script = [
+      'import json, pathlib, subprocess, sys',
+      'bridge, root = sys.argv[1], pathlib.Path(sys.argv[2])',
+      'sessions = root / "sessions"',
+      'commands = [[sys.executable, bridge, "--mode", "plan", "--workdir", str(root), "--output-root", str(sessions), "--prompt", f"parallel session {index}", "--slug", "same-slug"] for index in range(20)]',
+      'processes = [subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8") for command in commands]',
+      'session_dirs = []',
+      'for process in processes:',
+      '    stdout, stderr = process.communicate(timeout=30)',
+      '    if process.returncode != 0:',
+      '        raise RuntimeError(stderr)',
+      '    session_dirs.append(next(line.split("=", 1)[1] for line in stdout.splitlines() if line.startswith("CCG_GPTPRO_SESSION_DIR=")))',
+      'assert len(session_dirs) == 20',
+      'assert len(set(session_dirs)) == 20',
+      'assert all(pathlib.Path(path).is_dir() for path in session_dirs)',
+      'print(json.dumps(session_dirs))',
+    ].join('\n')
+    const result = runPython(PYTHON!, ['-c', script, PLUGIN_BRIDGE, root], root)
+    expect(JSON.parse(result)).toHaveLength(20)
+  }, 60_000)
+
+  maybeIt('preserves 10 concurrent task evidence imports with task and thread identity', () => {
+    const root = join(TMP_ROOT, 'concurrent-evidence-import')
+    const taskDir = join(root, '.ccg', 'tasks', 'parallel-task')
+    fs.ensureDirSync(taskDir)
+    fs.writeJsonSync(join(taskDir, 'task.json'), { id: 'parallel-task', status: 'in_progress' })
+    const threadId = '019fa981-725e-7f02-93a7-bb1e1b7aefd3'
+    const script = [
+      'import json, pathlib, subprocess, sys',
+      'bridge, root, thread_id = sys.argv[1], pathlib.Path(sys.argv[2]), sys.argv[3]',
+      'task_dir = root / ".ccg" / "tasks" / "parallel-task"',
+      'commands = [[sys.executable, bridge, "--mode", "exc", "--workdir", str(root), "--task-dir", ".ccg/tasks/parallel-task", "--prompt", f"parallel evidence {index}", "--slug", f"parallel-{index}", "--gemini-policy", "optional", "--gemini-evidence-role", "frontend-prototype", "--codex-thread-id", thread_id] for index in range(10)]',
+      'creators = [subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8") for command in commands]',
+      'session_dirs = []',
+      'for process in creators:',
+      '    stdout, stderr = process.communicate(timeout=30)',
+      '    if process.returncode != 0:',
+      '        raise RuntimeError(stderr)',
+      '    session_dirs.append(next(line.split("=", 1)[1] for line in stdout.splitlines() if line.startswith("CCG_GPTPRO_SESSION_DIR=")))',
+      'importer = "\\n".join([',
+      '    "import importlib.util, pathlib, sys",',
+      '    "spec = importlib.util.spec_from_file_location(\'gptpro_bridge\', sys.argv[1])",',
+      '    "mod = importlib.util.module_from_spec(spec)",',
+      '    "sys.modules[\'gptpro_bridge\'] = mod",',
+      '    "spec.loader.exec_module(mod)",',
+      '    "session = mod.load_session(pathlib.Path(sys.argv[2]))",',
+      '    "metadata = {\'transport\': \'chatgpt-pro-sidebar\', \'browserTransport\': \'agent-browser-cli-v2\', \'conversationUrl\': \'https://chatgpt.com/c/parallel-session\', \'codexThreadId\': sys.argv[4], \'submissionAcknowledged\': True, \'observationalRecovery\': False, \'sidebarEvidenceFile\': str(session.status_file), \'sidebarEvidenceSha256\': \'0\' * 64}",',
+      '    "mod.save_response(session, sys.argv[3], transport_metadata=metadata)",',
+      '])',
+      'imports = [subprocess.Popen([sys.executable, "-c", importer, bridge, session_dir, f"response {index}\\n", thread_id], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8") for index, session_dir in enumerate(session_dirs)]',
+      'for process in imports:',
+      '    _stdout, stderr = process.communicate(timeout=30)',
+      '    if process.returncode != 0:',
+      '        raise RuntimeError(stderr)',
+      'evidence = json.loads((task_dir / "evidence.json").read_text(encoding="utf-8"))',
+      'items = [item for item in evidence["items"] if item.get("provider") == "gptpro"]',
+      'assert len(items) == 10',
+      'assert all(item.get("taskId") == "parallel-task" and item.get("codexThreadId") == thread_id for item in items)',
+      'print(json.dumps(items))',
+    ].join('\n')
+    const result = runPython(PYTHON!, ['-c', script, PLUGIN_BRIDGE, root, threadId], root)
+    expect(JSON.parse(result)).toHaveLength(10)
+  }, 60_000)
+
+  maybeIt('creates a two-session batch and imports only its completed strict result', () => {
+    const root = join(TMP_ROOT, 'batch-create-import')
+    const taskDir = join(root, '.ccg', 'tasks', 'batch-task')
+    fs.ensureDirSync(taskDir)
+    fs.writeJsonSync(join(taskDir, 'task.json'), { id: 'batch-task', status: 'in_progress' })
+    const threadId = '019fa981-725e-7f02-93a7-bb1e1b7aefd3'
+    const requestPath = join(root, 'batch-request.json')
+    fs.writeJsonSync(requestPath, {
+      schemaVersion: 1,
+      mode: 'exc',
+      codexThreadId: threadId,
+      maxConcurrency: 3,
+      timeoutSeconds: 7200,
+      rounds: [
+        {
+          roundId: 'analysis-a',
+          prompt: 'Analyze contract A.',
+          idempotencyKey: 'batch-create-import-a',
+          targetBinding: {
+            browserId: 'browser-1',
+            profileId: 'profile-1',
+            tabId: '101',
+            sessionKey: 'browser-1:profile-1:101',
+          },
+        },
+        {
+          roundId: 'analysis-b',
+          prompt: 'Analyze contract B.',
+          idempotencyKey: 'batch-create-import-b',
+          targetBinding: {
+            browserId: 'browser-1',
+            profileId: 'profile-1',
+            tabId: '102',
+            sessionKey: 'browser-1:profile-1:102',
+          },
+        },
+      ],
+    })
+    const createOutput = runPython(PYTHON!, [
+      PLUGIN_BRIDGE,
+      '--mode',
+      'exc',
+      '--workdir',
+      root,
+      '--task-dir',
+      '.ccg/tasks/batch-task',
+      '--gemini-policy',
+      'optional',
+      '--gemini-evidence-role',
+      'frontend-prototype',
+      '--codex-thread-id',
+      threadId,
+      '--create-batch-manifest',
+      requestPath,
+    ], root)
+    const batchFile = parseOutputPath(createOutput, 'CCG_GPTPRO_BATCH_FILE')
+    const watcherManifestFile = parseOutputPath(createOutput, 'CCG_GPTPRO_BATCH_MANIFEST')
+    const batch = fs.readJsonSync(batchFile)
+    const watcherManifest = fs.readJsonSync(watcherManifestFile)
+    expect(batch.items).toHaveLength(2)
+    expect(watcherManifest).toMatchObject({
+      schemaVersion: 1,
+      codexThreadId: threadId,
+      maxConcurrency: 3,
+      timeoutSeconds: 7200,
+    })
+    expect(watcherManifest.rounds).toHaveLength(2)
+    expect(new Set(batch.items.map((item: any) => item.sessionDir)).size).toBe(2)
+
+    const completed = batch.items[0]
+    const completedPrompt = readFileSync(completed.promptPath, 'utf-8')
+      .replace(/\r\n/g, '\n')
+      .replace(/\r/g, '\n')
+      .replace(/[\r\n]+$/, '')
+    writeSidebarEvidence(completed.evidenceDirectory, completedPrompt, 'Batch response A.\n', threadId)
+    const completedState = fs.readJsonSync(join(completed.evidenceDirectory, 'state.json'))
+    const completedEvent = fs.readJsonSync(join(completed.evidenceDirectory, 'watch-event.json'))
+    fs.writeJsonSync(batch.watcherResultFile, {
+      schemaVersion: 1,
+      batchId: 'watcher-batch-id',
+      command: 'run-batch-root',
+      codexThreadId: threadId,
+      status: 'terminal',
+      allSucceeded: false,
+      items: [
+        {
+          roundId: 'analysis-a',
+          status: 'completed',
+          terminalStatus: 'completed',
+          errorCategory: null,
+          submissionAcknowledged: true,
+          targetBinding: completedState.targetBinding,
+          conversationUrl: completedState.conversationUrlBound,
+          promptSha256: completedState.promptSha256,
+          responseSha256: completedState.responseSha256,
+          evidenceSha256: completedState.evidenceSha256,
+          watcherId: completedEvent.watcherId,
+          evidenceDirectory: completed.evidenceDirectory,
+        },
+        {
+          roundId: 'analysis-b',
+          status: 'queued-timeout',
+          terminalStatus: '',
+          errorCategory: 'ConcurrencySlotTimeout',
+          submissionAcknowledged: false,
+          targetBinding: watcherManifest.rounds[1].targetBinding,
+          conversationUrl: '',
+          promptSha256: '',
+          responseSha256: '',
+          evidenceSha256: '',
+          watcherId: '',
+          evidenceDirectory: batch.items[1].evidenceDirectory,
+        },
+      ],
+    })
+
+    const importArgs = [
+      PLUGIN_BRIDGE,
+      '--import-batch-result',
+      batchFile,
+      '--expected-codex-thread-id',
+      threadId,
+    ]
+    const firstImport = runPython(PYTHON!, importArgs, root)
+    const secondImport = runPython(PYTHON!, importArgs, root)
+    expect(firstImport).toContain('CCG_GPTPRO_BATCH_IMPORTED=1')
+    expect(firstImport).toContain('CCG_GPTPRO_BATCH_ALL_IMPORTED=0')
+    expect(secondImport).toContain('CCG_GPTPRO_BATCH_IMPORTED=1')
+    const imported = fs.readJsonSync(batch.importResultFile)
+    expect(imported.items).toMatchObject([
+      { roundId: 'analysis-a', imported: true, terminalStatus: 'completed' },
+      { roundId: 'analysis-b', imported: false, status: 'queued-timeout' },
+    ])
+    const evidence = fs.readJsonSync(join(taskDir, 'evidence.json'))
+    expect(evidence.items.filter((item: any) => item.provider === 'gptpro')).toHaveLength(1)
+
+    const tampered = fs.readJsonSync(batch.watcherResultFile)
+    tampered.items[0].responseSha256 = 'f'.repeat(64)
+    fs.writeJsonSync(batch.watcherResultFile, tampered)
+    expect(runPythonFailure(PYTHON!, importArgs, root)).toMatch(/hashes, URL, or watcher binding mismatch/i)
+  }, 60_000)
+
+  maybeIt('rejects duplicate batch idempotency keys before creating sessions', () => {
+    const root = join(TMP_ROOT, 'batch-duplicate-key')
+    const taskDir = join(root, '.ccg', 'tasks', 'batch-duplicate-task')
+    fs.ensureDirSync(taskDir)
+    fs.writeJsonSync(join(taskDir, 'task.json'), { id: 'batch-duplicate-task', status: 'in_progress' })
+    const threadId = '019fa981-725e-7f02-93a7-bb1e1b7aefd3'
+    const requestPath = join(root, 'batch-request.json')
+    fs.writeJsonSync(requestPath, {
+      schemaVersion: 1,
+      mode: 'exc',
+      codexThreadId: threadId,
+      rounds: [
+        {
+          roundId: 'a',
+          prompt: 'A',
+          idempotencyKey: 'duplicate-key',
+          targetBinding: { browserId: 'b', profileId: 'p', tabId: '1', sessionKey: 'b:p:1' },
+        },
+        {
+          roundId: 'b',
+          prompt: 'B',
+          idempotencyKey: 'duplicate-key',
+          targetBinding: { browserId: 'b', profileId: 'p', tabId: '2', sessionKey: 'b:p:2' },
+        },
+      ],
+    })
+    const error = runPythonFailure(PYTHON!, [
+      PLUGIN_BRIDGE,
+      '--mode',
+      'exc',
+      '--workdir',
+      root,
+      '--task-dir',
+      '.ccg/tasks/batch-duplicate-task',
+      '--gemini-policy',
+      'optional',
+      '--gemini-evidence-role',
+      'frontend-prototype',
+      '--codex-thread-id',
+      threadId,
+      '--create-batch-manifest',
+      requestPath,
+    ], root)
+    expect(error).toMatch(/idempotency keys must be unique/i)
+  })
+
   it('keeps the Codex plugin bridge on the automated sidebar transport without Claude gates', () => {
     const pluginBridge = readFileSync(PLUGIN_BRIDGE, 'utf-8')
     expect(pluginBridge).toContain('chatgpt-pro-sidebar')
     expect(pluginBridge).toContain('--import-sidebar-evidence')
     expect(pluginBridge).toContain('--expected-codex-thread-id')
+    expect(pluginBridge).toContain('--create-batch-manifest')
+    expect(pluginBridge).toContain('--import-batch-result')
+    expect(pluginBridge).toContain('agent-browser-cli-v2')
     expect(pluginBridge).not.toContain('--require-claude-evidence')
     expect(pluginBridge).not.toContain('claudeEvidenceStatus')
   })
@@ -382,6 +656,7 @@ describe('GPT Pro sidebar bridge', () => {
     for (const relativePath of surfaces) {
       const content = readFileSync(join(PACKAGE_ROOT, ...relativePath.split('/')), 'utf-8')
       expect(content, relativePath).toContain('chatgpt-pro-sidebar')
+      expect(content, relativePath).toContain('agent-browser-cli-v2')
       expect(content, relativePath).not.toContain('manual_gptpro_waiting')
       expect(content, relativePath).not.toMatch(/^\s*--detach-preview/m)
       expect(content, relativePath).not.toMatch(/^\s*--open-preview/m)
@@ -471,11 +746,14 @@ describe('GPT Pro sidebar bridge', () => {
       sidebar_transport_required: true,
       auto_submit: true,
       auto_output_read: true,
+      web_automation: true,
+      dom_extraction: true,
       sidebar_response_imported: true,
     })
     expect(status.rounds['round-1']).toMatchObject({
       response_saved: true,
       transport: 'chatgpt-pro-sidebar',
+      sidebar_evidence: { browserTransport: 'agent-browser-cli-v2' },
     })
     expect(readFileSync(join(dirname(promptFile), 'response.md'), 'utf-8')).toBe(response)
     expect(fs.readJsonSync(join(sidebarDir, 'watch-continuation-ack.json'))).toMatchObject({
@@ -491,16 +769,156 @@ describe('GPT Pro sidebar bridge', () => {
     expect(gptproItems[0]).toMatchObject({
       policy: 'automated-sidebar',
       transport: 'chatgpt-pro-sidebar',
+      browserTransport: 'agent-browser-cli-v2',
       codexThreadId: '019fa981-725e-7f02-93a7-bb1e1b7aefd3',
       automaticResendAllowed: false,
       externalOutputIsUntrusted: true,
       codexIsSoleWorkspaceWriter: true,
     })
 
+    const escapedEvidence = join(root, 'escaped-evidence.json')
+    fs.writeJsonSync(escapedEvidence, { preserve: true })
+    fs.writeJsonSync(statusFile, { ...status, evidence_file: escapedEvidence })
+    const escapedError = runPythonFailure(PYTHON!, importArgs, root)
+    expect(escapedError).toMatch(/Canonical evidence file must stay inside/i)
+    expect(fs.readJsonSync(escapedEvidence)).toEqual({ preserve: true })
+    fs.writeJsonSync(statusFile, status)
+
     writeSidebarEvidence(sidebarDir, prompt, 'Different response must not overwrite.\n')
     const overwriteError = runPythonFailure(PYTHON!, importArgs, root)
     expect(overwriteError).toMatch(/already saved with different content/i)
     expect(readFileSync(join(dirname(promptFile), 'response.md'), 'utf-8')).toBe(response)
+  })
+
+  maybeIt('keeps completed windows-uia evidence as historical read-only import compatibility', () => {
+    const root = join(TMP_ROOT, 'sidebar-historical-uia-import')
+    const taskDir = join(root, '.ccg', 'tasks', 'sidebar-historical-task')
+    fs.ensureDirSync(taskDir)
+    fs.writeJsonSync(join(taskDir, 'task.json'), { id: 'sidebar-historical-task', status: 'in_progress' })
+    const createOutput = runPython(PYTHON!, [
+      BRIDGE,
+      '--mode',
+      'review',
+      '--workdir',
+      root,
+      '--task-dir',
+      '.ccg/tasks/sidebar-historical-task',
+      '--prompt',
+      'Import historical completed evidence.',
+    ], root)
+    const sessionDir = parseOutputPath(createOutput, 'CCG_GPTPRO_SESSION_DIR')
+    const promptFile = parseOutputPath(createOutput, 'CCG_GPTPRO_PROMPT_FILE')
+    const statusFile = parseOutputPath(createOutput, 'CCG_GPTPRO_STATUS_FILE')
+    const historicalStatus = fs.readJsonSync(statusFile)
+    delete historicalStatus.browser_transport_required
+    fs.writeJsonSync(statusFile, historicalStatus)
+    const sidebarDir = join(dirname(promptFile), 'sidebar')
+    writeSidebarEvidence(
+      sidebarDir,
+      readFileSync(promptFile, 'utf-8').replace(/\r\n/g, '\n').replace(/\r/g, '\n').replace(/[\r\n]+$/, ''),
+      'Historical completed UIA response.\n',
+      '019fa981-725e-7f02-93a7-bb1e1b7aefd3',
+      'https://chatgpt.com/c/6a6a1d6a-5df4-83ea-8685-43559f3e47e8',
+      'windows-uia',
+    )
+
+    const output = runPython(PYTHON!, [
+      BRIDGE,
+      '--import-session',
+      sessionDir,
+      '--import-sidebar-evidence',
+      sidebarDir,
+      '--expected-codex-thread-id',
+      '019fa981-725e-7f02-93a7-bb1e1b7aefd3',
+    ], root)
+    expect(output).toContain('CCG_GPTPRO_SIDEBAR_IMPORTED=1')
+    expect(fs.readJsonSync(statusFile).rounds['round-1'].sidebar_evidence).toMatchObject({
+      browserTransport: 'windows-uia',
+      automaticResendAllowed: false,
+    })
+  })
+
+  maybeIt('rejects windows-uia evidence for sessions created on the V2 bridge', () => {
+    const root = join(TMP_ROOT, 'sidebar-new-session-uia-rejected')
+    const taskDir = join(root, '.ccg', 'tasks', 'sidebar-new-session-uia-task')
+    fs.ensureDirSync(taskDir)
+    fs.writeJsonSync(join(taskDir, 'task.json'), { id: 'sidebar-new-session-uia-task', status: 'in_progress' })
+    const createOutput = runPython(PYTHON!, [
+      BRIDGE,
+      '--mode',
+      'review',
+      '--workdir',
+      root,
+      '--task-dir',
+      '.ccg/tasks/sidebar-new-session-uia-task',
+      '--prompt',
+      'Reject UIA evidence on a new session.',
+    ], root)
+    const sessionDir = parseOutputPath(createOutput, 'CCG_GPTPRO_SESSION_DIR')
+    const promptFile = parseOutputPath(createOutput, 'CCG_GPTPRO_PROMPT_FILE')
+    const statusFile = parseOutputPath(createOutput, 'CCG_GPTPRO_STATUS_FILE')
+    expect(fs.readJsonSync(statusFile).browser_transport_required).toBe('agent-browser-cli-v2')
+    const sidebarDir = join(dirname(promptFile), 'sidebar')
+    writeSidebarEvidence(
+      sidebarDir,
+      readFileSync(promptFile, 'utf-8').replace(/\r\n/g, '\n').replace(/\r/g, '\n').replace(/[\r\n]+$/, ''),
+      'New session UIA response.\n',
+      '019fa981-725e-7f02-93a7-bb1e1b7aefd3',
+      'https://chatgpt.com/c/6a6a1d6a-5df4-83ea-8685-43559f3e47e8',
+      'windows-uia',
+    )
+
+    const stderr = runPythonFailure(PYTHON!, [
+      BRIDGE,
+      '--import-session',
+      sessionDir,
+      '--import-sidebar-evidence',
+      sidebarDir,
+      '--expected-codex-thread-id',
+      '019fa981-725e-7f02-93a7-bb1e1b7aefd3',
+    ], root)
+    expect(stderr).toMatch(/transport does not match this session/i)
+  })
+
+  maybeIt('rejects mismatched V2 target identity across completed evidence', () => {
+    const root = join(TMP_ROOT, 'sidebar-target-mismatch')
+    const taskDir = join(root, '.ccg', 'tasks', 'sidebar-target-mismatch-task')
+    fs.ensureDirSync(taskDir)
+    fs.writeJsonSync(join(taskDir, 'task.json'), { id: 'sidebar-target-mismatch-task', status: 'in_progress' })
+    const createOutput = runPython(PYTHON!, [
+      BRIDGE,
+      '--mode',
+      'review',
+      '--workdir',
+      root,
+      '--task-dir',
+      '.ccg/tasks/sidebar-target-mismatch-task',
+      '--prompt',
+      'Reject target mismatch.',
+    ], root)
+    const sessionDir = parseOutputPath(createOutput, 'CCG_GPTPRO_SESSION_DIR')
+    const promptFile = parseOutputPath(createOutput, 'CCG_GPTPRO_PROMPT_FILE')
+    const sidebarDir = join(dirname(promptFile), 'sidebar')
+    writeSidebarEvidence(
+      sidebarDir,
+      readFileSync(promptFile, 'utf-8').replace(/\r\n/g, '\n').replace(/\r/g, '\n').replace(/[\r\n]+$/, ''),
+      'Wrong target response.\n',
+    )
+    const eventPath = join(sidebarDir, 'watch-event.json')
+    const event = fs.readJsonSync(eventPath)
+    event.targetBinding.sessionKey = 'browser-1:profile-1:other-tab'
+    fs.writeJsonSync(eventPath, event)
+
+    const stderr = runPythonFailure(PYTHON!, [
+      BRIDGE,
+      '--import-session',
+      sessionDir,
+      '--import-sidebar-evidence',
+      sidebarDir,
+      '--expected-codex-thread-id',
+      '019fa981-725e-7f02-93a7-bb1e1b7aefd3',
+    ], root)
+    expect(stderr).toMatch(/target bindings do not match/i)
   })
 
   maybeIt('imports a custom-GPT conversation with a non-UUID conversation id', () => {

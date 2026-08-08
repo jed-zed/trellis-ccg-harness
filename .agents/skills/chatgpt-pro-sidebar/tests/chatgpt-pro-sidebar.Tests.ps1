@@ -5,6 +5,10 @@
 BeforeAll {
     $scriptPath = Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts/chatgpt-pro-sidebar.ps1'
     . $scriptPath
+    if ([Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT) {
+        $null = Add-Type -AssemblyName UIAutomationClient
+        $null = Add-Type -AssemblyName UIAutomationTypes
+    }
 
     function New-TestRecord {
         param(
@@ -20,6 +24,8 @@ BeforeAll {
             [int]$CodexDocumentCount = 0,
             [int]$EmbeddedDocumentCount = 0,
             [int]$ComposerCount = 0,
+            [bool]$CanonicalUrlMatch = $false,
+            [string]$ToggleState = '',
             [bool]$GeometryMatch = $false,
             $Element = $null
         )
@@ -38,6 +44,8 @@ BeforeAll {
             CodexDocumentCount = $CodexDocumentCount
             EmbeddedDocumentCount = $EmbeddedDocumentCount
             ComposerCount = $ComposerCount
+            CanonicalUrlMatch = $CanonicalUrlMatch
+            ToggleState = $ToggleState
             GeometryMatch = $GeometryMatch
             Element = $Element
         }
@@ -77,12 +85,70 @@ BeforeAll {
             ContentSha256 = Get-Sha256Text -Text $Text
         }
     }
+
+    function New-TestTreeNode {
+        param(
+            [Parameter(Mandatory = $true)][string]$Id,
+            [int]$ProcessId = 1,
+            [bool]$Match = $true,
+            [string]$RuntimeId = ([guid]::NewGuid().ToString('N'))
+        )
+
+        [pscustomobject]@{
+            Id = $Id
+            Match = $Match
+            RuntimeId = $RuntimeId
+            Current = [pscustomobject]@{ ProcessId = $ProcessId }
+        }
+    }
+
+    function New-TestTreeWalker {
+        param(
+            [hashtable]$FirstChildById = @{},
+            [hashtable]$NextSiblingById = @{}
+        )
+
+        $walker = [pscustomobject]@{
+            FirstChildById = $FirstChildById
+            NextSiblingById = $NextSiblingById
+            FirstChildCallCount = 0
+            NextSiblingCallCount = 0
+        }
+        $walker | Add-Member -MemberType ScriptMethod -Name GetFirstChild -Value {
+            param($element)
+            $this.FirstChildCallCount++
+            return $this.FirstChildById[[string]$element.Id]
+        }
+        $walker | Add-Member -MemberType ScriptMethod -Name GetNextSibling -Value {
+            param($element)
+            $this.NextSiblingCallCount++
+            return $this.NextSiblingById[[string]$element.Id]
+        }
+        return $walker
+    }
 }
 
 Describe 'Codex top-level window selection' {
     It 'fails closed when no Codex window exists' {
         Assert-ThrowsCategory -Category 'CodexWindowMissing' -ExitCode 20 -Action {
             Select-CodexWindowRecord -Records @()
+        }
+    }
+
+    It 'fails closed when an eligible Codex window has no RuntimeId' {
+        Assert-ThrowsCategory -Category 'CodexWindowRuntimeIdMissing' -ExitCode 20 -Action {
+            Select-CodexWindowRecord -Records @(
+                (New-TestRecord -CodexDocumentCount 1 -RuntimeId '')
+            )
+        }
+    }
+
+    It 'fails closed when eligible Codex windows share one RuntimeId' {
+        Assert-ThrowsCategory -Category 'CodexWindowRuntimeIdAmbiguous' -ExitCode 20 -Action {
+            Select-CodexWindowRecord -Records @(
+                (New-TestRecord -CodexDocumentCount 1 -RuntimeId '42.same')
+                (New-TestRecord -CodexDocumentCount 1 -RuntimeId '42.same')
+            )
         }
     }
 
@@ -137,7 +203,7 @@ Describe 'Codex top-level window selection' {
         }
     }
 
-    It 'selects only the window containing exactly one Codex document' {
+    It 'selects only the window containing one or more Codex documents' {
         $expected = New-TestRecord -CodexDocumentCount 1 -RuntimeId 'expected'
         $selected = Select-CodexWindowRecord -Records @(
             (New-TestRecord -CodexDocumentCount 0)
@@ -145,6 +211,14 @@ Describe 'Codex top-level window selection' {
             (New-TestRecord -CodexDocumentCount 0)
         )
         $selected.RuntimeId | Should -Be 'expected'
+    }
+
+    It 'accepts the verified current window shape with two Codex documents' {
+        $selected = Select-CodexWindowRecord -Records @(
+            (New-TestRecord -CodexDocumentCount 0 -EmbeddedDocumentCount 1 -RuntimeId 'external-browser')
+            (New-TestRecord -CodexDocumentCount 2 -EmbeddedDocumentCount 12 -RuntimeId 'current-codex')
+        )
+        $selected.RuntimeId | Should -Be 'current-codex'
     }
 
     It 'ignores hidden candidates and does not depend on a process name' {
@@ -155,6 +229,44 @@ Describe 'Codex top-level window selection' {
             $expected
         )
         $selected.RuntimeId | Should -Be 'arbitrary-process'
+    }
+}
+
+Describe 'Per-operation Codex window binding' {
+    BeforeEach {
+        $script:previousTargetWindowRuntimeId = $Script:TargetWindowRuntimeId
+        $Script:TargetWindowRuntimeId = ''
+    }
+
+    AfterEach {
+        $Script:TargetWindowRuntimeId = $script:previousTargetWindowRuntimeId
+    }
+
+    It 'binds the first proved window and rejects a later replacement' {
+        $first = New-TestRecord -CodexDocumentCount 1 -RuntimeId '42.first'
+        $replacement = New-TestRecord -CodexDocumentCount 1 -RuntimeId '42.replacement'
+
+        (Set-LiveOperationWindowBinding -WindowRecord $first).RuntimeId | Should -Be '42.first'
+        $Script:TargetWindowRuntimeId | Should -Be '42.first'
+        Assert-ThrowsCategory -Category 'CodexWindowBindingMismatch' -ExitCode 20 -Action {
+            Set-LiveOperationWindowBinding -WindowRecord $replacement
+        }
+        $Script:TargetWindowRuntimeId | Should -Be '42.first'
+    }
+
+    It 'freezes the selected window before any panel recovery action' {
+        $window = New-TestRecord -CodexDocumentCount 1 -RuntimeId '42.before-action' -Element 'window'
+        Mock Get-LiveCodexWindow { $window }
+        Mock Get-LiveAddressRecords { @() }
+        Mock Get-LiveEmbeddedDocumentRecords { @() }
+        Mock Ensure-LiveBrowserPanel {
+            $Script:TargetWindowRuntimeId | Should -Be '42.before-action'
+            throw 'bounded panel recovery stop'
+        }
+
+        { Resolve-LiveContext -RecoverPanel } | Should -Throw '*bounded panel recovery stop*'
+        Should -Invoke Ensure-LiveBrowserPanel -Times 1 -Exactly
+        $Script:TargetWindowRuntimeId | Should -Be '42.before-action'
     }
 }
 
@@ -198,6 +310,248 @@ Describe 'Dynamic embedded document scoping' {
                 [pscustomobject]@{ Name = 'Login B'; IsVisible = $true; ComposerCount = 0; GeometryMatch = $true }
             )
         }
+    }
+}
+
+Describe 'Current right-side browser raw UIA compatibility' {
+    It 'uses a Raw View direct-child walk before filtering top-level windows by process ID' {
+        $source = [System.IO.File]::ReadAllText($scriptPath)
+        $discoverySource = [regex]::Match(
+            $source,
+            '(?s)function Get-LiveCodexWindow\s*\{.*?(?=\r?\nfunction Get-LiveAddressRecords)'
+        ).Value
+        $topLevelSource = [regex]::Match(
+            $source,
+            '(?s)function Find-LiveTopLevelElementsByProcessId\s*\{.*?(?=\r?\nfunction Get-LiveCodexWindow)'
+        ).Value
+        $sourceOutsideDiscovery = $source.Replace($discoverySource, '')
+
+        $discoverySource | Should -Not -BeNullOrEmpty
+        $topLevelSource | Should -Not -BeNullOrEmpty
+        $source | Should -Match "CodexWindow\s*=\s*@\('ChatGPT', 'Codex'\)"
+        $discoverySource | Should -Match 'Get-Process -ErrorAction Stop'
+        $discoverySource | Should -Match '\$Script:Names\.CodexWindow -contains \$_\.ProcessName'
+        $discoverySource | Should -Not -Match 'MainWindowHandle|FromHandle'
+        $discoverySource | Should -Match 'Find-LiveTopLevelElementsByProcessId'
+        $topLevelSource | Should -Match '\[System\.Windows\.Automation\.TreeWalker\]::RawViewWalker'
+        $topLevelSource | Should -Match '\$element\.Current\.ProcessId'
+        $topLevelSource | Should -Match 'TreeScope\]::Children'
+        $topLevelSource | Should -Not -Match 'PropertyCondition|TreeWalker\]::new'
+        $discoverySource | Should -Match 'TopLevelWindowEnumerationFailed'
+        $discoverySource | Should -Match 'TopLevelWindowLimitExceeded'
+        $discoverySource | Should -Not -Match 'AutomationElement\]::RootElement.*?\.FindAll\('
+        $discoverySource | Should -Match '(?s)Get-Process.*?Find-LiveTopLevelElementsByProcessId.*?Find-LiveElementsByControlTypes.*?CodexDocument'
+        $sourceOutsideDiscovery | Should -Not -Match '(?i)\bGet-Process\b|MainWindowHandle'
+    }
+
+    It 'uses a shallow product-name hint before any descendant scan' {
+        $source = [System.IO.File]::ReadAllText($scriptPath)
+        $source | Should -Match "CodexWindow\s*=\s*@\('ChatGPT', 'Codex'\)"
+        $source | Should -Match '(?s)function Get-LiveCodexWindow.*?\$Script:Names\.CodexWindow -notcontains \$record\.Name.*?Find-LiveElementsByControlTypes'
+    }
+
+    It 'uses incremental RawViewWalker discovery with hard element and deadline bounds' {
+        $source = [System.IO.File]::ReadAllText($scriptPath)
+        $source | Should -Match 'function Find-LiveRawElementsByCondition'
+        $source | Should -Not -Match '\$Root\.FindAll\('
+        $source | Should -Match '\[System\.Windows\.Automation\.TreeWalker\]::RawViewWalker'
+        $source | Should -Match 'RawViewElementLimitExceeded'
+        $source | Should -Match 'RawViewTraversalTimeout'
+        $source | Should -Match '(?s)ElementNotAvailableException.*?TransientUiRerender'
+    }
+
+    It 'walks Raw View incrementally and preserves duplicate RuntimeIds for later ambiguity checks' {
+        $root = New-TestTreeNode -Id 'root' -Match:$false
+        $a = New-TestTreeNode -Id 'a' -RuntimeId '42.same'
+        $b = New-TestTreeNode -Id 'b' -RuntimeId '42.same'
+        $c = New-TestTreeNode -Id 'c' -Match:$false
+        $walker = New-TestTreeWalker -FirstChildById @{ root = $a; a = $c } -NextSiblingById @{ a = $b }
+
+        $found = @(Find-LiveRawElementsByCondition `
+            -Root $root `
+            -Condition { param($element) [bool]$element.Match } `
+            -Walker $walker `
+            -UtcNowProvider { [DateTime]'2026-08-05T00:00:00Z' })
+
+        $found.Count | Should -Be 2
+        @($found | ForEach-Object { $_.Id }) | Should -Be @('a', 'b')
+        @($found | ForEach-Object { $_.RuntimeId }) | Should -Be @('42.same', '42.same')
+    }
+
+    It 'reuses one bounded Raw View snapshot for selectors rooted at the same element' {
+        $Script:RawTraversalCache = @{}
+        $root = New-TestTreeNode -Id 'root' -Match:$false
+        $match = New-TestTreeNode -Id 'match' -Match:$true
+        $other = New-TestTreeNode -Id 'other' -Match:$false
+        $walker = New-TestTreeWalker -FirstChildById @{ root = $match } -NextSiblingById @{ match = $other }
+
+        @(Find-LiveRawElementsByCondition `
+            -Root $root `
+            -Condition { param($element) [bool]$element.Match } `
+            -Walker $walker `
+            -UtcNowProvider { [DateTime]'2026-08-05T00:00:00Z' }).Id | Should -Be @('match')
+        $firstChildCalls = $walker.FirstChildCallCount
+        $nextSiblingCalls = $walker.NextSiblingCallCount
+
+        @(Find-LiveRawElementsByCondition `
+            -Root $root `
+            -Condition { param($element) -not [bool]$element.Match } `
+            -Walker $walker `
+            -UtcNowProvider { [DateTime]'2026-08-05T00:00:00Z' }).Id | Should -Be @('other')
+        $walker.FirstChildCallCount | Should -Be $firstChildCalls
+        $walker.NextSiblingCallCount | Should -Be $nextSiblingCalls
+    }
+
+    It 'fails closed when a Raw View sibling cycle exceeds the visited-element bound' {
+        $root = New-TestTreeNode -Id 'root' -Match:$false
+        $a = New-TestTreeNode -Id 'a'
+        $walker = New-TestTreeWalker -FirstChildById @{ root = $a } -NextSiblingById @{ a = $a }
+
+        Assert-ThrowsCategory -Category 'RawViewElementLimitExceeded' -ExitCode 23 -Action {
+            Find-LiveRawElementsByCondition `
+                -Root $root `
+                -Condition { param($element) [bool]$element.Match } `
+                -Walker $walker `
+                -MaximumVisitedElements 3 `
+                -UtcNowProvider { [DateTime]'2026-08-05T00:00:00Z' }
+        }
+    }
+
+    It 'fails closed when the Raw View traversal deadline expires' {
+        $root = New-TestTreeNode -Id 'root'
+        $a = New-TestTreeNode -Id 'a'
+        $walker = New-TestTreeWalker -FirstChildById @{ root = $a }
+        $script:treeWalkTimes = [System.Collections.Generic.Queue[DateTime]]::new()
+        @(
+            [DateTime]'2026-08-05T00:00:00Z',
+            [DateTime]'2026-08-05T00:00:00Z',
+            [DateTime]'2026-08-05T00:00:02Z'
+        ) | ForEach-Object { $script:treeWalkTimes.Enqueue($_) }
+
+        Assert-ThrowsCategory -Category 'RawViewTraversalTimeout' -ExitCode 23 -Action {
+            Find-LiveRawElementsByCondition `
+                -Root $root `
+                -Condition { param($element) $true } `
+                -Walker $walker `
+                -TimeoutMilliseconds 1000 `
+                -UtcNowProvider {
+                    if ($script:treeWalkTimes.Count -gt 1) { return $script:treeWalkTimes.Dequeue() }
+                    return $script:treeWalkTimes.Peek()
+                }
+        }
+    }
+
+    It 'keeps both top-level windows owned by one candidate process' {
+        $root = New-TestTreeNode -Id 'desktop' -ProcessId 0
+        $first = New-TestTreeNode -Id 'first' -ProcessId 4242
+        $second = New-TestTreeNode -Id 'second' -ProcessId 4242
+        $other = New-TestTreeNode -Id 'other' -ProcessId 9000
+        $walker = New-TestTreeWalker `
+            -FirstChildById @{ desktop = $first } `
+            -NextSiblingById @{ first = $second; second = $other }
+
+        $elements = @(Find-LiveTopLevelElementsByProcessId `
+            -ProcessIds @(4242) `
+            -Root $root `
+            -Walker $walker `
+            -UtcNowProvider { [DateTime]'2026-08-05T00:00:00Z' })
+
+        @($elements | ForEach-Object { $_.Id }) | Should -Be @('first', 'second')
+        Assert-ThrowsCategory -Category 'CodexWindowAmbiguous' -ExitCode 20 -Action {
+            Select-CodexWindowRecord -Records @(
+                (New-TestRecord -CodexDocumentCount 1 -RuntimeId '42.first')
+                (New-TestRecord -CodexDocumentCount 1 -RuntimeId '42.second')
+            )
+        }
+        (Select-CodexWindowRecord -Records @(
+            (New-TestRecord -CodexDocumentCount 1 -RuntimeId '42.first')
+            (New-TestRecord -CodexDocumentCount 1 -RuntimeId '42.second')
+        ) -TargetRuntimeId '42.second').RuntimeId | Should -Be '42.second'
+    }
+
+    It 'fails closed when process-filtered top-level enumeration exceeds its bound' {
+        $root = New-TestTreeNode -Id 'desktop' -ProcessId 0
+        $first = New-TestTreeNode -Id 'first' -ProcessId 4242
+        $walker = New-TestTreeWalker -FirstChildById @{ desktop = $first } -NextSiblingById @{ first = $first }
+
+        Assert-ThrowsCategory -Category 'TopLevelWindowLimitExceeded' -ExitCode 20 -Action {
+            Find-LiveTopLevelElementsByProcessId `
+                -ProcessIds @(4242) `
+                -Root $root `
+                -Walker $walker `
+                -MaximumVisitedElements 2 `
+                -UtcNowProvider { [DateTime]'2026-08-05T00:00:00Z' }
+        }
+    }
+
+    It 'fails closed when the top-level direct-child traversal deadline expires' {
+        $root = New-TestTreeNode -Id 'desktop' -ProcessId 0
+        $first = New-TestTreeNode -Id 'first' -ProcessId 4242
+        $walker = New-TestTreeWalker -FirstChildById @{ desktop = $first }
+        $script:topLevelWalkTimes = [System.Collections.Generic.Queue[DateTime]]::new()
+        @(
+            [DateTime]'2026-08-05T00:00:00Z',
+            [DateTime]'2026-08-05T00:00:00Z',
+            [DateTime]'2026-08-05T00:00:02Z'
+        ) | ForEach-Object { $script:topLevelWalkTimes.Enqueue($_) }
+
+        Assert-ThrowsCategory -Category 'TopLevelWindowTraversalTimeout' -ExitCode 20 -Action {
+            Find-LiveTopLevelElementsByProcessId `
+                -ProcessIds @(4242) `
+                -Root $root `
+                -Walker $walker `
+                -TimeoutMilliseconds 1000 `
+                -UtcNowProvider {
+                    if ($script:topLevelWalkTimes.Count -gt 1) { return $script:topLevelWalkTimes.Dequeue() }
+                    return $script:topLevelWalkTimes.Peek()
+                }
+        }
+    }
+
+    It 'uses raw-view ancestry when excluding interactive response descendants' {
+        $source = [System.IO.File]::ReadAllText($scriptPath)
+        $source | Should -Not -Match '\[System\.Windows\.Automation\.TreeWalker\]::ControlViewWalker'
+    }
+
+    It 'selects the verified current ChatGPT document shape without accepting the Codex document' {
+        $selected = Select-EmbeddedDocumentRecord -Records @(
+            [pscustomobject]@{ Name = 'Codex'; IsVisible = $true; ComposerCount = 0; CanonicalUrlMatch = $false; GeometryMatch = $false; RuntimeId = 'codex-root' },
+            [pscustomobject]@{ Name = 'ChatGPT'; IsVisible = $true; ComposerCount = 0; CanonicalUrlMatch = $true; GeometryMatch = $false; RuntimeId = 'chatgpt-root' }
+        )
+        $selected.RuntimeId | Should -Be 'chatgpt-root'
+    }
+
+    It 'fails closed when more than one raw document exposes a canonical ChatGPT URL' {
+        Assert-ThrowsCategory -Category 'EmbeddedDocumentAmbiguous' -ExitCode 21 -Action {
+            Select-EmbeddedDocumentRecord -Records @(
+                [pscustomobject]@{ IsVisible = $true; ComposerCount = 0; CanonicalUrlMatch = $true; GeometryMatch = $false },
+                [pscustomobject]@{ IsVisible = $true; ComposerCount = 0; CanonicalUrlMatch = $true; GeometryMatch = $false }
+            )
+        }
+    }
+
+    It 'keeps only the unique canonical ChatGPT address when two tabs expose address controls' {
+        $selected = @(Select-CanonicalAddressRecords -Records @(
+            (New-TestRecord -Name '输入 URL' -CanonicalUrlMatch:$false -RuntimeId 'other-tab')
+            (New-TestRecord -Name '输入 URL' -CanonicalUrlMatch:$true -RuntimeId 'chatgpt-tab')
+        ))
+        $selected.Count | Should -Be 1
+        $selected[0].RuntimeId | Should -Be 'chatgpt-tab'
+    }
+
+    It 'fails closed when two address controls both claim a canonical ChatGPT URL' {
+        Assert-ThrowsCategory -Category 'AddressControlAmbiguous' -ExitCode 21 -Action {
+            Select-CanonicalAddressRecords -Records @(
+                (New-TestRecord -CanonicalUrlMatch:$true -RuntimeId 'chatgpt-a')
+                (New-TestRecord -CanonicalUrlMatch:$true -RuntimeId 'chatgpt-b')
+            )
+        }
+    }
+
+    It 'rejects non-finite raw-view geometry instead of throwing' {
+        $document = New-TestRecord -X ([double]::NaN) -Y 100 -Width 600 -Height 500
+        $address = New-TestRecord -X 100 -Y 50 -Width 600 -Height 30
+        (Test-DocumentGeometryMatch -DocumentRecord $document -AddressRecord $address) | Should -BeFalse
     }
 }
 
@@ -249,6 +603,76 @@ Describe 'Localized control names and geometry' {
             }) -ExpectedPromptSha256 'abc'
         }
     }
+
+    It 'selects the structurally related sidebar toggle regardless of ToggleState orientation' -TestCases @(
+        @{ UnrelatedState = 'Off'; BrowserState = 'On' }
+        @{ UnrelatedState = 'On'; BrowserState = 'Off' }
+    ) {
+        param($UnrelatedState, $BrowserState)
+        $selected = Select-SidebarToggleRecord -Records @(
+            (New-TestRecord -Name '显示/隐藏侧边栏' -X 1000 -Y 80 -Width 28 -Height 28 -ToggleState $UnrelatedState -RuntimeId 'unrelated-sidebar')
+            (New-TestRecord -Name '显示/隐藏侧边栏' -X 1000 -Y 480 -Width 28 -Height 28 -ToggleState $BrowserState -RuntimeId 'browser-sidebar')
+        ) -RelatedRecords @(
+            (New-TestRecord -X 930 -Y 480 -Width 28 -Height 28 -RuntimeId 'browser-expand')
+        )
+        $selected.RuntimeId | Should -Be 'browser-sidebar'
+    }
+
+    It 'selects the sole exact sidebar toggle while a closed panel exposes no expand control' {
+        $selected = Select-SidebarToggleRecord -Records @(
+            (New-TestRecord -Name '显示/隐藏侧边栏' -X 1000 -Y 80 -Width 28 -Height 28 -ToggleState 'Off' -RuntimeId 'closed-panel-toggle')
+        ) -RelatedRecords @()
+        $selected.RuntimeId | Should -Be 'closed-panel-toggle'
+    }
+
+    It 'fails closed for multiple sidebar toggles while no expand control is exposed' {
+        Assert-ThrowsCategory -Category 'SidebarToggleAmbiguous' -ExitCode 23 -Action {
+            Select-SidebarToggleRecord -Records @(
+                (New-TestRecord -X 1000 -Y 80 -Width 28 -Height 28 -ToggleState 'Off' -RuntimeId 'a')
+                (New-TestRecord -X 1000 -Y 480 -Width 28 -Height 28 -ToggleState 'Off' -RuntimeId 'b')
+            ) -RelatedRecords @()
+        }
+    }
+
+    It 'fails closed when more than one sidebar toggle has an equally valid structural relation' {
+        Assert-ThrowsCategory -Category 'SidebarToggleAmbiguous' -ExitCode 23 -Action {
+            Select-SidebarToggleRecord -Records @(
+                (New-TestRecord -X 1000 -Y 80 -Width 28 -Height 28 -ToggleState 'On' -RuntimeId 'a')
+                (New-TestRecord -X 1000 -Y 480 -Width 28 -Height 28 -ToggleState 'Off' -RuntimeId 'b')
+            ) -RelatedRecords @(
+                (New-TestRecord -X 930 -Y 80 -Width 28 -Height 28 -RuntimeId 'a-expand')
+                (New-TestRecord -X 930 -Y 480 -Width 28 -Height 28 -RuntimeId 'b-expand')
+            )
+        }
+    }
+
+    It 'selects the expand control on the same row as the chosen sidebar toggle' {
+        $anchor = New-TestRecord -X 1000 -Y 480 -Width 28 -Height 28 -RuntimeId 'sidebar-toggle'
+        $selected = Select-RelatedPanelControlRecord -Records @(
+            (New-TestRecord -X 930 -Y 45 -Width 28 -Height 28 -RuntimeId 'unrelated-expand')
+            (New-TestRecord -X 930 -Y 480 -Width 28 -Height 28 -RuntimeId 'sidebar-expand')
+        ) -AnchorRecord $anchor -Label 'ExpandPanel'
+        $selected.RuntimeId | Should -Be 'sidebar-expand'
+    }
+
+    It 'fails closed when two panel controls are equally related to the anchor' {
+        $anchor = New-TestRecord -X 1000 -Y 480 -Width 28 -Height 28
+        Assert-ThrowsCategory -Category 'ExpandPanelAmbiguous' -ExitCode 23 -Action {
+            Select-RelatedPanelControlRecord -Records @(
+                (New-TestRecord -X 930 -Y 480 -Width 28 -Height 28 -RuntimeId 'a')
+                (New-TestRecord -X 900 -Y 480 -Width 28 -Height 28 -RuntimeId 'b')
+            ) -AnchorRecord $anchor -Label 'ExpandPanel'
+        }
+    }
+
+    It 'fails closed for one panel control with non-finite geometry' {
+        $anchor = New-TestRecord -X 1000 -Y 480 -Width 28 -Height 28
+        Assert-ThrowsCategory -Category 'ExpandPanelAmbiguous' -ExitCode 23 -Action {
+            Select-RelatedPanelControlRecord -Records @(
+                (New-TestRecord -X ([double]::NaN) -Y 480 -Width 28 -Height 28 -RuntimeId 'invalid')
+            ) -AnchorRecord $anchor -Label 'ExpandPanel'
+        }
+    }
 }
 
 Describe 'Sidebar hidden recovery orchestration' {
@@ -256,6 +680,7 @@ Describe 'Sidebar hidden recovery orchestration' {
         Mock Start-Sleep {}
         $script:addressCall = 0
         $script:panelActions = @()
+        $script:browserPanelVisible = $false
 
         Mock Get-LiveCodexWindow { [pscustomobject]@{ Element = 'window' } }
         Mock Get-LiveAddressRecords {
@@ -268,19 +693,25 @@ Describe 'Sidebar hidden recovery orchestration' {
         Mock Find-LiveElementsByNames {
             param($Root, $ControlTypes, $Names, $Scope)
             if ($Names -contains '显示/隐藏侧边栏') {
-                return @(New-TestRecord -Name '显示/隐藏侧边栏' -Element 'sidebar')
+                return @(New-TestRecord -Name '显示/隐藏侧边栏' -X 1000 -Y 480 -Width 28 -Height 28 -Element 'sidebar')
             }
             if ($Names -contains '展开面板') {
-                return @(New-TestRecord -Name '展开面板' -Element 'expand')
+                return @(New-TestRecord -Name '展开面板' -X 930 -Y 480 -Width 28 -Height 28 -Element 'expand')
             }
             if ($Names -contains '浏览器 Ctrl+T') {
-                return @(New-TestRecord -Name '浏览器 Ctrl+T' -Element 'browser')
+                if ($script:browserPanelVisible) {
+                    return @(New-TestRecord -Name '浏览器 Ctrl+T' -Element 'browser')
+                }
+                return @()
             }
             return @()
         }
         Mock Invoke-PanelControlPreservingFocus {
             param($Record, $Mode, $WindowElement)
             $script:panelActions += [pscustomobject]@{ Element = $Record.Element; Mode = $Mode }
+            if ($Record.Element -eq 'expand') {
+                $script:browserPanelVisible = $true
+            }
         }
     }
 
@@ -299,6 +730,241 @@ Describe 'Sidebar hidden recovery orchestration' {
         $script:panelActions[1].Element | Should -Be 'expand'
         $script:panelActions[2].Element | Should -Be 'browser'
         ($script:addressCall -ge 4) | Should -BeTrue
+    }
+
+    It 'selects an already visible Browser panel before touching sidebar controls' {
+        if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) {
+            Set-ItResult -Skipped -Because 'The Skill runtime and panel controls are Windows-only.'
+            return
+        }
+        $null = Add-Type -AssemblyName UIAutomationClient
+        $null = Add-Type -AssemblyName UIAutomationTypes
+        $script:browserPanelVisible = $true
+
+        (Ensure-LiveBrowserPanel) | Should -BeTrue
+        $script:panelActions.Count | Should -Be 1
+        $script:panelActions[0].Element | Should -Be 'browser'
+    }
+
+    It 'performs no UIA action when panel geometry is not finite' {
+        if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) {
+            Set-ItResult -Skipped -Because 'The Skill runtime and panel controls are Windows-only.'
+            return
+        }
+        Mock Find-LiveElementsByNames {
+            param($Root, $ControlTypes, $Names, $Scope)
+            if ($Names -contains '显示/隐藏侧边栏') {
+                return @(New-TestRecord -Name '显示/隐藏侧边栏' -X 1000 -Y 480 -Width 28 -Height 28 -Element 'sidebar')
+            }
+            if ($Names -contains '展开面板') {
+                return @(New-TestRecord -Name '展开面板' -X ([double]::NaN) -Y 480 -Width 28 -Height 28 -Element 'expand')
+            }
+            return @()
+        }
+
+        Assert-ThrowsCategory -Category 'SidebarToggleAmbiguous' -ExitCode 23 -Action {
+            Ensure-LiveBrowserPanel
+        }
+        Should -Invoke Invoke-PanelControlPreservingFocus -Times 0 -Exactly
+    }
+}
+
+Describe 'New chat transition proof' {
+    BeforeEach {
+        $script:newChatContext = [pscustomobject]@{
+            Document = [pscustomobject]@{ Element = 'document' }
+            Window = [pscustomobject]@{ Element = 'window'; RuntimeId = '42.target' }
+        }
+        $script:newChatAuth = [pscustomobject]@{
+            ComposerRecords = @([pscustomobject]@{ Element = 'composer' })
+        }
+        $script:freshStateCallCount = 0
+
+        Mock Resolve-LiveContext { $script:newChatContext }
+        Mock Get-LiveAuthSnapshot { $script:newChatAuth }
+        Mock Assert-AuthReadySnapshot {}
+        Mock Get-LiveUrlState { [pscustomobject]@{ Url = 'https://chatgpt.com/c/12345678-1234-1234-1234-123456789abc'; Exact = $true } }
+        Mock Get-LiveGenerationState { [pscustomobject]@{ Generating = $false } }
+        Mock Get-LiveFreshConversationUrlState {
+            $script:freshStateCallCount++
+            if ($script:freshStateCallCount -eq 1) {
+                return $null
+            }
+            return [pscustomobject]@{ Url = 'https://chatgpt.com/'; Exact = $false }
+        }
+        Mock Find-LiveElementsByNames { @([pscustomobject]@{ Element = 'new-chat' }) }
+        Mock Select-NewChatRecord { [pscustomobject]@{ Element = 'new-chat' } }
+        Mock Assert-LiveInvokePatternAvailable {}
+        Mock Get-LiveFocusState { [pscustomobject]@{ Element = $null; TopLevelRuntimeId = 'original' } }
+        Mock Get-AutomationRuntimeIdText { '42.target' }
+        Mock Restore-FocusState { $false }
+        Mock Invoke-LiveInvokePatternOnce {}
+        Mock Start-Sleep {}
+    }
+
+    It 'does not invoke New chat when the current surface is already proved fresh' {
+        Mock Get-LiveFreshConversationUrlState { [pscustomobject]@{ Url = 'https://chatgpt.com/'; Exact = $false } }
+        Mock Get-LiveUrlState { [pscustomobject]@{ Url = 'https://chatgpt.com/'; Exact = $false } }
+
+        $result = Invoke-LiveNewChat
+
+        $result.ok | Should -BeTrue
+        $result.url | Should -Be 'https://chatgpt.com/'
+        Should -Invoke Find-LiveElementsByNames -Times 0 -Exactly
+        Should -Invoke Invoke-LiveInvokePatternOnce -Times 0 -Exactly
+    }
+
+    It 'retries one transient action-preparation failure and invokes New chat at most once' {
+        $script:resolveCallCount = 0
+        $previousTarget = $Script:TargetWindowRuntimeId
+        $Script:TargetWindowRuntimeId = '42.target'
+        Mock Resolve-LiveContext {
+            $script:resolveCallCount++
+            if ($script:resolveCallCount -eq 1) {
+                throw (New-SidebarException -ExitCode 20 -Category 'CodexWindowMissing' -Message 'transient test gap')
+            }
+            return $script:newChatContext
+        }
+
+        try {
+            $result = Invoke-LiveNewChat
+
+            $result.ok | Should -BeTrue
+            $Script:TargetWindowRuntimeId | Should -Be '42.target'
+            Should -Invoke Invoke-LiveInvokePatternOnce -Times 1 -Exactly
+            Should -Invoke Start-Sleep -Times 2 -Exactly
+        }
+        finally {
+            $Script:TargetWindowRuntimeId = $previousTarget
+        }
+    }
+
+    It 'retries a bounded Raw View timeout before invoking New chat' {
+        $script:resolveCallCount = 0
+        Mock Resolve-LiveContext {
+            $script:resolveCallCount++
+            if ($script:resolveCallCount -eq 1) {
+                throw (New-SidebarException -ExitCode 23 -Category 'RawViewTraversalTimeout' -Message 'live traversal timeout')
+            }
+            return $script:newChatContext
+        }
+
+        $result = Invoke-LiveNewChat
+
+        $result.ok | Should -BeTrue
+        Should -Invoke Resolve-LiveContext -Times 3 -Exactly
+        Should -Invoke Invoke-LiveInvokePatternOnce -Times 1 -Exactly
+    }
+
+    It 'returns the precise persistent transient category without invoking New chat' {
+        Mock Resolve-LiveContext {
+            throw (New-SidebarException -ExitCode 23 -Category 'ComposerMissing' -Message 'persistent test gap')
+        }
+
+        Assert-ThrowsCategory -Category 'ComposerMissing' -ExitCode 23 -Action {
+            Invoke-LiveNewChat -PreActionTimeoutSecondsValue 0
+        }
+        Should -Invoke Resolve-LiveContext -Times 1 -Exactly
+        Should -Invoke Invoke-LiveInvokePatternOnce -Times 0 -Exactly
+    }
+
+    It 'fails immediately for a replacement-only target without invoking New chat' {
+        Mock Resolve-LiveContext {
+            throw (New-SidebarException -ExitCode 20 -Category 'CodexWindowTargetMissing' -Message 'replacement target')
+        }
+
+        Assert-ThrowsCategory -Category 'CodexWindowTargetMissing' -ExitCode 20 -Action {
+            Invoke-LiveNewChat
+        }
+        Should -Invoke Resolve-LiveContext -Times 1 -Exactly
+        Should -Invoke Invoke-LiveInvokePatternOnce -Times 0 -Exactly
+    }
+
+    It 'maps one throwing New chat Invoke to NewChatUncertain without retrying it' {
+        Mock Invoke-LiveInvokePatternOnce { throw 'invoke failed' }
+
+        Assert-ThrowsCategory -Category 'NewChatUncertain' -ExitCode 26 -Action {
+            Invoke-LiveNewChat
+        }
+        Should -Invoke Invoke-LiveInvokePatternOnce -Times 1 -Exactly
+    }
+
+    It 'does not retry hard Pro, authentication, or generation barriers' -TestCases @(
+        @{ Barrier = 'pro'; Category = 'ProStateMissing'; ExitCode = 22 }
+        @{ Barrier = 'auth'; Category = 'AuthenticationOrSecurityChallenge'; ExitCode = 22 }
+        @{ Barrier = 'generation'; Category = 'GenerationAlreadyActive'; ExitCode = 24 }
+    ) {
+        param($Barrier, $Category, $ExitCode)
+
+        $script:newChatBarrier = $Barrier
+        Mock Assert-AuthReadySnapshot {
+            if ($script:newChatBarrier -eq 'pro') {
+                throw (New-SidebarException -ExitCode 22 -Category 'ProStateMissing' -Message 'Pro missing')
+            }
+            if ($script:newChatBarrier -eq 'auth') {
+                throw (New-SidebarException -ExitCode 22 -Category 'AuthenticationOrSecurityChallenge' -Message 'auth barrier')
+            }
+        }
+        Mock Get-LiveGenerationState {
+            [pscustomobject]@{ Generating = $script:newChatBarrier -eq 'generation' }
+        }
+
+        Assert-ThrowsCategory -Category $Category -ExitCode $ExitCode -Action {
+            Invoke-LiveNewChat
+        }
+        Should -Invoke Resolve-LiveContext -Times 1 -Exactly
+        Should -Invoke Invoke-LiveInvokePatternOnce -Times 0 -Exactly
+    }
+
+    It 'keeps a bounded fifteen-second proof horizon for the current panel transition' {
+        $source = [System.IO.File]::ReadAllText($scriptPath)
+        $source | Should -Match '(?s)function Invoke-LiveNewChat.*?AddSeconds\(15\)'
+    }
+
+    It 'keeps a bounded fifteen-second pre-action recovery horizon' {
+        $source = [System.IO.File]::ReadAllText($scriptPath)
+        $source | Should -Match '(?s)function Invoke-LiveNewChat.*?PreActionTimeoutSecondsValue = 15'
+    }
+}
+
+Describe 'Send preparation traversal recovery' {
+    BeforeEach {
+        $script:preparedPrompt = 'prepared prompt'
+        $script:preparedResolveCalls = 0
+        $script:preparedContext = [pscustomobject]@{
+            Document = [pscustomobject]@{ Element = 'document' }
+        }
+        $script:preparedAuth = [pscustomobject]@{
+            ComposerRecords = @([pscustomobject]@{ Element = 'composer' })
+            ComposerCount = 1
+        }
+
+        Mock Resolve-LiveContext {
+            $script:preparedResolveCalls++
+            if ($script:preparedResolveCalls -eq 1) {
+                throw (New-SidebarException -ExitCode 23 -Category 'RawViewTraversalTimeout' -Message 'live traversal timeout')
+            }
+            return $script:preparedContext
+        }
+        Mock Get-LiveAuthSnapshot { $script:preparedAuth }
+        Mock Assert-AuthReadySnapshot {}
+        Mock Get-LiveGenerationState { [pscustomobject]@{ Generating = $false } }
+        Mock Select-UniqueControlRecord { param($Records) $Records[0] }
+        Mock Read-LiveElementText { $script:preparedPrompt }
+        Mock Find-LiveElementsByNames {
+            @([pscustomobject]@{ Element = 'send'; IsVisible = $true; IsEnabled = $true })
+        }
+        Mock Assert-SendPreconditions {}
+        Mock Assert-LiveInvokePatternAvailable {}
+        Mock Start-Sleep {}
+    }
+
+    It 'retries one bounded Raw View timeout before the Send Invoke boundary' {
+        $result = Get-LivePreparedSend -ExpectedPromptSha256 (Get-Sha256Text -Text $script:preparedPrompt)
+
+        $result.Send.Element | Should -Be 'send'
+        Should -Invoke Resolve-LiveContext -Times 2 -Exactly
+        Should -Invoke Start-Sleep -Times 1 -Exactly
     }
 }
 
@@ -401,6 +1067,7 @@ Describe 'Exactly-once and active-generation guards' {
     It 'persists a send-intent phase that blocks automatic retry' {
         $state = New-SendIntentState -PromptSha256 ('a' * 64) -IdempotencyKeyValue 'task-round-1' -BaselineHashes @('old')
         $state.phase | Should -Be 'send-intent'
+        $state.conversationUrlBindingPending | Should -BeTrue
         Assert-ThrowsCategory -Category 'DuplicateSubmissionBlocked' -ExitCode 25 -Action {
             Assert-IdempotencyAvailable -ExistingState $state -IdempotencyKey 'task-round-1'
         }
@@ -447,6 +1114,68 @@ Describe 'Exactly-once and active-generation guards' {
         $state.conversationUrlBound | Should -Be 'https://chatgpt.com/c/12345678-1234-1234-1234-123456789abc'
     }
 
+    It 'marks only an acknowledged fresh send as eligible for pending URL observation' {
+        $state = New-SendIntentState `
+            -PromptSha256 ('e' * 64) `
+            -IdempotencyKeyValue 'fresh-pending-url' `
+            -BaselineHashes @() `
+            -WindowRuntimeIdValue '42.pending'
+        Set-ObjectProperty -InputObject $state -Name 'phase' -Value 'sent'
+        Set-ObjectProperty -InputObject $state -Name 'invokeAttempted' -Value $true
+        Set-ObjectProperty -InputObject $state -Name 'invokeReturned' -Value $true
+        Set-ObjectProperty -InputObject $state -Name 'submissionAcknowledged' -Value $true
+        Set-ObjectProperty -InputObject $state -Name 'conversationUrlBindingPending' -Value $true
+
+        (Test-PendingFreshConversationBinding -State $state) | Should -BeTrue
+        Set-ObjectProperty -InputObject $state -Name 'phase' -Value 'send-uncertain'
+        (Test-PendingFreshConversationBinding -State $state) | Should -BeFalse
+        Set-ObjectProperty -InputObject $state -Name 'phase' -Value 'sent'
+        Set-ObjectProperty -InputObject $state -Name 'conversationUrlBeforeSend' -Value 'https://chatgpt.com/c/12345678-1234-1234-1234-123456789abc'
+        (Test-PendingFreshConversationBinding -State $state) | Should -BeFalse
+    }
+
+    It 'observes an acknowledged fresh send while URL is pending and binds before completion' {
+        $directory = Join-Path $TestDrive 'pending-url-wait'
+        $null = New-Item -ItemType Directory -Path $directory
+        $state = New-SendIntentState `
+            -PromptSha256 ('f' * 64) `
+            -IdempotencyKeyValue 'pending-url-wait' `
+            -BaselineHashes @() `
+            -WindowRuntimeIdValue '42.pending'
+        Set-ObjectProperty -InputObject $state -Name 'phase' -Value 'sent'
+        Set-ObjectProperty -InputObject $state -Name 'invokeAttempted' -Value $true
+        Set-ObjectProperty -InputObject $state -Name 'invokeReturned' -Value $true
+        Set-ObjectProperty -InputObject $state -Name 'submissionAcknowledged' -Value $true
+        Set-ObjectProperty -InputObject $state -Name 'conversationUrlBindingPending' -Value $true
+        Write-EvidenceState -Directory $directory -State $state
+        $url = 'https://chatgpt.com/c/12345678-1234-1234-1234-123456789abc'
+
+        Mock Invoke-PollUntilCompleted {
+            [pscustomobject]@{
+                Response = New-TestResponse -Text 'completed answer'
+                TransientObservationCount = 0
+                StablePollCount = 2
+            }
+        }
+        Mock Resolve-LiveContext { [pscustomobject]@{} }
+        Mock Get-LiveUrlState { [pscustomobject]@{ Url = $url; Exact = $true } }
+        Mock Complete-Evidence {
+            [pscustomobject]@{
+                response = [pscustomobject]@{ sha256 = ('1' * 64); characters = 16; bytes = 16 }
+                conversation = [pscustomobject]@{ url = $url }
+                submission = [pscustomobject]@{ acknowledged = $true }
+                transientObservationCount = 0
+                stablePollCount = 2
+            }
+        }
+
+        $result = Invoke-LiveWait -EvidenceDirectory $directory -TimeoutSecondsValue 5 -PollMillisecondsValue 250
+        $persisted = Read-EvidenceState -Directory $directory
+        $result.completed | Should -BeTrue
+        $persisted.conversationUrlBound | Should -Be $url
+        $persisted.conversationUrlBindingPending | Should -BeFalse
+    }
+
     It 'rejects reuse of one evidence directory with a different key' {
         $state = New-SendIntentState -PromptSha256 ('b' * 64) -IdempotencyKeyValue 'task-round-1' -BaselineHashes @()
         Assert-ThrowsCategory -Category 'EvidenceDirectoryConflict' -ExitCode 30 -Action {
@@ -465,6 +1194,47 @@ Describe 'Exactly-once and active-generation guards' {
         Assert-ThrowsCategory -Category 'SendStateNotWaitable' -ExitCode 26 -Action {
             Invoke-LiveWait -EvidenceDirectory $directory -TimeoutSecondsValue 5 -PollMillisecondsValue 250
         }
+    }
+
+    It 'does not rediscover a window for incomplete evidence without a RuntimeId binding' {
+        $directory = Join-Path $TestDrive 'missing-window-binding'
+        $null = New-Item -ItemType Directory -Path $directory
+        $state = New-SendIntentState `
+            -PromptSha256 ('f' * 64) `
+            -IdempotencyKeyValue 'missing-window-binding' `
+            -BaselineHashes @() `
+            -ConversationUrlBeforeSend 'https://chatgpt.com/c/12345678-1234-1234-1234-123456789abc'
+        Set-ObjectProperty -InputObject $state -Name 'phase' -Value 'sent'
+        Write-EvidenceState -Directory $directory -State $state
+        Mock Invoke-PollUntilCompleted { throw 'must not observe another window' }
+
+        Assert-ThrowsCategory -Category 'CodexWindowRuntimeIdMissing' -ExitCode 20 -Action {
+            Invoke-LiveWait -EvidenceDirectory $directory -TimeoutSecondsValue 5 -PollMillisecondsValue 250
+        }
+        Should -Invoke Invoke-PollUntilCompleted -Times 0 -Exactly
+    }
+
+    It 'never invokes or reserves again for an unbound send-intent observation' {
+        $Script:TargetWindowRuntimeId = ''
+        $directory = Join-Path $TestDrive 'unbound-send-intent'
+        $null = New-Item -ItemType Directory -Path $directory
+        $state = New-SendIntentState `
+            -PromptSha256 ('f' * 64) `
+            -IdempotencyKeyValue 'unbound-send-intent' `
+            -BaselineHashes @() `
+            -WindowRuntimeIdValue '42.bound'
+        Write-EvidenceState -Directory $directory -State $state
+        Mock Invoke-PollUntilCompleted { throw 'observation must not begin without an exact URL' }
+        Mock Invoke-LiveInvokePatternOnce { throw 'send must never be retried' }
+        Mock Reserve-GlobalIdempotencyKey { throw 'a second reservation must never be created' }
+
+        Assert-ThrowsCategory -Category 'ConversationUrlUnbound' -ExitCode 29 -Action {
+            Invoke-LiveWait -EvidenceDirectory $directory -TimeoutSecondsValue 5 -PollMillisecondsValue 250
+        }
+        (Read-EvidenceState -Directory $directory).automaticResendAllowed | Should -BeFalse
+        Should -Invoke Invoke-PollUntilCompleted -Times 0 -Exactly
+        Should -Invoke Invoke-LiveInvokePatternOnce -Times 0 -Exactly
+        Should -Invoke Reserve-GlobalIdempotencyKey -Times 0 -Exactly
     }
 
     It 'classifies only bounded ordinary rerender failures as transient' {
@@ -541,6 +1311,203 @@ Describe 'Global durable idempotency' {
         $text | Should -Not -Match 'actual prompt text'
         $text | Should -Match 'idempotencyKeySha256'
         $text | Should -Match 'promptSha256'
+    }
+}
+
+Describe 'Per-target concurrency and thread ownership' {
+    BeforeEach {
+        $script:TargetClaimRootOverride = Join-Path $TestDrive 'target-claims'
+        $null = [System.IO.Directory]::CreateDirectory($script:TargetClaimRootOverride)
+        $script:threadA = '019fd9c5-9497-7301-a315-6e17d0704869'
+        $script:threadB = '019fa981-725e-7f02-93a7-bb1e1b7aefd3'
+        $script:bindingA = [ordered]@{
+            browserId = 'browser-1'; profileId = 'profile-1'; profileLabel = 'work'
+            tabId = '101'; sessionKey = 'browser-1:profile-1:101'
+            origin = 'https://chatgpt.com'; url = 'https://chatgpt.com/'
+        }
+        $script:bindingB = [ordered]@{
+            browserId = 'browser-1'; profileId = 'profile-1'; profileLabel = 'work'
+            tabId = '102'; sessionKey = 'browser-1:profile-1:102'
+            origin = 'https://chatgpt.com'; url = 'https://chatgpt.com/'
+        }
+    }
+
+    AfterEach {
+        $script:TargetClaimRootOverride = $null
+    }
+
+    It 'allows distinct complete targets to hold independent UI mutexes' {
+        (Get-AgentBrowserTargetMutexName -Binding $script:bindingA) |
+            Should -Not -Be (Get-AgentBrowserTargetMutexName -Binding $script:bindingB)
+        $first = Enter-UiMutex -TargetBinding $script:bindingA
+        $second = $null
+        try {
+            $second = Enter-UiMutex -TargetBinding $script:bindingB
+            $second.Acquired | Should -BeTrue
+        }
+        finally {
+            Exit-UiMutex -Lease $second
+            Exit-UiMutex -Lease $first
+        }
+    }
+
+    It 'serializes one stable conversation claim across different runtime tabs' {
+        $conversationUrl = 'https://chatgpt.com/c/12345678-1234-1234-1234-123456789abc'
+        $bindingA = [ordered]@{} + $script:bindingA
+        $bindingB = [ordered]@{} + $script:bindingB
+        $bindingA.url = $conversationUrl
+        $bindingB.url = $conversationUrl
+        $descriptorA = Get-AgentBrowserTargetClaimDescriptor -Binding $bindingA
+        $descriptorB = Get-AgentBrowserTargetClaimDescriptor -Binding $bindingB
+        $descriptorA.KeySha256 | Should -Be $descriptorB.KeySha256
+
+        $lockPath = Join-Path $script:TargetClaimRootOverride ($descriptorA.KeySha256 + '.json.lock')
+        $claimLock = [System.IO.FileStream]::new(
+            $lockPath,
+            [System.IO.FileMode]::OpenOrCreate,
+            [System.IO.FileAccess]::ReadWrite,
+            [System.IO.FileShare]::None
+        )
+        try {
+            Assert-ThrowsCategory -Category 'AgentBrowserTargetClaimBusy' -ExitCode 32 -Action {
+                Reserve-AgentBrowserTargetClaim `
+                    -CodexThreadIdValue $script:threadA `
+                    -EvidenceDirectory (Join-Path $TestDrive 'stable-claim') `
+                    -IdempotencyKeySha256Value ('f' * 64) `
+                    -Binding $bindingB
+            }
+        }
+        finally {
+            $claimLock.Dispose()
+        }
+    }
+
+    It 'rejects a second process operating the same complete target' {
+        $mutexName = Get-AgentBrowserTargetMutexName -Binding $script:bindingA
+        $readyPath = Join-Path $TestDrive 'same-target-ready'
+        $releasePath = Join-Path $TestDrive 'same-target-release'
+        $job = Start-Job -ArgumentList $mutexName, $readyPath, $releasePath -ScriptBlock {
+            param($Name, $ReadyPath, $ReleasePath)
+            $mutex = [System.Threading.Mutex]::new($false, $Name)
+            try {
+                $null = $mutex.WaitOne()
+                [System.IO.File]::WriteAllText($ReadyPath, 'ready')
+                while (-not [System.IO.File]::Exists($ReleasePath)) {
+                    Start-Sleep -Milliseconds 25
+                }
+                $mutex.ReleaseMutex()
+            }
+            finally {
+                $mutex.Dispose()
+            }
+        }
+        try {
+            $deadline = [DateTime]::UtcNow.AddSeconds(10)
+            while (-not [System.IO.File]::Exists($readyPath) -and [DateTime]::UtcNow -lt $deadline) {
+                Start-Sleep -Milliseconds 25
+            }
+            [System.IO.File]::Exists($readyPath) | Should -BeTrue
+            Assert-ThrowsCategory -Category 'ConcurrentUiOperation' -ExitCode 32 -Action {
+                Enter-UiMutex -TargetBinding $script:bindingA
+            }
+        }
+        finally {
+            [System.IO.File]::WriteAllText($releasePath, 'release')
+            $null = Wait-Job -Job $job -Timeout 10
+            Remove-Job -Job $job -Force
+        }
+    }
+
+    It 'denies an incomplete target any parallel mutex identity' {
+        $incomplete = [ordered]@{
+            browserId = 'browser-1'; profileId = 'profile-1'; profileLabel = 'work'
+            tabId = ''; sessionKey = 'browser-1:profile-1:101'
+            origin = 'https://chatgpt.com'; url = 'https://chatgpt.com/'
+        }
+        Assert-ThrowsCategory -Category 'AgentBrowserTargetBindingIncomplete' -ExitCode 31 -Action {
+            Get-AgentBrowserTargetMutexName -Binding $incomplete
+        }
+    }
+
+    It 'recovers the same target claim but rejects another thread before browser work' {
+        $directory = Join-Path $TestDrive 'thread-a-round-1'
+        $first = Reserve-AgentBrowserTargetClaim `
+            -CodexThreadIdValue $script:threadA `
+            -EvidenceDirectory $directory `
+            -IdempotencyKeySha256Value ('a' * 64) `
+            -Binding $script:bindingA
+        $first.Reused | Should -BeFalse
+        (Reserve-AgentBrowserTargetClaim `
+            -CodexThreadIdValue $script:threadA `
+            -EvidenceDirectory $directory `
+            -IdempotencyKeySha256Value ('a' * 64) `
+            -Binding $script:bindingA).Reused | Should -BeTrue
+
+        Assert-ThrowsCategory -Category 'AgentBrowserTargetClaimConflict' -ExitCode 32 -Action {
+            Reserve-AgentBrowserTargetClaim `
+                -CodexThreadIdValue $script:threadB `
+                -EvidenceDirectory (Join-Path $TestDrive 'thread-b-round-1') `
+                -IdempotencyKeySha256Value ('b' * 64) `
+                -Binding $script:bindingA
+        }
+    }
+
+    It 'allows the owning thread to reuse a target only after the previous round is terminal' {
+        $firstDirectory = Join-Path $TestDrive 'thread-a-round-old'
+        $secondDirectory = Join-Path $TestDrive 'thread-a-round-new'
+        $null = Reserve-AgentBrowserTargetClaim `
+            -CodexThreadIdValue $script:threadA `
+            -EvidenceDirectory $firstDirectory `
+            -IdempotencyKeySha256Value ('d' * 64) `
+            -Binding $script:bindingB
+
+        Assert-ThrowsCategory -Category 'AgentBrowserTargetClaimConflict' -ExitCode 32 -Action {
+            Reserve-AgentBrowserTargetClaim `
+                -CodexThreadIdValue $script:threadA `
+                -EvidenceDirectory $secondDirectory `
+                -IdempotencyKeySha256Value ('e' * 64) `
+                -Binding $script:bindingB
+        }
+
+        $null = [System.IO.Directory]::CreateDirectory($firstDirectory)
+        Write-EvidenceState -Directory $firstDirectory -State ([ordered]@{
+            schemaVersion = $Script:SchemaVersion
+            tool = $Script:ToolName
+            phase = 'completed'
+            invokeAttempted = $true
+        })
+        (Reserve-AgentBrowserTargetClaim `
+            -CodexThreadIdValue $script:threadA `
+            -EvidenceDirectory $secondDirectory `
+            -IdempotencyKeySha256Value ('e' * 64) `
+            -Binding $script:bindingB).Reused | Should -BeFalse
+    }
+
+    It 'rejects cross-thread wait before resolving or observing the bound target' {
+        $directory = Join-Path $TestDrive 'cross-thread-wait'
+        $null = [System.IO.Directory]::CreateDirectory($directory)
+        $state = New-SendIntentState `
+            -PromptSha256 ('c' * 64) `
+            -IdempotencyKeyValue 'cross-thread-wait' `
+            -BaselineHashes @() `
+            -ConversationUrlBeforeSend 'https://chatgpt.com/c/12345678-1234-1234-1234-123456789abc' `
+            -Transport $Script:AgentBrowserTransport `
+            -TargetBinding $script:bindingA `
+            -CodexThreadIdValue $script:threadA
+        Set-ObjectProperty -InputObject $state -Name 'phase' -Value 'sent'
+        Write-EvidenceState -Directory $directory -State $state
+        Mock Resolve-AgentBrowserTarget { throw 'browser must not be touched' }
+        Mock Invoke-PollUntilCompleted { throw 'observation must not start' }
+
+        Assert-ThrowsCategory -Category 'CodexThreadMismatch' -ExitCode 30 -Action {
+            Invoke-AgentBrowserWait `
+                -EvidenceDirectory $directory `
+                -TimeoutSecondsValue 5 `
+                -PollMillisecondsValue 250 `
+                -CodexThreadIdValue $script:threadB
+        }
+        Should -Invoke Resolve-AgentBrowserTarget -Times 0 -Exactly
+        Should -Invoke Invoke-PollUntilCompleted -Times 0 -Exactly
     }
 }
 
@@ -659,36 +1626,37 @@ Describe 'Bounded assistant text assembly' {
 }
 
 Describe 'Exact URL fallback and sanitization' {
-    It 're-reads the address after focus before considering keyboard fallback' {
-        $script:urlReadCount = 0
+    It 'reads allowed URL states without focus, selection, re-resolution, or restoration' -TestCases @(
+        @{ AddressValue = 'https://chatgpt.com/'; ExpectedUrl = 'https://chatgpt.com/'; ExpectedExact = $false }
+        @{ AddressValue = 'https://chatgpt.com/g/g-abc123'; ExpectedUrl = 'https://chatgpt.com/g/g-abc123'; ExpectedExact = $false }
+        @{ AddressValue = 'https://chatgpt.com/c/12345678-1234-1234-1234-123456789abc?private=1#fragment'; ExpectedUrl = 'https://chatgpt.com/c/12345678-1234-1234-1234-123456789abc'; ExpectedExact = $true }
+    ) {
+        param($AddressValue, $ExpectedUrl, $ExpectedExact)
+
+        $script:setFocusCount = 0
         $addressElement = [pscustomobject]@{}
-        $addressElement | Add-Member -MemberType ScriptMethod -Name SetFocus -Value { }
+        $addressElement | Add-Member -MemberType ScriptMethod -Name SetFocus -Value { $script:setFocusCount++ }
         $context = [pscustomobject]@{
             Address = [pscustomobject]@{ Element = $addressElement }
             Window = [pscustomobject]@{ Element = 'window' }
         }
 
-        Mock Get-LiveFocusState { [pscustomobject]@{ Element = $null; TopLevelRuntimeId = 'original' } }
-        Mock Get-AutomationRuntimeIdText { 'codex' }
-        Mock Resolve-LiveContext { $context }
-        Mock Restore-FocusState { $true }
-        Mock Start-Sleep { }
-        Mock Read-LiveElementText {
-            $script:urlReadCount++
-            if ($script:urlReadCount -eq 1) {
-                return 'https://chatgpt.com/'
-            }
-            return 'https://chatgpt.com/c/12345678-1234-1234-1234-123456789abc'
-        }
+        Mock Read-LiveElementText { $AddressValue }
+        Mock Resolve-LiveContext { throw 'URL read must not re-resolve after a focus action' }
+        Mock Restore-FocusState { throw 'URL read must not restore focus' }
 
         $result = Get-LiveUrlState -Context $context
-        $result.Exact | Should -BeTrue
-        $result.Url | Should -Be 'https://chatgpt.com/c/12345678-1234-1234-1234-123456789abc'
-        $script:urlReadCount | Should -Be 2
-        Should -Invoke Restore-FocusState -Times 1 -Exactly
+        $result.Exact | Should -Be $ExpectedExact
+        $result.Url | Should -Be $ExpectedUrl
+        $script:setFocusCount | Should -Be 0
+        Should -Invoke Resolve-LiveContext -Times 0 -Exactly
+        Should -Invoke Restore-FocusState -Times 0 -Exactly
+
+        $source = [System.IO.File]::ReadAllText($scriptPath)
+        $source | Should -Not -Match 'function Invoke-LiveAddressTextSelection'
     }
 
-    It 'uses the focused exact conversation URL after an origin-only value' {
+    It 'prefers an exact conversation URL over an origin-only candidate' {
         $resolved = Resolve-SanitizedUrlFromCandidates -Candidates @(
             'https://chatgpt.com/',
             'https://chatgpt.com/c/12345678-1234-1234-1234-123456789abc?utm_source=secret#fragment'
@@ -775,13 +1743,42 @@ Describe 'Exact URL fallback and sanitization' {
 }
 
 Describe 'Focus and clipboard safety' {
+    It 'focuses the ChatGPT composer only when explicitly allowed' {
+        $script:composerFocusCount = 0
+        $script:composerValues = @()
+        $valuePattern = [pscustomobject]@{
+            Current = [pscustomobject]@{ IsReadOnly = $false }
+        }
+        $valuePattern | Add-Member -MemberType ScriptMethod -Name SetValue -Value {
+            param($value)
+            $script:composerValues += $value
+        }
+        $element = [pscustomobject]@{ Pattern = $valuePattern }
+        $element | Add-Member -MemberType ScriptMethod -Name SetFocus -Value {
+            $script:composerFocusCount++
+        }
+        $element | Add-Member -MemberType ScriptMethod -Name TryGetCurrentPattern -Value {
+            param($pattern, [ref]$result)
+            $result.Value = $this.Pattern
+            return $true
+        }
+        $record = [pscustomobject]@{ Element = $element }
+
+        Set-LiveComposerValue -ComposerRecord $record -Value 'silent'
+        Set-LiveComposerValue -ComposerRecord $record -Value 'foreground' -FocusComposer
+
+        $script:composerFocusCount | Should -Be 1
+        $script:composerValues | Should -Be @('silent', 'foreground')
+    }
+
     It 'restores focus only while automation still owns the UIA top-level focus' {
         (Test-FocusRestoreAllowed -OriginalTopLevelRuntimeId 'original' -CurrentTopLevelRuntimeId 'codex' -ExpectedAutomationTopLevelRuntimeId 'codex') | Should -BeTrue
         (Test-FocusRestoreAllowed -OriginalTopLevelRuntimeId 'original' -CurrentTopLevelRuntimeId 'third-app' -ExpectedAutomationTopLevelRuntimeId 'codex') | Should -BeFalse
     }
 
-    It 'allows restoration when focus never left the original top-level UIA element' {
-        (Test-FocusRestoreAllowed -OriginalTopLevelRuntimeId 'original' -CurrentTopLevelRuntimeId 'original' -ExpectedAutomationTopLevelRuntimeId 'codex') | Should -BeTrue
+    It 'does not restore inside the original top-level or when automation never owned focus' {
+        (Test-FocusRestoreAllowed -OriginalTopLevelRuntimeId 'codex' -CurrentTopLevelRuntimeId 'codex' -ExpectedAutomationTopLevelRuntimeId 'codex') | Should -BeFalse
+        (Test-FocusRestoreAllowed -OriginalTopLevelRuntimeId 'original' -CurrentTopLevelRuntimeId 'original' -ExpectedAutomationTopLevelRuntimeId 'codex') | Should -BeFalse
     }
 
     It 'does not restore when any required UIA runtime identity is unknown' {
@@ -891,7 +1888,7 @@ Describe 'Forbidden transport and clipboard surface' {
         $source | Should -Not -Match '(?i)Playwright|Puppeteer|Selenium|ChromeDriver|DevToolsProtocol|--remote-debugging-port'
         $source | Should -Not -Match '(?i)Invoke-WebRequest|Invoke-RestMethod|System\.Net\.Http|WebClient'
         $source | Should -Not -Match '(?i)CookieContainer|document\.cookie|access[_-]?token|refresh[_-]?token'
-        $source | Should -Not -Match '(?i)Get-Process|MainWindowHandle|ChatGPT\.exe'
+        $source | Should -Not -Match '(?i)ChatGPT\.exe'
     }
 
     It 'recognizes the current Chinese generation stop signal and structural assistant turns' {
@@ -1044,5 +2041,468 @@ Describe 'Evidence hashes and durable idempotency' {
         Assert-ThrowsCategory -Category 'PromptEvidencePathInvalid' -ExitCode 30 -Action {
             Complete-Evidence -EvidenceDirectory $directory -State $state -Response (New-TestResponse -Text 'answer') -ConversationUrl 'https://chatgpt.com/c/12345678-1234-1234-1234-123456789abc' -TransientObservationCount 0
         }
+    }
+}
+
+Describe 'agent-browser-cli V2 transport' {
+    BeforeEach {
+        $script:v2Target = [pscustomobject]@{
+            BrowserId = 'browser-1'
+            ProfileId = 'profile-1'
+            ProfileLabel = 'work'
+            TabId = '101'
+            SessionKey = 'browser-1:profile-1:101'
+            Origin = 'https://chatgpt.com'
+            Url = 'https://chatgpt.com/'
+            UrlExact = $false
+        }
+        $script:IdempotencyRootOverride = Join-Path $TestDrive 'v2-idempotency'
+        $script:TargetClaimRootOverride = Join-Path $TestDrive ('v2-target-claims-' + [guid]::NewGuid().ToString('N'))
+        $null = [System.IO.Directory]::CreateDirectory($script:IdempotencyRootOverride)
+        $null = [System.IO.Directory]::CreateDirectory($script:TargetClaimRootOverride)
+        $script:v2ThreadId = '019fd9c5-9497-7301-a315-6e17d0704869'
+    }
+
+    AfterEach {
+        $script:IdempotencyRootOverride = $null
+        $script:TargetClaimRootOverride = $null
+    }
+
+    It 'accepts exactly one successful CLI JSON document and rejects trailing JSON' {
+        $valid = '{"ok":true,"result":{"status":"success","metadata":{"tabs_count":0,"tabs":[]}}}'
+        (ConvertFrom-AgentBrowserCliOutput -Stdout $valid -ExitCode 0 -Operation 'tabs').ok | Should -BeTrue
+
+        Assert-ThrowsCategory -Category 'AgentBrowserCliJsonInvalid' -ExitCode 10 -Action {
+            ConvertFrom-AgentBrowserCliOutput -Stdout ($valid + $valid) -ExitCode 0 -Operation 'tabs'
+        }
+    }
+
+    It 'accepts one new response after ChatGPT virtualizes an unchanged baseline prefix' {
+        $oldA = New-TestResponse -Text 'old-a' -Ordinal 0
+        $oldB = New-TestResponse -Text 'old-b' -Ordinal 1
+        $new = New-TestResponse -Text 'new-only' -Ordinal 2
+
+        $comparison = Compare-ResponseBaseline `
+            -BaselineHashes @($oldA.ContentSha256, $oldB.ContentSha256) `
+            -CurrentResponses @($oldB, $new)
+
+        $comparison.Status | Should -Be 'one'
+        $comparison.NewResponse.Content | Should -Be 'new-only'
+    }
+
+    It 'rejects a response list when every recorded baseline turn disappeared' {
+        $old = New-TestResponse -Text 'old'
+        $new = New-TestResponse -Text 'new'
+
+        Assert-ThrowsCategory -Category 'ResponseBaselineMismatch' -ExitCode 28 -Action {
+            Compare-ResponseBaseline -BaselineHashes @($old.ContentSha256) -CurrentResponses @($new)
+        }
+    }
+
+    It 'reads one bounded CLI process without waiting for daemon-inherited pipe EOF' {
+        $source = [System.IO.File]::ReadAllText($scriptPath)
+        $invoker = [regex]::Match($source, '(?s)function Invoke-AgentBrowserCliJson\s*\{.*?(?=\r?\nfunction Test-BoundedAgentBrowserIdentity)').Value
+        $invoker | Should -Match 'ReadLineAsync\(\)'
+        $invoker | Should -Match '\$process\.HasExited'
+        $invoker | Should -Match 'AgentBrowserCliTimeout'
+        $invoker | Should -Not -Match 'ReadToEnd\(\)|GetTempFileName|2>\s*\$stderrPath'
+    }
+
+    It 'quotes arbitrary fill arguments without a command shell' {
+        (ConvertTo-WindowsProcessArgument -Value 'plain') | Should -Be 'plain'
+        (ConvertTo-WindowsProcessArgument -Value 'hello world') | Should -Be '"hello world"'
+        (ConvertTo-WindowsProcessArgument -Value 'say "hello"') | Should -Be '"say \"hello\""'
+        (ConvertTo-WindowsProcessArgument -Value 'C:\with space\') | Should -Be '"C:\with space\\"'
+    }
+
+    It 'fails closed when two Chrome tabs match ChatGPT without an exact binding' {
+        Mock Invoke-AgentBrowserCliJson {
+            [pscustomobject]@{
+                ok = $true
+                result = [pscustomobject]@{
+                    status = 'success'
+                    metadata = [pscustomobject]@{ tabs = @(
+                        [pscustomobject]@{ browser_id = 'b'; profile_id = 'p'; profile_label = 'work'; tab_id = '1'; session_key = 'b:p:1'; url = 'https://chatgpt.com/' }
+                        [pscustomobject]@{ browser_id = 'b'; profile_id = 'p'; profile_label = 'work'; tab_id = '2'; session_key = 'b:p:2'; url = 'https://chatgpt.com/c/12345678-1234-1234-1234-123456789abc' }
+                    ) }
+                }
+            }
+        }
+
+        Assert-ThrowsCategory -Category 'AgentBrowserTargetAmbiguous' -ExitCode 20 -Action {
+            Resolve-AgentBrowserTarget
+        }
+    }
+
+    It 'binds browser profile tab session and canonical URL without titles or history' {
+        $binding = ConvertTo-AgentBrowserTargetBinding -Target $script:v2Target
+        $binding.browserId | Should -Be 'browser-1'
+        $binding.profileId | Should -Be 'profile-1'
+        $binding.profileLabel | Should -Be 'work'
+        $binding.tabId | Should -Be '101'
+        $binding.sessionKey | Should -Be 'browser-1:profile-1:101'
+        $binding.url | Should -Be 'https://chatgpt.com/'
+        ($binding | ConvertTo-Json -Compress) | Should -Not -Match 'title|history'
+    }
+
+    It 'replaces a truncated tab-list URL with the exact inspected page URL' {
+        $conversationUrl = 'https://chatgpt.com/c/12345678-1234-1234-1234-123456789abc'
+        Mock Invoke-AgentBrowserCliJson {
+            [pscustomobject]@{
+                ok = $true
+                result = [pscustomobject]@{
+                    status = 'success'; tab_id = '101'; session_key = 'browser-1:profile-1:101'
+                    js_return = [pscustomobject]@{
+                        schemaVersion = 1; origin = 'https://chatgpt.com'; url = $conversationUrl
+                        composer = [pscustomobject]@{ count = 1; value = '' }
+                        send = [pscustomobject]@{ count = 0 }
+                        auth = [pscustomobject]@{ loginCount = 0; challengeCount = 0; proIndicatorCount = 1 }
+                        generating = $false; userTurns = @(); assistantTurns = @(); turnLimitExceeded = $false
+                    }
+                }
+            }
+        }
+
+        $snapshot = Get-AgentBrowserPageSnapshot -Target $script:v2Target
+        $snapshot.Url | Should -Be $conversationUrl
+        $script:v2Target.Url | Should -Be $conversationUrl
+        $script:v2Target.UrlExact | Should -BeTrue
+    }
+
+    It 'keeps an exact tab identity when the tab-list URL is truncated' {
+        $conversationUrl = 'https://chatgpt.com/c/12345678-1234-1234-1234-123456789abc'
+        $truncatedUrl = 'https://chatgpt.com/c/12345678-1234-1234'
+        Mock Invoke-AgentBrowserCliJson {
+            [pscustomobject]@{
+                ok = $true
+                result = [pscustomobject]@{
+                    status = 'success'
+                    metadata = [pscustomobject]@{ tabs = @([pscustomobject]@{
+                        browser_id = 'browser-1'; profile_id = 'profile-1'; profile_label = 'work'
+                        tab_id = '101'; session_key = 'browser-1:profile-1:101'; url = $truncatedUrl
+                    }) }
+                }
+            }
+        }
+        $binding = ConvertTo-AgentBrowserTargetBinding -Target $script:v2Target
+        $binding.url = $conversationUrl
+
+        $resolved = Resolve-AgentBrowserTarget `
+            -ExpectedBinding $binding `
+            -ExpectedConversationUrl $conversationUrl `
+            -AllowExactUrlReopen
+
+        $resolved.SessionKey | Should -Be 'browser-1:profile-1:101'
+        $resolved.Url | Should -Be $truncatedUrl
+    }
+
+    It 'uses the full profile tree when the tab-list URL is abbreviated with an ellipsis' {
+        $conversationUrl = 'https://chatgpt.com/c/12345678-1234-1234-1234-123456789abc'
+        Mock Invoke-AgentBrowserCliJson {
+            param($Arguments)
+            if ([string]$Arguments[0] -eq 'tabs') {
+                return [pscustomobject]@{ ok = $true; result = [pscustomobject]@{
+                    status = 'success'; metadata = [pscustomobject]@{ tabs = @([pscustomobject]@{
+                        browser_id = 'browser-1'; profile_id = 'profile-1'; profile_label = 'work'
+                        tab_id = '101'; session_key = 'browser-1:profile-1:101'; url = 'https://chatgpt.com/c/12345678...'
+                    }) }
+                } }
+            }
+            [pscustomobject]@{ ok = $true; result = [pscustomobject]@{
+                status = 'success'; browsers = @([pscustomobject]@{
+                    browser_id = 'browser-1'; profiles = @([pscustomobject]@{
+                        profile_id = 'profile-1'; profile_label = 'work'; tabs = @([pscustomobject]@{
+                            tab_id = '101'; session_key = 'browser-1:profile-1:101'; url = $conversationUrl
+                        })
+                    })
+                })
+            } }
+        }
+
+        $resolved = Resolve-AgentBrowserTarget -ExpectedBinding (ConvertTo-AgentBrowserTargetBinding -Target $script:v2Target)
+
+        $resolved.SessionKey | Should -Be 'browser-1:profile-1:101'
+        $resolved.Url | Should -Be $conversationUrl
+    }
+
+    It 'reopens the exact URL through one persistent profile after the browser id changes' {
+        $conversationUrl = 'https://chatgpt.com/c/12345678-1234-1234-1234-123456789abc'
+        $currentBrowserId = 'browser-2'
+        $openedTabId = '202'
+        $openedSessionKey = 'browser-2:profile-1:202'
+        $script:v2OpenArguments = $null
+        $script:v2PostOpenTabPolls = 0
+        Mock Invoke-AgentBrowserCliJson {
+            param($Arguments)
+            switch ([string]$Arguments[0]) {
+                'tabs' {
+                    $tabs = @([pscustomobject]@{
+                        browser_id = $currentBrowserId; profile_id = 'profile-1'; profile_label = 'work'
+                        tab_id = '201'; session_key = 'browser-2:profile-1:201'; url = 'https://example.com/'
+                    })
+                    return [pscustomobject]@{
+                        ok = $true; result = [pscustomobject]@{
+                            status = 'success'; metadata = [pscustomobject]@{ tabs = $tabs }
+                        }
+                    }
+                }
+                'tabtree' {
+                    $treeTabs = @([pscustomobject]@{ tab_id = '201'; session_key = 'browser-2:profile-1:201'; url = 'https://example.com/' })
+                    if ($null -ne $script:v2OpenArguments) {
+                        $script:v2PostOpenTabPolls++
+                    }
+                    if ($script:v2PostOpenTabPolls -ge 2) {
+                        $treeTabs += [pscustomobject]@{ tab_id = $openedTabId; session_key = $openedSessionKey; url = $conversationUrl }
+                    }
+                    return [pscustomobject]@{
+                        ok = $true; result = [pscustomobject]@{
+                            status = 'success'; browsers = @([pscustomobject]@{
+                                browser_id = $currentBrowserId
+                                profiles = @([pscustomobject]@{
+                                    profile_id = 'profile-1'; profile_label = 'work'
+                                    tabs = $treeTabs
+                                })
+                            })
+                        }
+                    }
+                }
+                'open' {
+                    $script:v2OpenArguments = @($Arguments)
+                    return [pscustomobject]@{
+                        ok = $true; result = [pscustomobject]@{
+                            status = 'success'; opened_tab_id = $openedTabId; opened_session_key = $openedSessionKey
+                        }
+                    }
+                }
+                'exec' {
+                    return [pscustomobject]@{
+                        ok = $true; result = [pscustomobject]@{
+                            status = 'success'; tab_id = $openedTabId; session_key = $openedSessionKey
+                            js_return = [pscustomobject]@{
+                                schemaVersion = 1; origin = 'https://chatgpt.com'; url = $conversationUrl
+                                composer = [pscustomobject]@{ count = 1; value = '' }
+                                send = [pscustomobject]@{ count = 0 }
+                                auth = [pscustomobject]@{ loginCount = 0; challengeCount = 0; proIndicatorCount = 1 }
+                                generating = $false; userTurns = @(); assistantTurns = @(); turnLimitExceeded = $false
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Mock Start-Sleep {}
+
+        $resolved = Resolve-AgentBrowserTarget `
+            -ExpectedBinding (ConvertTo-AgentBrowserTargetBinding -Target $script:v2Target) `
+            -ExpectedConversationUrl $conversationUrl `
+            -AllowExactUrlReopen
+
+        $resolved.BrowserId | Should -Be $currentBrowserId
+        $resolved.ProfileId | Should -Be 'profile-1'
+        $resolved.TabId | Should -Be $openedTabId
+        $resolved.Url | Should -Be $conversationUrl
+        $script:v2OpenArguments | Should -Contain '--background'
+        $script:v2OpenArguments[($script:v2OpenArguments.IndexOf('--browser') + 1)] | Should -Be $currentBrowserId
+        $script:v2PostOpenTabPolls | Should -BeGreaterOrEqual 2
+    }
+
+    It 'rejects a CLI operation that reports a different session after acting' {
+        $envelope = [pscustomobject]@{
+            result = [pscustomobject]@{ status = 'success'; tab_id = '101'; session_key = 'other:session:101' }
+        }
+        Assert-ThrowsCategory -Category 'AgentBrowserCommandTargetMismatch' -ExitCode 20 -Action {
+            Assert-AgentBrowserCommandResultBinding -Envelope $envelope -Target $script:v2Target
+        }
+    }
+
+    It 'recognizes one matching new user turn and rejects any unrelated turn' {
+        $promptSha = Get-Sha256Text -Text 'expected prompt'
+        $old = New-TestResponse -Text 'old prompt'
+        $matching = New-TestResponse -Text 'expected prompt' -Ordinal 1
+        (Assert-AgentBrowserUserTurnAcknowledgement -BaselineHashes @($old.ContentSha256) -CurrentTurns @($old, $matching) -PromptSha256 $promptSha) | Should -BeTrue
+
+        Assert-ThrowsCategory -Category 'UserTurnAcknowledgementMismatch' -ExitCode 28 -Action {
+            Assert-AgentBrowserUserTurnAcknowledgement -BaselineHashes @($old.ContentSha256) -CurrentTurns @($old, (New-TestResponse -Text 'other prompt')) -PromptSha256 $promptSha
+        }
+    }
+
+    It 'acknowledges one prompt after ChatGPT virtualizes an unchanged user-turn prefix' {
+        $oldA = New-TestResponse -Text 'old prompt a' -Ordinal 0
+        $oldB = New-TestResponse -Text 'old prompt b' -Ordinal 1
+        $matching = New-TestResponse -Text 'expected prompt' -Ordinal 2
+        $promptSha = $matching.ContentSha256
+
+        (Assert-AgentBrowserUserTurnAcknowledgement `
+            -BaselineHashes @($oldA.ContentSha256, $oldB.ContentSha256) `
+            -CurrentTurns @($oldB, $matching) `
+            -PromptSha256 $promptSha) | Should -BeTrue
+
+        Assert-ThrowsCategory -Category 'UserTurnBaselineMismatch' -ExitCode 28 -Action {
+            Assert-AgentBrowserUserTurnAcknowledgement `
+                -BaselineHashes @($oldA.ContentSha256, $oldB.ContentSha256) `
+                -CurrentTurns @($matching) `
+                -PromptSha256 $promptSha
+        }
+    }
+
+    It 'writes send-uncertain and performs no second click when the one click result is lost' {
+        $directory = Join-Path $TestDrive 'v2-click-uncertain'
+        $null = New-Item -ItemType Directory -Path $directory
+        $script:v2PageCalls = 0
+        $script:v2ClickCalls = 0
+        Mock Resolve-AgentBrowserTarget { $script:v2Target }
+        Mock Get-AgentBrowserPageSnapshot {
+            $script:v2PageCalls++
+            $composer = if ($script:v2PageCalls -eq 1) { '' } else { 'expected prompt' }
+            [pscustomobject]@{
+                Url = 'https://chatgpt.com/'; UrlExact = $false; ComposerCount = 1; ComposerValue = $composer
+                SendCount = if ($script:v2PageCalls -eq 1) { 0 } else { 1 }
+                LoginCount = 0; ProCount = 1; SecurityChallengeCount = 0; Generating = $false
+                UserTurns = @(); Responses = @(); Target = $script:v2Target
+            }
+        }
+        Mock Invoke-AgentBrowserCliJson {
+            param($Arguments)
+            if ($Arguments[0] -eq 'click') {
+                $script:v2ClickCalls++
+                throw (New-SidebarException -ExitCode 10 -Category 'AgentBrowserCliFailed' -Message 'lost result')
+            }
+            [pscustomobject]@{ ok = $true; result = [pscustomobject]@{ status = 'success'; tab_id = '101'; session_key = 'browser-1:profile-1:101' } }
+        }
+
+        Assert-ThrowsCategory -Category 'SendUncertain' -ExitCode 26 -Action {
+            Invoke-AgentBrowserSend -PromptText 'expected prompt' -EvidenceDirectory $directory -IdempotencyKeyValue 'v2-click-uncertain' -CodexThreadIdValue $script:v2ThreadId -RequireFreshConversation -TargetBinding (ConvertTo-AgentBrowserTargetBinding -Target $script:v2Target)
+        }
+        $script:v2ClickCalls | Should -Be 1
+        (Read-EvidenceState -Directory $directory).phase | Should -Be 'send-uncertain'
+        (Read-EvidenceState -Directory $directory).automaticResendAllowed | Should -BeFalse
+    }
+
+    It 'adopts only the same tab canonical URL after a homepage send' {
+        $directory = Join-Path $TestDrive 'v2-homepage-send'
+        $null = New-Item -ItemType Directory -Path $directory
+        $prompt = 'homepage prompt'
+        $conversationUrl = 'https://chatgpt.com/c/12345678-1234-1234-1234-123456789abc'
+        $exactTarget = [pscustomobject]@{
+            BrowserId = $script:v2Target.BrowserId
+            ProfileId = $script:v2Target.ProfileId
+            ProfileLabel = $script:v2Target.ProfileLabel
+            TabId = $script:v2Target.TabId
+            SessionKey = $script:v2Target.SessionKey
+            Origin = $script:v2Target.Origin
+            Url = $conversationUrl
+            UrlExact = $true
+        }
+        $script:v2ResolveCalls = 0
+        $script:v2PageCalls = 0
+        Mock Resolve-AgentBrowserTarget {
+            $script:v2ResolveCalls++
+            if ($script:v2ResolveCalls -ge 4) { return $exactTarget }
+            return $script:v2Target
+        }
+        Mock Get-AgentBrowserPageSnapshot {
+            $script:v2PageCalls++
+            if ($script:v2PageCalls -eq 1) {
+                return [pscustomobject]@{
+                    Url = 'https://chatgpt.com/'; UrlExact = $false; ComposerCount = 1; ComposerValue = ''; SendCount = 0
+                    LoginCount = 0; ProCount = 1; SecurityChallengeCount = 0; Generating = $false
+                    UserTurns = @(); Responses = @(); Target = $script:v2Target
+                }
+            }
+            if ($script:v2PageCalls -le 3) {
+                return [pscustomobject]@{
+                    Url = 'https://chatgpt.com/'; UrlExact = $false; ComposerCount = 1; ComposerValue = $prompt; SendCount = 1
+                    LoginCount = 0; ProCount = 1; SecurityChallengeCount = 0; Generating = $false
+                    UserTurns = @(); Responses = @(); Target = $script:v2Target
+                }
+            }
+            return [pscustomobject]@{
+                Url = $conversationUrl; UrlExact = $true; ComposerCount = 1; ComposerValue = ''; SendCount = 0
+                LoginCount = 0; ProCount = 1; SecurityChallengeCount = 0; Generating = $true
+                UserTurns = @(New-TestResponse -Text $prompt); Responses = @(); Target = $exactTarget
+            }
+        }
+        Mock Invoke-AgentBrowserCliJson {
+            [pscustomobject]@{ ok = $true; result = [pscustomobject]@{ status = 'success'; tab_id = '101'; session_key = 'browser-1:profile-1:101' } }
+        }
+        Mock Start-Sleep {}
+
+        $result = Invoke-AgentBrowserSend -PromptText $prompt -EvidenceDirectory $directory -IdempotencyKeyValue 'v2-homepage-send' -CodexThreadIdValue $script:v2ThreadId -RequireFreshConversation -TargetBinding (ConvertTo-AgentBrowserTargetBinding -Target $script:v2Target)
+        $result.conversationUrl | Should -Be $conversationUrl
+        $result.targetBinding.tabId | Should -Be '101'
+        $result.targetBinding.sessionKey | Should -Be 'browser-1:profile-1:101'
+        $result.targetBinding.url | Should -Be $conversationUrl
+        (Read-EvidenceState -Directory $directory).phase | Should -Be 'sent'
+    }
+
+    It 'recovers an unbound uncertain homepage send only after the same prompt turn is proved' {
+        $directory = Join-Path $TestDrive 'v2-unbound-uncertain-recovery'
+        $null = New-Item -ItemType Directory -Path $directory
+        $prompt = 'recover exact prompt'
+        Write-Utf8NoBomAtomic -Path (Join-Path $directory 'prompt.md') -Text $prompt
+        $state = New-SendIntentState `
+            -PromptSha256 (Get-Sha256Text -Text $prompt) `
+            -IdempotencyKeyValue 'v2-unbound-uncertain-recovery' `
+            -BaselineHashes @() `
+            -Transport $Script:AgentBrowserTransport `
+            -TargetBinding (ConvertTo-AgentBrowserTargetBinding -Target $script:v2Target) `
+            -CodexThreadIdValue $script:v2ThreadId
+        Set-ObjectProperty -InputObject $state -Name 'phase' -Value 'send-uncertain'
+        Set-ObjectProperty -InputObject $state -Name 'invokeAttempted' -Value $true
+        Set-ObjectProperty -InputObject $state -Name 'invokeReturned' -Value $true
+        Set-ObjectProperty -InputObject $state -Name 'baselineUserTurnSha256' -Value @()
+        Write-EvidenceState -Directory $directory -State $state
+
+        $conversationUrl = 'https://chatgpt.com/c/12345678-1234-1234-1234-123456789abc'
+        $exactTarget = [pscustomobject]@{
+            BrowserId = $script:v2Target.BrowserId; ProfileId = $script:v2Target.ProfileId
+            ProfileLabel = $script:v2Target.ProfileLabel; TabId = $script:v2Target.TabId
+            SessionKey = $script:v2Target.SessionKey; Origin = $script:v2Target.Origin
+            Url = $conversationUrl; UrlExact = $true
+        }
+        Mock Resolve-AgentBrowserTarget { $exactTarget }
+        Mock Get-AgentBrowserPageSnapshot {
+            [pscustomobject]@{
+                Url = $conversationUrl; UrlExact = $true; ComposerCount = 1; ComposerValue = ''; SendCount = 0
+                LoginCount = 0; ProCount = 1; SecurityChallengeCount = 0; Generating = $false
+                UserTurns = @(New-TestResponse -Text $prompt); Responses = @(New-TestResponse -Text 'observed answer')
+                Target = $exactTarget
+            }
+        }
+        Mock Start-Sleep {}
+
+        $null = Reserve-AgentBrowserTargetClaim `
+            -CodexThreadIdValue $script:v2ThreadId `
+            -EvidenceDirectory $directory `
+            -IdempotencyKeySha256Value (Get-Sha256Text -Text 'v2-unbound-uncertain-recovery') `
+            -Binding (ConvertTo-AgentBrowserTargetBinding -Target $script:v2Target)
+        $result = Invoke-AgentBrowserWait -EvidenceDirectory $directory -TimeoutSecondsValue 5 -PollMillisecondsValue 250 -CodexThreadIdValue $script:v2ThreadId
+        $persisted = Read-EvidenceState -Directory $directory
+        $result.completed | Should -BeTrue
+        $result.observationalRecovery | Should -BeTrue
+        $result.submissionAcknowledged | Should -BeTrue
+        $persisted.conversationUrlBound | Should -Be $conversationUrl
+        $persisted.phase | Should -Be 'completed'
+    }
+
+    It 'keeps the active dispatcher on V2 and leaves UIA unreachable' {
+        $source = [System.IO.File]::ReadAllText($scriptPath)
+        $dispatcher = [regex]::Match($source, '(?s)function Invoke-MainCommand\s*\{.*?(?=\r?\nif \(\$MyInvocation\.InvocationName)').Value
+        $dispatcher | Should -Match 'Invoke-AgentBrowserSend'
+        $dispatcher | Should -Match 'Invoke-AgentBrowserWait'
+        $dispatcher | Should -Not -Match 'Initialize-LiveUiAutomation|Invoke-LiveSend|Invoke-LiveWait|Invoke-LiveNewChat'
+    }
+
+    It 'uses only the fixed structural DOM script and never embeds prompt or credential reads' {
+        $domScriptPath = Join-Path (Split-Path -Parent $scriptPath) 'chatgpt-pro-agent-browser.js'
+        $source = [System.IO.File]::ReadAllText($domScriptPath)
+        $source | Should -Match '#prompt-textarea'
+        $source | Should -Match 'button\[data-testid="send-button"\]'
+        $source | Should -Match 'data-message-author-role'
+        $source | Should -Match 'code\.user-message-inline-code'
+        $source | Should -Match "block\.firstElementChild\.tagName === 'BR'"
+        $source | Should -Match "nodePlainText\(block\)\)\.join\('\\n'\)"
+        $source | Should -Match 'composerPlainText\(composers\[0\]\)'
+        $source | Should -Not -Match 'document\.cookie|localStorage|sessionStorage|fetch\(|XMLHttpRequest|promptText'
     }
 }

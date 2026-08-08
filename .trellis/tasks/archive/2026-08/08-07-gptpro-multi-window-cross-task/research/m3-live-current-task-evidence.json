@@ -1,0 +1,195 @@
+{
+  "schemaVersion": 1,
+  "milestone": "M3-live",
+  "verifiedAtUtc": "2026-08-08T14:12:57Z",
+  "status": "passed",
+  "blocker": null,
+  "codexThreadId": "019fd9c5-9497-7301-a315-6e17d0704869",
+  "browserBinding": {
+    "browserId": "browser-46a334c0-66a0-45e2-b313-0dad2ff57138",
+    "profileId": "profile-ae0b9bd7-906a-4360-9e40-0a0d40f0eaec",
+    "tabIds": [
+      "403428531",
+      "403428607",
+      "403428608",
+      "403428610",
+      "403428611",
+      "403428612",
+      "403428614"
+    ]
+  },
+  "checks": [
+    {
+      "name": "three concurrent long RootWait rounds in the current Codex task",
+      "status": "passed_individual_evidence",
+      "maxObservedConcurrency": 3,
+      "conversationUrls": [
+        "https://chatgpt.com/c/6a770326-d060-83ea-b12d-5d929b83e0bb",
+        "https://chatgpt.com/c/6a770326-a6a0-83ea-851f-7933c9b72eec",
+        "https://chatgpt.com/c/6a770326-7efc-83ea-b4e2-7f6cc1d37646"
+      ],
+      "facts": [
+        "All three requests were submitted exactly once and completed on distinct immutable tab/session bindings.",
+        "Each terminal event binds the exact current Codex thread and sets requiresCodexReview=true and automaticResendAllowed=false.",
+        "The three response and evidence hashes were independently recomputed and matched state.json."
+      ]
+    },
+    {
+      "name": "same-task fourth round queues before browser work",
+      "status": "passed",
+      "terminalStatus": "queued-timeout",
+      "errorCategory": "ConcurrencySlotTimeout",
+      "submissionAcknowledged": false,
+      "maxObservedConcurrency": 0,
+      "slotWaitMilliseconds": 30039,
+      "facts": [
+        "The fourth target remained an empty ChatGPT homepage.",
+        "No browser process, composer write, or click was started for the queued round."
+      ]
+    },
+    {
+      "name": "atomic batch parent summary after live fixes",
+      "status": "passed",
+      "batchId": "c2403456-57f9-421e-b306-f57c395eedff",
+      "allSucceeded": true,
+      "pollingConsumesModelTokens": false,
+      "terminalStatus": "completed",
+      "submissionAcknowledged": true,
+      "responseMarker": "BATCH_SUMMARY_AUTHORITY_OK",
+      "responseSha256": "014bf09bf90165175e4ece595da9ed62ec6d3f9d2deadd0b063e07c304e9dfa5",
+      "evidenceSha256": "2102859e06ab361ae0c103c9f0719f165be8ba2ae065394f223830cbd73a8852",
+      "slotsAfterCompletion": 0
+    },
+    {
+      "name": "two real Codex tasks run three long rounds each",
+      "status": "passed",
+      "taskAThreadId": "019fd9c5-9497-7301-a315-6e17d0704869",
+      "taskBThreadId": "019fe107-c910-75f0-9431-af9c9de7d233",
+      "taskABatchId": "78ece85a-a18f-481b-8cbf-9be870a85b74",
+      "taskBBatchId": "27847582-7cf1-4a06-815f-17d64b9be3d5",
+      "taskAAllSucceeded": true,
+      "taskBAllSucceeded": true,
+      "taskAMaxObservedConcurrency": 3,
+      "taskBMaxObservedConcurrency": 3,
+      "globalObservedSlots": 6,
+      "pollingConsumesModelTokens": false,
+      "roundTelemetry": [
+        {
+          "roundId": "global6-task-a1",
+          "slotWaitMilliseconds": 4,
+          "runDurationMilliseconds": 635090
+        },
+        {
+          "roundId": "global6-task-a2",
+          "slotWaitMilliseconds": 296,
+          "runDurationMilliseconds": 673566
+        },
+        {
+          "roundId": "global6-task-a3",
+          "slotWaitMilliseconds": 341,
+          "runDurationMilliseconds": 517229
+        },
+        {
+          "roundId": "global6-task-b1",
+          "slotWaitMilliseconds": 4,
+          "runDurationMilliseconds": 658841
+        },
+        {
+          "roundId": "global6-task-b2",
+          "slotWaitMilliseconds": 246,
+          "runDurationMilliseconds": 639743
+        },
+        {
+          "roundId": "global6-task-b3",
+          "slotWaitMilliseconds": 326,
+          "runDurationMilliseconds": 598661
+        }
+      ],
+      "fairnessConclusion": "No cross-task starvation was observed: both tasks acquired three slots within 341 ms and all six rounds completed. No fairness scheduler is added because the accepted observation threshold was not met.",
+      "facts": [
+        "The six slots were simultaneously owned by the exact two Codex task IDs in a 3+3 split and all six owner processes were live.",
+        "Task B completed while this Codex task remained active in another top-level task, proving cross-task background continuity.",
+        "All six terminal events, response markers, prompt/response/evidence hashes, URLs, watcher IDs, and task IDs were independently verified."
+      ]
+    },
+    {
+      "name": "global seventh round queues before browser work",
+      "status": "passed",
+      "taskCThreadId": "019fe107-fa4b-7e20-84cc-1a9d6798afcd",
+      "batchId": "de7284a0-ceb4-4b1b-9f64-bbd60422a595",
+      "terminalStatus": "queued-timeout",
+      "errorCategory": "ConcurrencySlotTimeout",
+      "submissionAcknowledged": false,
+      "maxObservedConcurrency": 0,
+      "slotWaitMilliseconds": 30084,
+      "runDurationMilliseconds": 0,
+      "facts": [
+        "The seventh target remained an empty ChatGPT homepage with an empty composer.",
+        "No browser child process, page write, or click started before the timeout."
+      ]
+    },
+    {
+      "name": "closed-tab exact URL background recovery",
+      "status": "passed",
+      "oldTabId": "403428609",
+      "reopenedTabId": "403428614",
+      "conversationUrl": "https://chatgpt.com/c/6a770d74-f060-83ea-9eeb-1bf2e2c9b2f8",
+      "focusRequested": false,
+      "facts": [
+        "Only the persisted exact canonical conversation URL was reopened in the same Chrome profile.",
+        "The other five task conversation tabs retained their original tab/session/URL identities, and the seventh probe tab remained an empty homepage.",
+        "Recovery performed no send or resend."
+      ]
+    },
+    {
+      "name": "matching RootWait acknowledgement",
+      "status": "passed",
+      "acknowledgedRounds": 6,
+      "facts": [
+        "Each acknowledgement matched the exact terminal watcher ID and Codex task ID after independent evidence review.",
+        "All six capacity slots were empty after completion."
+      ]
+    },
+    {
+      "name": "background focus contract",
+      "status": "passed",
+      "facts": [
+        "All six tabs were opened in background mode.",
+        "Live status and wait responses consistently reported focusRequested=false.",
+        "Boss confirmed that typing focus was not interrupted during the two-task background run."
+      ]
+    },
+    {
+      "name": "site throttling policy",
+      "status": "passed_no_throttle_observed",
+      "evidenceBasis": "unit_coverage_only_for_throttle_branch",
+      "facts": [
+        "No real ChatGPT site throttling was observed during the six-way run.",
+        "Concurrency was not raised to provoke throttling, and no automatic resend or alternate-page bypass occurred.",
+        "The accepted throttle conclusion uses the M2 unit evidence for the visible pre-click challenge terminal failure and the post-click send-uncertain single-click/no-resend branch; it does not claim a live throttle event."
+      ]
+    }
+  ],
+  "liveRootCauseFixes": [
+    {
+      "category": "capacity-owner-utc-kind",
+      "fix": "Preserve DateTime/DateTimeOffset values produced by JSON deserialization and otherwise parse the recorded ISO-8601 process start before comparing UTC values.",
+      "verification": "All six live 3+3 slot owners reported ownerAlive=true; the JSON round-trip regression passed."
+    },
+    {
+      "category": "agent-browser-tabs-url-abbreviation",
+      "fix": "For exact binding lookup and post-open proof, reuse tabtree --full for the bound profile instead of abbreviated tabs output.",
+      "verification": "The closed exact conversation reopened as tab 403428614 with the same canonical URL while every other task page remained unchanged; focusRequested=false."
+    },
+    {
+      "category": "batch-stdout-parent-handle",
+      "fix": "Treat redirected stdout as diagnostic and fall back to atomically written state.json plus watch-event.json when the parent redirect keeps the log locked.",
+      "verification": "A persistent exclusive-file-lock regression returned completed from durable terminal evidence; the negative regression rejects nonterminal/send-uncertain durable evidence and retains an unproved slot as ConcurrencySlotRecoveryRequired; a fresh live run-batch-root returned terminal with allSucceeded=true and released its slot."
+    }
+  ],
+  "remainingLiveChecks": [],
+  "sourceSha256": {
+    "watcher": "baf2299246f0843f0220fcdf00f2f90e3f51bf5b37c1577d013cc39278bef65b",
+    "adapter": "fcbef6b9c31a27b02a65c1cbb4c87f512030d790f515deb7db4305063050380d"
+  }
+}

@@ -79,7 +79,10 @@ state under `.ccg/` and `.codex/ccg/` is evidence only and must remain ignored.
 - Claude may be the explicitly selected product-manager provider. It is
   non-persistent, sees only a bounded task-local snapshot, may use only file
   read/search primitives, and never owns workspace or lifecycle writes.
-- GPT Pro is manual-only and remains owned by the CCG bridge.
+- GPT Pro is automated read-only evidence owned by the installed CCG bridge;
+  browser work stays inside the `chatgpt-pro-sidebar` Skill over
+  `agent-browser-cli-v2`, and continuation stays local through
+  `codex-root-wait`.
 - Grok is optional and disabled until a working provider is configured.
 - A user-level Trellis workflow-state hook must yield whenever the project
   registers its local equivalent; the adapter contract marker makes this

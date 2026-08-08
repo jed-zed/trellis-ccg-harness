@@ -1,0 +1,103 @@
+{
+  "schemaVersion": 1,
+  "milestone": "M3-prelive",
+  "verifiedAtUtc": "2026-08-08T10:11:04Z",
+  "harnessGitHead": "08b145289d4e8ed76027a06c6fbf1d88cbd39f3a",
+  "sourceGitHead": "e6c63edbc8aa97640127440c1c2e44a608719570",
+  "harnessTrackedDiffSha256": "c5218827df8f143135231108cf48f5a252c3e5fff0c43e23848d43e10513f3ee",
+  "sourceTrackedDiffSha256": "1b57a9180ab767fd5d8ec9a56cd277964020fe0088af396e639e6b7eaa2ae8d9",
+  "checks": [
+    {
+      "name": "Harness full suite",
+      "status": "passed",
+      "testsPassed": 452,
+      "testsSkipped": 3,
+      "testsFailed": 0
+    },
+    {
+      "name": "authoritative CCG full suite after security fix",
+      "status": "passed",
+      "testsPassed": 600,
+      "testsSkipped": 3,
+      "testsFailed": 0,
+      "lint": "passed",
+      "typecheck": "passed",
+      "build": "passed"
+    },
+    {
+      "name": "Harness CCG snapshot full suite after security fix",
+      "status": "passed",
+      "testsPassed": 600,
+      "testsSkipped": 3,
+      "testsFailed": 0,
+      "lint": "passed",
+      "typecheck": "passed",
+      "build": "passed"
+    },
+    {
+      "name": "GPT Pro bridge focused suite",
+      "status": "passed",
+      "testsPassed": 51,
+      "testsFailed": 0,
+      "facts": [
+        "A crafted session evidence_file outside the bound task directory is rejected before import.",
+        "The external sentinel file remains byte-semantically unchanged.",
+        "Historical completed windows-uia read-only import compatibility still passes."
+      ]
+    },
+    {
+      "name": "CCG source-to-snapshot parity for security fix",
+      "status": "passed",
+      "filesCompared": 3,
+      "byteIdentical": true
+    },
+    {
+      "name": "Harness conflicts",
+      "status": "passed",
+      "findingsPassed": 19,
+      "blocking": 0,
+      "warnings": 0
+    },
+    {
+      "name": "CCG security scanner",
+      "status": "passed",
+      "critical": 0,
+      "high": 0,
+      "medium": 0,
+      "low": 0,
+      "note": "M3 tracing proved that the M2 generic High was not a false positive: crafted status evidence_file values could escape the task and reach the canonical evidence writer. The shared session-status binding now revalidates workdir, session, task, and evidence containment before import and before write. Historical M2 evidence remains unchanged."
+    },
+    {
+      "name": "CCG quality scanner",
+      "status": "passed_with_existing_warnings",
+      "errors": 0,
+      "warnings": 20,
+      "note": "Warnings are existing file-size, complexity, parameter-count, and line-length findings; the M3 security helper introduced no scanner error."
+    },
+    {
+      "name": "CCG module scanner",
+      "status": "not_applicable",
+      "note": "No module was created. The generic scanner requires README.md and DESIGN.md and does not recognize the existing SKILL.md/scripts/tests or single-file Python layouts."
+    },
+    {
+      "name": "doctor and verify:sources",
+      "status": "blocked_until_source_publish",
+      "note": "All local doctor checks except source retrieval pass. Both commands fail because pinned source commit e6c63edbc8aa97640127440c1c2e44a608719570 is local-only and the configured GitHub remote returns upload-pack: not our ref. Re-run after the authorized source commit is published."
+    },
+    {
+      "name": "live Chrome preflight",
+      "status": "blocked_user_action",
+      "category": "AgentBrowserTargetMissing",
+      "facts": [
+        "The local daemon restarted and listens on ports 18767 and 18765.",
+        "The Chrome extension remains disconnected.",
+        "No approved external ChatGPT tab is exposed."
+      ]
+    }
+  ],
+  "sourceSha256": {
+    "adapter": "94ccb5aa5843acb884e77a70d3e22f3574158cfaa439351d19d3060a3b30c94a",
+    "watcher": "36c297392d8535da8a6c843a053fa7ae681b53e060d5ab770b623b60525480ab",
+    "ccgBridge": "2d24f607b6ccd3d9b0de0937b98c7f7354dade73eb7a6358d618398e3ba9b7b2"
+  }
+}

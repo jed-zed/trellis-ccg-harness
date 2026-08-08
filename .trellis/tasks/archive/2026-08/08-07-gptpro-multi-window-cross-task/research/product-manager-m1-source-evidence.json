@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "milestone": "M1",
+  "purpose": "Task-local source re-attestation for the M1 product-manager review.",
+  "capturedFromGitHead": "08b145289d4e8ed76027a06c6fbf1d88cbd39f3a",
+  "sources": [
+    {
+      "path": ".agents/skills/chatgpt-pro-sidebar/scripts/chatgpt-pro-sidebar.ps1",
+      "sha256": "94ccb5aa5843acb884e77a70d3e22f3574158cfaa439351d19d3060a3b30c94a",
+      "facts": [
+        {
+          "lines": "549-767",
+          "fact": "V2 validates one exact Codex thread UUID, persists it in state, and serializes atomic claim creation or terminal handoff by stable claim key."
+        },
+        {
+          "lines": "768-790",
+          "fact": "UI serialization is derived from the complete browser/profile/tab/session identity instead of one process-wide mutex."
+        },
+        {
+          "lines": "4646-4894",
+          "fact": "The V2 send path proves the DOM URL under the target mutex, claims that proved target before global reservation or mutation, then preserves no-resend state across acknowledgement uncertainty."
+        },
+        {
+          "lines": "4895-5055",
+          "fact": "Wait validates thread and claim ownership before browser work and holds the target mutex only around each observation."
+        }
+      ]
+    },
+    {
+      "path": ".agents/skills/chatgpt-pro-sidebar/scripts/chatgpt-pro-sidebar-watch.ps1",
+      "sha256": "cd4b023de5ce3027ac3681ceb96fdc357cc59e5c85875a662257f3ed3abf3a09",
+      "facts": [
+        {
+          "lines": "580-682,997-1081",
+          "fact": "RootWait forwards the exact Codex thread identity to status, send, and finalization adapter calls."
+        },
+        {
+          "lines": "1691-1803",
+          "fact": "run-root accepts either no explicit target or the complete browser/profile/tab/session tuple and rejects a partial tuple before adapter invocation."
+        }
+      ]
+    },
+    {
+      "path": "components/ccg-workflow/plugins/ccg/skills/ccg-gptpro-bridge/scripts/gptpro_bridge.py",
+      "sha256": "8451595cb130b83c36f75edc939a643a106d543b1a12144167fbc7ab15d97840",
+      "facts": [
+        {
+          "fact": "The CCG bridge source is unchanged at M1; its atomic session and canonical evidence work remains scoped to M2."
+        }
+      ]
+    }
+  ]
+}
