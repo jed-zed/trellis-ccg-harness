@@ -30,7 +30,9 @@ node ~/.claude/.ccg/engine/tools/grok-intelligence/command.mjs intel --task-file
 
 5. Print `requirement`, `status`, `webSearches`, `xSearches`, `evidencePath`,
    `evidenceSha256`, `manifestPath`, and `manifestSha256`. Do not print raw events or credentials.
-6. Propagate the process outcome exactly: exit 2 means required evidence unavailable, exit 3 means
+   Explain `verified` as source-qualified, `received_unverified` as a usable Provider response without
+   qualifying verification, and `invocation_failed` as no usable terminal response.
+6. Propagate the process outcome exactly: exit 2 means invocation failed, exit 3 means
    unsafe CLI context/policy violation, and exit 4 means login, consent, or configuration is missing.
    Never silently downgrade those exits.
 

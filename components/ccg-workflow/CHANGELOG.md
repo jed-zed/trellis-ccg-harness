@@ -20,6 +20,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Grok receipt states** — Separate invocation failure, received-but-unverified,
+  and verified results; keep usable unverified responses instead of blocking or
+  reporting them as failed calls, and stop forcing preferred X search in incident
+  mode.
 - **Route target binding** — Forward the CLI `--target` value into workflow
   routing so target path, digest, and byte changes invalidate prior evidence.
 - **Timeout unit consistency** — Interpret every positive integer

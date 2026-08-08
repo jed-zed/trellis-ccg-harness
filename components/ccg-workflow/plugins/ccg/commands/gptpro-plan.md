@@ -20,7 +20,7 @@ reason when external evidence is materially useful even if the user did not requ
 required, the shared route must produce canonical source-backed evidence before any routed
 planning evidence or GPT Pro session is created. Required exit 2/3/4 stops this workflow unless the
 user supplies an explicit route-state waiver with `ccg route waive --state-file <state-file> --reason "<user reason>"`; the waiver does not create evidence or claim verification passed. A waived route continues only through ordinary routing evidence and must omit the bridge's external-intelligence flags. Exit code `2`, `3`, or `4` stops before ordinary work.
-Add `--require-external-intelligence` together with `--expected-intelligence-mode <route investigation_mode>` and `--expected-intelligence-depth <route depth>` only when the route state says `status=valid` and `requirement=required`.
+Add `--require-external-intelligence` together with `--expected-intelligence-mode <route investigation_mode>` and `--expected-intelligence-depth <route depth>` only when the route state says `status=verified or status=received_unverified` and `requirement=required`.
 Then run ordinary `/ccg:plan`. Preserve the current CCG orchestrator semantics and the normal
 model routing for this installation, including any configured role providers that ordinary
 planning would use. GPT Pro is additional evidence: it is appended as a sidebar planning second
@@ -115,7 +115,7 @@ python "<installed-ccg-plugin>/skills/ccg-gptpro-bridge/scripts/gptpro_bridge.py
   --routing-evidence-file "<routing-evidence-file>" \
   --routing-summary-file "<routing-summary-file>" \
   --require-routing-evidence \
-  [--require-external-intelligence --expected-intelligence-mode <route investigation_mode> --expected-intelligence-depth <route depth> when route status=valid and requirement=required]
+  [--require-external-intelligence --expected-intelligence-mode <route investigation_mode> --expected-intelligence-depth <route depth> when route status=verified or status=received_unverified and requirement=required]
 ```
 
 When ordinary planning produced genuine Gemini evidence, also pass

@@ -149,7 +149,7 @@ function writeGrokExternalEvidence(
   const createdAt = new Date().toISOString()
   const decision = {
     requirement: 'required',
-    status: 'valid',
+    status: 'verified',
     action: 'intel',
     investigation_mode: 'contract',
     mode: 'contract',
@@ -648,7 +648,7 @@ describe('GPT Pro sidebar bridge', () => {
       expect(content, relativePath).toContain('--require-external-intelligence')
       expect(content, relativePath).toContain('--expected-intelligence-mode')
       expect(content, relativePath).toContain('--expected-intelligence-depth')
-      expect(content, relativePath).toContain('status=valid')
+      expect(content, relativePath).toContain('status=received_unverified')
       expect(content, relativePath).toMatch(/waived/i)
       expect(content.indexOf(grokMarker), relativePath).toBeGreaterThanOrEqual(0)
       expect(content.indexOf(grokMarker), relativePath).toBeLessThan(content.indexOf(ordinaryMarker))
@@ -656,12 +656,17 @@ describe('GPT Pro sidebar bridge', () => {
     }
   })
 
-  maybeIt('validates canonical Grok provenance and forwards only concise evidence to GPT Pro', () => {
+  maybeIt('accepts a canonical unverified Grok receipt and forwards only concise evidence to GPT Pro', () => {
     const root = join(TMP_ROOT, 'grok-canonical-evidence')
     const taskDir = join(root, '.ccg', 'tasks', 'grok-task')
     fs.ensureDirSync(taskDir)
     fs.writeJsonSync(join(taskDir, 'task.json'), { id: 'grok-task', status: 'in_progress' })
-    writeGrokExternalEvidence(root, taskDir)
+    writeGrokExternalEvidence(root, taskDir, {
+      decision: { status: 'received_unverified', verification_outcome: 'unresolved' },
+      evidence: { claims: [{ id: 'claim-none', claim: 'The response was received without qualifying verification.', status: 'unresolved', severity: 'info', source_ids: [] }] },
+      manifest: { validation_outcome: 'unresolved', verification_outcome: 'unresolved' },
+      item: { verificationOutcome: 'unresolved', summary: 'Grok response received without qualifying verification.' },
+    })
 
     const output = runPython(PYTHON!, [
       BRIDGE,
@@ -686,13 +691,13 @@ describe('GPT Pro sidebar bridge', () => {
       provider: 'grok',
       role: 'external-intelligence',
       requirement: 'required',
-      status: 'valid',
+      status: 'received_unverified',
       mode: 'contract',
       evidence_id: 'grok-contract-1',
     })
     const prompt = readFileSync(promptFile, 'utf8')
-    expect(prompt).toContain('Validated Grok External Intelligence')
-    expect(prompt).toContain('The current official contract remains supported.')
+    expect(prompt).toContain('Received Grok External Intelligence')
+    expect(prompt).toContain('The response was received without qualifying verification.')
     expect(prompt).toContain('https://docs.example.test/current-contract')
     expect(prompt).not.toContain('RAW_DO_NOT_FORWARD')
   })
@@ -757,11 +762,6 @@ describe('GPT Pro sidebar bridge', () => {
       item: { investigationMode: 'incident' },
       pointer: { investigation_mode: 'incident' },
     }, /investigation mode|handoff/i],
-    ['unresolved verification outcome', {
-      decision: { verification_outcome: 'unresolved' },
-      evidence: { claims: [{ id: 'claim-none', claim: 'No applicable fact.', status: 'unresolved', severity: 'info', source_ids: [] }] },
-      manifest: { validation_outcome: 'unresolved', verification_outcome: 'unresolved' },
-    }, /verification outcome|qualifying claim/i],
     ['stale evidence', {
       decision: { created_at: '2026-01-01T00:00:00.000Z' },
       manifest: { createdAt: '2026-01-01T00:00:00.000Z' },
