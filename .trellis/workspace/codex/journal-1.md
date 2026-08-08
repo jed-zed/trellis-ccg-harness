@@ -136,6 +136,21 @@ Implemented and accepted per-task 3/global 6 GPT Pro RootWait concurrency with e
 - Published CCG source 79b7f819 and synchronized the pinned 13-file Harness snapshot.
 - Added cross-task batch RootWait capacity, exact target recovery, durable no-resend evidence, specifications, and regression coverage.
 - Recorded accepted M3 Product Manager state, rollback contract, runtime telemetry, and source attestations.
+## Session 6: Publish route target and timeout fixes
+
+**Date**: 2026-08-07
+**Task**: Publish route target and timeout fixes
+**Branch**: `codex/publish-route-target-timeout`
+
+### Summary
+
+Published the two approved CCG fixes, synchronized the verified source snapshot into Harness, installed the matching runtime, and archived the Trellis task.
+
+### Main Changes
+
+- Merged source PR #31 and published wrapper 5.12.6 assets.
+- Synchronized Harness to source commit 8f6d981bac05257e7bc6333bfb6ccbbb5d62fe05 and opened PR #32.
+- Installed CCG 3.4.6, plugin 3.4.6+codex.2, and wrapper 5.12.6.
 
 ### Git Commits
 
@@ -149,6 +164,13 @@ Implemented and accepted per-task 3/global 6 GPT Pro RootWait concurrency with e
 
 - [OK] Pester 160+75=235 passed; Harness 452 passed/3 skipped; authoritative and snapshot CCG each 600 passed/3 skipped.
 - [OK] doctor, verify:sources, conflicts, quality/security gates, and live two-task 3+3 E2E passed.
+| `de45565f4f32a87f9460cd352c988017641a6e66` | (see git log) |
+| `43792199526a5b0f1cc6ea7d45957ead76c5924c` | (see git log) |
+
+### Testing
+
+- [OK] CCG lint, typecheck, build, Vitest, Go tests, and release CI passed.
+- [OK] Harness 455-test gate, doctor, conflicts, and source digest verification passed.
 
 ### Status
 
@@ -157,3 +179,25 @@ Implemented and accepted per-task 3/global 6 GPT Pro RootWait concurrency with e
 ### Next Steps
 
 - Open and merge the Harness and CCG pull requests after review.
+- Merge Harness PR #32 after required checks pass.
+
+
+## Session 7: Publish Grok unverified read-only intake
+
+**Date**: 2026-08-08
+**Task**: Publish Grok unverified read-only intake
+**Branch**: `codex/archive-grok-readonly-intake`
+
+### Summary
+
+Published accepted Grok receipt-state changes through CCG PR #33 and Harness PR #34, installed CLI 3.4.6 plus plugin 3.4.6+codex.3 without Provider calls, and preserved unrelated global Skill drift.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `034f411bf4262b8857717bdf05ed6cbce140ad04` | (see git log) |
+
+### Status
+
+[OK] **Completed**

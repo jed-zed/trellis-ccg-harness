@@ -358,7 +358,7 @@ export interface IntelligenceConfig {
 }
 ```
 
-Defaults: disabled/false for old or non-interactive installs; provider `grok-cli`, transport `acp`, local auth `browser_oauth`, `grok-4.5`, unavailable deep model disabled, 2 retries, 16 MiB bundle, 7-day local retention, 30-day exported retention, credential-home cleanup enabled, Web required, X preferred. `incident` elevates preferred to required; `landscape` remains preferred; `disabled` is never elevated. X-only evidence can never create a blocker.
+Defaults: disabled/false for old or non-interactive installs; provider `grok-cli`, transport `acp`, local auth `browser_oauth`, `grok-4.5`, unavailable deep model disabled, 2 retries, 16 MiB bundle, 7-day local retention, 30-day exported retention, credential-home cleanup enabled, Web required, X preferred. The configured X policy is not elevated by mode; preferred lets Grok decide whether X is useful. X-only evidence can never create a blocker.
 
 - [x] **Step 4: Add explicit init consent disclosure**
 
@@ -562,15 +562,15 @@ The runner validates config/consent, creates temp roots, snapshots, runs local d
 Exit contract:
 
 ```text
-0 = valid evidence or valid skip
-2 = required evidence unavailable/invalid
+0 = verified, received-unverified, or skipped
+2 = invocation failed before a usable terminal response
 3 = unsafe CLI context or policy violation
 4 = user consent/configuration missing
 ```
 
 - [x] **Step 6: Test with fake wrapper**
 
-Fake cases: success, retry-then-success, rate limit, timeout, cancellation, malformed JSON, missing search, invented URL, dirty snapshot, inspect pollution, raw cap and cleanup failure. Tests assert argv, exact env keys, call order and no surviving unredacted file.
+Fake cases: success, retry-then-success, rate limit, timeout, cancellation, malformed JSON, no-search response, invented URL, dirty snapshot, inspect pollution, raw cap and cleanup failure. Tests assert argv, exact env keys, call order and no surviving unredacted file.
 
 - [x] **Step 7: Green and commit**
 
@@ -625,7 +625,7 @@ Each successful/skipped/waived run writes exactly:
 }
 ```
 
-No model or implicit timeout may create a waiver. Required failures remain exit 2 until an explicit user-authored waiver is supplied.
+No model or implicit timeout may create a waiver. Invocation failures remain exit 2 until an explicit user-authored waiver is supplied. A received but unverified response is not a failure and needs no waiver.
 
 - [x] **Step 3: Define deep visibility fields**
 
@@ -772,7 +772,7 @@ Add provider/role requirements rather than a second Grok manifest parser. Status
 
 - [x] **Step 3: Enforce workflow order**
 
-Plan: external intelligence before Gemini/Codex planning evidence and manual GPT Pro session creation. Exc: preflight contract evidence before route review; verify evidence after implementation when external digest changes. Review: diff-bound verify before GPT Pro handoff. Required exit 2 stops bridge creation; explicit waiver is displayed prominently.
+Plan: external intelligence before Gemini/Codex planning evidence and manual GPT Pro session creation. Exc: preflight contract evidence before route review; collect diff-bound evidence after implementation when external digest changes. Review: collect diff-bound evidence before GPT Pro handoff. Invocation-failed exit 2 stops bridge creation; `received_unverified` remains usable and explicit waivers are displayed prominently when applicable.
 
 - [x] **Step 4: Green, parity and commit**
 
@@ -803,7 +803,7 @@ With `enabled=true && auto_route=true`:
 
 ```text
 dependency/API contract intake -> mode=contract, requirement=required
-current incident diagnosis      -> mode=incident, Web required, X policy-derived
+current incident diagnosis      -> mode=incident, Web advisory, X policy-derived
 final diff external verify      -> mode=verify, requirement inherited/re-evaluated
 ```
 
@@ -815,7 +815,7 @@ The test harness invokes `route.mjs` with fake runner and asserts argv, mode, re
 
 - [x] **Step 3: Test X policy**
 
-Incident elevates preferred to required; landscape preferred never fails solely because X is unavailable; disabled never invokes X; X-only claims remain warning/hypothesis.
+Incident preserves preferred X; Grok decides whether X is useful. Required and disabled remain explicit, and missing search evidence produces `received_unverified` instead of a failed invocation.
 
 - [x] **Step 4: Green and commit**
 
