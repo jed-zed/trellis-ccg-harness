@@ -1,0 +1,140 @@
+{
+  "schemaVersion": 1,
+  "milestone": "M3",
+  "verifiedAtUtc": "2026-08-08T14:12:57Z",
+  "status": "passed",
+  "harnessGitHead": "87a335b1b4bf9c9ea9ae7772795f30d13feedaac",
+  "sourceGitHead": "79b7f819f72048239c79a4048760d9b1fe9eb2a0",
+  "sourceGitTree": "7959e76ab97e1645c3d5687ad5f0e77d2f5e0b04",
+  "harnessTrackedDiffSha256": "16943e93cefb92f9f7297ff09d367fcfa6274a0b46fcda6d1122195e94269d69",
+  "harnessDiffScope": "Tracked worktree diff immediately before this attestation write; task-local evidence is independently snapshot-bound by the product-manager review.",
+  "checks": [
+    {
+      "name": "GPT Pro sidebar Pester suite after live fixes",
+      "status": "passed",
+      "testsPassed": 235,
+      "testsFailed": 0,
+      "testsSkipped": 0
+    },
+    {
+      "name": "Harness full suite",
+      "status": "passed",
+      "testsPassed": 452,
+      "testsSkipped": 3,
+      "testsFailed": 0,
+      "durationMilliseconds": 801280.4946
+    },
+    {
+      "name": "authoritative CCG full suite",
+      "status": "passed",
+      "testsPassed": 600,
+      "testsSkipped": 3,
+      "testsFailed": 0,
+      "lint": "passed",
+      "typecheck": "passed",
+      "build": "passed"
+    },
+    {
+      "name": "Harness CCG snapshot full suite",
+      "status": "passed",
+      "testsPassed": 600,
+      "testsSkipped": 3,
+      "testsFailed": 0,
+      "lint": "passed",
+      "typecheck": "passed",
+      "build": "passed"
+    },
+    {
+      "name": "CCG source-to-Harness snapshot parity",
+      "status": "passed",
+      "filesCompared": 13,
+      "byteIdentical": true
+    },
+    {
+      "name": "Harness conflicts",
+      "status": "passed",
+      "findingsPassed": 19,
+      "blocking": 0,
+      "warnings": 0
+    },
+    {
+      "name": "PowerShell syntax",
+      "status": "passed",
+      "filesParsed": 2,
+      "parseErrors": 0
+    },
+    {
+      "name": "durable-evidence negative regressions",
+      "status": "passed",
+      "facts": [
+        "Locked child stdout cannot promote nonterminal or send-uncertain durable evidence to completed.",
+        "An unproved send-uncertain slot remains isolated as ConcurrencySlotRecoveryRequired and is not released."
+      ]
+    },
+    {
+      "name": "independent post-live repair review",
+      "status": "passed",
+      "provider": "antigravity",
+      "model": "claude-opus-4-6-thinking",
+      "verdict": "No blocking findings.",
+      "evidence": ".ccg/tasks/08-07-gptpro-multi-window-cross-task/antigravity-m3-postlive-review.txt",
+      "evidenceSha256": "82900e4595186ef9fb6f48d14b68dfaf6517852f61a69358fac265f4c9502faf"
+    },
+    {
+      "name": "CCG change scanner",
+      "status": "passed_with_expected_heuristic_warning",
+      "note": "The scanner sees tests and durable Trellis/Skill documentation but expects a generic components/ccg-workflow/DESIGN.md; the authoritative task spec and Skill contracts are updated instead."
+    },
+    {
+      "name": "CCG quality scanner",
+      "status": "passed_with_existing_warnings",
+      "errors": 0,
+      "note": "Repository-wide existing file-size and complexity warnings remain; project lint, typecheck, tests, build, and diff checks pass."
+    },
+    {
+      "name": "CCG security scanner on changed security surfaces",
+      "status": "passed",
+      "critical": 0,
+      "high": 0,
+      "medium": 0,
+      "low": 0,
+      "note": "The whole-repository heuristic reports unrelated historical paths, so the delivery gate is scoped to the changed sidebar Skill, GPT Pro bridge, and Harness adapter; the earlier crafted status-path escape has a regression and remains fixed."
+    },
+    {
+      "name": "CCG module scanner",
+      "status": "not_applicable",
+      "note": "No new module was created."
+    },
+    {
+      "name": "doctor",
+      "status": "passed_with_path_warning",
+      "note": "All checks passed; the only warning is that the optional global pnpm bin directory is not in PATH. The pinned runtime pnpm command used by this Harness is available."
+    },
+    {
+      "name": "verify:sources",
+      "status": "passed",
+      "note": "The published CCG commit 79b7f819f72048239c79a4048760d9b1fe9eb2a0 and tree 7959e76ab97e1645c3d5687ad5f0e77d2f5e0b04 match the committed 13-file Harness snapshot."
+    },
+    {
+      "name": "live cross-task 3/6 E2E",
+      "status": "passed",
+      "evidence": "research/m3-live-current-task-evidence.json"
+    },
+    {
+      "name": "site throttling branch acceptance",
+      "status": "passed_on_unit_evidence_only",
+      "note": "No live throttle occurred and concurrency was not increased to manufacture one. Acceptance uses the M2 pre-click challenge/throttle terminal-failure test and post-click send-uncertain single-click/no-resend test; no live throttle claim is made."
+    },
+    {
+      "name": "Trellis Phase 3.3 spec-update judgment",
+      "status": "passed_updated",
+      "note": "The tooling spec now records UTC process-start JSON identity and locked-stdout durable terminal fallback plus negative tests; existing tabtree --full recovery language already covered the second live repair."
+    }
+  ],
+  "sourceSha256": {
+    "adapter": "fcbef6b9c31a27b02a65c1cbb4c87f512030d790f515deb7db4305063050380d",
+    "watcher": "baf2299246f0843f0220fcdf00f2f90e3f51bf5b37c1577d013cc39278bef65b",
+    "ccgBridge": "2d24f607b6ccd3d9b0de0937b98c7f7354dade73eb7a6358d618398e3ba9b7b2"
+  },
+  "remaining": []
+}

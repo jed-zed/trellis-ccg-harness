@@ -1314,6 +1314,203 @@ Describe 'Global durable idempotency' {
     }
 }
 
+Describe 'Per-target concurrency and thread ownership' {
+    BeforeEach {
+        $script:TargetClaimRootOverride = Join-Path $TestDrive 'target-claims'
+        $null = [System.IO.Directory]::CreateDirectory($script:TargetClaimRootOverride)
+        $script:threadA = '019fd9c5-9497-7301-a315-6e17d0704869'
+        $script:threadB = '019fa981-725e-7f02-93a7-bb1e1b7aefd3'
+        $script:bindingA = [ordered]@{
+            browserId = 'browser-1'; profileId = 'profile-1'; profileLabel = 'work'
+            tabId = '101'; sessionKey = 'browser-1:profile-1:101'
+            origin = 'https://chatgpt.com'; url = 'https://chatgpt.com/'
+        }
+        $script:bindingB = [ordered]@{
+            browserId = 'browser-1'; profileId = 'profile-1'; profileLabel = 'work'
+            tabId = '102'; sessionKey = 'browser-1:profile-1:102'
+            origin = 'https://chatgpt.com'; url = 'https://chatgpt.com/'
+        }
+    }
+
+    AfterEach {
+        $script:TargetClaimRootOverride = $null
+    }
+
+    It 'allows distinct complete targets to hold independent UI mutexes' {
+        (Get-AgentBrowserTargetMutexName -Binding $script:bindingA) |
+            Should -Not -Be (Get-AgentBrowserTargetMutexName -Binding $script:bindingB)
+        $first = Enter-UiMutex -TargetBinding $script:bindingA
+        $second = $null
+        try {
+            $second = Enter-UiMutex -TargetBinding $script:bindingB
+            $second.Acquired | Should -BeTrue
+        }
+        finally {
+            Exit-UiMutex -Lease $second
+            Exit-UiMutex -Lease $first
+        }
+    }
+
+    It 'serializes one stable conversation claim across different runtime tabs' {
+        $conversationUrl = 'https://chatgpt.com/c/12345678-1234-1234-1234-123456789abc'
+        $bindingA = [ordered]@{} + $script:bindingA
+        $bindingB = [ordered]@{} + $script:bindingB
+        $bindingA.url = $conversationUrl
+        $bindingB.url = $conversationUrl
+        $descriptorA = Get-AgentBrowserTargetClaimDescriptor -Binding $bindingA
+        $descriptorB = Get-AgentBrowserTargetClaimDescriptor -Binding $bindingB
+        $descriptorA.KeySha256 | Should -Be $descriptorB.KeySha256
+
+        $lockPath = Join-Path $script:TargetClaimRootOverride ($descriptorA.KeySha256 + '.json.lock')
+        $claimLock = [System.IO.FileStream]::new(
+            $lockPath,
+            [System.IO.FileMode]::OpenOrCreate,
+            [System.IO.FileAccess]::ReadWrite,
+            [System.IO.FileShare]::None
+        )
+        try {
+            Assert-ThrowsCategory -Category 'AgentBrowserTargetClaimBusy' -ExitCode 32 -Action {
+                Reserve-AgentBrowserTargetClaim `
+                    -CodexThreadIdValue $script:threadA `
+                    -EvidenceDirectory (Join-Path $TestDrive 'stable-claim') `
+                    -IdempotencyKeySha256Value ('f' * 64) `
+                    -Binding $bindingB
+            }
+        }
+        finally {
+            $claimLock.Dispose()
+        }
+    }
+
+    It 'rejects a second process operating the same complete target' {
+        $mutexName = Get-AgentBrowserTargetMutexName -Binding $script:bindingA
+        $readyPath = Join-Path $TestDrive 'same-target-ready'
+        $releasePath = Join-Path $TestDrive 'same-target-release'
+        $job = Start-Job -ArgumentList $mutexName, $readyPath, $releasePath -ScriptBlock {
+            param($Name, $ReadyPath, $ReleasePath)
+            $mutex = [System.Threading.Mutex]::new($false, $Name)
+            try {
+                $null = $mutex.WaitOne()
+                [System.IO.File]::WriteAllText($ReadyPath, 'ready')
+                while (-not [System.IO.File]::Exists($ReleasePath)) {
+                    Start-Sleep -Milliseconds 25
+                }
+                $mutex.ReleaseMutex()
+            }
+            finally {
+                $mutex.Dispose()
+            }
+        }
+        try {
+            $deadline = [DateTime]::UtcNow.AddSeconds(10)
+            while (-not [System.IO.File]::Exists($readyPath) -and [DateTime]::UtcNow -lt $deadline) {
+                Start-Sleep -Milliseconds 25
+            }
+            [System.IO.File]::Exists($readyPath) | Should -BeTrue
+            Assert-ThrowsCategory -Category 'ConcurrentUiOperation' -ExitCode 32 -Action {
+                Enter-UiMutex -TargetBinding $script:bindingA
+            }
+        }
+        finally {
+            [System.IO.File]::WriteAllText($releasePath, 'release')
+            $null = Wait-Job -Job $job -Timeout 10
+            Remove-Job -Job $job -Force
+        }
+    }
+
+    It 'denies an incomplete target any parallel mutex identity' {
+        $incomplete = [ordered]@{
+            browserId = 'browser-1'; profileId = 'profile-1'; profileLabel = 'work'
+            tabId = ''; sessionKey = 'browser-1:profile-1:101'
+            origin = 'https://chatgpt.com'; url = 'https://chatgpt.com/'
+        }
+        Assert-ThrowsCategory -Category 'AgentBrowserTargetBindingIncomplete' -ExitCode 31 -Action {
+            Get-AgentBrowserTargetMutexName -Binding $incomplete
+        }
+    }
+
+    It 'recovers the same target claim but rejects another thread before browser work' {
+        $directory = Join-Path $TestDrive 'thread-a-round-1'
+        $first = Reserve-AgentBrowserTargetClaim `
+            -CodexThreadIdValue $script:threadA `
+            -EvidenceDirectory $directory `
+            -IdempotencyKeySha256Value ('a' * 64) `
+            -Binding $script:bindingA
+        $first.Reused | Should -BeFalse
+        (Reserve-AgentBrowserTargetClaim `
+            -CodexThreadIdValue $script:threadA `
+            -EvidenceDirectory $directory `
+            -IdempotencyKeySha256Value ('a' * 64) `
+            -Binding $script:bindingA).Reused | Should -BeTrue
+
+        Assert-ThrowsCategory -Category 'AgentBrowserTargetClaimConflict' -ExitCode 32 -Action {
+            Reserve-AgentBrowserTargetClaim `
+                -CodexThreadIdValue $script:threadB `
+                -EvidenceDirectory (Join-Path $TestDrive 'thread-b-round-1') `
+                -IdempotencyKeySha256Value ('b' * 64) `
+                -Binding $script:bindingA
+        }
+    }
+
+    It 'allows the owning thread to reuse a target only after the previous round is terminal' {
+        $firstDirectory = Join-Path $TestDrive 'thread-a-round-old'
+        $secondDirectory = Join-Path $TestDrive 'thread-a-round-new'
+        $null = Reserve-AgentBrowserTargetClaim `
+            -CodexThreadIdValue $script:threadA `
+            -EvidenceDirectory $firstDirectory `
+            -IdempotencyKeySha256Value ('d' * 64) `
+            -Binding $script:bindingB
+
+        Assert-ThrowsCategory -Category 'AgentBrowserTargetClaimConflict' -ExitCode 32 -Action {
+            Reserve-AgentBrowserTargetClaim `
+                -CodexThreadIdValue $script:threadA `
+                -EvidenceDirectory $secondDirectory `
+                -IdempotencyKeySha256Value ('e' * 64) `
+                -Binding $script:bindingB
+        }
+
+        $null = [System.IO.Directory]::CreateDirectory($firstDirectory)
+        Write-EvidenceState -Directory $firstDirectory -State ([ordered]@{
+            schemaVersion = $Script:SchemaVersion
+            tool = $Script:ToolName
+            phase = 'completed'
+            invokeAttempted = $true
+        })
+        (Reserve-AgentBrowserTargetClaim `
+            -CodexThreadIdValue $script:threadA `
+            -EvidenceDirectory $secondDirectory `
+            -IdempotencyKeySha256Value ('e' * 64) `
+            -Binding $script:bindingB).Reused | Should -BeFalse
+    }
+
+    It 'rejects cross-thread wait before resolving or observing the bound target' {
+        $directory = Join-Path $TestDrive 'cross-thread-wait'
+        $null = [System.IO.Directory]::CreateDirectory($directory)
+        $state = New-SendIntentState `
+            -PromptSha256 ('c' * 64) `
+            -IdempotencyKeyValue 'cross-thread-wait' `
+            -BaselineHashes @() `
+            -ConversationUrlBeforeSend 'https://chatgpt.com/c/12345678-1234-1234-1234-123456789abc' `
+            -Transport $Script:AgentBrowserTransport `
+            -TargetBinding $script:bindingA `
+            -CodexThreadIdValue $script:threadA
+        Set-ObjectProperty -InputObject $state -Name 'phase' -Value 'sent'
+        Write-EvidenceState -Directory $directory -State $state
+        Mock Resolve-AgentBrowserTarget { throw 'browser must not be touched' }
+        Mock Invoke-PollUntilCompleted { throw 'observation must not start' }
+
+        Assert-ThrowsCategory -Category 'CodexThreadMismatch' -ExitCode 30 -Action {
+            Invoke-AgentBrowserWait `
+                -EvidenceDirectory $directory `
+                -TimeoutSecondsValue 5 `
+                -PollMillisecondsValue 250 `
+                -CodexThreadIdValue $script:threadB
+        }
+        Should -Invoke Resolve-AgentBrowserTarget -Times 0 -Exactly
+        Should -Invoke Invoke-PollUntilCompleted -Times 0 -Exactly
+    }
+}
+
 Describe 'Bounded waiting and stale UI recovery' {
     It 'does not busy-loop and times out with a categorized error' {
         $script:clock = [DateTime]'2026-07-28T00:00:00Z'
@@ -1860,11 +2057,15 @@ Describe 'agent-browser-cli V2 transport' {
             UrlExact = $false
         }
         $script:IdempotencyRootOverride = Join-Path $TestDrive 'v2-idempotency'
+        $script:TargetClaimRootOverride = Join-Path $TestDrive ('v2-target-claims-' + [guid]::NewGuid().ToString('N'))
         $null = [System.IO.Directory]::CreateDirectory($script:IdempotencyRootOverride)
+        $null = [System.IO.Directory]::CreateDirectory($script:TargetClaimRootOverride)
+        $script:v2ThreadId = '019fd9c5-9497-7301-a315-6e17d0704869'
     }
 
     AfterEach {
         $script:IdempotencyRootOverride = $null
+        $script:TargetClaimRootOverride = $null
     }
 
     It 'accepts exactly one successful CLI JSON document and rejects trailing JSON' {
@@ -1995,6 +2196,35 @@ Describe 'agent-browser-cli V2 transport' {
         $resolved.Url | Should -Be $truncatedUrl
     }
 
+    It 'uses the full profile tree when the tab-list URL is abbreviated with an ellipsis' {
+        $conversationUrl = 'https://chatgpt.com/c/12345678-1234-1234-1234-123456789abc'
+        Mock Invoke-AgentBrowserCliJson {
+            param($Arguments)
+            if ([string]$Arguments[0] -eq 'tabs') {
+                return [pscustomobject]@{ ok = $true; result = [pscustomobject]@{
+                    status = 'success'; metadata = [pscustomobject]@{ tabs = @([pscustomobject]@{
+                        browser_id = 'browser-1'; profile_id = 'profile-1'; profile_label = 'work'
+                        tab_id = '101'; session_key = 'browser-1:profile-1:101'; url = 'https://chatgpt.com/c/12345678...'
+                    }) }
+                } }
+            }
+            [pscustomobject]@{ ok = $true; result = [pscustomobject]@{
+                status = 'success'; browsers = @([pscustomobject]@{
+                    browser_id = 'browser-1'; profiles = @([pscustomobject]@{
+                        profile_id = 'profile-1'; profile_label = 'work'; tabs = @([pscustomobject]@{
+                            tab_id = '101'; session_key = 'browser-1:profile-1:101'; url = $conversationUrl
+                        })
+                    })
+                })
+            } }
+        }
+
+        $resolved = Resolve-AgentBrowserTarget -ExpectedBinding (ConvertTo-AgentBrowserTargetBinding -Target $script:v2Target)
+
+        $resolved.SessionKey | Should -Be 'browser-1:profile-1:101'
+        $resolved.Url | Should -Be $conversationUrl
+    }
+
     It 'reopens the exact URL through one persistent profile after the browser id changes' {
         $conversationUrl = 'https://chatgpt.com/c/12345678-1234-1234-1234-123456789abc'
         $currentBrowserId = 'browser-2'
@@ -2010,15 +2240,6 @@ Describe 'agent-browser-cli V2 transport' {
                         browser_id = $currentBrowserId; profile_id = 'profile-1'; profile_label = 'work'
                         tab_id = '201'; session_key = 'browser-2:profile-1:201'; url = 'https://example.com/'
                     })
-                    if ($null -ne $script:v2OpenArguments) {
-                        $script:v2PostOpenTabPolls++
-                    }
-                    if ($script:v2PostOpenTabPolls -ge 2) {
-                        $tabs += [pscustomobject]@{
-                            browser_id = $currentBrowserId; profile_id = 'profile-1'; profile_label = 'work'
-                            tab_id = $openedTabId; session_key = $openedSessionKey; url = $conversationUrl
-                        }
-                    }
                     return [pscustomobject]@{
                         ok = $true; result = [pscustomobject]@{
                             status = 'success'; metadata = [pscustomobject]@{ tabs = $tabs }
@@ -2026,13 +2247,20 @@ Describe 'agent-browser-cli V2 transport' {
                     }
                 }
                 'tabtree' {
+                    $treeTabs = @([pscustomobject]@{ tab_id = '201'; session_key = 'browser-2:profile-1:201'; url = 'https://example.com/' })
+                    if ($null -ne $script:v2OpenArguments) {
+                        $script:v2PostOpenTabPolls++
+                    }
+                    if ($script:v2PostOpenTabPolls -ge 2) {
+                        $treeTabs += [pscustomobject]@{ tab_id = $openedTabId; session_key = $openedSessionKey; url = $conversationUrl }
+                    }
                     return [pscustomobject]@{
                         ok = $true; result = [pscustomobject]@{
                             status = 'success'; browsers = @([pscustomobject]@{
                                 browser_id = $currentBrowserId
                                 profiles = @([pscustomobject]@{
                                     profile_id = 'profile-1'; profile_label = 'work'
-                                    tabs = @([pscustomobject]@{ tab_id = '201'; session_key = 'browser-2:profile-1:201'; url = 'https://example.com/' })
+                                    tabs = $treeTabs
                                 })
                             })
                         }
@@ -2143,7 +2371,7 @@ Describe 'agent-browser-cli V2 transport' {
         }
 
         Assert-ThrowsCategory -Category 'SendUncertain' -ExitCode 26 -Action {
-            Invoke-AgentBrowserSend -PromptText 'expected prompt' -EvidenceDirectory $directory -IdempotencyKeyValue 'v2-click-uncertain' -RequireFreshConversation
+            Invoke-AgentBrowserSend -PromptText 'expected prompt' -EvidenceDirectory $directory -IdempotencyKeyValue 'v2-click-uncertain' -CodexThreadIdValue $script:v2ThreadId -RequireFreshConversation -TargetBinding (ConvertTo-AgentBrowserTargetBinding -Target $script:v2Target)
         }
         $script:v2ClickCalls | Should -Be 1
         (Read-EvidenceState -Directory $directory).phase | Should -Be 'send-uncertain'
@@ -2199,7 +2427,7 @@ Describe 'agent-browser-cli V2 transport' {
         }
         Mock Start-Sleep {}
 
-        $result = Invoke-AgentBrowserSend -PromptText $prompt -EvidenceDirectory $directory -IdempotencyKeyValue 'v2-homepage-send' -RequireFreshConversation
+        $result = Invoke-AgentBrowserSend -PromptText $prompt -EvidenceDirectory $directory -IdempotencyKeyValue 'v2-homepage-send' -CodexThreadIdValue $script:v2ThreadId -RequireFreshConversation -TargetBinding (ConvertTo-AgentBrowserTargetBinding -Target $script:v2Target)
         $result.conversationUrl | Should -Be $conversationUrl
         $result.targetBinding.tabId | Should -Be '101'
         $result.targetBinding.sessionKey | Should -Be 'browser-1:profile-1:101'
@@ -2217,7 +2445,8 @@ Describe 'agent-browser-cli V2 transport' {
             -IdempotencyKeyValue 'v2-unbound-uncertain-recovery' `
             -BaselineHashes @() `
             -Transport $Script:AgentBrowserTransport `
-            -TargetBinding (ConvertTo-AgentBrowserTargetBinding -Target $script:v2Target)
+            -TargetBinding (ConvertTo-AgentBrowserTargetBinding -Target $script:v2Target) `
+            -CodexThreadIdValue $script:v2ThreadId
         Set-ObjectProperty -InputObject $state -Name 'phase' -Value 'send-uncertain'
         Set-ObjectProperty -InputObject $state -Name 'invokeAttempted' -Value $true
         Set-ObjectProperty -InputObject $state -Name 'invokeReturned' -Value $true
@@ -2242,7 +2471,12 @@ Describe 'agent-browser-cli V2 transport' {
         }
         Mock Start-Sleep {}
 
-        $result = Invoke-AgentBrowserWait -EvidenceDirectory $directory -TimeoutSecondsValue 5 -PollMillisecondsValue 250
+        $null = Reserve-AgentBrowserTargetClaim `
+            -CodexThreadIdValue $script:v2ThreadId `
+            -EvidenceDirectory $directory `
+            -IdempotencyKeySha256Value (Get-Sha256Text -Text 'v2-unbound-uncertain-recovery') `
+            -Binding (ConvertTo-AgentBrowserTargetBinding -Target $script:v2Target)
+        $result = Invoke-AgentBrowserWait -EvidenceDirectory $directory -TimeoutSecondsValue 5 -PollMillisecondsValue 250 -CodexThreadIdValue $script:v2ThreadId
         $persisted = Read-EvidenceState -Directory $directory
         $result.completed | Should -BeTrue
         $result.observationalRecovery | Should -BeTrue

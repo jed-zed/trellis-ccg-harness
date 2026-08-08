@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "milestone": "M3",
+  "purpose": "Task-local source re-attestation for the M3 product-manager review.",
+  "capturedFromGitHead": "87a335b1b4bf9c9ea9ae7772795f30d13feedaac",
+  "verifiedAtUtc": "2026-08-08T14:12:57Z",
+  "sources": [
+    {
+      "path": ".agents/skills/chatgpt-pro-sidebar/scripts/chatgpt-pro-sidebar.ps1",
+      "sha256": "fcbef6b9c31a27b02a65c1cbb4c87f512030d790f515deb7db4305063050380d",
+      "facts": [
+        {
+          "lines": "3334-3900",
+          "fact": "Send intent, exact Codex thread identity, immutable target binding, idempotency, and no-resend state are persisted before and after the live click boundary."
+        },
+        {
+          "lines": "4308-4622",
+          "fact": "Exact target resolution and background fresh-tab recovery use full profile tab data, require the complete browser/profile/tab/session identity, and never request focus."
+        }
+      ]
+    },
+    {
+      "path": ".agents/skills/chatgpt-pro-sidebar/scripts/chatgpt-pro-sidebar-watch.ps1",
+      "sha256": "baf2299246f0843f0220fcdf00f2f90e3f51bf5b37c1577d013cc39278bef65b",
+      "facts": [
+        {
+          "lines": "1787-2010",
+          "fact": "Capacity ownership survives atomic JSON round trips, enforces three slots per Codex task and six globally, and releases only with durable pre-click-unsent or terminal proof."
+        },
+        {
+          "lines": "2027-2419",
+          "fact": "Batch manifests are contained and identity-bound; run-batch-root queues before browser work, launches existing run-root children, uses durable terminal evidence, and emits atomic results without model polling."
+        }
+      ]
+    },
+    {
+      "path": "components/ccg-workflow/plugins/ccg/skills/ccg-gptpro-bridge/scripts/gptpro_bridge.py",
+      "sha256": "2d24f607b6ccd3d9b0de0937b98c7f7354dade73eb7a6358d618398e3ba9b7b2",
+      "facts": [
+        {
+          "lines": "1279-1871",
+          "fact": "Atomic session allocation and batch import preserve independent task/thread/session/round identities while validating terminal watcher evidence and acknowledgements."
+        },
+        {
+          "lines": "1874-1950,2236-2365",
+          "fact": "Session status paths are revalidated against the bound workdir, session, task, and canonical evidence roots before locked atomic evidence or response writes."
+        }
+      ]
+    }
+  ]
+}

@@ -15,6 +15,7 @@ param(
     [string]$TabId,
     [string]$SessionKey,
     [string]$ExpectedConversationUrl,
+    [string]$CodexThreadId = $env:CODEX_THREAD_ID,
     [switch]$FreshConversation,
 
     [int]$TimeoutSeconds = 600,
@@ -39,6 +40,7 @@ $Script:AgentBrowserScriptPath = Join-Path $PSScriptRoot 'chatgpt-pro-agent-brow
 $Script:AgentBrowserPromptCharacterLimit = 24000
 $Script:Utf8NoBom = [System.Text.UTF8Encoding]::new($false)
 $Script:IdempotencyRootOverride = $null
+$Script:TargetClaimRootOverride = $null
 $Script:TargetWindowRuntimeId = $WindowRuntimeId
 $Script:NoFocusRestore = [bool]$NoFocusRestore
 $Script:AllowComposerFocus = [bool]$AllowComposerFocus
@@ -544,8 +546,230 @@ function Reserve-GlobalIdempotencyKey {
     }
 }
 
+function Resolve-CodexThreadId {
+    param([AllowEmptyString()][string]$Value)
+
+    if (-not (Test-CodexDesktopThreadId -Value $Value)) {
+        Throw-SidebarError -ExitCode $Script:ExitCodes.InvalidArguments -Category 'CodexThreadIdInvalid' -Message 'CodexThreadId must be one exact UUID.'
+    }
+    return $Value.ToLowerInvariant()
+}
+
+function Assert-StateCodexThreadId {
+    param(
+        [Parameter(Mandatory = $true)]$State,
+        [Parameter(Mandatory = $true)][string]$ExpectedCodexThreadId
+    )
+
+    $expected = Resolve-CodexThreadId -Value $ExpectedCodexThreadId
+    $actual = [string](Get-ObjectProperty $State 'codexThreadId' '')
+    if (-not (Test-CodexDesktopThreadId -Value $actual) -or $actual.ToLowerInvariant() -cne $expected) {
+        Throw-SidebarError -ExitCode $Script:ExitCodes.Evidence -Category 'CodexThreadMismatch' -Message 'The evidence belongs to a different Codex task.'
+    }
+    return $expected
+}
+
+function Assert-AgentBrowserTargetBindingComplete {
+    param([Parameter(Mandatory = $true)]$Binding)
+
+    foreach ($name in @('browserId', 'profileId', 'tabId', 'sessionKey')) {
+        if (-not (Test-BoundedAgentBrowserIdentity -Value ([string](Get-ObjectProperty $Binding $name '')))) {
+            Throw-SidebarError -ExitCode $Script:ExitCodes.InvalidArguments -Category 'AgentBrowserTargetBindingIncomplete' -Message 'A complete browser/profile/tab/session target binding is required for parallel operation.'
+        }
+    }
+    if (-not (Test-BoundedAgentBrowserIdentity -Value ([string](Get-ObjectProperty $Binding 'profileLabel' '')) -AllowEmpty) -or
+        [string](Get-ObjectProperty $Binding 'origin' '') -cne 'https://chatgpt.com') {
+        Throw-SidebarError -ExitCode $Script:ExitCodes.InvalidArguments -Category 'AgentBrowserTargetBindingIncomplete' -Message 'The target binding has an invalid profile label or origin.'
+    }
+    $url = [string](Get-ObjectProperty $Binding 'url' '')
+    $canonical = ConvertTo-SanitizedChatGptUrl -Candidate $url
+    if ($null -eq $canonical -or -not $canonical.AllowedForChat -or $canonical.Url -cne $url) {
+        Throw-SidebarError -ExitCode $Script:ExitCodes.InvalidArguments -Category 'AgentBrowserTargetBindingIncomplete' -Message 'The target binding must contain one canonical allowed ChatGPT URL.'
+    }
+    return $Binding
+}
+
+function Get-AgentBrowserTargetMutexName {
+    param([Parameter(Mandatory = $true)]$Binding)
+
+    $null = Assert-AgentBrowserTargetBindingComplete -Binding $Binding
+    $identity = @(
+        [string](Get-ObjectProperty $Binding 'browserId' ''),
+        [string](Get-ObjectProperty $Binding 'profileId' ''),
+        [string](Get-ObjectProperty $Binding 'tabId' ''),
+        [string](Get-ObjectProperty $Binding 'sessionKey' '')
+    ) | ConvertTo-Json -Compress
+    return 'Local\ChatGptProSidebarV1-' + (Get-Sha256Text -Text $identity)
+}
+
+function Get-AgentBrowserTargetClaimRoot {
+    $override = [string]$Script:TargetClaimRootOverride
+    if (-not [string]::IsNullOrWhiteSpace($override)) {
+        return [System.IO.Path]::GetFullPath($override)
+    }
+    $localApplicationData = [Environment]::GetFolderPath([Environment+SpecialFolder]::LocalApplicationData)
+    if ([string]::IsNullOrWhiteSpace($localApplicationData)) {
+        Throw-SidebarError -ExitCode $Script:ExitCodes.Evidence -Category 'TargetClaimRootUnavailable' -Message 'The per-user local application data directory is unavailable.'
+    }
+    return Join-Path $localApplicationData 'ChatGptProSidebar\target-claims-v1'
+}
+
+function Get-AgentBrowserTargetClaimDescriptor {
+    param([Parameter(Mandatory = $true)]$Binding)
+
+    $null = Assert-AgentBrowserTargetBindingComplete -Binding $Binding
+    $url = [string](Get-ObjectProperty $Binding 'url' '')
+    $canonical = ConvertTo-SanitizedChatGptUrl -Candidate $url
+    if ($null -ne $canonical -and $canonical.Exact -and $canonical.Url -ceq $url) {
+        $scope = 'conversation'
+        $identity = @($scope, [string](Get-ObjectProperty $Binding 'profileId' ''), $url) | ConvertTo-Json -Compress
+    }
+    else {
+        $scope = 'tab'
+        $identity = @(
+            $scope,
+            [string](Get-ObjectProperty $Binding 'browserId' ''),
+            [string](Get-ObjectProperty $Binding 'profileId' ''),
+            [string](Get-ObjectProperty $Binding 'tabId' ''),
+            [string](Get-ObjectProperty $Binding 'sessionKey' '')
+        ) | ConvertTo-Json -Compress
+    }
+    return [pscustomobject]@{
+        Scope = $scope
+        KeySha256 = Get-Sha256Text -Text $identity
+    }
+}
+
+function Reserve-AgentBrowserTargetClaim {
+    param(
+        [Parameter(Mandatory = $true)][string]$CodexThreadIdValue,
+        [Parameter(Mandatory = $true)][string]$EvidenceDirectory,
+        [Parameter(Mandatory = $true)][string]$IdempotencyKeySha256Value,
+        [Parameter(Mandatory = $true)]$Binding
+    )
+
+    $claimLease = Enter-UiMutex -TargetBinding $Binding
+    try {
+    $threadId = Resolve-CodexThreadId -Value $CodexThreadIdValue
+    if ($IdempotencyKeySha256Value -notmatch '^[0-9a-f]{64}$') {
+        Throw-SidebarError -ExitCode $Script:ExitCodes.InvalidArguments -Category 'IdempotencyKeyHashInvalid' -Message 'The target claim requires one lowercase SHA-256 idempotency key hash.'
+    }
+    $directory = [System.IO.Path]::GetFullPath($EvidenceDirectory)
+    $descriptor = Get-AgentBrowserTargetClaimDescriptor -Binding $Binding
+    $root = Get-AgentBrowserTargetClaimRoot
+    try { $null = [System.IO.Directory]::CreateDirectory($root) }
+    catch { Throw-SidebarError -ExitCode $Script:ExitCodes.Evidence -Category 'TargetClaimRootCreateFailed' -Message 'The durable per-user target claim directory could not be created.' }
+    $path = Join-Path $root ($descriptor.KeySha256 + '.json')
+    $claimLock = $null
+    try {
+        $claimLock = [System.IO.FileStream]::new(
+            ($path + '.lock'),
+            [System.IO.FileMode]::OpenOrCreate,
+            [System.IO.FileAccess]::ReadWrite,
+            [System.IO.FileShare]::None
+        )
+    }
+    catch [System.IO.IOException] {
+        Throw-SidebarError -ExitCode $Script:ExitCodes.ConcurrentOperation -Category 'AgentBrowserTargetClaimBusy' -Message 'Another process is updating this ChatGPT target claim.' -Details ([ordered]@{ targetClaimKeySha256 = $descriptor.KeySha256 })
+    }
+    try {
+    $record = [ordered]@{
+        schemaVersion = $Script:SchemaVersion
+        tool = $Script:ToolName
+        targetClaimKeySha256 = $descriptor.KeySha256
+        scope = $descriptor.Scope
+        codexThreadId = $threadId
+        evidenceDirectory = $directory
+        idempotencyKeySha256 = $IdempotencyKeySha256Value
+        targetBinding = $Binding
+        claimedAtUtc = [DateTime]::UtcNow.ToString('o')
+        automaticResendAllowed = $false
+    }
+    $bytes = $Script:Utf8NoBom.GetBytes((($record | ConvertTo-Json -Depth 10) + [Environment]::NewLine))
+    $stream = $null
+    try {
+        try {
+            $stream = [System.IO.FileStream]::new($path, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
+            $stream.Write($bytes, 0, $bytes.Length)
+            $stream.Flush($true)
+            return [pscustomobject]@{ KeySha256 = $descriptor.KeySha256; Scope = $descriptor.Scope; Reused = $false }
+        }
+        catch [System.IO.IOException] {
+            if (-not [System.IO.File]::Exists($path)) { throw }
+        }
+    }
+    finally {
+        if ($null -ne $stream) { $stream.Dispose() }
+    }
+
+    try { $existing = [System.IO.File]::ReadAllText($path, $Script:Utf8NoBom) | ConvertFrom-Json }
+    catch { Throw-SidebarError -ExitCode $Script:ExitCodes.Evidence -Category 'TargetClaimInvalid' -Message 'The existing target claim is unreadable or invalid JSON.' }
+    if ([string](Get-ObjectProperty $existing 'targetClaimKeySha256' '') -cne $descriptor.KeySha256 -or
+        [string](Get-ObjectProperty $existing 'codexThreadId' '') -cne $threadId) {
+        Throw-SidebarError -ExitCode $Script:ExitCodes.ConcurrentOperation -Category 'AgentBrowserTargetClaimConflict' -Message 'This ChatGPT target is already claimed by another task or round.' -Details ([ordered]@{ targetClaimKeySha256 = $descriptor.KeySha256 })
+    }
+    if ([string](Get-ObjectProperty $existing 'evidenceDirectory' '') -ceq $directory -and
+        [string](Get-ObjectProperty $existing 'idempotencyKeySha256' '') -ceq $IdempotencyKeySha256Value) {
+        return [pscustomobject]@{ KeySha256 = $descriptor.KeySha256; Scope = $descriptor.Scope; Reused = $true }
+    }
+
+    $previousDirectory = [string](Get-ObjectProperty $existing 'evidenceDirectory' '')
+    $previousStatePath = if ([string]::IsNullOrWhiteSpace($previousDirectory)) { '' } else { Join-Path $previousDirectory 'state.json' }
+    try {
+        $previousState = if ([string]::IsNullOrWhiteSpace($previousStatePath) -or -not [System.IO.File]::Exists($previousStatePath)) {
+            $null
+        }
+        else {
+            [System.IO.File]::ReadAllText($previousStatePath, $Script:Utf8NoBom) | ConvertFrom-Json
+        }
+    }
+    catch { $previousState = $null }
+    $previousPhase = [string](Get-ObjectProperty $previousState 'phase' '')
+    $previousSafe = $previousPhase -eq 'completed' -or
+        ($previousPhase -eq 'pre-invoke-failed' -and -not [bool](Get-ObjectProperty $previousState 'invokeAttempted' $true))
+    if (-not $previousSafe) {
+        Throw-SidebarError -ExitCode $Script:ExitCodes.ConcurrentOperation -Category 'AgentBrowserTargetClaimConflict' -Message 'This ChatGPT target still belongs to a non-terminal round.' -Details ([ordered]@{ targetClaimKeySha256 = $descriptor.KeySha256; phase = $previousPhase })
+    }
+    Write-JsonAtomic -Path $path -Value $record
+    return [pscustomobject]@{ KeySha256 = $descriptor.KeySha256; Scope = $descriptor.Scope; Reused = $false }
+    }
+    finally {
+        if ($null -ne $claimLock) { $claimLock.Dispose() }
+    }
+    }
+    finally {
+        Exit-UiMutex -Lease $claimLease
+    }
+}
+
+function Assert-AgentBrowserTargetClaimOwnership {
+    param(
+        [Parameter(Mandatory = $true)][string]$CodexThreadIdValue,
+        [Parameter(Mandatory = $true)]$Binding,
+        [AllowEmptyString()][string]$EvidenceDirectory = ''
+    )
+
+    $threadId = Resolve-CodexThreadId -Value $CodexThreadIdValue
+    $descriptor = Get-AgentBrowserTargetClaimDescriptor -Binding $Binding
+    $path = Join-Path (Get-AgentBrowserTargetClaimRoot) ($descriptor.KeySha256 + '.json')
+    if (-not [System.IO.File]::Exists($path)) {
+        Throw-SidebarError -ExitCode $Script:ExitCodes.ConcurrentOperation -Category 'AgentBrowserTargetClaimMissing' -Message 'The bound ChatGPT target has no durable ownership claim.'
+    }
+    try { $record = [System.IO.File]::ReadAllText($path, $Script:Utf8NoBom) | ConvertFrom-Json }
+    catch { Throw-SidebarError -ExitCode $Script:ExitCodes.Evidence -Category 'TargetClaimInvalid' -Message 'The target claim is unreadable or invalid JSON.' }
+    $expectedDirectory = if ([string]::IsNullOrWhiteSpace($EvidenceDirectory)) { '' } else { [System.IO.Path]::GetFullPath($EvidenceDirectory) }
+    if ([string](Get-ObjectProperty $record 'codexThreadId' '') -cne $threadId -or
+        (-not [string]::IsNullOrWhiteSpace($expectedDirectory) -and [string](Get-ObjectProperty $record 'evidenceDirectory' '') -cne $expectedDirectory)) {
+        Throw-SidebarError -ExitCode $Script:ExitCodes.ConcurrentOperation -Category 'AgentBrowserTargetClaimConflict' -Message 'The bound ChatGPT target belongs to another task or round.'
+    }
+    return $record
+}
+
 function Enter-UiMutex {
-    $mutex = [System.Threading.Mutex]::new($false, 'Local\ChatGptProSidebarV1')
+    param([Parameter(Mandatory = $true)]$TargetBinding)
+
+    $mutexName = Get-AgentBrowserTargetMutexName -Binding $TargetBinding
+    $mutex = [System.Threading.Mutex]::new($false, $mutexName)
     $acquired = $false
     try {
         try {
@@ -556,12 +780,13 @@ function Enter-UiMutex {
         }
 
         if (-not $acquired) {
-            Throw-SidebarError -ExitCode $Script:ExitCodes.ConcurrentOperation -Category 'ConcurrentUiOperation' -Message 'Another chatgpt-pro-sidebar process is operating the Codex side panel.'
+            Throw-SidebarError -ExitCode $Script:ExitCodes.ConcurrentOperation -Category 'ConcurrentUiOperation' -Message 'Another chatgpt-pro-sidebar process is operating this exact ChatGPT target.'
         }
 
         return [pscustomobject]@{
             Mutex = $mutex
             Acquired = $true
+            Name = $mutexName
         }
     }
     catch {
@@ -3116,7 +3341,9 @@ function New-SendIntentState {
         [AllowEmptyString()][string]$GlobalReservationAtUtc = '',
         [AllowEmptyString()][string]$WindowRuntimeIdValue = '',
         [ValidateSet('windows-uia', 'agent-browser-cli-v2')][string]$Transport = 'windows-uia',
-        $TargetBinding = $null
+        $TargetBinding = $null,
+        [AllowEmptyString()][string]$CodexThreadIdValue = '',
+        [AllowEmptyString()][string]$TargetClaimKeySha256 = ''
     )
 
     $intentAtUtc = [DateTime]::UtcNow.ToString('o')
@@ -3148,8 +3375,12 @@ function New-SendIntentState {
         clipboardUsed = $false
     }
     if ($Transport -eq $Script:AgentBrowserTransport) {
+        $threadId = Resolve-CodexThreadId -Value $CodexThreadIdValue
+        $null = Assert-AgentBrowserTargetBindingComplete -Binding $TargetBinding
         $null = $state.Remove('windowRuntimeId')
+        $state['codexThreadId'] = $threadId
         $state['targetBinding'] = $TargetBinding
+        $state['targetClaimKeySha256'] = $TargetClaimKeySha256
         $state['extractorVersion'] = $Script:AgentBrowserExtractorVersion
     }
     return $state
@@ -3429,10 +3660,14 @@ function Complete-Evidence {
         [Parameter(Mandatory = $true)]$Response,
         [Parameter(Mandatory = $true)][string]$ConversationUrl,
         [Parameter(Mandatory = $true)][int]$TransientObservationCount,
-        [int]$StablePollCount = 0
+        [int]$StablePollCount = 0,
+        [AllowEmptyString()][string]$CodexThreadIdValue = ''
     )
 
     $phaseBeforeCompletion = [string](Get-ObjectProperty $State 'phase' '')
+    if (-not [string]::IsNullOrWhiteSpace($CodexThreadIdValue)) {
+        $null = Assert-StateCodexThreadId -State $State -ExpectedCodexThreadId $CodexThreadIdValue
+    }
     $canonicalUrl = ConvertTo-SanitizedChatGptUrl -Candidate $ConversationUrl
     if ($null -eq $canonicalUrl -or -not $canonicalUrl.Exact -or $canonicalUrl.Url -ne $ConversationUrl) {
         Throw-SidebarError -ExitCode $Script:ExitCodes.UrlCapture -Category 'ConversationUrlInvalid' -Message 'Completion requires one canonical exact ChatGPT conversation URL.'
@@ -3499,6 +3734,8 @@ function Complete-Evidence {
         tool = $Script:ToolName
         transport = $transport
         live = $true
+        codexThreadId = [string](Get-ObjectProperty $State 'codexThreadId' '')
+        targetClaimKeySha256 = [string](Get-ObjectProperty $State 'targetClaimKeySha256' '')
         idempotencyKey = [string](Get-ObjectProperty $State 'idempotencyKey' '')
         idempotencyKeySha256 = [string](Get-ObjectProperty $State 'idempotencyKeySha256' '')
         globalReservationAtUtc = [string](Get-ObjectProperty $State 'globalReservationAtUtc' '')
@@ -3684,11 +3921,21 @@ function Invoke-LiveWait {
 }
 
 function Get-CompletedResponseResult {
-    param([Parameter(Mandatory = $true)][string]$EvidenceDirectory)
+    param(
+        [Parameter(Mandatory = $true)][string]$EvidenceDirectory,
+        [AllowEmptyString()][string]$CodexThreadIdValue = ''
+    )
 
     $state = Read-EvidenceState -Directory $EvidenceDirectory
     if ($null -eq $state -or [string](Get-ObjectProperty $state 'phase' '') -ne 'completed') {
         Throw-SidebarError -ExitCode $Script:ExitCodes.ResponseIsolation -Category 'ResponseNotCompleted' -Message 'Run wait successfully before response.'
+    }
+    if (-not [string]::IsNullOrWhiteSpace($CodexThreadIdValue)) {
+        $null = Assert-StateCodexThreadId -State $state -ExpectedCodexThreadId $CodexThreadIdValue
+        $null = Assert-AgentBrowserTargetClaimOwnership `
+            -CodexThreadIdValue $CodexThreadIdValue `
+            -Binding (Get-ObjectProperty $state 'targetBinding' $null) `
+            -EvidenceDirectory $EvidenceDirectory
     }
 
     if ([string](Get-ObjectProperty $state 'promptFile' '') -ne 'prompt.md' -or
@@ -3746,6 +3993,13 @@ function Get-CompletedResponseResult {
     $evidencePrompt = Get-ObjectProperty $evidence 'prompt' $null
     $evidenceResponse = Get-ObjectProperty $evidence 'response' $null
     $evidenceConversation = Get-ObjectProperty $evidence 'conversation' $null
+    $stateThreadId = [string](Get-ObjectProperty $state 'codexThreadId' '')
+    $stateTargetClaimKey = [string](Get-ObjectProperty $state 'targetClaimKeySha256' '')
+    if ([string](Get-ObjectProperty $evidence 'transport' '') -eq $Script:AgentBrowserTransport -and
+        ([string](Get-ObjectProperty $evidence 'codexThreadId' '') -cne $stateThreadId -or
+        [string](Get-ObjectProperty $evidence 'targetClaimKeySha256' '') -cne $stateTargetClaimKey)) {
+        Throw-SidebarError -ExitCode $Script:ExitCodes.Evidence -Category 'CodexThreadMismatch' -Message 'evidence.json does not match the Codex task and target claim bound in state.json.'
+    }
     $recordedEvidenceResponseBytes = Get-ObjectProperty $evidenceResponse 'bytes' $null
     $boundConversationUrl = Get-BoundConversationUrlFromState -State $state
     if ([string](Get-ObjectProperty $evidencePrompt 'sha256' '') -ne $promptSha -or
@@ -3769,6 +4023,8 @@ function Get-CompletedResponseResult {
         responseBytes = $responseBytes
         evidenceSha256 = $evidenceSha
         conversationUrl = $conversationUrl
+        codexThreadId = $stateThreadId
+        targetClaimKeySha256 = $stateTargetClaimKey
         idempotencyKey = [string](Get-ObjectProperty $state 'idempotencyKey' '')
         submissionAcknowledged = [bool](Get-ObjectProperty $state 'submissionAcknowledged' $false)
         observationalRecovery = ([string](Get-ObjectProperty $state 'phaseBeforeCompletion' 'sent') -ne 'sent')
@@ -4060,6 +4316,17 @@ function Resolve-AgentBrowserTarget {
     $targets = @(ConvertTo-AgentBrowserTabRecords -Envelope $tabsEnvelope)
     if ($null -ne $ExpectedBinding) {
         $matches = @($targets | Where-Object { Test-AgentBrowserTargetMatchesBinding -Target $_ -Binding $ExpectedBinding })
+        if ($matches.Count -eq 0) {
+            # agent-browser-cli may abbreviate long conversation URLs in `tabs`.
+            # The full profile tree preserves the immutable tab identity and URL.
+            $expectedProfileId = [string](Get-ObjectProperty $ExpectedBinding 'profileId' '')
+            $profileTree = ConvertFrom-AgentBrowserProfileTree `
+                -Envelope (Invoke-AgentBrowserCliJson -Arguments @('tabtree', '--full', '--profile', $expectedProfileId)) `
+                -ProfileId $expectedProfileId
+            $matches = @($profileTree.ChatGptTargets | Where-Object {
+                Test-AgentBrowserTargetMatchesBinding -Target $_ -Binding $ExpectedBinding
+            })
+        }
         if ($matches.Count -gt 1) {
             Throw-SidebarError -ExitCode $Script:ExitCodes.WindowSelection -Category 'AgentBrowserTargetAmbiguous' -Message 'The exact browser target identity matched more than one tab.'
         }
@@ -4108,7 +4375,10 @@ function Resolve-AgentBrowserTarget {
         $refreshed = @()
         $reopenDeadline = [DateTime]::UtcNow.AddSeconds(10)
         while ([DateTime]::UtcNow -lt $reopenDeadline) {
-            $refreshed = @(ConvertTo-AgentBrowserTabRecords -Envelope (Invoke-AgentBrowserCliJson -Arguments @('tabs')) | Where-Object {
+            $refreshedTree = ConvertFrom-AgentBrowserProfileTree `
+                -Envelope (Invoke-AgentBrowserCliJson -Arguments @('tabtree', '--full', '--profile', $expectedProfileId)) `
+                -ProfileId $expectedProfileId
+            $refreshed = @($refreshedTree.ChatGptTargets | Where-Object {
                 $_.BrowserId -ceq $currentBrowserId -and
                 $_.ProfileId -ceq $expectedProfileId -and
                 ([string]::IsNullOrWhiteSpace($openedTabId) -or $_.TabId -ceq $openedTabId) -and
@@ -4140,6 +4410,31 @@ function Resolve-AgentBrowserTarget {
         Throw-SidebarError -ExitCode $Script:ExitCodes.WindowSelection -Category 'AgentBrowserTargetAmbiguous' -Message 'More than one connected external Chrome tab matches ChatGPT; pass an exact browser/profile/tab/session binding.' -Details ([ordered]@{ candidateCount = $matches.Count })
     }
     return $matches[0]
+}
+
+function Resolve-AgentBrowserCommandTarget {
+    param([AllowEmptyString()][string]$ExpectedConversationUrlValue = '')
+
+    $provided = @(@($BrowserId, $Profile, $TabId, $SessionKey) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }).Count
+    if ($provided -ne 0 -and $provided -ne 4) {
+        Throw-SidebarError -ExitCode $Script:ExitCodes.InvalidArguments -Category 'AgentBrowserTargetBindingIncomplete' -Message 'Browser, profile, tab, and session must be supplied together.'
+    }
+    if ($provided -eq 0) {
+        return Resolve-AgentBrowserTarget
+    }
+    $expectedBinding = [ordered]@{
+        browserId = $BrowserId
+        profileId = $Profile
+        profileLabel = ''
+        tabId = $TabId
+        sessionKey = $SessionKey
+        origin = 'https://chatgpt.com'
+        url = if ([string]::IsNullOrWhiteSpace($ExpectedConversationUrlValue)) { 'https://chatgpt.com/' } else { $ExpectedConversationUrlValue }
+    }
+    return Resolve-AgentBrowserTarget `
+        -ExpectedBinding $expectedBinding `
+        -ExpectedConversationUrl $ExpectedConversationUrlValue `
+        -AllowExactUrlReopen:(-not [string]::IsNullOrWhiteSpace($ExpectedConversationUrlValue))
 }
 
 function Assert-AgentBrowserCommandResultBinding {
@@ -4367,11 +4662,14 @@ function Invoke-AgentBrowserSend {
         [Parameter(Mandatory = $true)][string]$PromptText,
         [Parameter(Mandatory = $true)][string]$EvidenceDirectory,
         [Parameter(Mandatory = $true)][string]$IdempotencyKeyValue,
+        [Parameter(Mandatory = $true)][string]$CodexThreadIdValue,
         [switch]$RequireFreshConversation,
         [switch]$RequireExistingConversation,
-        $TargetBinding = $null
+        [Parameter(Mandatory = $true)]$TargetBinding
     )
 
+    $threadId = Resolve-CodexThreadId -Value $CodexThreadIdValue
+    $null = Assert-AgentBrowserTargetBindingComplete -Binding $TargetBinding
     if ($PromptText.Length -gt $Script:AgentBrowserPromptCharacterLimit) {
         Throw-SidebarError -ExitCode $Script:ExitCodes.InvalidArguments -Category 'PromptTransportLimitExceeded' -Message 'The prompt exceeds the bounded Windows argument limit for parameterized agent-browser-cli fill.' -Details ([ordered]@{ maximumCharacters = $Script:AgentBrowserPromptCharacterLimit; characters = $PromptText.Length })
     }
@@ -4379,19 +4677,24 @@ function Invoke-AgentBrowserSend {
     Assert-IdempotencyAvailable -ExistingState $existingState -IdempotencyKey $IdempotencyKeyValue
     Assert-EvidenceDirectoryPristine -Directory $EvidenceDirectory
     $null = Assert-GlobalIdempotencyKeyAvailable -IdempotencyKeyValue $IdempotencyKeyValue
-
-    $target = if ($null -eq $TargetBinding) {
-        Resolve-AgentBrowserTarget
-    }
-    else {
-        Resolve-AgentBrowserTarget -ExpectedBinding $TargetBinding
-    }
+    $idempotencyKeySha256 = Get-Sha256Text -Text $IdempotencyKeyValue
+    $uiLease = Enter-UiMutex -TargetBinding $TargetBinding
+    try {
+    $target = Resolve-AgentBrowserTarget -ExpectedBinding $TargetBinding
     $snapshot = Get-AgentBrowserPageSnapshot -Target $target
     Assert-AgentBrowserPageReady -Snapshot $snapshot
     Assert-ChatGptUrlState -UrlState ([pscustomobject]@{ Url = $snapshot.Url; Exact = $snapshot.UrlExact }) -RequireFreshConversation:$RequireFreshConversation -RequireExistingConversation:$RequireExistingConversation
     if (-not (Test-ComposerValueEmpty -Value $snapshot.ComposerValue)) {
         Throw-SidebarError -ExitCode $Script:ExitCodes.ControlSelection -Category 'ComposerNotEmpty' -Message 'The ChatGPT composer already contains user text; it will not be overwritten.'
     }
+    # The tab listing may abbreviate a long URL. Claim the conversation only
+    # after the fixed DOM probe has proved its exact canonical URL.
+    $TargetBinding = ConvertTo-AgentBrowserTargetBinding -Target $target
+    $targetClaim = Reserve-AgentBrowserTargetClaim `
+        -CodexThreadIdValue $threadId `
+        -EvidenceDirectory $EvidenceDirectory `
+        -IdempotencyKeySha256Value $idempotencyKeySha256 `
+        -Binding $TargetBinding
 
     $baselineResponses = @($snapshot.Responses)
     $baselineHashes = @($baselineResponses | ForEach-Object { $_.ContentSha256 })
@@ -4434,7 +4737,9 @@ function Invoke-AgentBrowserSend {
             -IdempotencyKeySha256 $globalReservation.KeySha256 `
             -GlobalReservationAtUtc $globalReservation.ReservedAtUtc `
             -Transport $Script:AgentBrowserTransport `
-            -TargetBinding (ConvertTo-AgentBrowserTargetBinding -Target $target)
+            -TargetBinding (ConvertTo-AgentBrowserTargetBinding -Target $target) `
+            -CodexThreadIdValue $threadId `
+            -TargetClaimKeySha256 $targetClaim.KeySha256
         Set-ObjectProperty -InputObject $failedState -Name 'phase' -Value 'pre-invoke-failed'
         Set-ObjectProperty -InputObject $failedState -Name 'invokeAttempted' -Value $false
         Set-ObjectProperty -InputObject $failedState -Name 'preInvokeFailureCategory' -Value (Get-ExceptionCategory -Exception $_.Exception)
@@ -4452,7 +4757,9 @@ function Invoke-AgentBrowserSend {
         -IdempotencyKeySha256 $globalReservation.KeySha256 `
         -GlobalReservationAtUtc $globalReservation.ReservedAtUtc `
         -Transport $Script:AgentBrowserTransport `
-        -TargetBinding (ConvertTo-AgentBrowserTargetBinding -Target $target)
+        -TargetBinding (ConvertTo-AgentBrowserTargetBinding -Target $target) `
+        -CodexThreadIdValue $threadId `
+        -TargetClaimKeySha256 $targetClaim.KeySha256
     Set-ObjectProperty -InputObject $state -Name 'baselineUserTurnSha256' -Value $baselineUserHashes
     Write-EvidenceState -Directory $EvidenceDirectory -State $state
 
@@ -4543,7 +4850,23 @@ function Invoke-AgentBrowserSend {
         Throw-SidebarError -ExitCode $Script:ExitCodes.SendUncertain -Category 'SendAcknowledgementMissing' -Message 'The one click was not acknowledged by a matching new user turn. Automatic resend is prohibited.'
     }
 
-    Set-ObjectProperty -InputObject $state -Name 'targetBinding' -Value (ConvertTo-AgentBrowserTargetBinding -Target $ackTarget)
+    $finalBinding = ConvertTo-AgentBrowserTargetBinding -Target $ackTarget
+    try {
+        $finalClaim = Reserve-AgentBrowserTargetClaim `
+            -CodexThreadIdValue $threadId `
+            -EvidenceDirectory $EvidenceDirectory `
+            -IdempotencyKeySha256Value $idempotencyKeySha256 `
+            -Binding $finalBinding
+    }
+    catch {
+        if (-not [string]::IsNullOrWhiteSpace($boundConversationUrl)) {
+            Set-ObjectProperty -InputObject $state -Name 'conversationUrlBound' -Value $boundConversationUrl
+        }
+        Set-SendUncertainState -EvidenceDirectory $EvidenceDirectory -State $state -Reason 'post-click-target-claim-conflict' -InvokeReturned:$true
+        Throw-SidebarError -ExitCode $Script:ExitCodes.SendUncertain -Category 'SendUncertain' -Message 'The prompt was sent once, but the canonical conversation ownership claim could not be established. Automatic resend is prohibited.' -Details ([ordered]@{ observationCategory = Get-ExceptionCategory -Exception $_.Exception })
+    }
+    Set-ObjectProperty -InputObject $state -Name 'targetBinding' -Value $finalBinding
+    Set-ObjectProperty -InputObject $state -Name 'targetClaimKeySha256' -Value $finalClaim.KeySha256
     if ([string]::IsNullOrWhiteSpace($boundConversationUrl)) {
         Set-ObjectProperty -InputObject $state -Name 'conversationUrlBindingPending' -Value $true
     }
@@ -4565,15 +4888,21 @@ function Invoke-AgentBrowserSend {
         submittedExactlyOnce = $true
         sendActionInvokedOnce = $true
         submissionAcknowledged = $true
+        codexThreadId = $threadId
         idempotencyKey = $IdempotencyKeyValue
         promptSha256 = $promptSha
         baselineResponseCount = $baselineHashes.Count
         targetBinding = Get-ObjectProperty $state 'targetBinding' $null
+        targetClaimKeySha256 = [string](Get-ObjectProperty $state 'targetClaimKeySha256' '')
         conversationUrl = $boundConversationUrl
         conversationUrlExact = -not [string]::IsNullOrWhiteSpace($boundConversationUrl)
         conversationUrlBindingPending = [bool](Get-ObjectProperty $state 'conversationUrlBindingPending' $false)
         clipboardUsed = $false
         focusRequested = $false
+    }
+    }
+    finally {
+        Exit-UiMutex -Lease $uiLease
     }
 }
 
@@ -4583,7 +4912,9 @@ function Get-AgentBrowserWaitObservation {
         [AllowEmptyString()][string]$ExpectedConversationUrl = ''
     )
 
+    $uiLease = $null
     try {
+        $uiLease = Enter-UiMutex -TargetBinding $Binding
         $target = Resolve-AgentBrowserTarget -ExpectedBinding $Binding -ExpectedConversationUrl $ExpectedConversationUrl -AllowExactUrlReopen:([bool]$ExpectedConversationUrl)
         $snapshot = Get-AgentBrowserPageSnapshot -Target $target
         Assert-AuthReadySnapshot -Snapshot $snapshot
@@ -4605,24 +4936,29 @@ function Get-AgentBrowserWaitObservation {
         }
         throw
     }
+    finally {
+        Exit-UiMutex -Lease $uiLease
+    }
 }
 
 function Invoke-AgentBrowserWait {
     param(
         [Parameter(Mandatory = $true)][string]$EvidenceDirectory,
         [Parameter(Mandatory = $true)][int]$TimeoutSecondsValue,
-        [Parameter(Mandatory = $true)][int]$PollMillisecondsValue
+        [Parameter(Mandatory = $true)][int]$PollMillisecondsValue,
+        [Parameter(Mandatory = $true)][string]$CodexThreadIdValue
     )
 
     $state = Read-EvidenceState -Directory $EvidenceDirectory
     if ($null -eq $state) {
         Throw-SidebarError -ExitCode $Script:ExitCodes.Evidence -Category 'EvidenceStateMissing' -Message 'send must create state.json before wait.'
     }
+    $threadId = Assert-StateCodexThreadId -State $state -ExpectedCodexThreadId $CodexThreadIdValue
     $phase = [string](Get-ObjectProperty $state 'phase' '')
     if ($phase -eq 'completed') {
-        $completedResponse = Get-CompletedResponseResult -EvidenceDirectory $EvidenceDirectory
+        $completedResponse = Get-CompletedResponseResult -EvidenceDirectory $EvidenceDirectory -CodexThreadIdValue $threadId
         return [ordered]@{
-            ok = $true; command = 'wait'; live = $true; completed = $true; reusedCompletedEvidence = $true
+            ok = $true; command = 'wait'; live = $true; completed = $true; reusedCompletedEvidence = $true; codexThreadId = $threadId
             responseSha256 = $completedResponse.responseSha256; responseBytes = $completedResponse.responseBytes
             conversationUrl = $completedResponse.conversationUrl; submissionAcknowledged = $completedResponse.submissionAcknowledged
             observationalRecovery = $completedResponse.observationalRecovery
@@ -4638,6 +4974,7 @@ function Invoke-AgentBrowserWait {
     if ($null -eq $binding) {
         Throw-SidebarError -ExitCode $Script:ExitCodes.WindowSelection -Category 'AgentBrowserTargetBindingMissing' -Message 'Incomplete evidence has no immutable browser target binding.'
     }
+    $null = Assert-AgentBrowserTargetClaimOwnership -CodexThreadIdValue $threadId -Binding $binding -EvidenceDirectory $EvidenceDirectory
     $boundConversationUrl = ''
     try {
         $boundConversationUrl = Get-BoundConversationUrlFromState -State $state
@@ -4708,13 +5045,14 @@ function Invoke-AgentBrowserWait {
     Set-ObjectProperty -InputObject $state -Name 'targetBinding' -Value (ConvertTo-AgentBrowserTargetBinding -Target $latestTarget)
     Write-EvidenceState -Directory $EvidenceDirectory -State $state
 
-    $evidence = Complete-Evidence -EvidenceDirectory $EvidenceDirectory -State $state -Response $result.Response -ConversationUrl $boundConversationUrl -TransientObservationCount $result.TransientObservationCount -StablePollCount $result.StablePollCount
+    $evidence = Complete-Evidence -EvidenceDirectory $EvidenceDirectory -State $state -Response $result.Response -ConversationUrl $boundConversationUrl -TransientObservationCount $result.TransientObservationCount -StablePollCount $result.StablePollCount -CodexThreadIdValue $threadId
     return [ordered]@{
         ok = $true
         command = 'wait'
         live = $true
         transport = $Script:AgentBrowserTransport
         completed = $true
+        codexThreadId = $threadId
         responseSha256 = $evidence.response.sha256
         evidenceSha256 = [string](Get-ObjectProperty $state 'evidenceSha256' '')
         responseCharacters = $evidence.response.characters
@@ -4760,38 +5098,18 @@ function Invoke-MainCommand {
         }
     }
 
-    $uiLease = $null
+    $threadId = ''
+    if ($Command -in @('send', 'wait', 'response', 'run')) {
+        $threadId = Resolve-CodexThreadId -Value $CodexThreadId
+    }
 
-    try {
-        $uiLease = Enter-UiMutex
-        switch ($Command) {
+    switch ($Command) {
         'status' {
-            $hasBoundIdentity = -not [string]::IsNullOrWhiteSpace($BrowserId) -and
-                -not [string]::IsNullOrWhiteSpace($Profile) -and
-                -not [string]::IsNullOrWhiteSpace($TabId) -and
-                -not [string]::IsNullOrWhiteSpace($SessionKey)
-            if ($hasBoundIdentity) {
-                $expectedBinding = [ordered]@{
-                    browserId = $BrowserId
-                    profileId = $Profile
-                    profileLabel = ''
-                    tabId = $TabId
-                    sessionKey = $SessionKey
-                    origin = 'https://chatgpt.com'
-                    url = $ExpectedConversationUrl
-                }
-                $target = Resolve-AgentBrowserTarget `
-                    -ExpectedBinding $expectedBinding `
-                    -ExpectedConversationUrl $ExpectedConversationUrl `
-                    -AllowExactUrlReopen:(-not [string]::IsNullOrWhiteSpace($ExpectedConversationUrl))
-            }
-            elseif (@($BrowserId, $Profile, $TabId, $SessionKey) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Measure-Object | Select-Object -ExpandProperty Count) {
-                Throw-SidebarError -ExitCode $Script:ExitCodes.InvalidArguments -Category 'AgentBrowserTargetBindingIncomplete' -Message 'Bound status requires browser, profile, tab, and session together.'
-            }
-            else {
-                $target = Resolve-AgentBrowserTarget
-            }
-            $snapshot = Get-AgentBrowserPageSnapshot -Target $target
+            $target = Resolve-AgentBrowserCommandTarget -ExpectedConversationUrlValue $ExpectedConversationUrl
+            $binding = ConvertTo-AgentBrowserTargetBinding -Target $target
+            $uiLease = Enter-UiMutex -TargetBinding $binding
+            try { $snapshot = Get-AgentBrowserPageSnapshot -Target $target }
+            finally { Exit-UiMutex -Lease $uiLease }
             $payload = New-AgentBrowserStatusPayload -Target $target -Snapshot $snapshot
             try {
                 Assert-AgentBrowserPageReady -Snapshot $snapshot
@@ -4806,7 +5124,10 @@ function Invoke-MainCommand {
             return $payload
         }
         'new-chat' {
-            return Invoke-AgentBrowserNewChat
+            $target = Resolve-AgentBrowserCommandTarget
+            $uiLease = Enter-UiMutex -TargetBinding (ConvertTo-AgentBrowserTargetBinding -Target $target)
+            try { return Invoke-AgentBrowserNewChat -Target $target }
+            finally { Exit-UiMutex -Lease $uiLease }
         }
         'send' {
             $directory = Resolve-EvidenceDirectory -Path $EvidenceDir
@@ -4814,7 +5135,15 @@ function Invoke-MainCommand {
             try {
                 $promptText = Read-PromptInput -PromptPathValue $PromptPath -PromptValue $Prompt
                 $key = Resolve-IdempotencyKey -Value $IdempotencyKey
-                return Invoke-AgentBrowserSend -PromptText $promptText -EvidenceDirectory $directory -IdempotencyKeyValue $key -RequireFreshConversation:$FreshConversation -RequireExistingConversation:(-not $FreshConversation)
+                $target = Resolve-AgentBrowserCommandTarget
+                return Invoke-AgentBrowserSend `
+                    -PromptText $promptText `
+                    -EvidenceDirectory $directory `
+                    -IdempotencyKeyValue $key `
+                    -CodexThreadIdValue $threadId `
+                    -RequireFreshConversation:$FreshConversation `
+                    -RequireExistingConversation:(-not $FreshConversation) `
+                    -TargetBinding (ConvertTo-AgentBrowserTargetBinding -Target $target)
             }
             finally {
                 $lock.Dispose()
@@ -4824,7 +5153,7 @@ function Invoke-MainCommand {
             $directory = Resolve-EvidenceDirectory -Path $EvidenceDir
             $lock = Enter-EvidenceLock -Directory $directory
             try {
-                return Invoke-AgentBrowserWait -EvidenceDirectory $directory -TimeoutSecondsValue $TimeoutSeconds -PollMillisecondsValue $PollMilliseconds
+                return Invoke-AgentBrowserWait -EvidenceDirectory $directory -TimeoutSecondsValue $TimeoutSeconds -PollMillisecondsValue $PollMilliseconds -CodexThreadIdValue $threadId
             }
             finally {
                 $lock.Dispose()
@@ -4834,7 +5163,7 @@ function Invoke-MainCommand {
             $directory = Resolve-EvidenceDirectory -Path $EvidenceDir
             $lock = Enter-EvidenceLock -Directory $directory
             try {
-                return Get-CompletedResponseResult -EvidenceDirectory $directory
+                return Get-CompletedResponseResult -EvidenceDirectory $directory -CodexThreadIdValue $threadId
             }
             finally {
                 $lock.Dispose()
@@ -4853,10 +5182,13 @@ function Invoke-MainCommand {
                 # Check the per-user reservation before New chat so a known
                 # duplicate cannot change the user's selected conversation.
                 $null = Assert-GlobalIdempotencyKeyAvailable -IdempotencyKeyValue $key
-                $newChatResult = Invoke-AgentBrowserNewChat
-                $sendResult = Invoke-AgentBrowserSend -PromptText $promptText -EvidenceDirectory $directory -IdempotencyKeyValue $key -RequireFreshConversation -TargetBinding $newChatResult.targetBinding
-                $waitResult = Invoke-AgentBrowserWait -EvidenceDirectory $directory -TimeoutSecondsValue $TimeoutSeconds -PollMillisecondsValue $PollMilliseconds
-                $responseResult = Get-CompletedResponseResult -EvidenceDirectory $directory
+                $target = Resolve-AgentBrowserCommandTarget
+                $sourceLease = Enter-UiMutex -TargetBinding (ConvertTo-AgentBrowserTargetBinding -Target $target)
+                try { $newChatResult = Invoke-AgentBrowserNewChat -Target $target }
+                finally { Exit-UiMutex -Lease $sourceLease }
+                $sendResult = Invoke-AgentBrowserSend -PromptText $promptText -EvidenceDirectory $directory -IdempotencyKeyValue $key -CodexThreadIdValue $threadId -RequireFreshConversation -TargetBinding $newChatResult.targetBinding
+                $waitResult = Invoke-AgentBrowserWait -EvidenceDirectory $directory -TimeoutSecondsValue $TimeoutSeconds -PollMillisecondsValue $PollMilliseconds -CodexThreadIdValue $threadId
+                $responseResult = Get-CompletedResponseResult -EvidenceDirectory $directory -CodexThreadIdValue $threadId
 
                 return [ordered]@{
                     ok = $true
@@ -4867,6 +5199,7 @@ function Invoke-MainCommand {
                     sendActionInvokedOnce = $sendResult.sendActionInvokedOnce
                     submissionAcknowledged = $responseResult.submissionAcknowledged
                     completed = $waitResult.completed
+                    codexThreadId = $threadId
                     idempotencyKey = $responseResult.idempotencyKey
                     promptSha256 = $sendResult.promptSha256
                     response = $responseResult.response
@@ -4881,10 +5214,6 @@ function Invoke-MainCommand {
                 $lock.Dispose()
             }
         }
-        }
-    }
-    finally {
-        Exit-UiMutex -Lease $uiLease
     }
 }
 

@@ -38,6 +38,10 @@ later closes an exact-conversation tab, observation may reopen only that exact
 URL in the same Chrome profile with a background tab. It may not reopen or
 guess a homepage conversation.
 
+Independent rounds may bind distinct tabs concurrently. One Codex task owns at
+most three active slots; the per-user global hard limit is six across Codex
+tasks. A target binding cannot be shared by two rounds.
+
 ## Commands
 
 ```powershell
@@ -57,6 +61,11 @@ powershell.exe -NoProfile -File $adapter run -PromptPath <prompt.md> -EvidenceDi
 # Preferred complete round: send once, start the local watcher immediately,
 # and keep this same root Codex turn blocked until terminal evidence exists.
 powershell.exe -NoProfile -File $watcher run-root -PromptPath <prompt.md> -EvidenceDir <empty-dir> -IdempotencyKey <opaque-key> -CodexThreadId $env:CODEX_THREAD_ID -TimeoutSeconds 7200
+
+# Independent rounds: the manifest owns prompt/evidence/target bindings.
+powershell.exe -NoProfile -File $watcher run-batch-root -ManifestPath <batch-manifest.json> -CodexThreadId $env:CODEX_THREAD_ID
+powershell.exe -NoProfile -File $watcher slots
+powershell.exe -NoProfile -File $watcher release-slot -SlotId <1-6>
 
 # Recovery/diagnostic commands for an already post-send evidence directory.
 powershell.exe -NoProfile -File $watcher start -RootWait -KeepLauncherAlive -EvidenceDir <dir> -CodexThreadId $env:CODEX_THREAD_ID
@@ -86,10 +95,16 @@ transport.
    never registers a Stop Hook. Do not split new rounds into separate `send`,
    `start`, and `wait-root` model steps. The recovery commands remain available
    only for evidence that is already post-send.
-5. Re-read `watch-event.json`, `state.json`, `evidence.json`, and `response.md`.
+5. For multiple independent rounds, call `run-batch-root` once with a local
+   schema-v1 manifest. It starts at most three local child rounds for the exact
+   Codex thread, never exceeds six global slots, and waits without model
+   polling. Extra items do not touch a page before a slot is acquired. The
+   atomic `batch-result.json` preserves partial success and per-item slot/run
+   durations.
+6. Re-read `watch-event.json`, `state.json`, `evidence.json`, and `response.md`.
    Validate thread/watcher identity, target binding, URL, hashes, baseline, and
    `automaticResendAllowed=false` before using the response.
-6. Call `acknowledge-root` only after that independent Codex review. If a CCG
+7. Call `acknowledge-root` only after that independent Codex review. If a CCG
    importer owns acknowledgement, let it use its existing import contract.
 
 Use a new evidence directory for each independent round. At most one send click
@@ -106,6 +121,11 @@ directory to bypass uncertain evidence.
 - Any failure at or after the click: treat as send-uncertain and never retry.
 - Temporary browser loss during wait is observational only. Exact URL recovery
   may reopen in background; no recovery path may send.
+- Batch slot timeout is `queued-timeout` with `ConcurrencySlotTimeout` and
+  `submissionAcknowledged=false`. A dead owner never releases a slot by itself;
+  unproved post-send state returns `ConcurrencySlotRecoveryRequired`. `slots` is
+  read-only, and `release-slot` succeeds only with durable pre-click-unsent or
+  terminal proof. It never deletes idempotency or target claims.
 - A normal generating page may surface as adapter `GenerationAlreadyActive`;
   the watcher accepts it only from matching structured status details. Long
   conversations may omit an old rendered turn prefix, but response isolation
@@ -129,4 +149,6 @@ Invoke-Pester (Join-Path $skillRoot 'tests\chatgpt-pro-sidebar-watch.Tests.ps1')
 A live release check must prove one external Chrome discovery, one fresh
 exact-once send, stable response evidence, no resend, task/app switching without
 losing the target, closed-tab exact-URL background recovery, and observed focus
-behavior. Mock tests do not substitute for this live evidence.
+behavior. Multi-window release also proves three rounds per Codex task, six
+globally across two tasks, and a seventh item that waits without clicking. Mock
+tests do not substitute for this live evidence.

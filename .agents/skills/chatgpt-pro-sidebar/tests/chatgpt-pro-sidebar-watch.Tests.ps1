@@ -88,6 +88,50 @@ BeforeAll {
             workerTokenSha256 = Get-WatchSha256Text -Text $Token
         })
     }
+
+    function New-BatchFixture {
+        param(
+            [Parameter(Mandatory = $true)][string]$Root,
+            [int]$RoundCount = 1,
+            [string]$ThreadId = $script:ThreadId,
+            [int]$MaxConcurrency = 3,
+            [AllowNull()][Nullable[int]]$TimeoutSeconds = $null
+        )
+
+        $null = New-Item -ItemType Directory -Path $Root -Force
+        $rounds = @(
+            foreach ($index in 1..$RoundCount) {
+                $prompt = Join-Path $Root ("prompt-$index.md")
+                $evidence = Join-Path $Root ("evidence-$index")
+                [System.IO.File]::WriteAllText($prompt, "request $index", $Script:Utf8NoBom)
+                $null = New-Item -ItemType Directory -Path $evidence -Force
+                [ordered]@{
+                    roundId = "round-$index"
+                    promptPath = $prompt
+                    evidenceDirectory = $evidence
+                    idempotencyKey = "batch-key-$index"
+                    targetBinding = [ordered]@{
+                        browserId = 'browser-1'
+                        profileId = 'profile-1'
+                        tabId = [string](100 + $index)
+                        sessionKey = "browser-1:profile-1:$($index + 100)"
+                    }
+                }
+            }
+        )
+        $manifest = [ordered]@{
+            schemaVersion = 1
+            codexThreadId = $ThreadId
+            maxConcurrency = $MaxConcurrency
+            rounds = $rounds
+        }
+        if ($null -ne $TimeoutSeconds) {
+            $manifest.timeoutSeconds = [int]$TimeoutSeconds
+        }
+        $path = Join-Path $Root 'batch-manifest.json'
+        Write-WatchJsonAtomic -Path $path -Value $manifest
+        return $path
+    }
 }
 
 Describe 'Watcher binding validation' {
@@ -222,7 +266,8 @@ param(
     [string]$Profile,
     [string]$TabId,
     [string]$SessionKey,
-    [string]$ExpectedConversationUrl
+    [string]$ExpectedConversationUrl,
+    [string]$CodexThreadId
 )
 $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
 $startInfo.FileName = 'powershell.exe'
@@ -238,7 +283,7 @@ $child = [System.Diagnostics.Process]::Start($startInfo)
         $env:WATCH_TEST_CHILD_PID_FILE = $childPidPath
         $timer = [System.Diagnostics.Stopwatch]::StartNew()
         try {
-            $result = Invoke-WatchAdapterStatus -AdapterPath $adapterPath -TargetBinding (New-TestTargetBinding)
+            $result = Invoke-WatchAdapterStatus -AdapterPath $adapterPath -TargetBinding (New-TestTargetBinding) -CodexThreadIdValue $script:ThreadId
             $timer.Stop()
 
             $result.ExitCode | Should -Be 0
@@ -273,7 +318,7 @@ $child = [System.Diagnostics.Process]::Start($startInfo)
             }
         }
 
-        $result = Invoke-WatchAdapterStatus -AdapterPath 'adapter.ps1' -TargetBinding (New-TestTargetBinding)
+        $result = Invoke-WatchAdapterStatus -AdapterPath 'adapter.ps1' -TargetBinding (New-TestTargetBinding) -CodexThreadIdValue $script:ThreadId
 
         $result.ExitCode | Should -Be 0
         $result.Payload.generating | Should -BeTrue
@@ -292,7 +337,7 @@ $child = [System.Diagnostics.Process]::Start($startInfo)
             }
         }
 
-        $result = Invoke-WatchAdapterStatus -AdapterPath 'adapter.ps1' -TargetBinding (New-TestTargetBinding)
+        $result = Invoke-WatchAdapterStatus -AdapterPath 'adapter.ps1' -TargetBinding (New-TestTargetBinding) -CodexThreadIdValue $script:ThreadId
 
         $result.ExitCode | Should -Be 24
         $result.Payload.category | Should -Be 'GenerationAlreadyActive'
@@ -340,6 +385,11 @@ Describe 'Atomic RootWait round' {
             -PromptFile $script:roundPrompt `
             -EvidenceDirectory $script:roundDirectory `
             -IdempotencyKeyValue 'atomic-root-round-forward' `
+            -CodexThreadIdValue $script:ThreadId `
+            -BrowserIdValue 'browser-1' `
+            -ProfileValue 'profile-1' `
+            -TabIdValue '101' `
+            -SessionKeyValue 'browser-1:profile-1:101' `
             -RequireFreshConversation
 
         $script:adapterArguments | Should -Contain 'send'
@@ -347,6 +397,10 @@ Describe 'Atomic RootWait round' {
         $script:adapterArguments | Should -Contain $script:roundPrompt
         $script:adapterArguments | Should -Contain '-IdempotencyKey'
         $script:adapterArguments | Should -Contain 'atomic-root-round-forward'
+        $script:adapterArguments | Should -Contain '-CodexThreadId'
+        $script:adapterArguments | Should -Contain $script:ThreadId
+        $script:adapterArguments | Should -Contain '-BrowserId'
+        $script:adapterArguments | Should -Contain 'browser-1:profile-1:101'
         $script:adapterArguments | Should -Contain '-FreshConversation'
         Should -Invoke Invoke-WatchAdapterProcess -Times 1 -Exactly -ParameterFilter {
             $ProcessTimeoutSeconds -eq 600
@@ -424,6 +478,270 @@ Describe 'Atomic RootWait round' {
         } | Should -Throw '*composer unavailable*'
         Should -Invoke Start-WatchProcess -Times 0 -Exactly
         Should -Invoke Wait-RootWatchEvent -Times 0 -Exactly
+    }
+}
+
+Describe 'Batch RootWait capacity' {
+    BeforeEach {
+        $Script:CapacityRootOverride = Join-Path $TestDrive ('capacity-' + [guid]::NewGuid().ToString('N'))
+        $script:originalWatcherScriptPath = $Script:WatcherScriptPath
+    }
+
+    AfterEach {
+        $Script:CapacityRootOverride = $null
+        $Script:WatcherScriptPath = $script:originalWatcherScriptPath
+    }
+
+    It 'defaults batches to 7200 seconds and rejects duplicate keys or path escape' {
+        $root = Join-Path $TestDrive 'manifest-validation'
+        $path = New-BatchFixture -Root $root -RoundCount 2
+        (Read-RootWaitBatchManifest -Path $path).TimeoutSeconds | Should -Be 7200
+
+        $manifest = Read-WatchJson -Path $path -Required
+        $manifest.rounds[1].idempotencyKey = $manifest.rounds[0].idempotencyKey
+        Write-WatchJsonAtomic -Path $path -Value $manifest
+        { Read-RootWaitBatchManifest -Path $path } | Should -Throw '*idempotencyKey*unique*'
+
+        $manifest.rounds[1].idempotencyKey = 'unique-again'
+        $outside = Join-Path $TestDrive 'outside.md'
+        [System.IO.File]::WriteAllText($outside, 'outside', $Script:Utf8NoBom)
+        $manifest.rounds[1].promptPath = $outside
+        Write-WatchJsonAtomic -Path $path -Value $manifest
+        { Read-RootWaitBatchManifest -Path $path } | Should -Throw '*inside the batch manifest directory*'
+    }
+
+    It 'recognizes a live owner from its recorded UTC process start time' {
+        $identity = Get-CapacityProcessIdentity
+        $claimPath = Join-Path $TestDrive 'owner-claim.json'
+        Write-WatchJsonAtomic -Path $claimPath -Value ([ordered]@{
+            ownerPid = $identity.processId
+            ownerProcessStartedAtUtc = $identity.processStartedAtUtc
+        })
+        $claim = Read-WatchJson -Path $claimPath
+
+        Test-CapacityOwnerAlive -Claim $claim | Should -BeTrue
+    }
+
+    It 'retries a transient sharing violation while reading a completed child result' {
+        $directory = Join-Path $TestDrive 'batch-read-sharing'
+        $null = New-Item -ItemType Directory -Path $directory -Force
+        $stdout = Join-Path $directory 'stdout.log'
+        [System.IO.File]::WriteAllText($stdout, '{"terminalStatus":"completed","submissionAcknowledged":true}', $Script:Utf8NoBom)
+        Write-WatchJsonAtomic -Path (Join-Path $directory 'state.json') -Value ([ordered]@{
+            phase = 'completed'; submissionAcknowledged = $true
+        })
+        Write-WatchJsonAtomic -Path (Join-Path $directory $Script:EventFileName) -Value ([ordered]@{
+            status = 'completed'; watcherId = 'sharing-watcher'
+        })
+        $process = [pscustomobject]@{}
+        $script:processDisposed = 0
+        $process | Add-Member -MemberType ScriptMethod -Name WaitForExit -Value { }
+        $process | Add-Member -MemberType ScriptMethod -Name Dispose -Value { $script:processDisposed++ }
+        $started = [datetime]::UtcNow
+        $activeRound = [pscustomobject]@{
+            Process = $process
+            StdoutPath = $stdout
+            Round = [pscustomobject]@{
+                RoundId = 'sharing-retry'
+                EvidenceDirectory = $directory
+                TargetBinding = $null
+            }
+            SlotId = 1
+            QueuedAt = $started
+            StartedAt = $started
+        }
+        $locked = [System.IO.File]::Open($stdout, [System.IO.FileMode]::Open, [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None)
+        $script:sleepAttempts = 0
+        try {
+            $result = Read-BatchRoundProcessResult `
+                -ActiveRound $activeRound `
+                -CompletedAt $started.AddSeconds(1) `
+                -SleepAction { $script:sleepAttempts++ }
+        }
+        finally {
+            $locked.Dispose()
+        }
+
+        $script:sleepAttempts | Should -Be 19
+        $script:processDisposed | Should -Be 1
+        $result.terminalStatus | Should -Be 'completed'
+        $result.submissionAcknowledged | Should -BeTrue
+    }
+
+    It 'does not accept nonterminal durable evidence when child stdout remains locked' {
+        $directory = Join-Path $TestDrive 'batch-read-nonterminal'
+        $null = New-Item -ItemType Directory -Path $directory -Force
+        $stdout = Join-Path $directory 'stdout.log'
+        [System.IO.File]::WriteAllText($stdout, '{"terminalStatus":"completed"}', $Script:Utf8NoBom)
+        Write-WatchJsonAtomic -Path (Join-Path $directory 'state.json') -Value ([ordered]@{
+            phase = 'send-uncertain'; submissionAcknowledged = $false; automaticResendAllowed = $false
+        })
+        Write-WatchJsonAtomic -Path (Join-Path $directory $Script:EventFileName) -Value ([ordered]@{
+            status = 'send-uncertain'; watcherId = 'nonterminal-watcher'
+        })
+        $process = [pscustomobject]@{}
+        $process | Add-Member -MemberType ScriptMethod -Name WaitForExit -Value { }
+        $process | Add-Member -MemberType ScriptMethod -Name Dispose -Value { }
+        $started = [datetime]::UtcNow
+        $activeRound = [pscustomobject]@{
+            Process = $process
+            StdoutPath = $stdout
+            Round = [pscustomobject]@{
+                RoundId = 'nonterminal-evidence'
+                EvidenceDirectory = $directory
+                TargetBinding = $null
+            }
+            SlotId = 1
+            QueuedAt = $started
+            StartedAt = $started
+        }
+        $locked = [System.IO.File]::Open($stdout, [System.IO.FileMode]::Open, [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None)
+        try {
+            $result = Read-BatchRoundProcessResult `
+                -ActiveRound $activeRound `
+                -CompletedAt $started.AddSeconds(1) `
+                -SleepAction { }
+        }
+        finally {
+            $locked.Dispose()
+        }
+
+        $result.status | Should -Be 'failed'
+        $result.terminalStatus | Should -BeNullOrEmpty
+        $result.submissionAcknowledged | Should -BeFalse
+    }
+
+    It 'enforces three slots per task and six slots globally' {
+        $secondThread = [guid]::NewGuid().ToString()
+        $thirdThread = [guid]::NewGuid().ToString()
+        $claims = [System.Collections.ArrayList]::new()
+        foreach ($thread in @($script:ThreadId, $secondThread)) {
+            foreach ($index in 1..3) {
+                $directory = Join-Path $TestDrive ("slot-$thread-$index")
+                $null = New-Item -ItemType Directory -Path $directory -Force
+                $claim = Acquire-CapacitySlot -ThreadId $thread -RoundId "round-$index" -EvidenceDirectory $directory
+                $claim.acquired | Should -BeTrue
+                $null = $claims.Add($claim)
+            }
+            $extraDirectory = Join-Path $TestDrive ("extra-$thread")
+            $null = New-Item -ItemType Directory -Path $extraDirectory -Force
+            $extra = Acquire-CapacitySlot -ThreadId $thread -RoundId 'round-extra' -EvidenceDirectory $extraDirectory
+            $extra.acquired | Should -BeFalse
+            $extra.category | Should -Be 'ConcurrencySlotQueued'
+        }
+
+        $seventhDirectory = Join-Path $TestDrive 'seventh'
+        $null = New-Item -ItemType Directory -Path $seventhDirectory -Force
+        $seventh = Acquire-CapacitySlot -ThreadId $thirdThread -RoundId 'round-7' -EvidenceDirectory $seventhDirectory
+        $seventh.acquired | Should -BeFalse
+        $seventh.reason | Should -Be 'global-capacity'
+        (Get-CapacitySlots).slots.Count | Should -Be 6
+
+        foreach ($claim in $claims) {
+            $null = Set-CapacitySlotClaim -Id $claim.slotId -ClaimId $claim.claimId -Changes ([ordered]@{ phase = 'pre-click-unsent' })
+            $null = Release-CapacitySlot -Id $claim.slotId -ExpectedClaimId $claim.claimId -OwnerCompletionObserved
+        }
+    }
+
+    It 'keeps an unproved orphan isolated and releases only durable safe states' {
+        $orphanClaims = [System.Collections.ArrayList]::new()
+        foreach ($index in 1..3) {
+            $directory = Join-Path $TestDrive ("orphan-$index")
+            $null = New-Item -ItemType Directory -Path $directory -Force
+            $claim = Acquire-CapacitySlot -ThreadId $script:ThreadId -RoundId "orphan-$index" -EvidenceDirectory $directory
+            $null = Set-CapacitySlotClaim -Id $claim.slotId -ClaimId $claim.claimId -Changes ([ordered]@{
+                phase = 'run-starting'
+                submissionAttempted = $true
+                ownerPid = 999999
+                ownerProcessStartedAtUtc = '2026-08-07T00:00:00Z'
+            })
+            $null = $orphanClaims.Add($claim)
+        }
+        $blockedDirectory = Join-Path $TestDrive 'blocked-by-orphan'
+        $null = New-Item -ItemType Directory -Path $blockedDirectory -Force
+        $blocked = Acquire-CapacitySlot -ThreadId $script:ThreadId -RoundId 'blocked' -EvidenceDirectory $blockedDirectory
+        $blocked.acquired | Should -BeFalse
+        $blocked.category | Should -Be 'ConcurrencySlotRecoveryRequired'
+        { Release-CapacitySlot -Id $orphanClaims[0].slotId } | Should -Throw '*terminal or pre-click state is not proven*'
+
+        $safeDirectory = $orphanClaims[0].claim.evidenceDirectory
+        Write-WatchJsonAtomic -Path (Join-Path $safeDirectory 'state.json') -Value ([ordered]@{
+            phase = 'send-uncertain'
+            automaticResendAllowed = $false
+        })
+        { Release-CapacitySlot -Id $orphanClaims[0].slotId -OwnerCompletionObserved } | Should -Throw '*terminal or pre-click state is not proven*'
+
+        Write-WatchJsonAtomic -Path (Join-Path $safeDirectory 'state.json') -Value ([ordered]@{
+            phase = 'pre-invoke-failed'
+            invokeAttempted = $false
+        })
+        (Release-CapacitySlot -Id $orphanClaims[0].slotId).proof | Should -Be 'durable-pre-click-unsent'
+    }
+
+    It 'returns queued-timeout without starting a browser process' {
+        $otherThreads = @([guid]::NewGuid().ToString(), [guid]::NewGuid().ToString())
+        $claims = [System.Collections.ArrayList]::new()
+        foreach ($thread in $otherThreads) {
+            foreach ($index in 1..3) {
+                $directory = Join-Path $TestDrive ("occupied-$thread-$index")
+                $null = New-Item -ItemType Directory -Path $directory -Force
+                $null = $claims.Add((Acquire-CapacitySlot -ThreadId $thread -RoundId "occupied-$index" -EvidenceDirectory $directory))
+            }
+        }
+        $manifestPath = New-BatchFixture -Root (Join-Path $TestDrive 'queued-batch') -TimeoutSeconds 30
+        $script:batchClock = [datetime]'2026-08-07T00:00:00Z'
+        Mock Start-BatchRoundProcess { throw 'must not start' }
+
+        $result = Invoke-RootWaitBatch `
+            -Path $manifestPath `
+            -ExpectedThreadId $script:ThreadId `
+            -NowAction { $script:batchClock = $script:batchClock.AddSeconds(31); $script:batchClock } `
+            -SleepAction { param($milliseconds) }
+
+        $result.items.Count | Should -Be 1
+        $result.items[0].status | Should -Be 'queued-timeout'
+        $result.items[0].errorCategory | Should -Be 'ConcurrencySlotTimeout'
+        $result.items[0].submissionAcknowledged | Should -BeFalse
+        Should -Invoke Start-BatchRoundProcess -Times 0 -Exactly
+    }
+
+    It 'runs at most three local child rounds and writes one atomic batch result' {
+        $root = Join-Path $TestDrive 'four-round-batch'
+        $manifestPath = New-BatchFixture -Root $root -RoundCount 4 -TimeoutSeconds 30
+        $fakeWatcher = Join-Path $root 'fake-watch.ps1'
+        $fakeSource = @'
+param(
+    [Parameter(Position = 0)][string]$Command,
+    [string]$EvidenceDir,
+    [string]$CodexThreadId,
+    [string]$PromptPath,
+    [string]$IdempotencyKey,
+    [string]$BrowserId,
+    [string]$Profile,
+    [string]$TabId,
+    [string]$SessionKey,
+    [int]$TimeoutSeconds
+)
+Start-Sleep -Milliseconds 300
+[ordered]@{
+    ok = $true
+    command = 'run-root'
+    terminalStatus = 'completed'
+    submissionAcknowledged = $true
+    watcherId = [guid]::NewGuid().ToString()
+} | ConvertTo-Json -Compress
+'@
+        [System.IO.File]::WriteAllText($fakeWatcher, $fakeSource, [System.Text.UTF8Encoding]::new($true))
+        $Script:WatcherScriptPath = $fakeWatcher
+
+        $result = Invoke-RootWaitBatch -Path $manifestPath -ExpectedThreadId $script:ThreadId
+
+        $result.allSucceeded | Should -BeTrue
+        $result.items.Count | Should -Be 4
+        $result.maxObservedConcurrency | Should -Be 3
+        @($result.items | Where-Object { $_.terminalStatus -eq 'completed' }).Count | Should -Be 4
+        Test-Path -LiteralPath (Join-Path $root $Script:BatchResultFileName) | Should -BeTrue
+        (Get-CapacitySlots).slots.Count | Should -Be 0
     }
 }
 

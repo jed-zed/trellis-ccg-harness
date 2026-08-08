@@ -6,11 +6,17 @@ param(
     [string]$Command,
 
     [string]$EvidenceDir,
+    [string]$ManifestPath,
     [string]$CodexThreadId = $env:CODEX_THREAD_ID,
     [string]$PromptPath,
     [string]$IdempotencyKey,
     [string]$WorkerToken,
     [string]$WatcherId,
+    [string]$BrowserId,
+    [string]$Profile,
+    [string]$TabId,
+    [string]$SessionKey,
+    [int]$SlotId,
 
     [int]$PollSeconds = 5,
     [int]$StableStopPolls = 2,
@@ -44,6 +50,12 @@ $Script:StopHookRegistryDirectoryName = 'stop-hook-v2'
 $Script:LegacyStopHookRegistryDirectoryName = 'stop-hook-v1'
 $Script:MaximumStopHookWaitSeconds = 7400
 $Script:StopHookRegistryRootOverride = $null
+$Script:CapacityRootOverride = $null
+$Script:CapacityDirectoryName = 'concurrency-v1'
+$Script:CapacitySlotCount = 6
+$Script:PerThreadSlotCount = 3
+$Script:MaximumBatchRounds = 32
+$Script:BatchResultFileName = 'batch-result.json'
 $Script:SurfaceFailureCategories = @(
     'AgentBrowserCliFailed',
     'AgentBrowserCliLaunchFailed',
@@ -576,7 +588,8 @@ function Invoke-WatchAdapterProcess {
 function Invoke-WatchAdapterStatus {
     param(
         [Parameter(Mandatory = $true)][string]$AdapterPath,
-        [Parameter(Mandatory = $true)]$TargetBinding
+        [Parameter(Mandatory = $true)]$TargetBinding,
+        [Parameter(Mandatory = $true)][string]$CodexThreadIdValue
     )
 
     $arguments = @(
@@ -584,7 +597,8 @@ function Invoke-WatchAdapterStatus {
         '-BrowserId', [string](Get-WatchProperty $TargetBinding 'browserId' ''),
         '-Profile', [string](Get-WatchProperty $TargetBinding 'profileId' ''),
         '-TabId', [string](Get-WatchProperty $TargetBinding 'tabId' ''),
-        '-SessionKey', [string](Get-WatchProperty $TargetBinding 'sessionKey' '')
+        '-SessionKey', [string](Get-WatchProperty $TargetBinding 'sessionKey' ''),
+        '-CodexThreadId', $CodexThreadIdValue
     )
     $expectedUrl = [string](Get-WatchProperty $TargetBinding 'url' '')
     if (Test-WatchConversationUrl -Value $expectedUrl) {
@@ -613,12 +627,14 @@ function Invoke-WatchAdapterFinalize {
     param(
         [Parameter(Mandatory = $true)][string]$AdapterPath,
         [Parameter(Mandatory = $true)][string]$EvidenceDirectory,
-        [Parameter(Mandatory = $true)][int]$FinalizeTimeout
+        [Parameter(Mandatory = $true)][int]$FinalizeTimeout,
+        [Parameter(Mandatory = $true)][string]$CodexThreadIdValue
     )
 
     $arguments = @(
         '-NoProfile', '-NonInteractive', '-File', $AdapterPath, 'wait',
         '-EvidenceDir', $EvidenceDirectory,
+        '-CodexThreadId', $CodexThreadIdValue,
         '-TimeoutSeconds', [string]$FinalizeTimeout,
         '-PollMilliseconds', '1000'
     )
@@ -633,6 +649,11 @@ function Invoke-WatchAdapterSend {
         [Parameter(Mandatory = $true)][string]$PromptFile,
         [Parameter(Mandatory = $true)][string]$EvidenceDirectory,
         [Parameter(Mandatory = $true)][string]$IdempotencyKeyValue,
+        [Parameter(Mandatory = $true)][string]$CodexThreadIdValue,
+        [AllowEmptyString()][string]$BrowserIdValue = '',
+        [AllowEmptyString()][string]$ProfileValue = '',
+        [AllowEmptyString()][string]$TabIdValue = '',
+        [AllowEmptyString()][string]$SessionKeyValue = '',
         [switch]$RequireFreshConversation
     )
 
@@ -646,8 +667,22 @@ function Invoke-WatchAdapterSend {
         '-NoProfile', '-NonInteractive', '-File', $AdapterPath, 'send',
         '-PromptPath', $PromptFile,
         '-EvidenceDir', $EvidenceDirectory,
-        '-IdempotencyKey', $IdempotencyKeyValue
+        '-IdempotencyKey', $IdempotencyKeyValue,
+        '-CodexThreadId', $CodexThreadIdValue
     )
+    $targetParts = @($BrowserIdValue, $ProfileValue, $TabIdValue, $SessionKeyValue)
+    $targetPartCount = @($targetParts | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }).Count
+    if ($targetPartCount -ne 0 -and $targetPartCount -ne 4) {
+        throw 'BrowserId, Profile, TabId, and SessionKey must be supplied together for run-root.'
+    }
+    if ($targetPartCount -eq 4) {
+        $arguments += @(
+            '-BrowserId', $BrowserIdValue,
+            '-Profile', $ProfileValue,
+            '-TabId', $TabIdValue,
+            '-SessionKey', $SessionKeyValue
+        )
+    }
     if ($RequireFreshConversation) {
         $arguments += '-FreshConversation'
     }
@@ -1024,7 +1059,7 @@ function Invoke-WatchWorker {
                 -OverallTimeoutSeconds ([int](Get-WatchProperty $state 'timeoutSeconds' 7200)) `
                 -SleepSeconds ([int](Get-WatchProperty $state 'pollSeconds' 5)) `
                 -ProbeAction {
-                    $probe = Invoke-WatchAdapterStatus -AdapterPath $adapterPath -TargetBinding (Get-WatchProperty $state 'targetBinding' $null)
+                    $probe = Invoke-WatchAdapterStatus -AdapterPath $adapterPath -TargetBinding (Get-WatchProperty $state 'targetBinding' $null) -CodexThreadIdValue $ThreadId
                     $probePayload = Get-WatchProperty $probe 'Payload' $null
                     $observedBinding = Get-WatchProperty $probePayload 'targetBinding' $null
                     if ([int](Get-WatchProperty $probe 'ExitCode' 99) -eq 0 -and $null -ne $observedBinding) {
@@ -1037,7 +1072,8 @@ function Invoke-WatchWorker {
                     Invoke-WatchAdapterFinalize `
                         -AdapterPath $adapterPath `
                         -EvidenceDirectory $EvidenceDirectory `
-                        -FinalizeTimeout ([int](Get-WatchProperty $state 'finalizeTimeoutSeconds' 45))
+                        -FinalizeTimeout ([int](Get-WatchProperty $state 'finalizeTimeoutSeconds' 45)) `
+                        -CodexThreadIdValue $ThreadId
                 } `
                 -SleepAction { param($seconds) Start-Sleep -Seconds $seconds } `
                 -NowAction { [datetime]::UtcNow } `
@@ -1660,12 +1696,739 @@ function Acknowledge-RootWait {
         -CommandName 'acknowledge-root'
 }
 
+function Get-CapacityRoot {
+    if (-not [string]::IsNullOrWhiteSpace($Script:CapacityRootOverride)) {
+        $root = [System.IO.Path]::GetFullPath($Script:CapacityRootOverride)
+    }
+    else {
+        $localAppData = [Environment]::GetFolderPath([Environment+SpecialFolder]::LocalApplicationData)
+        if ([string]::IsNullOrWhiteSpace($localAppData)) {
+            throw 'LocalAppData is unavailable for GPT Pro capacity claims.'
+        }
+        $root = Join-Path (Join-Path $localAppData 'ChatGptProSidebar') $Script:CapacityDirectoryName
+    }
+    if (-not [System.IO.Directory]::Exists($root)) {
+        [System.IO.Directory]::CreateDirectory($root) | Out-Null
+    }
+    return $root
+}
+
+function Enter-CapacityMutex {
+    param([int]$TimeoutMilliseconds = 30000)
+
+    $identity = (Get-CapacityRoot).ToLowerInvariant()
+    $mutex = [System.Threading.Mutex]::new(
+        $false,
+        ('Local\ChatGptProSidebarCapacity-' + (Get-WatchSha256Text -Text $identity))
+    )
+    $acquired = $false
+    try {
+        try { $acquired = $mutex.WaitOne($TimeoutMilliseconds) }
+        catch [System.Threading.AbandonedMutexException] { $acquired = $true }
+        if (-not $acquired) {
+            throw 'Timed out waiting for the GPT Pro capacity mutex.'
+        }
+        return $mutex
+    }
+    catch {
+        if (-not $acquired) { $mutex.Dispose() }
+        throw
+    }
+}
+
+function Exit-CapacityMutex {
+    param([AllowNull()]$Mutex)
+    Exit-WatchStartMutex -Mutex $Mutex
+}
+
+function Get-CapacitySlotPath {
+    param([Parameter(Mandatory = $true)][ValidateRange(1, 6)][int]$Id)
+    return Join-Path (Get-CapacityRoot) ('slot-' + $Id + '.json')
+}
+
+function Write-CapacityClaimCreateNew {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)]$Value
+    )
+
+    $json = ($Value | ConvertTo-Json -Depth 12) + [Environment]::NewLine
+    $bytes = $Script:Utf8NoBom.GetBytes($json)
+    $stream = [System.IO.File]::Open(
+        $Path,
+        [System.IO.FileMode]::CreateNew,
+        [System.IO.FileAccess]::Write,
+        [System.IO.FileShare]::None
+    )
+    try {
+        $stream.Write($bytes, 0, $bytes.Length)
+        $stream.Flush($true)
+    }
+    finally {
+        $stream.Dispose()
+    }
+}
+
+function Get-CapacityProcessIdentity {
+    param([int]$ProcessId = $PID)
+
+    try {
+        $process = Get-Process -Id $ProcessId -ErrorAction Stop
+        return [ordered]@{
+            processId = $ProcessId
+            processStartedAtUtc = $process.StartTime.ToUniversalTime().ToString('o')
+        }
+    }
+    catch {
+        return [ordered]@{ processId = $ProcessId; processStartedAtUtc = '' }
+    }
+}
+
+function Test-CapacityOwnerAlive {
+    param([Parameter(Mandatory = $true)]$Claim)
+
+    $ownerPid = [int](Get-WatchProperty $Claim 'ownerPid' 0)
+    $expectedStartValue = Get-WatchProperty $Claim 'ownerProcessStartedAtUtc' $null
+    if ($ownerPid -le 0 -or $null -eq $expectedStartValue -or [string]::IsNullOrWhiteSpace([string]$expectedStartValue)) {
+        return $false
+    }
+    try {
+        $actual = (Get-Process -Id $ownerPid -ErrorAction Stop).StartTime.ToUniversalTime()
+        $expected = if ($expectedStartValue -is [datetime]) {
+            $expectedStartValue.ToUniversalTime()
+        }
+        elseif ($expectedStartValue -is [datetimeoffset]) {
+            $expectedStartValue.UtcDateTime
+        }
+        else {
+            [datetimeoffset]::ParseExact(
+                [string]$expectedStartValue,
+                'o',
+                [Globalization.CultureInfo]::InvariantCulture,
+                [Globalization.DateTimeStyles]::None
+            ).UtcDateTime
+        }
+        return [Math]::Abs(($actual - $expected).TotalSeconds) -lt 1
+    }
+    catch {
+        return $false
+    }
+}
+
+function Get-CapacityReleaseProof {
+    param(
+        [Parameter(Mandatory = $true)]$Claim,
+        [switch]$OwnerCompletionObserved
+    )
+
+    if (-not $OwnerCompletionObserved -and (Test-CapacityOwnerAlive -Claim $Claim)) {
+        return [pscustomobject]@{ safe = $false; reason = 'owner-still-running' }
+    }
+    $claimPhase = [string](Get-WatchProperty $Claim 'phase' '')
+    if ($claimPhase -eq 'terminal') {
+        return [pscustomobject]@{ safe = $true; reason = 'terminal-claim' }
+    }
+    if ($claimPhase -eq 'pre-click-unsent') {
+        return [pscustomobject]@{ safe = $true; reason = 'pre-click-unsent-claim' }
+    }
+    if ($claimPhase -eq 'slot-acquired-pre-send' -and -not (Test-CapacityOwnerAlive -Claim $Claim)) {
+        return [pscustomobject]@{ safe = $true; reason = 'never-launched' }
+    }
+
+    $directory = [string](Get-WatchProperty $Claim 'evidenceDirectory' '')
+    if (-not [string]::IsNullOrWhiteSpace($directory)) {
+        $adapterState = Read-WatchJson -Path (Join-Path $directory 'state.json')
+        $adapterPhase = [string](Get-WatchProperty $adapterState 'phase' '')
+        if ($adapterPhase -eq 'pre-invoke-failed' -and -not [bool](Get-WatchProperty $adapterState 'invokeAttempted' $true)) {
+            return [pscustomobject]@{ safe = $true; reason = 'durable-pre-click-unsent' }
+        }
+        if ($adapterPhase -eq 'completed') {
+            return [pscustomobject]@{ safe = $true; reason = 'durable-adapter-terminal' }
+        }
+        $watchState = Read-WatchJson -Path (Join-Path $directory $Script:StateFileName)
+        $event = Read-WatchJson -Path (Join-Path $directory $Script:EventFileName)
+        $eventStatus = [string](Get-WatchProperty $event 'status' '')
+        if (
+            [string](Get-WatchProperty $watchState 'phase' '') -eq 'terminal' -and
+            $Script:TerminalStatuses -contains $eventStatus -and
+            [string](Get-WatchProperty $watchState 'codexThreadId' '') -eq [string](Get-WatchProperty $Claim 'codexThreadId' '')
+        ) {
+            return [pscustomobject]@{ safe = $true; reason = 'durable-watcher-terminal' }
+        }
+    }
+    return [pscustomobject]@{ safe = $false; reason = 'terminal-state-not-proven' }
+}
+
+function Set-CapacitySlotClaim {
+    param(
+        [Parameter(Mandatory = $true)][ValidateRange(1, 6)][int]$Id,
+        [Parameter(Mandatory = $true)][string]$ClaimId,
+        [Parameter(Mandatory = $true)][System.Collections.IDictionary]$Changes
+    )
+
+    $mutex = Enter-CapacityMutex
+    try {
+        $path = Get-CapacitySlotPath -Id $Id
+        $claim = Read-WatchJson -Path $path -Required
+        if ([string](Get-WatchProperty $claim 'claimId' '') -ne $ClaimId) {
+            throw 'Capacity slot ownership changed.'
+        }
+        foreach ($name in $Changes.Keys) {
+            $claim | Add-Member -NotePropertyName $name -NotePropertyValue $Changes[$name] -Force
+        }
+        Write-WatchJsonAtomic -Path $path -Value $claim
+        return $claim
+    }
+    finally {
+        Exit-CapacityMutex -Mutex $mutex
+    }
+}
+
+function Release-CapacitySlot {
+    param(
+        [Parameter(Mandatory = $true)][ValidateRange(1, 6)][int]$Id,
+        [AllowEmptyString()][string]$ExpectedClaimId = '',
+        [switch]$OwnerCompletionObserved
+    )
+
+    $mutex = Enter-CapacityMutex
+    try {
+        $path = Get-CapacitySlotPath -Id $Id
+        $claim = Read-WatchJson -Path $path -Required
+        if (-not [string]::IsNullOrWhiteSpace($ExpectedClaimId) -and
+            [string](Get-WatchProperty $claim 'claimId' '') -ne $ExpectedClaimId) {
+            throw 'Capacity slot ownership changed.'
+        }
+        $proof = Get-CapacityReleaseProof -Claim $claim -OwnerCompletionObserved:$OwnerCompletionObserved
+        if (-not $proof.safe) {
+            $exception = [System.InvalidOperationException]::new(
+                'Capacity slot cannot be released because terminal or pre-click state is not proven.'
+            )
+            $exception.Data['Category'] = 'ConcurrencySlotRecoveryRequired'
+            throw $exception
+        }
+        [System.IO.File]::Delete($path)
+        return [ordered]@{ ok = $true; command = 'release-slot'; slotId = $Id; proof = $proof.reason }
+    }
+    finally {
+        Exit-CapacityMutex -Mutex $mutex
+    }
+}
+
+function Acquire-CapacitySlot {
+    param(
+        [Parameter(Mandatory = $true)][string]$ThreadId,
+        [Parameter(Mandatory = $true)][string]$RoundId,
+        [Parameter(Mandatory = $true)][string]$EvidenceDirectory
+    )
+
+    $mutex = Enter-CapacityMutex
+    try {
+        $claims = [System.Collections.ArrayList]::new()
+        $unsafeOrphan = $false
+        $unsafeThreadOrphan = $false
+        foreach ($id in 1..$Script:CapacitySlotCount) {
+            $path = Get-CapacitySlotPath -Id $id
+            $claim = Read-WatchJson -Path $path
+            if ($null -eq $claim) { continue }
+            if (-not (Test-CapacityOwnerAlive -Claim $claim)) {
+                $proof = Get-CapacityReleaseProof -Claim $claim
+                if ($proof.safe) {
+                    [System.IO.File]::Delete($path)
+                    continue
+                }
+                $unsafeOrphan = $true
+                if ([string](Get-WatchProperty $claim 'codexThreadId' '') -eq $ThreadId) {
+                    $unsafeThreadOrphan = $true
+                }
+            }
+            $null = $claims.Add($claim)
+        }
+        if (@($claims | Where-Object { [string](Get-WatchProperty $_ 'codexThreadId' '') -eq $ThreadId }).Count -ge $Script:PerThreadSlotCount) {
+            $category = if ($unsafeThreadOrphan) { 'ConcurrencySlotRecoveryRequired' } else { 'ConcurrencySlotQueued' }
+            return [pscustomobject]@{ acquired = $false; category = $category; reason = 'per-thread-capacity' }
+        }
+        $usedIds = @($claims | ForEach-Object { [int](Get-WatchProperty $_ 'slotId' 0) })
+        $freeId = @(1..$Script:CapacitySlotCount | Where-Object { $usedIds -notcontains $_ } | Select-Object -First 1)
+        if ($freeId.Count -eq 0) {
+            $category = if ($unsafeOrphan) { 'ConcurrencySlotRecoveryRequired' } else { 'ConcurrencySlotQueued' }
+            return [pscustomobject]@{ acquired = $false; category = $category; reason = 'global-capacity' }
+        }
+        $slotIdValue = [int]$freeId[0]
+        $claimId = [guid]::NewGuid().ToString()
+        $owner = Get-CapacityProcessIdentity
+        $claim = [ordered]@{
+            schemaVersion = 1
+            slotId = $slotIdValue
+            claimId = $claimId
+            codexThreadId = $ThreadId
+            roundId = $RoundId
+            evidenceDirectory = [System.IO.Path]::GetFullPath($EvidenceDirectory)
+            evidenceDirectorySha256 = Get-WatchSha256Text -Text ([System.IO.Path]::GetFullPath($EvidenceDirectory).ToLowerInvariant())
+            watcherId = ''
+            ownerPid = $owner.processId
+            ownerProcessStartedAtUtc = $owner.processStartedAtUtc
+            phase = 'slot-acquired-pre-send'
+            submissionAttempted = $false
+            acquiredAtUtc = [datetime]::UtcNow.ToString('o')
+        }
+        Write-CapacityClaimCreateNew -Path (Get-CapacitySlotPath -Id $slotIdValue) -Value $claim
+        return [pscustomobject]@{ acquired = $true; slotId = $slotIdValue; claimId = $claimId; claim = $claim }
+    }
+    finally {
+        Exit-CapacityMutex -Mutex $mutex
+    }
+}
+
+function Get-CapacitySlots {
+    $items = foreach ($id in 1..$Script:CapacitySlotCount) {
+        $claim = Read-WatchJson -Path (Get-CapacitySlotPath -Id $id)
+        if ($null -eq $claim) { continue }
+        [ordered]@{
+            slotId = $id
+            codexThreadId = [string](Get-WatchProperty $claim 'codexThreadId' '')
+            roundId = [string](Get-WatchProperty $claim 'roundId' '')
+            evidenceDirectorySha256 = [string](Get-WatchProperty $claim 'evidenceDirectorySha256' '')
+            watcherId = [string](Get-WatchProperty $claim 'watcherId' '')
+            ownerPid = [int](Get-WatchProperty $claim 'ownerPid' 0)
+            ownerProcessStartedAtUtc = [string](Get-WatchProperty $claim 'ownerProcessStartedAtUtc' '')
+            ownerAlive = Test-CapacityOwnerAlive -Claim $claim
+            phase = [string](Get-WatchProperty $claim 'phase' '')
+        }
+    }
+    return [ordered]@{ ok = $true; command = 'slots'; slots = @($items) }
+}
+
+function Resolve-BatchContainedPath {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$Root,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Path) -or -not [System.IO.Path]::IsPathRooted($Path)) {
+        throw "$Label must be an absolute path."
+    }
+    $full = [System.IO.Path]::GetFullPath($Path)
+    $prefix = [System.IO.Path]::GetFullPath($Root).TrimEnd([System.IO.Path]::DirectorySeparatorChar) + [System.IO.Path]::DirectorySeparatorChar
+    if (-not $full.StartsWith($prefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "$Label must stay inside the batch manifest directory."
+    }
+    $cursor = if ([System.IO.File]::Exists($full)) { [System.IO.Path]::GetDirectoryName($full) } else { $full }
+    while (-not [string]::IsNullOrWhiteSpace($cursor) -and $cursor.StartsWith($prefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+        if (([System.IO.File]::GetAttributes($cursor) -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw "$Label cannot cross a reparse point."
+        }
+        $cursor = [System.IO.Path]::GetDirectoryName($cursor)
+    }
+    return $full
+}
+
+function Read-RootWaitBatchManifest {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    if ([string]::IsNullOrWhiteSpace($Path) -or -not [System.IO.File]::Exists($Path)) {
+        throw 'ManifestPath must be an existing JSON file.'
+    }
+    $fullPath = [System.IO.Path]::GetFullPath($Path)
+    $root = [System.IO.Path]::GetDirectoryName($fullPath)
+    $manifest = Read-WatchJson -Path $fullPath -Required
+    if ([int](Get-WatchProperty $manifest 'schemaVersion' 0) -ne 1) {
+        throw 'Batch manifest schemaVersion must be 1.'
+    }
+    $threadId = [string](Get-WatchProperty $manifest 'codexThreadId' '')
+    if (-not (Test-WatchThreadId -Value $threadId)) {
+        throw 'Batch manifest codexThreadId must be an exact UUID.'
+    }
+    $maxConcurrency = [int](Get-WatchProperty $manifest 'maxConcurrency' 3)
+    if ($maxConcurrency -lt 1 -or $maxConcurrency -gt $Script:PerThreadSlotCount) {
+        throw 'Batch maxConcurrency must be between 1 and 3.'
+    }
+    $batchTimeout = [int](Get-WatchProperty $manifest 'timeoutSeconds' 7200)
+    if ($batchTimeout -lt 30 -or $batchTimeout -gt 86400) {
+        throw 'Batch timeoutSeconds must be between 30 and 86400.'
+    }
+    $rounds = @(Get-WatchProperty $manifest 'rounds' @())
+    if ($rounds.Count -lt 1 -or $rounds.Count -gt $Script:MaximumBatchRounds) {
+        throw "Batch rounds must contain between 1 and $($Script:MaximumBatchRounds) items."
+    }
+    $seenRoundIds = @{}
+    $seenKeys = @{}
+    $seenEvidence = @{}
+    $seenTargets = @{}
+    $normalized = [System.Collections.ArrayList]::new()
+    foreach ($round in $rounds) {
+        $roundId = [string](Get-WatchProperty $round 'roundId' '')
+        if ($roundId -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$' -or $seenRoundIds.ContainsKey($roundId)) {
+            throw 'Batch roundId values must be unique bounded identifiers.'
+        }
+        $seenRoundIds[$roundId] = $true
+        $key = [string](Get-WatchProperty $round 'idempotencyKey' '')
+        if ([string]::IsNullOrWhiteSpace($key) -or $key.Length -gt 512 -or $seenKeys.ContainsKey($key)) {
+            throw 'Batch idempotencyKey values must be non-empty, unique, and at most 512 characters.'
+        }
+        $seenKeys[$key] = $true
+        $prompt = Resolve-BatchContainedPath -Path ([string](Get-WatchProperty $round 'promptPath' '')) -Root $root -Label 'promptPath'
+        $evidence = Resolve-BatchContainedPath -Path ([string](Get-WatchProperty $round 'evidenceDirectory' '')) -Root $root -Label 'evidenceDirectory'
+        if (-not [System.IO.File]::Exists($prompt)) { throw 'Every batch promptPath must exist.' }
+        if (-not [System.IO.Directory]::Exists($evidence)) { throw 'Every batch evidenceDirectory must exist.' }
+        if (@([System.IO.Directory]::EnumerateFileSystemEntries($evidence)).Count -ne 0) {
+            throw 'Every batch evidenceDirectory must be empty before its first send.'
+        }
+        $evidenceKey = $evidence.ToLowerInvariant()
+        if ($seenEvidence.ContainsKey($evidenceKey)) { throw 'Batch evidenceDirectory values must be unique.' }
+        $seenEvidence[$evidenceKey] = $true
+        $target = Get-WatchProperty $round 'targetBinding' $null
+        $targetValues = @(
+            [string](Get-WatchProperty $target 'browserId' ''),
+            [string](Get-WatchProperty $target 'profileId' ''),
+            [string](Get-WatchProperty $target 'tabId' ''),
+            [string](Get-WatchProperty $target 'sessionKey' '')
+        )
+        $targetCount = @($targetValues | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }).Count
+        if ($targetCount -ne 0 -and $targetCount -ne 4) {
+            throw 'Each batch targetBinding must be complete or omitted.'
+        }
+        if ($rounds.Count -gt 1 -and $targetCount -ne 4) {
+            throw 'Multi-round batches require one complete targetBinding per round.'
+        }
+        if ($targetCount -eq 4) {
+            $targetKey = $targetValues -join [char]31
+            if ($seenTargets.ContainsKey($targetKey)) {
+                throw 'Batch targetBinding values must be unique.'
+            }
+            $seenTargets[$targetKey] = $true
+        }
+        $null = $normalized.Add([pscustomobject]@{
+            RoundId = $roundId
+            PromptPath = $prompt
+            EvidenceDirectory = $evidence
+            IdempotencyKey = $key
+            TargetBinding = $target
+            FreshConversation = [bool](Get-WatchProperty $round 'freshConversation' $false)
+        })
+    }
+    return [pscustomobject]@{
+        Path = $fullPath
+        Root = $root
+        CodexThreadId = $threadId.ToLowerInvariant()
+        MaxConcurrency = $maxConcurrency
+        TimeoutSeconds = $batchTimeout
+        Rounds = @($normalized)
+        ResultPath = Join-Path $root $Script:BatchResultFileName
+    }
+}
+
+function New-BatchRoundArgumentList {
+    param(
+        [Parameter(Mandatory = $true)]$Round,
+        [Parameter(Mandatory = $true)][string]$ThreadId,
+        [Parameter(Mandatory = $true)][int]$RoundTimeoutSeconds
+    )
+
+    foreach ($path in @($Script:WatcherScriptPath, $Round.PromptPath, $Round.EvidenceDirectory)) {
+        if ([string]$path -match '"') { throw 'Batch process paths cannot contain a double quote.' }
+    }
+    $arguments = @(
+        '-NoProfile', '-NonInteractive', '-File', $Script:WatcherScriptPath, 'run-root',
+        '-EvidenceDir', $Round.EvidenceDirectory,
+        '-CodexThreadId', $ThreadId,
+        '-PromptPath', $Round.PromptPath,
+        '-IdempotencyKey', [string]$Round.IdempotencyKey,
+        '-TimeoutSeconds', [string]$RoundTimeoutSeconds
+    )
+    $target = $Round.TargetBinding
+    if ($null -ne $target) {
+        $arguments += @(
+            '-BrowserId', [string](Get-WatchProperty $target 'browserId' ''),
+            '-Profile', [string](Get-WatchProperty $target 'profileId' ''),
+            '-TabId', [string](Get-WatchProperty $target 'tabId' ''),
+            '-SessionKey', [string](Get-WatchProperty $target 'sessionKey' '')
+        )
+    }
+    if ($Round.FreshConversation) { $arguments += '-FreshConversation' }
+    return @($arguments | ForEach-Object { ConvertTo-WatchWindowsProcessArgument -Value ([string]$_) })
+}
+
+function Start-BatchRoundProcess {
+    param(
+        [Parameter(Mandatory = $true)]$Round,
+        [Parameter(Mandatory = $true)][string]$ThreadId,
+        [Parameter(Mandatory = $true)][int]$RoundTimeoutSeconds,
+        [Parameter(Mandatory = $true)][string]$RuntimeDirectory
+    )
+
+    $stdout = Join-Path $RuntimeDirectory ($Round.RoundId + '.stdout.log')
+    $stderr = Join-Path $RuntimeDirectory ($Round.RoundId + '.stderr.log')
+    $process = Start-Process -FilePath 'powershell.exe' `
+        -ArgumentList (New-BatchRoundArgumentList -Round $Round -ThreadId $ThreadId -RoundTimeoutSeconds $RoundTimeoutSeconds) `
+        -WindowStyle Hidden `
+        -RedirectStandardOutput $stdout `
+        -RedirectStandardError $stderr `
+        -PassThru
+    return [pscustomobject]@{ Process = $process; StdoutPath = $stdout; StderrPath = $stderr }
+}
+
+function Read-BatchRoundProcessResult {
+    param(
+        [Parameter(Mandatory = $true)]$ActiveRound,
+        [Parameter(Mandatory = $true)][datetime]$CompletedAt,
+        [scriptblock]$ReadLinesAction = {
+            param($Path)
+            [System.IO.File]::ReadAllLines($Path, $Script:Utf8NoBom)
+        },
+        [scriptblock]$SleepAction = { Start-Sleep -Milliseconds 50 }
+    )
+
+    $process = $ActiveRound.Process
+    $process.WaitForExit()
+    try { $process.Dispose() } catch { }
+    $payload = $null
+    if ([System.IO.File]::Exists($ActiveRound.StdoutPath)) {
+        foreach ($attempt in 1..20) {
+            try {
+                $lines = @(& $ReadLinesAction $ActiveRound.StdoutPath | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+                break
+            }
+            catch {
+                $failure = $_.Exception
+                $isIoFailure = $false
+                while ($null -ne $failure) {
+                    if ($failure -is [System.IO.IOException]) {
+                        $isIoFailure = $true
+                        break
+                    }
+                    $failure = $failure.InnerException
+                }
+                if (-not $isIoFailure) { throw }
+                if ($attempt -eq 20) {
+                    $lines = @()
+                    break
+                }
+                & $SleepAction
+            }
+        }
+        if ($lines.Count -gt 0) {
+            try { $payload = $lines[-1] | ConvertFrom-Json } catch { $payload = $null }
+        }
+    }
+    $state = Read-WatchJson -Path (Join-Path $ActiveRound.Round.EvidenceDirectory 'state.json')
+    $event = Read-WatchJson -Path (Join-Path $ActiveRound.Round.EvidenceDirectory $Script:EventFileName)
+    $terminalStatus = [string](Get-WatchProperty $payload 'terminalStatus' '')
+    if ([string]::IsNullOrWhiteSpace($terminalStatus)) {
+        $eventStatus = [string](Get-WatchProperty $event 'status' '')
+        if ($Script:TerminalStatuses -contains $eventStatus) {
+            $terminalStatus = $eventStatus
+        }
+    }
+    $errorCategory = [string](Get-WatchProperty $payload 'category' '')
+    if ([string]::IsNullOrWhiteSpace($errorCategory)) {
+        $errorCategory = [string](Get-WatchProperty $state 'preInvokeFailureCategory' '')
+    }
+    $target = Get-WatchProperty $state 'targetBinding' $ActiveRound.Round.TargetBinding
+    $conversationUrl = [string](Get-WatchProperty $state 'conversationUrlBound' '')
+    if ([string]::IsNullOrWhiteSpace($conversationUrl)) {
+        $conversationUrl = [string](Get-WatchProperty $event 'conversationUrl' '')
+    }
+    return [ordered]@{
+        roundId = $ActiveRound.Round.RoundId
+        status = if ([string]::IsNullOrWhiteSpace($terminalStatus)) { 'failed' } else { $terminalStatus }
+        terminalStatus = $terminalStatus
+        errorCategory = if ([string]::IsNullOrWhiteSpace($errorCategory)) { $null } else { $errorCategory }
+        submissionAcknowledged = [bool](Get-WatchProperty $payload 'submissionAcknowledged' (Get-WatchProperty $state 'submissionAcknowledged' $false))
+        targetBinding = $target
+        conversationUrl = $conversationUrl
+        promptSha256 = [string](Get-WatchProperty $state 'promptSha256' '')
+        responseSha256 = [string](Get-WatchProperty $state 'responseSha256' '')
+        evidenceSha256 = [string](Get-WatchProperty $state 'evidenceSha256' '')
+        watcherId = [string](Get-WatchProperty $payload 'watcherId' (Get-WatchProperty $event 'watcherId' ''))
+        evidenceDirectory = $ActiveRound.Round.EvidenceDirectory
+        slotId = $ActiveRound.SlotId
+        slotWaitMilliseconds = [math]::Round(($ActiveRound.StartedAt - $ActiveRound.QueuedAt).TotalMilliseconds)
+        runDurationMilliseconds = [math]::Round(($CompletedAt - $ActiveRound.StartedAt).TotalMilliseconds)
+    }
+}
+
+function Invoke-RootWaitBatch {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [AllowEmptyString()][string]$ExpectedThreadId = '',
+        [scriptblock]$NowAction = { [datetime]::UtcNow },
+        [scriptblock]$SleepAction = { param($milliseconds) Start-Sleep -Milliseconds $milliseconds }
+    )
+
+    $manifest = Read-RootWaitBatchManifest -Path $Path
+    if (-not [string]::IsNullOrWhiteSpace($ExpectedThreadId) -and
+        $manifest.CodexThreadId -ne $ExpectedThreadId.ToLowerInvariant()) {
+        throw 'Batch manifest belongs to another Codex task.'
+    }
+    $batchId = [guid]::NewGuid().ToString()
+    $runtime = Join-Path $manifest.Root ('.batch-runtime-' + $batchId)
+    [System.IO.Directory]::CreateDirectory($runtime) | Out-Null
+    $startedAt = & $NowAction
+    $deadline = $startedAt.AddSeconds($manifest.TimeoutSeconds)
+    $queued = [System.Collections.ArrayList]::new()
+    foreach ($round in $manifest.Rounds) {
+        $null = $queued.Add([pscustomobject]@{ Round = $round; QueuedAt = $startedAt })
+    }
+    $active = [System.Collections.ArrayList]::new()
+    $results = [System.Collections.ArrayList]::new()
+    $maxObserved = 0
+
+    while ($queued.Count -gt 0 -or $active.Count -gt 0) {
+        $now = & $NowAction
+        while ($queued.Count -gt 0 -and $active.Count -lt $manifest.MaxConcurrency -and $now -lt $deadline) {
+            $queuedItem = $queued[0]
+            $slot = Acquire-CapacitySlot `
+                -ThreadId $manifest.CodexThreadId `
+                -RoundId $queuedItem.Round.RoundId `
+                -EvidenceDirectory $queuedItem.Round.EvidenceDirectory
+            if (-not $slot.acquired) {
+                if ($slot.category -eq 'ConcurrencySlotRecoveryRequired') {
+                    $null = $results.Add([ordered]@{
+                        roundId = $queuedItem.Round.RoundId
+                        status = 'recovery-required'
+                        terminalStatus = ''
+                        errorCategory = 'ConcurrencySlotRecoveryRequired'
+                        submissionAcknowledged = $false
+                        targetBinding = $queuedItem.Round.TargetBinding
+                        conversationUrl = ''
+                        promptSha256 = ''
+                        responseSha256 = ''
+                        evidenceSha256 = ''
+                        watcherId = ''
+                        evidenceDirectory = $queuedItem.Round.EvidenceDirectory
+                        slotId = $null
+                        slotWaitMilliseconds = [math]::Round(($now - $queuedItem.QueuedAt).TotalMilliseconds)
+                        runDurationMilliseconds = 0
+                    })
+                    $queued.RemoveAt(0)
+                    continue
+                }
+                break
+            }
+            $null = $queued.RemoveAt(0)
+            $null = Set-CapacitySlotClaim -Id $slot.slotId -ClaimId $slot.claimId -Changes ([ordered]@{
+                phase = 'run-starting'; submissionAttempted = $true
+            })
+            $remaining = [Math]::Max(30, [int][Math]::Ceiling(($deadline - $now).TotalSeconds))
+            try {
+                $started = Start-BatchRoundProcess `
+                    -Round $queuedItem.Round `
+                    -ThreadId $manifest.CodexThreadId `
+                    -RoundTimeoutSeconds $remaining `
+                    -RuntimeDirectory $runtime
+            }
+            catch {
+                $null = Set-CapacitySlotClaim -Id $slot.slotId -ClaimId $slot.claimId -Changes ([ordered]@{
+                    phase = 'pre-click-unsent'; submissionAttempted = $false
+                })
+                $null = Release-CapacitySlot -Id $slot.slotId -ExpectedClaimId $slot.claimId -OwnerCompletionObserved
+                throw
+            }
+            $owner = Get-CapacityProcessIdentity -ProcessId $started.Process.Id
+            $null = Set-CapacitySlotClaim -Id $slot.slotId -ClaimId $slot.claimId -Changes ([ordered]@{
+                ownerPid = $owner.processId
+                ownerProcessStartedAtUtc = $owner.processStartedAtUtc
+            })
+            $null = $active.Add([pscustomobject]@{
+                Round = $queuedItem.Round
+                QueuedAt = $queuedItem.QueuedAt
+                StartedAt = $now
+                SlotId = $slot.slotId
+                ClaimId = $slot.claimId
+                Process = $started.Process
+                StdoutPath = $started.StdoutPath
+                StderrPath = $started.StderrPath
+            })
+            $maxObserved = [Math]::Max($maxObserved, $active.Count)
+            $now = & $NowAction
+        }
+
+        foreach ($item in @($active)) {
+            $item.Process.Refresh()
+            if (-not $item.Process.HasExited) { continue }
+            $completedAt = & $NowAction
+            $result = Read-BatchRoundProcessResult -ActiveRound $item -CompletedAt $completedAt
+            $null = $results.Add($result)
+            if ($Script:TerminalStatuses -contains $result.terminalStatus) {
+                $null = Set-CapacitySlotClaim -Id $item.SlotId -ClaimId $item.ClaimId -Changes ([ordered]@{
+                    phase = 'terminal'; watcherId = $result.watcherId; terminalStatus = $result.terminalStatus
+                })
+            }
+            try {
+                $null = Release-CapacitySlot -Id $item.SlotId -ExpectedClaimId $item.ClaimId -OwnerCompletionObserved
+            }
+            catch {
+                $result.status = 'recovery-required'
+                $result.errorCategory = 'ConcurrencySlotRecoveryRequired'
+            }
+            $item.Process.Dispose()
+            $null = $active.Remove($item)
+        }
+
+        $now = & $NowAction
+        if ($now -ge $deadline -and $queued.Count -gt 0) {
+            foreach ($queuedItem in @($queued)) {
+                $null = $results.Add([ordered]@{
+                    roundId = $queuedItem.Round.RoundId
+                    status = 'queued-timeout'
+                    terminalStatus = ''
+                    errorCategory = 'ConcurrencySlotTimeout'
+                    submissionAcknowledged = $false
+                    targetBinding = $queuedItem.Round.TargetBinding
+                    conversationUrl = ''
+                    promptSha256 = ''
+                    responseSha256 = ''
+                    evidenceSha256 = ''
+                    watcherId = ''
+                    evidenceDirectory = $queuedItem.Round.EvidenceDirectory
+                    slotId = $null
+                    slotWaitMilliseconds = [math]::Round(($now - $queuedItem.QueuedAt).TotalMilliseconds)
+                    runDurationMilliseconds = 0
+                })
+            }
+            $queued.Clear()
+        }
+
+        $batchState = [ordered]@{
+            schemaVersion = 1
+            batchId = $batchId
+            command = 'run-batch-root'
+            codexThreadId = $manifest.CodexThreadId
+            status = if ($queued.Count -eq 0 -and $active.Count -eq 0) { 'terminal' } else { 'running' }
+            allSucceeded = $false
+            maxConcurrency = $manifest.MaxConcurrency
+            maxObservedConcurrency = $maxObserved
+            pollingConsumesModelTokens = $false
+            startedAtUtc = $startedAt.ToString('o')
+            resultFile = $Script:BatchResultFileName
+            items = @($results)
+        }
+        Write-WatchJsonAtomic -Path $manifest.ResultPath -Value $batchState
+        if ($queued.Count -gt 0 -or $active.Count -gt 0) {
+            & $SleepAction 100
+        }
+    }
+
+    $final = Read-WatchJson -Path $manifest.ResultPath -Required
+    $final.allSucceeded = @($final.items).Count -eq $manifest.Rounds.Count -and
+        @($final.items | Where-Object { $_.terminalStatus -ne 'completed' }).Count -eq 0
+    $final | Add-Member -NotePropertyName completedAtUtc -NotePropertyValue ((& $NowAction).ToString('o')) -Force
+    Write-WatchJsonAtomic -Path $manifest.ResultPath -Value $final
+    return $final
+}
+
 function Invoke-RootWaitRound {
     param(
         [Parameter(Mandatory = $true)][string]$EvidenceDirectory,
         [Parameter(Mandatory = $true)][string]$ThreadId,
         [Parameter(Mandatory = $true)][string]$PromptFile,
         [Parameter(Mandatory = $true)][string]$IdempotencyKeyValue,
+        [AllowEmptyString()][string]$BrowserIdValue = '',
+        [AllowEmptyString()][string]$ProfileValue = '',
+        [AllowEmptyString()][string]$TabIdValue = '',
+        [AllowEmptyString()][string]$SessionKeyValue = '',
         [switch]$RequireFreshConversation
     )
 
@@ -1678,6 +2441,11 @@ function Invoke-RootWaitRound {
             -PromptFile $PromptFile `
             -EvidenceDirectory $EvidenceDirectory `
             -IdempotencyKeyValue $IdempotencyKeyValue `
+            -CodexThreadIdValue $ThreadId `
+            -BrowserIdValue $BrowserIdValue `
+            -ProfileValue $ProfileValue `
+            -TabIdValue $TabIdValue `
+            -SessionKeyValue $SessionKeyValue `
             -RequireFreshConversation:$RequireFreshConversation
     }
     catch {
@@ -1733,12 +2501,27 @@ function Invoke-RootWaitRound {
 }
 
 function Invoke-WatchMain {
-    if (@('run-root', 'start', 'worker', 'status', 'wait-root', 'acknowledge', 'acknowledge-monitor', 'acknowledge-root') -notcontains $Command) {
-        throw 'Command must be run-root, start, worker, status, wait-root, acknowledge, acknowledge-monitor, or acknowledge-root.'
+    if (@('run-root', 'run-batch-root', 'slots', 'release-slot', 'start', 'worker', 'status', 'wait-root', 'acknowledge', 'acknowledge-monitor', 'acknowledge-root') -notcontains $Command) {
+        throw 'Command must be run-root, run-batch-root, slots, release-slot, start, worker, status, wait-root, acknowledge, acknowledge-monitor, or acknowledge-root.'
     }
-    $directory = Resolve-WatchEvidenceDirectory -Path $EvidenceDir
     switch ($Command) {
+        'run-batch-root' {
+            if ($NoWake -or $AgentMonitor -or $RootWait -or $KeepLauncherAlive -or $FreshConversation) {
+                throw 'run-batch-root owns each RootWait lifecycle; watcher mode switches are invalid.'
+            }
+            return Invoke-RootWaitBatch -Path $ManifestPath -ExpectedThreadId $CodexThreadId
+        }
+        'slots' {
+            return Get-CapacitySlots
+        }
+        'release-slot' {
+            if ($SlotId -lt 1 -or $SlotId -gt $Script:CapacitySlotCount) {
+                throw 'SlotId must be between 1 and 6.'
+            }
+            return Release-CapacitySlot -Id $SlotId
+        }
         'run-root' {
+            $directory = Resolve-WatchEvidenceDirectory -Path $EvidenceDir
             if ($NoWake -or $AgentMonitor -or $KeepLauncherAlive) {
                 throw 'run-root owns the RootWait lifecycle; NoWake, AgentMonitor, and KeepLauncherAlive are invalid.'
             }
@@ -1747,9 +2530,14 @@ function Invoke-WatchMain {
                 -ThreadId $CodexThreadId `
                 -PromptFile $PromptPath `
                 -IdempotencyKeyValue $IdempotencyKey `
+                -BrowserIdValue $BrowserId `
+                -ProfileValue $Profile `
+                -TabIdValue $TabId `
+                -SessionKeyValue $SessionKey `
                 -RequireFreshConversation:$FreshConversation
         }
         'start' {
+            $directory = Resolve-WatchEvidenceDirectory -Path $EvidenceDir
             if (-not $RootWait -or $NoWake -or $AgentMonitor) {
                 throw 'The V2 watcher must be started with RootWait; NoWake, AgentMonitor, and Stop Hook modes are disabled.'
             }
@@ -1762,6 +2550,7 @@ function Invoke-WatchMain {
                 -KeepLauncherAlive:$KeepLauncherAlive
         }
         'worker' {
+            $directory = Resolve-WatchEvidenceDirectory -Path $EvidenceDir
             if (-not $RootWait -or $AgentMonitor) {
                 throw 'The V2 worker is internal to RootWait; Stop Hook and model-monitor workers are disabled.'
             }
@@ -1775,21 +2564,26 @@ function Invoke-WatchMain {
                 -RootWait:$RootWait
         }
         'status' {
+            $directory = Resolve-WatchEvidenceDirectory -Path $EvidenceDir
             return Get-WatchStatus -EvidenceDirectory $directory
         }
         'wait-root' {
+            $directory = Resolve-WatchEvidenceDirectory -Path $EvidenceDir
             return Wait-RootWatchEvent `
                 -EvidenceDirectory $directory `
                 -ThreadId $CodexThreadId `
                 -WaitTimeoutSeconds $TimeoutSeconds
         }
         'acknowledge' {
+            $directory = Resolve-WatchEvidenceDirectory -Path $EvidenceDir
             return Acknowledge-WatchContinuation -EvidenceDirectory $directory -ThreadId $CodexThreadId
         }
         'acknowledge-monitor' {
+            $directory = Resolve-WatchEvidenceDirectory -Path $EvidenceDir
             return Acknowledge-AgentMonitor -EvidenceDirectory $directory -ThreadId $CodexThreadId
         }
         'acknowledge-root' {
+            $directory = Resolve-WatchEvidenceDirectory -Path $EvidenceDir
             return Acknowledge-RootWait -EvidenceDirectory $directory -ThreadId $CodexThreadId
         }
     }
@@ -1806,11 +2600,15 @@ if ($MyInvocation.InvocationName -ne '.') {
         exit 0
     }
     catch {
+        $category = 'WatcherError'
+        if ($_.Exception.Data.Contains('Category')) {
+            $category = [string]$_.Exception.Data['Category']
+        }
         [ordered]@{
             ok = $false
             command = $Command
             code = 1
-            category = 'WatcherError'
+            category = $category
             message = $_.Exception.Message
         } | ConvertTo-Json -Depth 6 -Compress
         exit 1

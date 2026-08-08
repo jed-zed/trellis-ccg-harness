@@ -1,0 +1,73 @@
+{
+  "schemaVersion": 1,
+  "purpose": "Task-local excerpts for PLAN_REVIEW plan-v2 because the bounded product-manager snapshot excludes installed Skill and plugin paths.",
+  "capturedFromGitHead": "08b145289d4e8ed76027a06c6fbf1d88cbd39f3a",
+  "sources": [
+    {
+      "path": ".agents/skills/chatgpt-pro-sidebar/scripts/chatgpt-pro-sidebar.ps1",
+      "sha256": "f1e20ba11ea7156fd2bfcfc9ddf30086a035023ae978a30f04bfd4c53aec6b4a",
+      "facts": [
+        {
+          "lines": "432-446",
+          "fact": "Enter-EvidenceLock already protects one evidence directory with FileShare.None."
+        },
+        {
+          "lines": "474-545",
+          "fact": "Reserve-GlobalIdempotencyKey uses FileMode.CreateNew, flushes durably, and stores automaticResendAllowed=false."
+        },
+        {
+          "lines": "547-560,4763-4767",
+          "fact": "Every command currently acquires the single fixed Local\\ChatGptProSidebarV1 mutex, so distinct tabs are serialized."
+        },
+        {
+          "lines": "3109-3155",
+          "fact": "New-SendIntentState records prompt/idempotency/baseline/URL/targetBinding but has no CodexThreadId parameter or state field."
+        },
+        {
+          "lines": "4022-4050",
+          "fact": "TargetBinding contains browserId/profileId/profileLabel/tabId/sessionKey/origin/url and exact matching requires the four opaque runtime identities."
+        },
+        {
+          "lines": "4052-4142",
+          "fact": "ExpectedBinding is exact; recovery requires one exact canonical URL in the same unambiguous profile/browser; unbound multiple tabs fail AgentBrowserTargetAmbiguous."
+        },
+        {
+          "lines": "4811-4818,4843-4858",
+          "fact": "send does not pass a caller-supplied target binding; run creates a new chat internally and passes only that returned binding."
+        }
+      ]
+    },
+    {
+      "path": ".agents/skills/chatgpt-pro-sidebar/scripts/chatgpt-pro-sidebar-watch.ps1",
+      "sha256": "30684ffc1bc3f546d388220dc4448dba8e3c7ee85de40791128ba167fb6e7f39",
+      "facts": [
+        {
+          "lines": "1454-1569",
+          "fact": "RootWait continuation validation already binds codexThreadId and watcherId to terminal local evidence."
+        }
+      ]
+    },
+    {
+      "path": "components/ccg-workflow/plugins/ccg/skills/ccg-gptpro-bridge/scripts/gptpro_bridge.py",
+      "sha256": "8451595cb130b83c36f75edc939a643a106d543b1a12144167fbc7ab15d97840",
+      "facts": [
+        {
+          "lines": "1218-1226",
+          "fact": "ensure_unique_session_dir uses exists() in a loop and returns a candidate without atomic creation."
+        },
+        {
+          "lines": "1251-1253",
+          "fact": "BridgeSession.write_status writes status.json directly with write_text."
+        },
+        {
+          "lines": "1789-1876",
+          "fact": "append_gptpro_evidence performs an unlocked read-modify-write; dedupe is provider/sessionId/round and the final evidence write is direct write_text."
+        },
+        {
+          "lines": "1879-1908",
+          "fact": "save_response prevents conflicting response bytes but then calls the unlocked task-level evidence append before writing session status."
+        }
+      ]
+    }
+  ]
+}

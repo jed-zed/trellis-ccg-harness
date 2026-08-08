@@ -59,6 +59,52 @@ provider. It controls a user-approved external Chrome tab through
   The adapter does not fall back to clipboard, keyboard, coordinates, CDP, or
   prompt-bearing JavaScript.
 
+## Thread and target ownership
+
+- `send`, `wait`, `response`, and `run` require one exact UUID
+  `CodexThreadId`. V2 state, completion evidence, watcher state, and terminal
+  events persist that identity; every later read must match it before browser
+  access or response import.
+- Before the global idempotency reservation and before fill or click, `send`
+  atomically claims the target for the exact thread, evidence directory, and
+  idempotency key. A foreign thread or different active round fails closed.
+- A conversation with an exact canonical URL is claimed by persistent profile
+  plus URL. A fresh homepage without a stable conversation URL is claimed by
+  the complete browser/profile/tab/session identity and adopts the stable
+  profile-plus-URL claim after the first exact conversation URL is proved.
+- Claims have no TTL and are never automatically deleted. The same exact round
+  may recover idempotently; the same thread may start a different round on that
+  target only after the previous round is terminal or definitely failed before
+  invocation. `send-uncertain` never releases or transfers ownership.
+- Claim updates are serialized by the stable claim key, so two runtime tabs
+  showing the same canonical profile-plus-URL conversation cannot race a
+  terminal ownership handoff.
+- UI serialization is scoped by a SHA-256 of the complete runtime target
+  identity. Incomplete bindings fail closed, the same target is serialized,
+  and different complete targets may progress independently.
+- A long `wait` never holds the target mutex across the polling interval. Each
+  status or response observation acquires and releases the target mutex around
+  that single browser operation.
+
+## Concurrency limits
+
+- The accepted and enforced product limits are three active GPT Pro rounds per
+  Codex task and six active rounds per local user. Target/thread isolation and
+  both capacity caps must not be widened silently.
+- Batch timeout defaults to `7200` seconds. An item that never acquires a slot
+  ends as `queued-timeout` with `errorCategory=ConcurrencySlotTimeout` and
+  `submissionAcknowledged=false`; it must not be represented as sent.
+- An orphaned slot whose durable state proves neither pre-click-unsent nor
+  terminal remains isolated and returns `ConcurrencySlotRecoveryRequired`.
+- A slot owner's persisted process-start value is an ISO-8601 UTC identity, not
+  a local `DateTime` value. Liveness requires both the PID and the parsed UTC
+  process start to match after JSON `DateTime`/`DateTimeOffset`/string
+  round-trips; malformed or reused identities are dead owners, not matches.
+- Read-only diagnostics must expose current slot ownership, and one audited
+  recovery operation may release only a provably pre-click-unsent or terminal
+  slot. It must not delete idempotency or target claims or authorize another
+  click.
+
 ## New chat and focus
 
 - An already empty ChatGPT homepage is a valid fresh chat and requires no
@@ -95,6 +141,11 @@ provider. It controls a user-approved external Chrome tab through
   `generating=true`. Malformed or contradictory details remain failures.
 - Adapter subprocesses read the single JSON result without waiting for inherited
   daemon pipe EOF and have a bounded direct-process timeout.
+- Batch child stdout is diagnostic only because an inherited redirect handle
+  may keep it exclusively locked after the child exits. Durable fallback may
+  accept completion only from a watcher terminal event; nonterminal or
+  `send-uncertain` state cannot become `completed` and cannot release capacity
+  without separate durable pre-click-unsent or terminal proof.
 - Switching Codex tasks or using another application must not affect the
   external Chrome target. Browser recovery stays background-only and bound to
   the same profile and exact URL.
@@ -106,6 +157,15 @@ provider. It controls a user-approved external Chrome tab through
   mismatch, exact URL recovery, one-click uncertainty, user-turn
   acknowledgement, response isolation, RootWait-only launch, and no credential
   or prompt-bearing script access.
+- Unit coverage for distinct-target mutex coexistence, same-target exclusion,
+  stable-conversation claim serialization, incomplete-binding rejection,
+  same-round claim recovery, foreign-thread claim rejection, terminal
+  same-thread reuse, and cross-thread wait rejection before browser polling.
+- Unit coverage for the `7200`-second batch default, `queued-timeout` with
+  `ConcurrencySlotTimeout`, and fail-closed
+  `ConcurrencySlotRecoveryRequired` orphan handling, including UTC process-start
+  JSON round-trips, locked-stdout terminal fallback, and locked-stdout
+  nonterminal/`send-uncertain` rejection.
 - Harness conflicts must require `transport=agent-browser-cli-v2` and
   `continuation=codex-root-wait` while preserving the logical Skill/protocol
   name `chatgpt-pro-sidebar`.
@@ -121,7 +181,10 @@ provider. It controls a user-approved external Chrome tab through
 2. **Signature** — `run-root` requires `PromptPath`, an existing empty
    `EvidenceDir`, a unique opaque `IdempotencyKey`, the exact UUID
    `CodexThreadId`, and a bounded `TimeoutSeconds`; `FreshConversation` is
-   optional and retains the adapter's existing proof requirements.
+   optional and retains the adapter's existing proof requirements. A caller
+   selecting among multiple targets must pass the complete opaque
+   `BrowserId`, `ProfileId`, `TabId`, and `SessionKey` tuple; partial tuples
+   fail before adapter invocation.
 3. **Contract** — one process performs `send -> watcher start -> local wait` in
    that order. It returns only after a terminal event, leaves acknowledgement
    pending for independent Codex review, never resends, and never registers a
@@ -142,3 +205,37 @@ provider. It controls a user-approved external Chrome tab through
 7. **Wrong vs correct** — wrong: return to the model between `send`, `start`,
    and `wait-root`; correct: issue one `run-root` tool call, review its evidence,
    then invoke `acknowledge-root` exactly once.
+
+## Scenario: batch RootWait across tasks
+
+1. **Scope and trigger** — use `run-batch-root` when one Codex task has multiple
+   independent GPT Pro rounds. Each task supplies its own exact UUID and page
+   bindings; separate tasks may run concurrently under the shared user cap.
+2. **Signature** — the manifest stays inside one local batch directory and
+   declares schema version `1`, one exact `codexThreadId`, optional
+   `maxConcurrency` from `1` to `3`, optional timeout defaulting to `7200`, and
+   one or more rounds with unique IDs, prompt paths, evidence directories,
+   idempotency keys, and complete target bindings for multi-round batches.
+3. **Contract** — the parent process acquires capacity before starting a child
+   `run-root`. At most three children for one task and six for the local user may
+   run at once. An item without capacity remains local and must not open a page,
+   write the composer, or click Send.
+4. **Terminal evidence** — every item keeps independent watcher, URL, target,
+   prompt, response, and evidence hashes. The parent writes one atomic
+   `batch-result.json` with slot-wait and run-duration telemetry; local polling
+   does not consume model tokens.
+5. **Errors and recovery** — a queued item reaching its batch deadline becomes
+   `queued-timeout` with `ConcurrencySlotTimeout` and
+   `submissionAcknowledged=false`. A dead owner releases capacity only with
+   durable pre-click-unsent or terminal proof; otherwise it remains isolated as
+   `ConcurrencySlotRecoveryRequired`. No path authorizes an automatic resend.
+6. **Required tests** — prove per-task `3`, global `6`, a seventh item starting
+   no browser child, cross-thread slot ownership, atomic partial results,
+   duplicate-key rejection, UTC owner identity round-trip, locked-stdout
+   terminal fallback, nonterminal durable-evidence rejection, safe release
+   proof, and no-resend recovery.
+7. **Wrong vs correct** — wrong: treat a child exit or unreadable stdout as
+   terminal and free its slot; correct: classify stdout as diagnostic, consult
+   durable watcher state/event, and retain the slot as
+   `ConcurrencySlotRecoveryRequired` unless terminal or pre-click-unsent proof
+   exists.

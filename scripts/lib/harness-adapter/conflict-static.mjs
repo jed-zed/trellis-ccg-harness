@@ -310,17 +310,24 @@ function checkProviderSeparation({ contract, add }) {
     gptPro?.protocol === "chatgpt-pro-sidebar" &&
     gptPro?.skill === "chatgpt-pro-sidebar" &&
     gptPro?.transport === "agent-browser-cli-v2" &&
-    gptPro?.continuation === "codex-root-wait";
+    gptPro?.continuation === "codex-root-wait" &&
+    gptPro?.commands?.singleRound === "run-root" &&
+    gptPro?.commands?.batch === "run-batch-root" &&
+    gptPro?.commands?.slots === "slots" &&
+    gptPro?.commands?.diagnosticRelease === "release-slot" &&
+    gptPro?.batch?.defaultTimeoutSeconds === 7200 &&
+    gptPro?.batch?.perThreadConcurrency === 3 &&
+    gptPro?.batch?.globalConcurrency === 6;
   const valid = distinct && gptProValid;
   add(
     "provider-separation",
     "blocking",
     valid ? "ok" : "conflict",
     valid
-      ? "Official and compatible Grok credentials are separate; GPT Pro uses the credential-free external Chrome Skill boundary."
+      ? "Official and compatible Grok credentials are separate; GPT Pro uses the pinned external Chrome batch RootWait boundary."
       : "Provider credential namespaces overlap or the GPT Pro browser boundary drifted.",
     { credentialEnvNames: names, gptPro },
-    "Assign unique provider credentials and restore the GPT Pro Skill with agent-browser-cli-v2 and pure-script RootWait continuation.",
+    "Assign unique provider credentials and restore the GPT Pro Skill, transport, RootWait commands, and 3/6 batch limits.",
   );
 }
 

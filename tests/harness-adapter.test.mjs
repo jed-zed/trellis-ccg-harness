@@ -247,6 +247,17 @@ function adapterContract() {
         skill: "chatgpt-pro-sidebar",
         transport: "agent-browser-cli-v2",
         continuation: "codex-root-wait",
+        commands: {
+          singleRound: "run-root",
+          batch: "run-batch-root",
+          slots: "slots",
+          diagnosticRelease: "release-slot",
+        },
+        batch: {
+          defaultTimeoutSeconds: 7200,
+          perThreadConcurrency: 3,
+          globalConcurrency: 6,
+        },
       },
     },
     conflicts: {
@@ -1193,6 +1204,27 @@ test("GPT Pro model and sidebar provider drift are blocking", async () => {
       findingId: "provider-separation",
       mutate: (contract) => {
         contract.providers.gptPro.continuation = "codex-stop-hook";
+      },
+    },
+    {
+      name: "wrong batch command",
+      findingId: "provider-separation",
+      mutate: (contract) => {
+        contract.providers.gptPro.commands.batch = "start";
+      },
+    },
+    {
+      name: "widened per-task capacity",
+      findingId: "provider-separation",
+      mutate: (contract) => {
+        contract.providers.gptPro.batch.perThreadConcurrency = 4;
+      },
+    },
+    {
+      name: "widened global capacity",
+      findingId: "provider-separation",
+      mutate: (contract) => {
+        contract.providers.gptPro.batch.globalConcurrency = 7;
       },
     },
   ];
