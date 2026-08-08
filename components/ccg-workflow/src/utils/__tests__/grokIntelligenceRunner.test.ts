@@ -395,7 +395,7 @@ describe('isolated Grok runner lifecycle', () => {
     expect((await runGrokIntelligence(baseOptions({ consent: false }))).exitCode).toBe(4)
     expect(await runGrokIntelligence(baseOptions({ requirement: 'disabled' }))).toMatchObject({ exitCode: 0, status: 'skipped' })
     expect((await runGrokIntelligence(baseOptions({ runAcp: rateLimited }))).exitCode).toBe(2)
-    expect(await runGrokIntelligence(baseOptions({ requirement: 'preferred', runAcp: rateLimited }))).toMatchObject({ exitCode: 0, status: 'unavailable' })
+    expect(await runGrokIntelligence(baseOptions({ requirement: 'preferred', runAcp: rateLimited }))).toMatchObject({ exitCode: 0, status: 'invocation_failed' })
   })
 
   it('orders diagnostics before ACP, sends an exact env, and returns validated evidence', async () => {
@@ -419,10 +419,9 @@ describe('isolated Grok runner lifecycle', () => {
     expect(seenAcpOptions.cwd).toContain('snapshot')
     expect(seenAcpOptions.allowedCwdRoots).toEqual([seenAcpOptions.cwd])
     expect(seenAcpOptions.prompt).toContain('site:x.com')
-    expect(seenAcpOptions.prompt).toContain('Native XSearch')
-    expect(seenAcpOptions.prompt).toContain('does not count as source-backed evidence')
+    expect(seenAcpOptions.prompt).toContain('only when it is useful')
     expect(seenAcpOptions.prompt).toContain('Predeclared official domains: docs.x.ai')
-    expect(result).toMatchObject({ exitCode: 0, status: 'valid' })
+    expect(result).toMatchObject({ exitCode: 0, status: 'verified' })
     expect(result.evidence.model).toEqual({
       requested: 'grok-4.5',
       actual: 'grok-4.5',
@@ -436,7 +435,7 @@ describe('isolated Grok runner lifecycle', () => {
     await expect(stat(result.runRoot)).rejects.toMatchObject({ code: 'ENOENT' })
   })
 
-  it('fails a required verify action when the package is valid but all claims remain unresolved', async () => {
+  it('keeps a required verify response when its claims remain unresolved', async () => {
     const unresolvedText = 'No applicable evidence.\nCCG_CLAIMS_JSON:{"schemaVersion":1,"claims":[{"id":"claim-none","claim":"No applicable fact could be verified.","status":"unresolved","severity":"info","urls":[]}]}'
     const result = await runGrokIntelligence(baseOptions({
       action: 'verify',
@@ -446,8 +445,8 @@ describe('isolated Grok runner lifecycle', () => {
       }),
     }))
     expect(result).toMatchObject({
-      exitCode: 2,
-      status: 'verification_unresolved',
+      exitCode: 0,
+      status: 'received_unverified',
       evidence: {
         validation: {
           package_status: 'valid',
@@ -492,9 +491,10 @@ describe('isolated Grok runner lifecycle', () => {
     expect(runAcp).not.toHaveBeenCalled()
   })
 
-  it('fails closed on missing search, invented prose URLs, and cleanup failures', async () => {
+  it('keeps unverified responses while still failing cleanup', async () => {
     const noSearch = searchNotifications().filter((message: any) => !['tool_call', 'tool_call_update'].includes(message.params?.update?.sessionUpdate))
-    expect((await runGrokIntelligence(baseOptions({ runAcp: async () => ({ notifications: noSearch, mcpPreflight: { serversEmpty: true, toolCount: 0 } }) }))).exitCode).toBe(2)
+    expect(await runGrokIntelligence(baseOptions({ runAcp: async () => ({ notifications: noSearch, mcpPreflight: { serversEmpty: true, toolCount: 0 } }) })))
+      .toMatchObject({ exitCode: 0, status: 'received_unverified' })
 
     const invented = searchNotifications('https://docs.x.ai/build/cli/reference')
     const inventedMessage: any = invented.find((message: any) =>
@@ -510,7 +510,11 @@ describe('isolated Grok runner lifecycle', () => {
     const missingClaims = await runGrokIntelligence(baseOptions({
       runAcp: async () => ({ notifications: searchNotifications(undefined, 'Evidence collected.'), mcpPreflight: { serversEmpty: true, toolCount: 0 } }),
     }))
-    expect(missingClaims).toMatchObject({ exitCode: 2, status: 'unavailable' })
+    expect(missingClaims).toMatchObject({
+      exitCode: 0,
+      status: 'received_unverified',
+      evidence: { validation: { package_status: 'invalid', verification_outcome: 'unresolved' } },
+    })
 
     const cleanupFailure = await runGrokIntelligence(baseOptions({
       cleanupRunRoots: async () => { throw new Error('cleanup failed') },

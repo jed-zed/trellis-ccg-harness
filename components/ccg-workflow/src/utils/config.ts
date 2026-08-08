@@ -84,7 +84,7 @@ const DEFAULT_PRODUCT_MANAGER_CONFIG: ProductManagerConfig = {
   enabled: false,
   contract_version: '2',
   max_retries: 1,
-  timeout_ms: 180_000,
+  timeout_ms: 7_200_000,
   max_output_bytes: 1024 * 1024,
 }
 
@@ -143,7 +143,7 @@ export function normalizeProductManagerConfig(
     enabled,
     contract_version: '2',
     max_retries: integerField('max_retries', DEFAULT_PRODUCT_MANAGER_CONFIG.max_retries, 0, 2),
-    timeout_ms: integerField('timeout_ms', DEFAULT_PRODUCT_MANAGER_CONFIG.timeout_ms, 1_000, 600_000),
+    timeout_ms: integerField('timeout_ms', DEFAULT_PRODUCT_MANAGER_CONFIG.timeout_ms, 1_000, 7_200_000),
     max_output_bytes: integerField('max_output_bytes', DEFAULT_PRODUCT_MANAGER_CONFIG.max_output_bytes, 1_024, 8 * 1024 * 1024),
   }
 }

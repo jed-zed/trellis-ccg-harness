@@ -178,7 +178,7 @@ describe('Grok intelligence distribution', () => {
           runnerOptions = options
           return ({
             exitCode: 0,
-            status: 'valid',
+            status: 'verified',
             evidence: {
               normalized: { searches: [
                 { tool: 'web_search', status: 'completed' },
@@ -192,7 +192,7 @@ describe('Grok intelligence distribution', () => {
           })
         },
       })
-      expect(result).toMatchObject({ exitCode: 0, status: 'valid', webSearches: 1, xSearches: 1 })
+      expect(result).toMatchObject({ exitCode: 0, status: 'verified', webSearches: 1, xSearches: 1 })
       expect(result.bindings.map((binding: any) => binding.kind)).toEqual(['plan', 'diff', 'dependency'])
       expect(await fs.pathExists(join(root, result.manifestPath))).toBe(true)
       expect(result.manifestSha256).toMatch(/^[a-f0-9]{64}$/)
@@ -200,7 +200,7 @@ describe('Grok intelligence distribution', () => {
       expect(runnerOptions.allowedCcgPlanPaths).toEqual(['.codex/ccg/plans/plan.md'])
       expect(await fs.readJson(join(root, result.manifestPath))).toMatchObject({ model: 'grok-4.5' })
       expect((await fs.readJson(join(root, result.manifestPath))).prompt_sha256).toBe(
-        createHash('sha256').update('ccg-grok-intelligence-prompt-v10-predeclared-official-domains').digest('hex'),
+        createHash('sha256').update('ccg-grok-intelligence-prompt-v11-advisory-verification').digest('hex'),
       )
     }
     finally {
@@ -224,23 +224,38 @@ describe('Grok intelligence distribution', () => {
       await expect(runManualCommand('verify', { task: 'Verify current API.', config: join(root, 'config.toml'), diff: 'empty.diff', files: ['package.json'] }, { repoRoot: root }))
         .rejects
         .toThrow(/empty diff/i)
-      const runDiagnostics = vi.fn()
-      await expect(runManualCommand('verify', {
+      const runner = vi.fn(async () => ({
+        exitCode: 0,
+        status: 'received_unverified',
+        evidence: {
+          normalized: { searches: [] },
+          registry: { sources: [], searches: [] },
+          claims: [],
+          validation: { valid: false, package_status: 'invalid', verification_outcome: 'unresolved', qualifying_claims: [] },
+        },
+        raw: { notifications: [] },
+      }))
+      const result = await runManualCommand('verify', {
         task: 'Verify current API.',
         config: join(root, 'config.toml'),
         diff: 'change.diff',
         files: ['package.json'],
-      }, { repoRoot: root, runDiagnostics }))
-        .rejects
-        .toThrow(/official-domain/i)
-      expect(runDiagnostics).not.toHaveBeenCalled()
+      }, {
+        repoRoot: root,
+        paths: { grokHome: join(root, 'grok'), tempParent: join(root, 'runs') },
+        runDiagnostics: async () => ({ safe: true, version: 'grok 0.2.106', models: ['grok-4.5'] }),
+        gitState: async () => ({ head: '0123456789abcdef', dirtyDigest: 'repo-digest' }),
+        runner,
+      })
+      expect(result).toMatchObject({ exitCode: 0, status: 'received_unverified' })
+      expect(runner).toHaveBeenCalledOnce()
     }
     finally {
       await fs.remove(root)
     }
   })
 
-  it('refuses an unresolved required verify result even if a runner reports a structurally valid package', async () => {
+  it('persists an unresolved verify response as received but unverified', async () => {
     const root = join(tmpdir(), `ccg-grok-unresolved-verify-${Date.now()}`)
     await fs.ensureDir(root)
     await Promise.all([
@@ -262,7 +277,7 @@ describe('Grok intelligence distribution', () => {
         gitState: async () => ({ head: '0123456789abcdef', dirtyDigest: 'repo-digest' }),
         runner: async () => ({
           exitCode: 0,
-          status: 'valid',
+          status: 'received_unverified',
           evidence: {
             normalized: { searches: [{ tool: 'web_search', status: 'completed' }] },
             registry: { sources: [] },
@@ -273,13 +288,13 @@ describe('Grok intelligence distribution', () => {
         }),
       })
       expect(result).toMatchObject({
-        exitCode: 2,
-        status: 'verification_unresolved',
+        exitCode: 0,
+        status: 'received_unverified',
         package_status: 'valid',
         verification_outcome: 'unresolved',
       })
       expect(await fs.pathExists(join(root, '.codex', 'ccg', 'intelligence'))).toBe(true)
-      expect((await fs.readdir(join(root, '.codex', 'ccg', 'intelligence'))).filter(name => !name.startsWith('.'))).toEqual([])
+      expect((await fs.readdir(join(root, '.codex', 'ccg', 'intelligence'))).filter(name => !name.startsWith('.'))).toHaveLength(1)
     }
     finally {
       await fs.remove(root)
@@ -338,7 +353,7 @@ describe('Grok intelligence distribution', () => {
           seen = options
           return {
             exitCode: 0,
-            status: 'valid',
+            status: 'received_unverified',
             evidence: { normalized: { searches: [{ tool: 'web_search', status: 'completed' }] }, registry: { sources: [] }, claims: [{ id: 'u', claim: 'Unresolved', status: 'unresolved', source_ids: [] }] },
             raw: { notifications: [] },
           }
@@ -381,12 +396,12 @@ describe('Grok intelligence distribution', () => {
           seen = options
           return {
             exitCode: 0,
-            status: 'valid',
+            status: 'verified',
             evidence: {
               normalized: { searches: [{ tool: 'web_search', status: 'completed' }, { tool: 'x_search', status: 'completed' }] },
               registry: { sources: [{ id: 'source-1', canonical_url: 'https://docs.x.ai/build/cli/reference', source_tier: 'A' }] },
               claims: [{ id: 'verified', claim: 'Applicable mitigation.', status: 'verified', source_ids: ['source-1'], applies_to: ['change.diff'] }],
-              validation: { valid: true, package_status: 'valid', verification_outcome: 'verified', qualifying_claims: ['verified'], effective_x_policy: 'required' },
+              validation: { valid: true, package_status: 'valid', verification_outcome: 'verified', qualifying_claims: ['verified'], effective_x_policy: 'preferred' },
             },
             raw: { notifications: [] },
           }
@@ -399,7 +414,7 @@ describe('Grok intelligence distribution', () => {
         investigation_mode: 'incident',
         mode: 'incident',
         depth: 'deep',
-        effective_x_policy: 'required',
+        effective_x_policy: 'preferred',
         verification_outcome: 'verified',
       })
       expect(await fs.readJson(join(root, result.manifestPath))).toMatchObject({
@@ -407,7 +422,7 @@ describe('Grok intelligence distribution', () => {
         investigation_mode: 'incident',
         depth: 'deep',
         requirement: 'required',
-        effective_x_policy: 'required',
+        effective_x_policy: 'preferred',
         cli_version: 'grok 0.2.106',
         model: 'grok-4.5-deep',
         prompt_sha256: expect.stringMatching(/^[a-f0-9]{64}$/),
@@ -445,7 +460,7 @@ describe('Grok intelligence distribution', () => {
       await new Promise(resolvePromise => setTimeout(resolvePromise, 5))
       return {
         exitCode: 0,
-        status: 'valid',
+        status: 'verified',
         evidence: {
           normalized: { searches: [{ tool: 'web_search', status: 'completed' }] },
           registry: { sources: [{ id: sourceId, tool: 'web_search', observed_tool: 'web_search', canonical_url: sourceUrl, source_tier: 'A', independence_key: 'x.ai' }] },
@@ -474,7 +489,7 @@ describe('Grok intelligence distribution', () => {
       const second = await runManualCommand('verify', options, runtime)
       expect(runner).toHaveBeenCalledTimes(1)
       expect(first.cache).toMatchObject({ hit: false, reason: 'missing' })
-      expect(second.cache).toMatchObject({ hit: true, reason: 'valid' })
+      expect(second.cache).toMatchObject({ hit: true, reason: 'usable' })
       expect(second.manifestPath).toBe(first.manifestPath)
       expect(second.manifestSha256).toBe(first.manifestSha256)
 
@@ -670,7 +685,7 @@ describe('Grok intelligence distribution', () => {
           runnerOptions = options
           return {
             exitCode: 0,
-            status: 'valid',
+            status: 'verified',
             evidence: {
               normalized: { searches: [
                 { tool: 'web_search', status: 'completed' },

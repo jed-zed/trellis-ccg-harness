@@ -10,4 +10,5 @@ $ARGUMENTS
 
 Use the installed `ccg:grok-intel` skill. Default to a single-agent normal-depth run. Support
 `--mode`, `--depth`, repeated trusted `--official-domain`, `--force-refresh`, and `--export`; print requirement/status/search counts and
-evidence/manifest paths/hashes. Propagate exit 2, exit 3, and exit 4 exactly.
+evidence/manifest paths/hashes. Distinguish `verified`, `received_unverified`, and
+`invocation_failed`; propagate exit 2, exit 3, and exit 4 exactly.

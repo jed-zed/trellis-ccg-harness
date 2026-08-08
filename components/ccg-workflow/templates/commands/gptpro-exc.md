@@ -20,7 +20,7 @@ before ordinary `/ccg:execute` preflight. The main orchestrator adds a semantic 
 current external evidence is material even if search was not requested. External API,
 dependency, deployment, security, and other current-contract routes require canonical Grok evidence;
 required exit 2/3/4 stops GPT Pro bridge creation unless the user runs `ccg route waive --state-file <state-file> --reason "<user reason>"`; this records a route-state waiver without creating evidence or claiming verification passed. A waived route continues only through ordinary routing evidence and must omit the bridge's external-intelligence flags. Exit code `2`, `3`, or `4`
-stops before ordinary work. Add `--require-external-intelligence` together with `--expected-intelligence-mode <route investigation_mode>` and `--expected-intelligence-depth <route depth>` only for a route with `status=valid` and `requirement=required`. Then run ordinary
+stops before ordinary work. Add `--require-external-intelligence` together with `--expected-intelligence-mode <route investigation_mode>` and `--expected-intelligence-depth <route depth>` only for a route with `status=verified or status=received_unverified` and `requirement=required`. Then run ordinary
 `/ccg:execute` through the preflight, plan load, model routing, prototype, or
 analysis-evidence phase. Preserve the current CCG orchestrator semantics and the normal execution
 routing for this installation, including Codex, Claude, Gemini, or any configured helper that
@@ -130,7 +130,7 @@ python ~/.claude/.ccg/engine/tools/gptpro/gptpro_bridge.py \
   --routing-summary-file "<routing-summary-file>" \
   --require-routing-evidence \
   --require-claude-evidence \
-  [--require-external-intelligence --expected-intelligence-mode <route investigation_mode> --expected-intelligence-depth <route depth> when route status=valid and requirement=required]
+  [--require-external-intelligence --expected-intelligence-mode <route investigation_mode> --expected-intelligence-depth <route depth> when route status=verified or status=received_unverified and requirement=required]
 ```
 
 If the user explicitly disabled Claude and routing evidence records
