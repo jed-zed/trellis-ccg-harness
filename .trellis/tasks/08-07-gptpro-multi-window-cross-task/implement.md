@@ -135,9 +135,10 @@ commit 尚未发布到远端而待重跑。真实 Chrome preflight 已启动本�
 
 - [x] M1/M2 证据无漂移，live `3/6`、跨任务隔离、任务切换、精确恢复与焦点验收全部完成；站点限流分支按已记录的 M2 单测证据验收，未宣称观察到 live throttle。
 - [x] 重算 task-local handoff 的三个 source SHA-256；预期任务变更更新 handoff 后复核，任何非预期漂移阻断最终 review。
-- [ ] 执行 Trellis Phase 3.3 spec-update 判断、Phase 3.4 工作提交和最终 finish/archive。
+- [x] 执行 Trellis Phase 3.3 spec-update 判断并完成 Phase 3.4 工作提交。
+- [x] 执行最终 finish/archive。
 
 ## 回退
 
-- [ ] adapter/watcher 与 CCG/Harness 同步变更保持可单独回退。
-- [ ] 回退不删除 target claim、幂等 reservation、canonical URL、batch result 或 evidence；任何已点击但未确认项继续 no-resend。
+- [x] adapter/watcher 与 CCG/Harness 同步变更保持可单独回退；对应提交为 CCG `79b7f819`、Harness source sync `87a335b` 与 Harness feature `1297a5e`。
+- [x] 回退不删除 target claim、幂等 reservation、canonical URL、batch result 或 evidence；任何已点击但未确认项继续 no-resend。

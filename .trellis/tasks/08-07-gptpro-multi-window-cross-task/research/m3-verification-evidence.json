@@ -1,20 +1,37 @@
 {
   "schemaVersion": 1,
   "milestone": "M3",
-  "verifiedAtUtc": "2026-08-08T14:12:57Z",
+  "verifiedAtUtc": "2026-08-08T14:54:03Z",
   "status": "passed",
-  "harnessGitHead": "87a335b1b4bf9c9ea9ae7772795f30d13feedaac",
+  "harnessGitHead": "1297a5e77c70858036984612362bdd827383f441",
   "sourceGitHead": "79b7f819f72048239c79a4048760d9b1fe9eb2a0",
   "sourceGitTree": "7959e76ab97e1645c3d5687ad5f0e77d2f5e0b04",
-  "harnessTrackedDiffSha256": "16943e93cefb92f9f7297ff09d367fcfa6274a0b46fcda6d1122195e94269d69",
-  "harnessDiffScope": "Tracked worktree diff immediately before this attestation write; task-local evidence is independently snapshot-bound by the product-manager review.",
+  "harnessTrackedDiffSha256": "1fe850c65830441ae8d5c2d0fb09967c34b94dda39859fee45d9e573c5c2f733",
+  "harnessDiffScope": "SHA-256 of `git diff --binary` at re-attestation time excluding this self-referential m3-verification-evidence.json file. The recorded Harness commit is the committed feature/code baseline; the three source hashes independently bind the current implementation bytes.",
   "checks": [
     {
       "name": "GPT Pro sidebar Pester suite after live fixes",
       "status": "passed",
       "testsPassed": 235,
       "testsFailed": 0,
-      "testsSkipped": 0
+      "testsSkipped": 0,
+      "files": [
+        {
+          "path": ".agents/skills/chatgpt-pro-sidebar/tests/chatgpt-pro-sidebar.Tests.ps1",
+          "testsPassed": 160,
+          "testsFailed": 0,
+          "testsSkipped": 0,
+          "durationMilliseconds": 7303.806
+        },
+        {
+          "path": ".agents/skills/chatgpt-pro-sidebar/tests/chatgpt-pro-sidebar-watch.Tests.ps1",
+          "testsPassed": 75,
+          "testsFailed": 0,
+          "testsSkipped": 0,
+          "durationMilliseconds": 8218.547
+        }
+      ],
+      "countReconciliation": "The exact two-file Pester invocation discovers 160 + 75 = 235 tests. No durable command or log for the earlier 247 figure exists in the task evidence, so 235 is the authoritative reproducible scope and 247 is not retained as a delivery claim."
     },
     {
       "name": "Harness full suite",
@@ -78,7 +95,28 @@
       "model": "claude-opus-4-6-thinking",
       "verdict": "No blocking findings.",
       "evidence": ".ccg/tasks/08-07-gptpro-multi-window-cross-task/antigravity-m3-postlive-review.txt",
-      "evidenceSha256": "82900e4595186ef9fb6f48d14b68dfaf6517852f61a69358fac265f4c9502faf"
+      "evidenceSha256": "82900e4595186ef9fb6f48d14b68dfaf6517852f61a69358fac265f4c9502faf",
+      "reviewedRegions": [
+        {
+          "path": ".agents/skills/chatgpt-pro-sidebar/scripts/chatgpt-pro-sidebar-watch.ps1",
+          "lines": "1772-1816",
+          "symbols": "Get-CapacityProcessIdentity, Test-CapacityOwnerAlive",
+          "fix": "UTC process-start ownership round trip"
+        },
+        {
+          "path": ".agents/skills/chatgpt-pro-sidebar/scripts/chatgpt-pro-sidebar.ps1",
+          "lines": "4292-4397",
+          "symbols": "Test-AgentBrowserTargetMatchesBinding, Resolve-AgentBrowserTarget",
+          "fix": "exact target resolution and background exact-URL reopen"
+        },
+        {
+          "path": ".agents/skills/chatgpt-pro-sidebar/scripts/chatgpt-pro-sidebar-watch.ps1",
+          "lines": "1818-1916,2172-2249,2348-2365",
+          "symbols": "Get-CapacityReleaseProof, Release-CapacitySlot, Read-BatchRoundProcessResult, Invoke-RootWaitBatch",
+          "fix": "durable terminal fallback and fail-closed slot retention"
+        }
+      ],
+      "reviewedRegionsAttribution": "Antigravity reviewed these files and reported no blocking findings. Codex mapped the three reviewed live fixes to the exact current source ranges above; the provider output itself did not enumerate line ranges."
     },
     {
       "name": "CCG change scanner",
@@ -126,6 +164,14 @@
       "note": "No live throttle occurred and concurrency was not increased to manufacture one. Acceptance uses the M2 pre-click challenge/throttle terminal-failure test and post-click send-uncertain single-click/no-resend test; no live throttle claim is made."
     },
     {
+      "name": "batch timeout default contract",
+      "status": "passed",
+      "literalDefaultSeconds": 7200,
+      "evidence": ".agents/skills/chatgpt-pro-sidebar/tests/chatgpt-pro-sidebar-watch.Tests.ps1:495-510",
+      "assertion": "(Read-RootWaitBatchManifest -Path $path).TimeoutSeconds | Should -Be 7200",
+      "liveQueueProofNote": "The live fourth- and seventh-round queue proofs deliberately used about 30-second timeouts; they prove pre-click queuing and timeout behavior, not a full 7200-second end-to-end wait."
+    },
+    {
       "name": "Trellis Phase 3.3 spec-update judgment",
       "status": "passed_updated",
       "note": "The tooling spec now records UTC process-start JSON identity and locked-stdout durable terminal fallback plus negative tests; existing tabtree --full recovery language already covered the second live repair."
@@ -135,6 +181,14 @@
     "adapter": "fcbef6b9c31a27b02a65c1cbb4c87f512030d790f515deb7db4305063050380d",
     "watcher": "baf2299246f0843f0220fcdf00f2f90e3f51bf5b37c1577d013cc39278bef65b",
     "ccgBridge": "2d24f607b6ccd3d9b0de0937b98c7f7354dade73eb7a6358d618398e3ba9b7b2"
+  },
+  "rollback": {
+    "independentlyRevertibleCommits": {
+      "ccgSource": "79b7f819f72048239c79a4048760d9b1fe9eb2a0",
+      "harnessSourceSync": "87a335b1b4bf9c9ea9ae7772795f30d13feedaac",
+      "harnessFeature": "1297a5e77c70858036984612362bdd827383f441"
+    },
+    "durableEvidenceRetention": "Rollback must not delete target claims, idempotency reservations, canonical URLs, batch results, or evidence. Any clicked but unconfirmed item remains no-resend."
   },
   "remaining": []
 }
