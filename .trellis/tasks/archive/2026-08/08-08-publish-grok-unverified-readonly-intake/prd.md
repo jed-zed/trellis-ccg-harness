@@ -27,7 +27,7 @@ Publish accepted Grok receipt-state changes to the personal CCG fork, update the
 - [x] Source, Harness, global CLI, and installed Codex plugin report one matching
       `3.4.6` / `3.4.6+codex.3` identity.
 - [x] Harness conflicts and relevant offline tests pass with no live Provider.
-- [ ] The Harness publication PR is merged and the task is archived.
+- [x] The Harness publication PR is merged and the task is archived.
 
 ## Notes
 

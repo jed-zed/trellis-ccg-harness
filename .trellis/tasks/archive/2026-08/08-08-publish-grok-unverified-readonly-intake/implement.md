@@ -21,6 +21,6 @@
 
 ## 4. Publish Harness
 
-- [ ] Commit only the task and formal Harness update outputs.
-- [ ] Push, open the scoped Harness PR, require CI, merge, then finish/archive
+- [x] Commit only the task and formal Harness update outputs.
+- [x] Push, open the scoped Harness PR, require CI, merge, then finish/archive
       this task through Trellis.
