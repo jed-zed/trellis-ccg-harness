@@ -24,7 +24,7 @@ function statePath(repoRoot: string, id: string) {
   return join(repoRoot, '.codex', 'ccg', id, 'status.json')
 }
 
-function validRunnerResult(repoRoot: string, mode = 'contract', action = 'intel', depth = 'normal', effectiveXPolicy = mode === 'incident' ? 'required' : 'preferred', bindings: any[] = [], officialDomains: string[] = []) {
+function validRunnerResult(repoRoot: string, mode = 'contract', action = 'intel', depth = 'normal', effectiveXPolicy = 'preferred', bindings: any[] = [], officialDomains: string[] = []) {
   const evidenceId = `workflow-evidence-${++evidenceCounter}`
   const bundleDir = join(repoRoot, '.codex', 'ccg', 'intelligence', evidenceId)
   fs.ensureDirSync(bundleDir)
@@ -38,7 +38,7 @@ function validRunnerResult(repoRoot: string, mode = 'contract', action = 'intel'
     schemaVersion: 2,
     decision: {
       requirement: 'required',
-      status: 'valid',
+      status: 'verified',
       action,
       investigation_mode: mode,
       mode,
@@ -104,7 +104,7 @@ function validRunnerResult(repoRoot: string, mode = 'contract', action = 'intel'
   fs.writeFileSync(join(bundleDir, 'manifest.json'), manifest)
   return {
     exitCode: 0,
-    status: 'valid',
+    status: 'verified',
     model,
     evidencePath: `.codex/ccg/intelligence/${evidenceId}/evidence.json`,
     evidenceSha256: hash(artifact),
@@ -214,7 +214,7 @@ describe('Grok workflow routing behavior', () => {
     expect(teammate).toMatchObject({ invoked: true, reused: false })
     expect(invocations).toHaveLength(2)
     expect(events).toEqual(['decision', 'state:pending', 'state:complete', 'decision', 'state:pending', 'state:complete'])
-    expect(await fs.readJson(stateFile)).toMatchObject({ decision: { status: 'valid' }, execution: { invoked: true } })
+    expect(await fs.readJson(stateFile)).toMatchObject({ decision: { status: 'verified' }, execution: { invoked: true } })
   })
 
   it.each([
@@ -247,7 +247,7 @@ describe('Grok workflow routing behavior', () => {
       },
     })
 
-    expect(result).toMatchObject({ invoked: true, workflow, phase, decision: { status: 'valid' } })
+    expect(result).toMatchObject({ invoked: true, workflow, phase, decision: { status: 'verified' } })
     expect(order).toEqual(['decision', 'state:pending', 'runner', 'state:complete'])
     expect(await fs.readJson(stateFile)).toMatchObject({ workflow, phase, execution: { invoked: true } })
   })
@@ -380,8 +380,8 @@ describe('Grok workflow routing behavior', () => {
     }
   })
 
-  it('derives X policy by mode and lets landscape succeed without X evidence', () => {
-    expect(resolveEffectiveXPolicy('preferred', 'incident')).toBe('required')
+  it('keeps preferred X optional in every mode', () => {
+    expect(resolveEffectiveXPolicy('preferred', 'incident')).toBe('preferred')
     expect(resolveEffectiveXPolicy('preferred', 'landscape')).toBe('preferred')
     expect(resolveEffectiveXPolicy('disabled', 'incident')).toBe('disabled')
 

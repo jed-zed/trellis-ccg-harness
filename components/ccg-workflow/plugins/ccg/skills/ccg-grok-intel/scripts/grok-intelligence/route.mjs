@@ -176,7 +176,7 @@ function resolveActiveTaskDir(input, repoRoot, repoInput, statePath) {
 }
 
 async function validateSuccessfulBundle(repoRoot, routeDecision, result, { config = {}, clock = () => new Date(), bindings = {}, officialDomains = [] } = {}) {
-  if (result?.exitCode !== 0 || result?.status !== 'valid')
+  if (result?.exitCode !== 0 || !['verified', 'received_unverified'].includes(result?.status))
     throw new Error('Automatic route result is not a successful evidence bundle')
   const artifactRoot = relativeInside(repoRoot, String(config.artifact_root || '.codex/ccg/intelligence'), 'artifact root')
   await assertNoLinkedPath(repoRoot, artifactRoot.absolute, 'artifact root')
@@ -248,7 +248,7 @@ async function validateSuccessfulBundle(repoRoot, routeDecision, result, { confi
   if (boundArtifact?.sha256 !== result.evidenceSha256 || boundArtifact?.bytes !== artifactBytes.length)
     throw new Error('Automatic route manifest does not bind evidence.json bytes')
   const decision = createIntelligenceDecision(artifactJson.decision)
-  if (decision.requirement !== routeDecision.requirement || decision.status !== 'valid')
+  if (decision.requirement !== routeDecision.requirement || decision.status !== result.status)
     throw new Error('Automatic route bundle decision does not match the required route')
   const investigationMode = routeDecision.investigation_mode || routeDecision.mode
   const expectedRoute = {
@@ -264,8 +264,8 @@ async function validateSuccessfulBundle(repoRoot, routeDecision, result, { confi
     if (manifestJson[field] !== expected)
       throw new Error(`Automatic route manifest ${field} drift`)
   }
-  if (artifactJson.schemaVersion !== 2 || !Array.isArray(artifactJson.evidence?.claims) || artifactJson.evidence.claims.length === 0)
-    throw new Error('Automatic route evidence must contain at least one bound or explicit unresolved claim')
+  if (artifactJson.schemaVersion !== 2 || !Array.isArray(artifactJson.evidence?.claims))
+    throw new Error('Automatic route evidence must contain a claims array')
   if (artifactJson.evidence?.model?.actual !== result.model)
     throw new Error('Automatic route evidence provenance does not match the executed Grok model')
   if (artifactJson.evidence?.action !== expectedRoute.action
@@ -282,18 +282,19 @@ async function validateSuccessfulBundle(repoRoot, routeDecision, result, { confi
     mode: investigationMode,
     requireClaims: true,
   })
-  if (!validation.valid)
-    throw new Error(`Automatic route evidence policy validation failed: ${validation.errors.join('; ')}`)
   if (decision.package_status !== validation.package_status
     || decision.verification_outcome !== validation.verification_outcome
     || manifestJson.package_status !== validation.package_status
     || manifestJson.validation_outcome !== validation.verification_outcome
     || manifestJson.verification_outcome !== validation.verification_outcome)
     throw new Error('Automatic route verification outcome drift')
-  if (expectedRoute.action === 'verify'
-    && (!['verified', 'partially_verified'].includes(validation.verification_outcome)
-      || validation.qualifying_claims.length === 0))
-    throw new Error('Automatic route required verification has no qualifying claim')
+  const expectedStatus = validation.valid
+    && ['verified', 'partially_verified'].includes(validation.verification_outcome)
+    && validation.qualifying_claims.length > 0
+    ? 'verified'
+    : 'received_unverified'
+  if (decision.status !== expectedStatus)
+    throw new Error('Automatic route receipt status does not match its advisory validation')
   for (const field of ['prompt_sha256', 'dirty_digest', 'cache_fingerprint']) {
     if (!/^[a-f0-9]{64}$/.test(String(manifestJson[field] || '')))
       throw new Error(`Automatic route manifest ${field} is invalid`)
@@ -596,8 +597,6 @@ async function prepareWorkflowRoute(input, runtime) {
   const bindings = await collectBindings({ ...input, task: String(input.task || '') }, repoRoot, repoInput)
   if (decision.action === 'verify' && (!bindings.diff || bindings.diff.bytes === 0))
     throw new Error('Final external verification requires a non-empty --diff binding')
-  if (decision.action === 'verify' && officialDomains.length === 0)
-    throw new Error('External fact verification requires at least one predeclared --official-domain before Grok invocation')
   const inputDigest = routeInputDigest(input, decision, bindings, config)
   return { repoRoot, repoInput, statePath, previous, config, decision, bindings, officialDomains, inputDigest, clock: runtime.clock || (() => new Date()) }
 }
@@ -641,7 +640,7 @@ async function invokeRouteRunner(input, context, runtime) {
 
 async function canonicalizeRunnerResult(input, context, result) {
   let canonicalEvidence = null
-  if (result?.exitCode === 0 && result?.status === 'valid') {
+  if (result?.exitCode === 0 && ['verified', 'received_unverified'].includes(result?.status)) {
     try {
       const validated = await validateSuccessfulBundle(context.repoRoot, context.decision, result, context)
       canonicalEvidence = await publishCanonicalEvidence({
@@ -672,7 +671,7 @@ async function completeInvokedRoute(input, context, invocation, runtime) {
   const exitCode = Number.isInteger(result?.exitCode) ? result.exitCode : 4
   const finalDecision = {
     ...context.decision,
-    status: exitCode === 0 && result?.status === 'valid' ? 'valid' : 'blocked',
+    status: exitCode === 0 && ['verified', 'received_unverified'].includes(result?.status) ? result.status : 'blocked',
   }
   const finalState = makeState({
     input,

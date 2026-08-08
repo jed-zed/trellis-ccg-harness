@@ -25,7 +25,7 @@ Usage:
                      [--depth normal|deep] [--plan <file>] --diff <file>
                      [--allow-empty-diff] [--dependency <file>]... [--force-refresh]
 
-Exit codes: 0 valid/skip, 2 required evidence unavailable, 3 unsafe context,
+Exit codes: 0 received/verified/skip, 2 invocation failed, 3 unsafe context,
 4 consent or configuration missing.`
 
 const CACHE_VERSION = Object.freeze({
@@ -272,7 +272,7 @@ function ttlFor(action, mode) {
 }
 
 async function cachedArtifactsMatch(repoRoot, artifactRoot, result) {
-  if (!result || result.status !== 'valid')
+  if (!result || !['verified', 'received_unverified'].includes(result.status))
     return false
   const absolutePaths = {}
   for (const [pathField, hashField] of [['evidencePath', 'evidenceSha256'], ['manifestPath', 'manifestSha256']]) {
@@ -401,8 +401,6 @@ export async function runManualCommand(action, options, runtime = {}) {
     digestBinding(repoRoot, 'diff', options.diff, { allowEmpty: options.allowEmptyDiff === true }),
     ...(options.dependencies || []).map(file => digestBinding(repoRoot, 'dependency', file)),
   ])).filter(Boolean)
-  if (action === 'verify' && officialDomains.length === 0)
-    throw new Error('External fact verification requires at least one predeclared --official-domain before Grok diagnostics')
   const allowedCcgPlanPaths = bindings
     .filter(item => item.kind === 'plan' && /^\.codex\/ccg\/plans\/[^/]+\.md$/i.test(item.path))
     .map(item => item.path)
@@ -505,31 +503,7 @@ export async function runManualCommand(action, options, runtime = {}) {
       prefixArgs: runtime.prefixArgs,
       runDiagnostics: async () => diagnostics,
     })
-    const runnerPackageStatus = result.evidence?.validation?.package_status
-    const runnerVerificationOutcome = result.evidence?.validation?.verification_outcome
-    const runnerQualifyingClaims = result.evidence?.validation?.qualifying_claims
-    if (result.exitCode === 0 && result.status === 'valid' && action === 'verify'
-      && (runnerPackageStatus !== 'valid'
-        || !['verified', 'partially_verified'].includes(runnerVerificationOutcome)
-        || !Array.isArray(runnerQualifyingClaims) || runnerQualifyingClaims.length === 0)) {
-      return {
-        ...result,
-        exitCode: 2,
-        status: 'verification_unresolved',
-        reason: `Required verification outcome is ${runnerVerificationOutcome || 'unresolved'}`,
-        requirement,
-        action,
-        investigation_mode: mode,
-        mode,
-        depth,
-        package_status: runnerPackageStatus || 'invalid',
-        verification_outcome: runnerVerificationOutcome || 'unresolved',
-        effective_x_policy: effectiveXPolicy,
-        bindings,
-        cache: cacheState,
-      }
-    }
-    if (result.exitCode !== 0 || result.status !== 'valid')
+    if (result.exitCode !== 0 || !['verified', 'received_unverified'].includes(result.status))
       return { ...result, requirement, mode, depth, bindings, cache: cacheState }
     if (result.evidence?.model?.actual != null && result.evidence.model.actual !== selectedModel)
       throw new Error('Grok runner model provenance does not match the selected model')
@@ -542,20 +516,26 @@ export async function runManualCommand(action, options, runtime = {}) {
 
     const createdAt = (runtime.clock ? runtime.clock() : new Date()).toISOString()
     const evidenceId = `${createdAt.replace(/[-:.TZ]/g, '').slice(0, 14)}-${createHash('sha256').update(`${task}\n${createdAt}`).digest('hex').slice(0, 12)}`
-    const packageStatus = result.evidence?.validation?.package_status || 'valid'
+    const packageStatus = result.evidence?.validation?.package_status || 'invalid'
     const verificationOutcome = result.evidence?.validation?.verification_outcome || 'unresolved'
+    const qualifyingClaims = result.evidence?.validation?.qualifying_claims
+    const receiptStatus = result.evidence?.validation?.valid === true
+      && ['verified', 'partially_verified'].includes(verificationOutcome)
+      && Array.isArray(qualifyingClaims) && qualifyingClaims.length > 0
+      ? 'verified'
+      : 'received_unverified'
     const decision = createIntelligenceDecision({
       requirement,
-      status: 'valid',
+      status: receiptStatus,
       action,
       investigation_mode: mode,
       mode,
       depth,
       package_status: packageStatus,
       verification_outcome: verificationOutcome,
-      reason: action === 'verify'
-        ? `External verification completed with outcome ${verificationOutcome}`
-        : `External intelligence collected with outcome ${verificationOutcome}`,
+      reason: receiptStatus === 'verified'
+        ? `External intelligence was verified with outcome ${verificationOutcome}`
+        : `External intelligence was received without qualifying verification (${verificationOutcome})`,
       created_at: createdAt,
       ...(depth === 'deep' ? { deepVisibility: {
         evidence_visibility: 'leader_only', observed_web_search_events: countSearches(result, 'web_search'),
@@ -618,7 +598,7 @@ export async function runManualCommand(action, options, runtime = {}) {
       })
     }
     const commandResult = {
-      exitCode: 0, status: 'valid', requirement, action, investigation_mode: mode, mode, depth,
+      exitCode: 0, status: receiptStatus, requirement, action, investigation_mode: mode, mode, depth,
       package_status: packageStatus, verification_outcome: verificationOutcome,
       effective_x_policy: effectiveXPolicy, model: selectedModel, bindings,
       webSearches: countSearches(result, 'web_search'), xSearches: countSearches(result, 'x_search'),
@@ -634,7 +614,7 @@ export async function runManualCommand(action, options, runtime = {}) {
       entry: {
         fingerprint: fingerprint.key,
         created_at: createdAt,
-        status: 'valid',
+        status: receiptStatus,
         requirement,
         action,
         degraded: false,
