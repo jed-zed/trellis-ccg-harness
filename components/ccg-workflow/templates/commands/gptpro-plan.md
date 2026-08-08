@@ -168,6 +168,8 @@ state and use bridge `status.json` plus the sidebar watcher evidence for the wai
 
 Use the installed `chatgpt-pro-sidebar` Skill to create a fresh conversation, then invoke watcher
 `run-root` once so prompt submission, watcher start, and local wait stay in the current root turn.
+For explicitly independent parallel questions, use the shared bridge batch create -> `run-batch-root`
+-> batch import contract with the fixed `3` per-task / `6` global cap.
 Never ask the user to copy the prompt or response.
 
 Continue only after:

@@ -54,8 +54,8 @@ bridge `status.json` records only GPT Pro evidence state.
   conversations.
 - When multiple connected external Chrome tabs are available, bind each conversation to its exact
   browser/profile/tab/session/URL identity.
-- One root task waits on one active RootWait at a time. Use separate Codex tasks for concurrent
-  workstreams or queue conversations sequentially.
+- One Codex task may run at most three independent RootWait rounds through `run-batch-root`; the
+  per-user global hard limit is six. Extra rounds wait locally without opening or writing a page.
 
 ## Base Routing Evidence
 
@@ -118,6 +118,25 @@ python scripts/gptpro_bridge.py \
 The import is exact-once. Re-importing the same response succeeds idempotently; a different response
 cannot overwrite the current round. Evidence from another Codex task, another bridge round, a
 non-exact conversation URL, invalid hashes, non-live fixtures, or a non-completed watcher is rejected.
+
+## Independent Batch Rounds
+
+For two or more independent workstreams, write one local batch request JSON with `schemaVersion=1`,
+the exact `codexThreadId`, `maxConcurrency` from `1` to `3`, optional `timeoutSeconds` (default
+`7200`), and unique rounds containing `roundId`, bounded `prompt`, opaque `idempotencyKey`, and one
+complete distinct `targetBinding`. Then:
+
+1. Create atomically isolated bridge sessions with `--create-batch-manifest <batch-request.json>` and
+   read `CCG_GPTPRO_BATCH_FILE` plus `CCG_GPTPRO_BATCH_MANIFEST`.
+2. Invoke watcher `run-batch-root -ManifestPath <CCG_GPTPRO_BATCH_MANIFEST>` once. It uses local child
+   processes only, enforces three slots per Codex task and six globally, and writes `batch-result.json`.
+3. Import completed items with `--import-batch-result <CCG_GPTPRO_BATCH_FILE>` and
+   `--expected-codex-thread-id <CODEX_THREAD_ID>`.
+
+Never split one dependent conversation into parallel rounds. A partial batch keeps valid completed
+evidence but must not report all success. `queued-timeout` means no slot and no send;
+`ConcurrencySlotRecoveryRequired` keeps the slot isolated until durable pre-click or terminal proof
+allows explicit diagnostic release. Neither state authorizes resend.
 
 ## Follow-up Round
 
