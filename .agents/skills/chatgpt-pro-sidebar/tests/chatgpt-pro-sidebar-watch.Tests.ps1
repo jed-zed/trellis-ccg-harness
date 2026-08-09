@@ -305,6 +305,13 @@ Describe 'Watcher binding validation' {
 
         {
             Assert-WatchConfiguration `
+                -DisableStopHookHorizon `
+                -ConfiguredTimeoutSeconds 1 `
+                -ConfiguredFinalizeTimeoutSeconds 45
+        } | Should -Not -Throw
+
+        {
+            Assert-WatchConfiguration `
                 -ConfiguredTimeoutSeconds 8000 `
                 -ConfiguredFinalizeTimeoutSeconds 45
         } | Should -Throw '*Stop Hook horizon*'
@@ -514,6 +521,7 @@ Describe 'Atomic RootWait round' {
             -ProfileValue 'profile-1' `
             -TabIdValue '101' `
             -SessionKeyValue 'browser-1:profile-1:101' `
+            -ResponseTimeoutSecondsValue 3210 `
             -RequireFreshConversation
 
         $script:adapterArguments | Should -Contain 'send'
@@ -525,6 +533,7 @@ Describe 'Atomic RootWait round' {
         $script:adapterArguments | Should -Contain $script:ThreadId
         $script:adapterArguments | Should -Contain '-BrowserId'
         $script:adapterArguments | Should -Contain 'browser-1:profile-1:101'
+        $script:adapterArguments[$script:adapterArguments.IndexOf('-ResponseTimeoutSeconds') + 1] | Should -Be '3210'
         $script:adapterArguments | Should -Contain '-FreshConversation'
         Should -Invoke Invoke-WatchAdapterProcess -Times 1 -Exactly -ParameterFilter {
             $ProcessTimeoutSeconds -eq 600
@@ -557,7 +566,9 @@ Describe 'Atomic RootWait round' {
         $result.submittedExactlyOnce | Should -BeTrue
         $result.acknowledgementPending | Should -BeTrue
         $result.pollingConsumesModelTokens | Should -BeFalse
-        Should -Invoke Invoke-WatchAdapterSend -Times 1 -Exactly
+        Should -Invoke Invoke-WatchAdapterSend -Times 1 -Exactly -ParameterFilter {
+            $ResponseTimeoutSecondsValue -eq 7200
+        }
         Should -Invoke Start-WatchProcess -Times 1 -Exactly
         Should -Invoke Wait-RootWatchEvent -Times 1 -Exactly
     }
@@ -644,6 +655,39 @@ Describe 'Atomic RootWait round' {
 
         $script:capturedWaitTimeout | Should -Be 7080
         $result.responseDeadlineAtUtc | Should -Be $deadline.ToString('o')
+    }
+
+    It 'does not round a nearly expired response deadline back up to thirty seconds' {
+        $now = [datetime]'2026-08-09T00:00:04Z'
+        $deadline = [datetime]'2026-08-09T00:00:05Z'
+        $script:capturedStartTimeout = 0
+        $script:capturedWaitTimeout = 0
+        Mock Invoke-WatchAdapterSend {
+            [pscustomobject]@{ ExitCode = 0; Payload = [pscustomobject]@{ ok = $true; responseDeadlineAtUtc = $deadline.ToString('o') } }
+        }
+        Mock Get-WatchEvidenceBinding {
+            [pscustomobject]@{ Phase = 'sent'; ResponseDeadlineAtUtc = $deadline.ToString('o') }
+        }
+        Mock Start-WatchProcess {
+            param($WatcherTimeoutSeconds)
+            $script:capturedStartTimeout = $WatcherTimeoutSeconds
+            [pscustomobject]@{ started = $true; reused = $false }
+        }
+        Mock Wait-RootWatchEvent {
+            param($WaitTimeoutSeconds)
+            $script:capturedWaitTimeout = $WaitTimeoutSeconds
+            [pscustomobject]@{ watcherId = 'watcher-near-deadline'; codexThreadId = $script:ThreadId; terminalStatus = 'completed' }
+        }
+
+        $null = Invoke-RootWaitRound `
+            -EvidenceDirectory $script:roundDirectory `
+            -ThreadId $script:ThreadId `
+            -PromptFile $script:roundPrompt `
+            -IdempotencyKeyValue 'atomic-root-near-deadline' `
+            -NowAction { $now }
+
+        $script:capturedStartTimeout | Should -Be 1
+        $script:capturedWaitTimeout | Should -Be 1
     }
 
     It 'returns retry-not-submitted to the original task without starting a watcher' {
@@ -1672,6 +1716,31 @@ Describe 'Codex Stop Hook continuation contract' {
         Test-Path -LiteralPath (Join-Path $directory $Script:ContinuationAckFileName) | Should -BeFalse
     }
 
+    It 'does not grant a fresh root-wait budget after the response deadline expired' {
+        $directory = Join-Path $TestDrive 'root-wait-response-deadline-expired'
+        $watcherId = [guid]::NewGuid().ToString()
+        $null = New-Item -ItemType Directory -Path $directory -Force
+        Write-WatchJsonAtomic -Path (Join-Path $directory $Script:StateFileName) -Value ([ordered]@{
+            schemaVersion = 1
+            watcherId = $watcherId
+            codexThreadId = $script:ThreadId
+            phase = 'running'
+            processId = $PID
+            noWake = $true
+            rootWait = $true
+            responseDeadlineAtUtc = '2026-08-05T18:00:00Z'
+        })
+
+        {
+            Wait-RootWatchEvent `
+                -EvidenceDirectory $directory `
+                -ThreadId $script:ThreadId `
+                -WaitTimeoutSeconds 7200 `
+                -NowAction { [datetime]'2026-08-05T18:00:01Z' } `
+                -SleepAction { throw 'must not sleep after the response deadline' }
+        } | Should -Throw '*response deadline expired*'
+    }
+
     It 'terminates root wait when the watcher process exits without an event' {
         $directory = Join-Path $TestDrive 'root-wait-worker-crashed'
         $watcherId = [guid]::NewGuid().ToString()
@@ -2232,6 +2301,21 @@ catch {
         $script:launch.ArgumentList | Should -Contain ('"' + $directory + '"')
         $script:launch.ArgumentList | Should -Not -Contain '-WindowStyle'
         Assert-MockCalled Start-Process -Times 1
+    }
+
+    It 'does not launch a watcher after the adapter response deadline expired' {
+        $directory = Join-Path $TestDrive 'launcher-expired-response-deadline'
+        New-WatchFixtureEvidence -Directory $directory
+        $adapterStatePath = Join-Path $directory 'state.json'
+        $adapterState = Read-WatchJson -Path $adapterStatePath -Required
+        $adapterState | Add-Member -NotePropertyName responseDeadlineAtUtc -NotePropertyValue ([DateTime]::UtcNow.AddSeconds(-1).ToString('o'))
+        Write-WatchJsonAtomic -Path $adapterStatePath -Value $adapterState
+        Mock Start-Process { throw 'must not launch after the absolute deadline' }
+
+        {
+            Start-WatchProcess -EvidenceDirectory $directory -ThreadId $script:ThreadId -RootWait
+        } | Should -Throw '*response deadline expired*'
+        Should -Invoke Start-Process -Times 0 -Exactly
     }
 
     It 'rejects the deprecated no-wake launcher mode' {

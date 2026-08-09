@@ -1,6 +1,6 @@
 interface:
   display_name: "ChatGPT Pro Browser Bridge"
   short_description: "Delegate to Pro in external Chrome without model polling"
-  default_prompt: "Use $chatgpt-pro-sidebar with agent-browser-cli V2 to delegate this bounded task through the approved external Chrome tab and monitor it with local RootWait."
+  default_prompt: "Use $chatgpt-pro-sidebar with agent-browser-cli V2 to delegate this bounded task through the approved external Chrome tab and monitor it with local RootWait. Before filling or clicking, require the one selected thinking-mode label to be exactly Pro and fail closed otherwise."
 policy:
   allow_implicit_invocation: true

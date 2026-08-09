@@ -64,17 +64,19 @@ provider. It controls a user-approved external Chrome tab through
   reported to the original Codex task.
 - After each click, the adapter observes the same bound target for up to `180`
   seconds. The first exact canonical conversation URL is persisted atomically
-  before rendered user-turn checks. An existing exact URL, a newly bound exact
-  URL, one structurally appended user turn, or active generation is sufficient
-  progress to enter `sent` observation.
+  before rendered user-turn checks. URL navigation alone never acknowledges an
+  existing-conversation click; the same composer must clear or generation must
+  start before the attempt enters `sent` observation.
 - Rendered user-turn text is not compared with the original prompt hash. The
   baseline must still retain an unchanged ordered suffix and may append at most
   one user turn; the prompt hash remains the pre-click composer and evidence
   integrity proof.
-- A lost click result, URL drift, target mismatch, or structural baseline
-  failure records `send-uncertain`. `automaticResendAllowed` remains false.
+- A lost click result, URL drift, or target mismatch records `send-uncertain`.
+  A missing, reordered, or multiply appended rendered user-turn baseline is
+  `recovery-required` after one click and is never retryable.
+  `automaticResendAllowed` remains false.
   The only second click is an internal transition of the same logical request
-  after a fresh homepage preserves the complete prompt, exposes no exact URL,
+  after the canonical root homepage preserves the complete prompt, exposes no exact URL,
   appends no user turn, and starts no generation for the full observation
   window. It opens one same-profile background tab and enforces a two-click
   maximum with the original idempotency identity.
@@ -101,17 +103,20 @@ provider. It controls a user-approved external Chrome tab through
   `CodexThreadId`. V2 state, completion evidence, watcher state, and terminal
   events persist that identity; every later read must match it before browser
   access or response import.
-- Before the global idempotency reservation and before fill or click, `send`
-  atomically claims the target for the exact thread, evidence directory, and
-  idempotency key. A foreign thread or different active round fails closed.
+- Before fill or click, `send` atomically reserves global idempotency and then
+  claims the target for the exact thread, evidence directory, and idempotency
+  key. A target-claim failure after reservation records durable
+  `pre-invoke-failed` evidence; a global-reservation failure never claims the
+  target. A foreign thread or different active round fails closed.
 - A conversation with an exact canonical URL is claimed by persistent profile
   plus URL. A fresh homepage without a stable conversation URL is claimed by
   the complete browser/profile/tab/session identity and adopts the stable
   profile-plus-URL claim after the first exact conversation URL is proved.
 - Claims have no TTL and are never automatically deleted. The same exact round
   may recover idempotently; the same thread may start a different round on that
-  target only after the previous round is terminal or definitely failed before
-  invocation. `send-uncertain` never releases or transfers ownership.
+  target only after the previous round is completed, definitely failed before
+  invocation, or carries the complete terminal `retry-not-submitted` proof.
+  Generic `send-uncertain` never releases or transfers ownership.
 - Claim updates are serialized by the stable claim key, so two runtime tabs
   showing the same canonical profile-plus-URL conversation cannot race a
   terminal ownership handoff.
@@ -143,8 +148,9 @@ provider. It controls a user-approved external Chrome tab through
 
 ## New chat and focus
 
-- An already empty ChatGPT homepage is a valid fresh chat and requires no
-  navigation.
+- Only an already empty canonical root `https://chatgpt.com/` homepage is a
+  valid fresh chat and requires no navigation. Custom GPT `/g/<id>` and exact
+  conversation URLs are not retry-safe fresh pages.
 - Otherwise `new-chat` opens one homepage tab in the same profile using
   `--background` and proves that exact new tab is empty before returning.
 - Read, wait, recovery, and new-chat operations do not request focus. The
@@ -153,7 +159,9 @@ provider. It controls a user-approved external Chrome tab through
 ## Wait and continuation
 
 - `wait` reads target identity and response baseline only from `state.json`. It
-  never resends and rejects incomplete historical `windows-uia` evidence.
+  never resends and rejects incomplete historical `windows-uia` evidence. It
+  checks the persisted absolute response deadline before any browser recovery
+  or polling.
 - Completion requires the unchanged response baseline, exactly one stable new
   assistant turn, a durable post-click progress acknowledgement, and one exact
   canonical conversation URL. Evidence records the V2 transport, fixed
@@ -196,20 +204,24 @@ provider. It controls a user-approved external Chrome tab through
 - PowerShell and fixed JavaScript parse checks.
 - Unit coverage for single-JSON parsing, ambiguous discovery, target/session
   mismatch, URL-first persistence, formatted or delayed user-turn observation,
-  one-click uncertainty, exact `Pro` selection, post-fill hidden-control
+  existing-conversation no-op rejection, structural user-turn ambiguity without
+  retry, custom-GPT fresh-page rejection, one-click uncertainty, exact `Pro` selection, post-fill hidden-control
   continuity and visible mode-drift rejection, wait without model reselection,
   the one safe background retry, the two-click maximum, stable
   duplicate-URL read-only recovery, response isolation, RootWait-only launch,
   and no credential or prompt-bearing script access.
 - Unit coverage for distinct-target mutex coexistence, same-target exclusion,
   stable-conversation claim serialization, incomplete-binding rejection,
-  same-round claim recovery, foreign-thread claim rejection, terminal
-  same-thread reuse, and cross-thread wait rejection before browser polling.
+  global-reservation failure without target claiming, same-round claim recovery,
+  foreign-thread claim rejection, terminal `retry-not-submitted` same-thread
+  reuse, and cross-thread wait rejection before browser polling.
 - Unit coverage for the `7200`-second batch default, `queued-timeout` with
   `ConcurrencySlotTimeout`, and fail-closed
   `ConcurrencySlotRecoveryRequired` orphan handling, including UTC process-start
   JSON round-trips, locked-stdout terminal fallback, and locked-stdout
-  nonterminal/`send-uncertain` rejection.
+  nonterminal/`send-uncertain` rejection. Adapter wait, watcher launch/wait,
+  recovery, and batch child coverage must prove the same absolute response
+  deadline is never reset.
 - Harness conflicts must require `transport=agent-browser-cli-v2` and
   `continuation=codex-root-wait` while preserving the logical Skill/protocol
   name `chatgpt-pro-sidebar`.

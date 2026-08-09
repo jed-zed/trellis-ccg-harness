@@ -377,6 +377,33 @@ function Get-WatchEvidenceBinding {
     }
 }
 
+function Get-WatchRemainingDeadlineSeconds {
+    param(
+        [AllowEmptyString()][string]$DeadlineAtUtc,
+        [Parameter(Mandatory = $true)][int]$RequestedTimeoutSeconds,
+        [scriptblock]$NowAction = { [datetime]::UtcNow }
+    )
+
+    if ([string]::IsNullOrWhiteSpace($DeadlineAtUtc)) {
+        return $RequestedTimeoutSeconds
+    }
+    try {
+        $deadline = [datetimeoffset]::Parse(
+            $DeadlineAtUtc,
+            [Globalization.CultureInfo]::InvariantCulture,
+            [Globalization.DateTimeStyles]::AssumeUniversal
+        ).UtcDateTime
+    }
+    catch {
+        throw 'Adapter responseDeadlineAtUtc is invalid.'
+    }
+    $remaining = [int][Math]::Ceiling(($deadline - ([datetime](& $NowAction)).ToUniversalTime()).TotalSeconds)
+    if ($remaining -le 0) {
+        return 0
+    }
+    return [Math]::Min($RequestedTimeoutSeconds, $remaining)
+}
+
 function Get-WatchStopHookRegistryRoot {
     if (-not [string]::IsNullOrWhiteSpace([string]$Script:StopHookRegistryRootOverride)) {
         return [System.IO.Path]::GetFullPath([string]$Script:StopHookRegistryRootOverride)
@@ -454,8 +481,8 @@ function Assert-WatchConfiguration {
     if ($MaxProbeFailures -lt 1 -or $MaxProbeFailures -gt 20) {
         throw 'MaxProbeFailures must be between 1 and 20.'
     }
-    if ($ConfiguredTimeoutSeconds -lt 30 -or $ConfiguredTimeoutSeconds -gt 86400) {
-        throw 'TimeoutSeconds must be between 30 and 86400.'
+    if ($ConfiguredTimeoutSeconds -lt 1 -or $ConfiguredTimeoutSeconds -gt 86400) {
+        throw 'TimeoutSeconds must be between 1 and 86400.'
     }
     if ($ConfiguredFinalizeTimeoutSeconds -lt 5 -or $ConfiguredFinalizeTimeoutSeconds -gt 300) {
         throw 'FinalizeTimeoutSeconds must be between 5 and 300.'
@@ -463,7 +490,7 @@ function Assert-WatchConfiguration {
     if (-not $DisableStopHookHorizon) {
         $maximumWatcherTimeoutSeconds = $Script:MaximumStopHookWaitSeconds - $ConfiguredFinalizeTimeoutSeconds - 120
         if ($ConfiguredTimeoutSeconds -gt $maximumWatcherTimeoutSeconds) {
-            throw "TimeoutSeconds must be between 30 and $maximumWatcherTimeoutSeconds for the Stop Hook horizon."
+            throw "TimeoutSeconds must be between 1 and $maximumWatcherTimeoutSeconds for the Stop Hook horizon."
         }
     }
 }
@@ -655,6 +682,7 @@ function Invoke-WatchAdapterSend {
         [AllowEmptyString()][string]$ProfileValue = '',
         [AllowEmptyString()][string]$TabIdValue = '',
         [AllowEmptyString()][string]$SessionKeyValue = '',
+        [int]$ResponseTimeoutSecondsValue = $TimeoutSeconds,
         [switch]$RequireFreshConversation
     )
 
@@ -669,7 +697,8 @@ function Invoke-WatchAdapterSend {
         '-PromptPath', $PromptFile,
         '-EvidenceDir', $EvidenceDirectory,
         '-IdempotencyKey', $IdempotencyKeyValue,
-        '-CodexThreadId', $CodexThreadIdValue
+        '-CodexThreadId', $CodexThreadIdValue,
+        '-ResponseTimeoutSeconds', [string]$ResponseTimeoutSecondsValue
     )
     $targetParts = @($BrowserIdValue, $ProfileValue, $TabIdValue, $SessionKeyValue)
     $targetPartCount = @($targetParts | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }).Count
@@ -1363,6 +1392,13 @@ function Start-WatchProcessExclusive {
         }
     }
 
+    $WatcherTimeoutSeconds = Get-WatchRemainingDeadlineSeconds `
+        -DeadlineAtUtc ([string](Get-WatchProperty $binding 'ResponseDeadlineAtUtc' '')) `
+        -RequestedTimeoutSeconds $WatcherTimeoutSeconds
+    if ($WatcherTimeoutSeconds -le 0) {
+        throw 'The original response deadline expired before the watcher could start.'
+    }
+
     $watcherId = [guid]::NewGuid().ToString()
     $token = [guid]::NewGuid().ToString('N')
     $state = [ordered]@{
@@ -1380,6 +1416,7 @@ function Start-WatchProcessExclusive {
         targetBinding = $binding.TargetBinding
         promptSha256 = $binding.PromptSha256
         idempotencyKeySha256 = $binding.IdempotencyKeySha256
+        responseDeadlineAtUtc = $binding.ResponseDeadlineAtUtc
         codexThreadId = $binding.CodexThreadId
         pollSeconds = $PollSeconds
         stableStopPolls = $StableStopPolls
@@ -1612,8 +1649,8 @@ function Wait-RootWatchEvent {
         [scriptblock]$ProcessAliveAction = { param($ProcessId) $null -ne (Get-Process -Id $ProcessId -ErrorAction SilentlyContinue) }
     )
 
-    if ($WaitTimeoutSeconds -lt 30 -or $WaitTimeoutSeconds -gt 86400) {
-        throw 'WaitTimeoutSeconds must be between 30 and 86400.'
+    if ($WaitTimeoutSeconds -lt 1 -or $WaitTimeoutSeconds -gt 86400) {
+        throw 'WaitTimeoutSeconds must be between 1 and 86400.'
     }
     if (-not (Test-WatchThreadId -Value $ThreadId)) {
         throw 'CodexThreadId must be the exact current Codex thread UUID.'
@@ -1631,6 +1668,11 @@ function Wait-RootWatchEvent {
     }
     if ([string]::IsNullOrWhiteSpace($watcherId)) {
         throw 'Root-wait evidence has no watcher identity.'
+    }
+    $responseDeadlineAtUtc = [string](Get-WatchProperty $state 'responseDeadlineAtUtc' '')
+    if ([string]::IsNullOrWhiteSpace($responseDeadlineAtUtc)) {
+        $adapterState = Read-WatchJson -Path (Join-Path $EvidenceDirectory 'state.json')
+        $responseDeadlineAtUtc = [string](Get-WatchProperty $adapterState 'responseDeadlineAtUtc' '')
     }
 
     $started = [datetime](& $NowAction)
@@ -1660,6 +1702,10 @@ function Wait-RootWatchEvent {
             if (@('starting', 'running') -notcontains $phase) {
                 throw 'Root-wait event appeared with an invalid watcher phase.'
             }
+        }
+        if (-not [string]::IsNullOrWhiteSpace($responseDeadlineAtUtc) -and
+            (Get-WatchRemainingDeadlineSeconds -DeadlineAtUtc $responseDeadlineAtUtc -RequestedTimeoutSeconds $WaitTimeoutSeconds -NowAction $NowAction) -le 0) {
+            throw 'The original response deadline expired while waiting for the root-wait watcher event.'
         }
         if (([datetime](& $NowAction) - $started).TotalSeconds -ge $WaitTimeoutSeconds) {
             throw 'Timed out waiting for the root-wait watcher event.'
@@ -2565,6 +2611,7 @@ function Invoke-RootWaitRound {
             -ProfileValue $ProfileValue `
             -TabIdValue $TabIdValue `
             -SessionKeyValue $SessionKeyValue `
+            -ResponseTimeoutSecondsValue $TimeoutSeconds `
             -RequireFreshConversation:$RequireFreshConversation
     }
     catch {
@@ -2642,19 +2689,10 @@ function Invoke-RootWaitRound {
     if ([string]::IsNullOrWhiteSpace($responseDeadlineAtUtc)) {
         $responseDeadlineAtUtc = $roundStartedAt.AddSeconds($TimeoutSeconds).ToUniversalTime().ToString('o')
     }
-    try {
-        $responseDeadline = [datetimeoffset]::Parse(
-            $responseDeadlineAtUtc,
-            [Globalization.CultureInfo]::InvariantCulture,
-            [Globalization.DateTimeStyles]::AssumeUniversal
-        ).UtcDateTime
-    }
-    catch {
-        throw 'Adapter responseDeadlineAtUtc is invalid.'
-    }
-    $remainingSeconds = [int][Math]::Ceiling(
-        ($responseDeadline - ([datetime](& $NowAction)).ToUniversalTime()).TotalSeconds
-    )
+    $remainingSeconds = Get-WatchRemainingDeadlineSeconds `
+        -DeadlineAtUtc $responseDeadlineAtUtc `
+        -RequestedTimeoutSeconds $TimeoutSeconds `
+        -NowAction $NowAction
     if ($remainingSeconds -le 0) {
         if ($null -eq $adapterState) {
             $adapterState = Read-WatchJson -Path (Join-Path $EvidenceDirectory 'state.json') -Required
@@ -2689,8 +2727,6 @@ function Invoke-RootWaitRound {
             acknowledgementPending = $true
         }
     }
-    $remainingSeconds = [Math]::Max(30, $remainingSeconds)
-
     $startResult = Start-WatchProcess `
         -EvidenceDirectory $EvidenceDirectory `
         -ThreadId $ThreadId `

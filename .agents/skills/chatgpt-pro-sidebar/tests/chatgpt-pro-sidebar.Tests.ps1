@@ -1483,6 +1483,53 @@ Describe 'Per-target concurrency and thread ownership' {
             -Binding $script:bindingB).Reused | Should -BeFalse
     }
 
+    It 'allows same-thread target reuse only after durable retry-not-submitted proof' {
+        $firstDirectory = Join-Path $TestDrive 'thread-a-retry-not-submitted'
+        $secondDirectory = Join-Path $TestDrive 'thread-a-after-retry-not-submitted'
+        $promptSha = 'f' * 64
+        $binding = [ordered]@{} + $script:bindingB
+        $binding.tabId = '103'
+        $binding.sessionKey = 'browser-1:profile-1:103'
+        $null = Reserve-AgentBrowserTargetClaim `
+            -CodexThreadIdValue $script:threadA `
+            -EvidenceDirectory $firstDirectory `
+            -IdempotencyKeySha256Value ('1' * 64) `
+            -Binding $binding
+        $null = [System.IO.Directory]::CreateDirectory($firstDirectory)
+        $previousState = [ordered]@{
+            schemaVersion = $Script:SchemaVersion
+            tool = $Script:ToolName
+            phase = 'send-uncertain'
+            retryOutcome = 'retry-not-submitted'
+            submissionAcknowledged = $false
+            automaticResendAllowed = $false
+            attemptCount = 2
+            promptSha256 = $promptSha
+            attempts = @(
+                [ordered]@{ outcome = 'proved-not-submitted'; exactConversationUrl = ''; userTurnObserved = $false; generatingObserved = $false; composerSha256Observed = $promptSha }
+            )
+        }
+        Write-EvidenceState -Directory $firstDirectory -State $previousState
+        Assert-ThrowsCategory -Category 'AgentBrowserTargetClaimConflict' -ExitCode 32 -Action {
+            Reserve-AgentBrowserTargetClaim `
+                -CodexThreadIdValue $script:threadA `
+                -EvidenceDirectory $secondDirectory `
+                -IdempotencyKeySha256Value ('2' * 64) `
+                -Binding $binding
+        }
+
+        $previousState.attempts += @(
+            [ordered]@{ outcome = 'retry-not-submitted'; exactConversationUrl = ''; userTurnObserved = $false; generatingObserved = $false; composerSha256Observed = $promptSha }
+        )
+        Write-EvidenceState -Directory $firstDirectory -State $previousState
+
+        (Reserve-AgentBrowserTargetClaim `
+            -CodexThreadIdValue $script:threadA `
+            -EvidenceDirectory $secondDirectory `
+            -IdempotencyKeySha256Value ('2' * 64) `
+            -Binding $binding).Reused | Should -BeFalse
+    }
+
     It 'rejects cross-thread wait before resolving or observing the bound target' {
         $directory = Join-Path $TestDrive 'cross-thread-wait'
         $null = [System.IO.Directory]::CreateDirectory($directory)
@@ -1726,12 +1773,12 @@ Describe 'Exact URL fallback and sanitization' {
     It 'rejects a pre-send URL change before invoking Send' {
         Assert-ThrowsCategory -Category 'PreSendConversationChanged' -ExitCode 28 -Action {
             Assert-PreSendUrlInvariant -InitialUrlState ([pscustomobject]@{
-                Url = 'https://chatgpt.com/'
-                Exact = $false
+                Url = 'https://chatgpt.com/c/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+                Exact = $true
             }) -CurrentUrlState ([pscustomobject]@{
-                Url = 'https://chatgpt.com/g/g-other'
-                Exact = $false
-            }) -RequireFreshConversation
+                Url = 'https://chatgpt.com/c/bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
+                Exact = $true
+            }) -RequireExistingConversation
         }
     }
 
@@ -2416,6 +2463,15 @@ Describe 'agent-browser-cli V2 transport' {
         }
     }
 
+    It 'rejects a custom GPT start page as a retry-safe fresh homepage' {
+        Assert-ThrowsCategory -Category 'FreshConversationUnproved' -ExitCode 28 -Action {
+            Assert-ChatGptUrlState -UrlState ([pscustomobject]@{
+                Url = 'https://chatgpt.com/g/example-gpt'
+                Exact = $false
+            }) -RequireFreshConversation
+        }
+    }
+
     It 'switches one unique thinking-mode control to Pro and verifies it before send preparation' {
         $extreme = [pscustomobject]@{
             Url = 'https://chatgpt.com/'; UrlExact = $false; ComposerCount = 1; ComposerValue = ''; SendCount = 0
@@ -2537,6 +2593,120 @@ Describe 'agent-browser-cli V2 transport' {
         (Read-EvidenceState -Directory $directory).automaticResendAllowed | Should -BeFalse
     }
 
+    It 'does not claim a browser target when the global idempotency reservation fails' {
+        $directory = Join-Path $TestDrive 'v2-global-reservation-failure'
+        $null = New-Item -ItemType Directory -Path $directory
+        Mock Resolve-AgentBrowserTarget { $script:v2Target }
+        Mock Get-AgentBrowserPageSnapshot {
+            [pscustomobject]@{
+                Url = 'https://chatgpt.com/'; UrlExact = $false; ComposerCount = 1; ComposerValue = ''; SendCount = 0
+                LoginCount = 0; ProCount = 1; SelectedModeControlCount = 1; SelectedModeLabel = 'Pro'; SelectedModeIsPro = $true
+                SecurityChallengeCount = 0; Generating = $false; UserTurns = @(); Responses = @(); Target = $script:v2Target
+            }
+        }
+        Mock Reserve-GlobalIdempotencyKey {
+            throw (New-SidebarException -ExitCode 30 -Category 'IdempotencyReservationFailed' -Message 'injected reservation failure')
+        }
+        Mock Reserve-AgentBrowserTargetClaim { throw 'target claim must not be created' }
+        Mock Invoke-AgentBrowserCliJson { throw 'browser mutation must not run' }
+
+        Assert-ThrowsCategory -Category 'IdempotencyReservationFailed' -ExitCode 30 -Action {
+            Invoke-AgentBrowserSend -PromptText 'reservation prompt' -EvidenceDirectory $directory -IdempotencyKeyValue 'v2-global-reservation-failure' -CodexThreadIdValue $script:v2ThreadId -RequireFreshConversation -TargetBinding (ConvertTo-AgentBrowserTargetBinding -Target $script:v2Target)
+        }
+        Should -Invoke Reserve-AgentBrowserTargetClaim -Times 0 -Exactly
+        Should -Invoke Invoke-AgentBrowserCliJson -Times 0 -Exactly
+    }
+
+    It 'records durable pre-invoke evidence when target claiming fails after global reservation' {
+        $directory = Join-Path $TestDrive 'v2-target-claim-failure'
+        $null = New-Item -ItemType Directory -Path $directory
+        Mock Resolve-AgentBrowserTarget { $script:v2Target }
+        Mock Get-AgentBrowserPageSnapshot {
+            [pscustomobject]@{
+                Url = 'https://chatgpt.com/'; UrlExact = $false; ComposerCount = 1; ComposerValue = ''; SendCount = 0
+                LoginCount = 0; ProCount = 1; SelectedModeControlCount = 1; SelectedModeLabel = 'Pro'; SelectedModeIsPro = $true
+                SecurityChallengeCount = 0; Generating = $false; UserTurns = @(); Responses = @(); Target = $script:v2Target
+            }
+        }
+        Mock Reserve-GlobalIdempotencyKey {
+            [pscustomobject]@{ KeySha256 = ('a' * 64); ReservedAtUtc = [DateTime]::UtcNow.ToString('o') }
+        }
+        Mock Reserve-AgentBrowserTargetClaim {
+            throw (New-SidebarException -ExitCode 32 -Category 'AgentBrowserTargetClaimConflict' -Message 'injected target conflict')
+        }
+        Mock Invoke-AgentBrowserCliJson { throw 'browser mutation must not run' }
+
+        Assert-ThrowsCategory -Category 'AgentBrowserTargetClaimConflict' -ExitCode 32 -Action {
+            Invoke-AgentBrowserSend -PromptText 'claim failure prompt' -EvidenceDirectory $directory -IdempotencyKeyValue 'v2-target-claim-failure' -CodexThreadIdValue $script:v2ThreadId -RequireFreshConversation -TargetBinding (ConvertTo-AgentBrowserTargetBinding -Target $script:v2Target)
+        }
+        $state = Read-EvidenceState -Directory $directory
+        $state.phase | Should -Be 'pre-invoke-failed'
+        $state.invokeAttempted | Should -BeFalse
+        $state.preInvokeFailureCategory | Should -Be 'AgentBrowserTargetClaimConflict'
+        Should -Invoke Invoke-AgentBrowserCliJson -Times 0 -Exactly
+    }
+
+    It 'does not acknowledge an existing-conversation no-op click from its unchanged URL alone' {
+        $directory = Join-Path $TestDrive 'v2-existing-no-op'
+        $null = New-Item -ItemType Directory -Path $directory
+        $prompt = 'existing conversation prompt'
+        $conversationUrl = 'https://chatgpt.com/c/12345678-1234-1234-1234-123456789abc'
+        $target = [pscustomobject]@{
+            BrowserId = 'browser-1'; ProfileId = 'profile-1'; ProfileLabel = 'work'; TabId = '101'
+            SessionKey = 'browser-1:profile-1:101'; Origin = 'https://chatgpt.com'; Url = $conversationUrl; UrlExact = $true
+        }
+        $oldUser = New-TestResponse -Text 'old prompt'
+        $script:v2PageCalls = 0
+        $script:v2ClickCalls = 0
+        Mock Resolve-AgentBrowserTarget { $target }
+        Mock Get-AgentBrowserPageSnapshot {
+            $script:v2PageCalls++
+            [pscustomobject]@{
+                Url = $conversationUrl; UrlExact = $true; ComposerCount = 1
+                ComposerValue = if ($script:v2PageCalls -eq 1) { '' } else { $prompt }
+                SendCount = if ($script:v2PageCalls -eq 1) { 0 } else { 1 }
+                LoginCount = 0; ProCount = 1; SelectedModeControlCount = 1; SelectedModeLabel = 'Pro'; SelectedModeIsPro = $true
+                SecurityChallengeCount = 0; Generating = $false; UserTurns = @($oldUser); Responses = @(); Target = $target
+            }
+        }
+        Mock Invoke-AgentBrowserCliJson {
+            param($Arguments)
+            if ($Arguments[0] -eq 'click') { $script:v2ClickCalls++ }
+            [pscustomobject]@{ ok = $true; result = [pscustomobject]@{ status = 'success'; tab_id = '101'; session_key = 'browser-1:profile-1:101' } }
+        }
+        Mock Start-Sleep {}
+
+        Assert-ThrowsCategory -Category 'RecoveryRequired' -ExitCode 26 -Action {
+            Invoke-AgentBrowserSend -PromptText $prompt -EvidenceDirectory $directory -IdempotencyKeyValue 'v2-existing-no-op' -CodexThreadIdValue $script:v2ThreadId -RequireExistingConversation -TargetBinding (ConvertTo-AgentBrowserTargetBinding -Target $target) -ObservationSecondsValue 0
+        }
+        $state = Read-EvidenceState -Directory $directory
+        $script:v2ClickCalls | Should -Be 1
+        $state.submissionAcknowledged | Should -BeFalse
+        $state.retryOutcome | Should -Be 'recovery-required'
+    }
+
+    It 'rejects an expired response deadline before any wait-time browser observation' {
+        $directory = Join-Path $TestDrive 'v2-expired-response-deadline'
+        $null = New-Item -ItemType Directory -Path $directory
+        $state = New-SendIntentState `
+            -PromptSha256 ('a' * 64) `
+            -IdempotencyKeyValue 'v2-expired-response-deadline' `
+            -BaselineHashes @() `
+            -ConversationUrlBeforeSend 'https://chatgpt.com/c/12345678-1234-1234-1234-123456789abc' `
+            -Transport $Script:AgentBrowserTransport `
+            -TargetBinding (ConvertTo-AgentBrowserTargetBinding -Target $script:v2Target) `
+            -CodexThreadIdValue $script:v2ThreadId
+        Set-ObjectProperty -InputObject $state -Name 'phase' -Value 'sent'
+        Set-ObjectProperty -InputObject $state -Name 'responseDeadlineAtUtc' -Value ([DateTime]::UtcNow.AddSeconds(-1).ToString('o'))
+        Write-EvidenceState -Directory $directory -State $state
+        Mock Get-AgentBrowserWaitObservation { throw 'browser observation must not run after the absolute deadline' }
+
+        Assert-ThrowsCategory -Category 'ResponseDeadlineExpired' -ExitCode 27 -Action {
+            Invoke-AgentBrowserWait -EvidenceDirectory $directory -TimeoutSecondsValue 600 -PollMillisecondsValue 250 -CodexThreadIdValue $script:v2ThreadId
+        }
+        Should -Invoke Get-AgentBrowserWaitObservation -Times 0 -Exactly
+    }
+
     It 'adopts the same tab URL when the model control hides after exact Pro preflight' {
         $directory = Join-Path $TestDrive 'v2-homepage-send'
         $null = New-Item -ItemType Directory -Path $directory
@@ -2577,7 +2747,7 @@ Describe 'agent-browser-cli V2 transport' {
                 }
             }
             return [pscustomobject]@{
-                Url = $conversationUrl; UrlExact = $true; ComposerCount = 1; ComposerValue = $prompt; SendCount = 0
+                Url = $conversationUrl; UrlExact = $true; ComposerCount = 1; ComposerValue = ''; SendCount = 0
                 LoginCount = 0; ProCount = 0; SelectedModeControlCount = 0; SelectedModeLabel = ''; SelectedModeIsPro = $false; SecurityChallengeCount = 0; Generating = $false
                 UserTurns = @(); Responses = @(); Target = $exactTarget
             }
@@ -2622,7 +2792,7 @@ Describe 'agent-browser-cli V2 transport' {
         $observation.Generating | Should -BeTrue
     }
 
-    It 'keeps observing through a transitional user-turn mismatch until the same tab exposes an exact URL' {
+    It 'treats a transitional user-turn baseline mismatch as recovery-required without retry' {
         $directory = Join-Path $TestDrive 'v2-transitional-user-turn'
         $null = New-Item -ItemType Directory -Path $directory
         $prompt = 'transitional prompt'
@@ -2682,14 +2852,14 @@ Describe 'agent-browser-cli V2 transport' {
         }
         Mock Start-Sleep {}
 
-        $result = Invoke-AgentBrowserSend -PromptText $prompt -EvidenceDirectory $directory -IdempotencyKeyValue 'v2-transitional-user-turn' -CodexThreadIdValue $script:v2ThreadId -RequireFreshConversation -TargetBinding (ConvertTo-AgentBrowserTargetBinding -Target $script:v2Target) -ObservationSecondsValue 180
+        Assert-ThrowsCategory -Category 'RecoveryRequired' -ExitCode 26 -Action {
+            Invoke-AgentBrowserSend -PromptText $prompt -EvidenceDirectory $directory -IdempotencyKeyValue 'v2-transitional-user-turn' -CodexThreadIdValue $script:v2ThreadId -RequireFreshConversation -TargetBinding (ConvertTo-AgentBrowserTargetBinding -Target $script:v2Target) -ObservationSecondsValue 180
+        }
         $state = Read-EvidenceState -Directory $directory
         $script:v2ClickCalls | Should -Be 1
-        $result.conversationUrl | Should -Be $conversationUrl
-        $state.conversationUrlBound | Should -Be $conversationUrl
-        $state.conversationUrlBindingPending | Should -BeFalse
-        $state.attempts[0].generatingObserved | Should -BeTrue
-        $state.attempts[0].outcome | Should -Be 'sent-progress'
+        $state.retryOutcome | Should -Be 'recovery-required'
+        $state.submissionAcknowledged | Should -BeFalse
+        $state.attempts[0].outcome | Should -Be 'recovery-required'
     }
 
     It 'uses one background retry only after durable fresh-homepage non-submission proof' {
@@ -2817,7 +2987,7 @@ Describe 'agent-browser-cli V2 transport' {
         $script:v2ClickCalls = 0
         Mock Resolve-AgentBrowserTarget { $script:v2Target }
         Mock Get-AgentBrowserPageSnapshot {
-            $composer = if (-not $script:v2Filled) { '' } elseif ($script:v2Clicked) { '' } else { $prompt }
+            $composer = if (-not $script:v2Filled) { '' } elseif ($script:v2Clicked) { 'changed draft' } else { $prompt }
             [pscustomobject]@{
                 Url = 'https://chatgpt.com/'; UrlExact = $false; ComposerCount = 1; ComposerValue = $composer
                 SendCount = if ($script:v2Filled) { 1 } else { 0 }

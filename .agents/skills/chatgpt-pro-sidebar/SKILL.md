@@ -24,7 +24,8 @@ The logical Skill name remains `chatgpt-pro-sidebar`; its active transport is
   as a fallback.
 - Never resend after `send-uncertain`. After the first click, only the adapter
   may issue one internal second click, and only after the full 180-second
-  observation proves `retry-not-submitted` on an unchanged fresh homepage.
+  observation proves `retry-not-submitted` on an unchanged canonical root
+  homepage (`https://chatgpt.com/`).
   External callers never resend; preserve the evidence directory for review.
 - The bridge does not authorize commits, pushes, deployment, production access,
   or external writes.
@@ -89,8 +90,9 @@ transport.
    `transport=agent-browser-cli-v2`, one target binding, canonical ChatGPT URL,
    `selectedModeControlCount=1`, `selectedModeLabel=Pro`,
    `selectedModeIsPro=true`, no login/challenge, and `generating=false`.
-2. For a new task, call `new-chat` or use `run`. An empty homepage is already a
-   fresh chat; otherwise one same-profile homepage tab is opened in background.
+2. For a new task, call `new-chat` or use `run`. Only an empty canonical root
+   homepage is already a fresh chat; custom GPT and conversation URLs are not.
+   Otherwise one same-profile root homepage tab is opened in background.
 3. For an existing conversation, use ordinary `send`; it requires an exact
    canonical conversation URL. Use `-FreshConversation` only on a proved empty
    homepage.
@@ -138,6 +140,11 @@ create a replacement directory to bypass uncertain evidence.
   homepage, intact composer, no exact conversation URL, no appended user turn,
   and no generation. The retry opens one same-profile background tab and keeps
   the original idempotency identity.
+- An exact conversation URL is persisted as soon as it appears, but URL
+  navigation alone never acknowledges an existing-conversation click. The
+  composer must clear or generation must start. A missing, reordered, or
+  multiply appended rendered user-turn baseline is ambiguous post-click state:
+  return `recovery-required` after one click and never retry.
 - After the second 180-second timeout, `retry-not-submitted` is terminal: write
   durable terminal evidence, safely release capacity, and return immediately to
   the original Codex task for user notification. `recovery-required` is also
@@ -146,8 +153,9 @@ create a replacement directory to bypass uncertain evidence.
 - A lost click result or any unproved post-click state is `send-uncertain` or
   `recovery-required`; never resend it.
 - The response deadline is one absolute 7200-second budget beginning with the
-  first click. Retry and adapter time consume that same budget; they never reset
-  it. Local watcher polling does not consume model tokens.
+  first click. Retry, adapter wait, watcher startup/wait, recovery, and batch
+  child time consume that same budget; they never reset it. Local watcher
+  polling does not consume model tokens.
 - Temporary browser loss during wait is observational only. Exact URL recovery
   may reopen in background; no recovery path may send.
 - Batch slot timeout is `queued-timeout` with `ConcurrencySlotTimeout` and
@@ -155,6 +163,10 @@ create a replacement directory to bypass uncertain evidence.
   unproved post-send state returns `ConcurrencySlotRecoveryRequired`. `slots` is
   read-only, and `release-slot` succeeds only with durable pre-click-unsent or
   terminal proof. It never deletes idempotency or target claims.
+- Global idempotency is reserved before the target claim. If later target
+  claiming fails, the round records durable pre-click failure. A same-thread
+  target may transfer after completed/pre-invoke failure or the complete
+  terminal `retry-not-submitted` proof, never from generic `send-uncertain`.
 - A normal generating page may surface as adapter `GenerationAlreadyActive`;
   the watcher accepts it only from matching structured status details. Long
   conversations may omit an old rendered turn prefix, but response isolation
