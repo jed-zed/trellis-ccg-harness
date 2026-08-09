@@ -20,8 +20,11 @@ return (() => {
   const composerRect = composers[0].getBoundingClientRect();
   const controls = visibleAll('button[aria-haspopup="menu"]').filter(element => {
     const rect = element.getBoundingClientRect();
-    return !element.closest('[role="menu"]') && label(element) &&
-      Math.abs((rect.y + rect.height / 2) - (composerRect.y + composerRect.height / 2)) <= 80;
+    const text = label(element);
+    const verticalGap = Math.max(composerRect.top - rect.bottom, rect.top - composerRect.bottom, 0);
+    const horizontallyAdjacent = rect.right >= composerRect.left - 40 && rect.left <= composerRect.right + 40;
+    return !element.closest('[role="menu"]') && (text === 'Pro' || text === '极高') &&
+      horizontallyAdjacent && verticalGap <= 40;
   });
   if (controls.length !== 1) return { schemaVersion: 1, ok: false, reason: 'mode-control-count', count: controls.length };
 

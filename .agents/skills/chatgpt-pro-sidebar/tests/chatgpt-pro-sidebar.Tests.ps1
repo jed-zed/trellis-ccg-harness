@@ -2912,10 +2912,14 @@ Describe 'agent-browser-cli V2 transport' {
         $source | Should -Match "block\.firstElementChild\.tagName === 'BR'"
         $source | Should -Match "nodePlainText\(block\)\)\.join\('\\n'\)"
         $source | Should -Match 'composerPlainText\(composers\[0\]\)'
+        $source | Should -Match "text === 'Pro' \|\| text === '极高'"
+        $source | Should -Match 'verticalGap <= 40'
         $source | Should -Not -Match 'document\.cookie|localStorage|sessionStorage|fetch\(|XMLHttpRequest|promptText'
         $modelSource | Should -Match 'button\[aria-haspopup="menu"\]'
         $modelSource | Should -Match '\[role="menuitemradio"\]'
         $modelSource | Should -Match "label\(element\) === 'Pro'"
+        $modelSource | Should -Match "text === 'Pro' \|\| text === '极高'"
+        $modelSource | Should -Match 'verticalGap <= 40'
         $modelSource | Should -Not -Match 'data-message-author-role|document\.cookie|localStorage|sessionStorage|fetch\(|XMLHttpRequest|promptText'
     }
 }

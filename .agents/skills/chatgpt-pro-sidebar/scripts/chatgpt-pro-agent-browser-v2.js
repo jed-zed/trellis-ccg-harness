@@ -68,8 +68,11 @@ return (() => {
   const modeControls = composerRect
     ? visibleAll('button[aria-haspopup="menu"]').filter(element => {
       const rect = element.getBoundingClientRect();
-      return !element.closest('[role="menu"]') && compactText(element) &&
-        Math.abs((rect.y + rect.height / 2) - (composerRect.y + composerRect.height / 2)) <= 80;
+      const text = compactText(element);
+      const verticalGap = Math.max(composerRect.top - rect.bottom, rect.top - composerRect.bottom, 0);
+      const horizontallyAdjacent = rect.right >= composerRect.left - 40 && rect.left <= composerRect.right + 40;
+      return !element.closest('[role="menu"]') && (text === 'Pro' || text === '极高') &&
+        horizontallyAdjacent && verticalGap <= 40;
     })
     : [];
   const selectedModeLabel = modeControls.length === 1 ? compactText(modeControls[0]) : '';
