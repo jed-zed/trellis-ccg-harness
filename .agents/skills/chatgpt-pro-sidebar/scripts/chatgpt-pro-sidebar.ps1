@@ -671,7 +671,10 @@ function Test-AgentBrowserTargetClaimTransferSafeState {
     $retryPreparationFailed = [bool](Get-ObjectProperty $State 'retryPreparationFailedBeforeClick' $false)
     $expectedAttemptCount = if ($retryPreparationFailed) { 1 } else { 2 }
     if ($promptSha256 -notmatch '^[0-9a-f]{64}$' -or
-        ($retryPreparationFailed -and [string]::IsNullOrWhiteSpace([string](Get-ObjectProperty $State 'retryFailureCategory' ''))) -or
+        ($retryPreparationFailed -and (
+            [string]::IsNullOrWhiteSpace([string](Get-ObjectProperty $State 'retryFailureCategory' '')) -or
+            [string]::IsNullOrWhiteSpace([string](Get-ObjectProperty $State 'retryFailureMessage' ''))
+        )) -or
         $attemptCount -ne $expectedAttemptCount -or $attempts.Count -ne $expectedAttemptCount) {
         return $false
     }
@@ -693,13 +696,19 @@ function Set-RetryPreparationFailedBeforeClick {
     param(
         [Parameter(Mandatory = $true)][string]$EvidenceDirectory,
         [Parameter(Mandatory = $true)]$State,
-        [Parameter(Mandatory = $true)][string]$Category
+        [Parameter(Mandatory = $true)][string]$Category,
+        [AllowEmptyString()][string]$Message = ''
     )
 
+    $boundedMessage = $Message.Trim()
+    if ($boundedMessage.Length -gt 1024) {
+        $boundedMessage = $boundedMessage.Substring(0, 1024)
+    }
     Set-ObjectProperty -InputObject $State -Name 'phase' -Value 'send-uncertain'
     Set-ObjectProperty -InputObject $State -Name 'retryOutcome' -Value 'retry-not-submitted'
     Set-ObjectProperty -InputObject $State -Name 'retryPreparationFailedBeforeClick' -Value $true
     Set-ObjectProperty -InputObject $State -Name 'retryFailureCategory' -Value $Category
+    Set-ObjectProperty -InputObject $State -Name 'retryFailureMessage' -Value $boundedMessage
     Set-ObjectProperty -InputObject $State -Name 'submissionAcknowledged' -Value $false
     Write-EvidenceState -Directory $EvidenceDirectory -State $State
 }
@@ -4998,7 +5007,8 @@ function Invoke-AgentBrowserSend {
         [Parameter(Mandatory = $true)]$TargetBinding,
         [ValidateRange(0, 180)][int]$ObservationSecondsValue = 180,
         [ValidateRange(1, 7200)][int]$ResponseTimeoutSecondsValue = 7200,
-        [AllowEmptyString()][string]$ResponseDeadlineAtUtcValue = ''
+        [AllowEmptyString()][string]$ResponseDeadlineAtUtcValue = '',
+        [scriptblock]$UtcNowProvider = { [DateTime]::UtcNow }
     )
 
     $threadId = Resolve-CodexThreadId -Value $CodexThreadIdValue
@@ -5125,8 +5135,8 @@ function Invoke-AgentBrowserSend {
     $responseDeadline = [DateTime]::MaxValue
     while ($attemptNumber -le 2) {
         if ($attemptNumber -eq 2) {
-            if ([DateTime]::UtcNow -ge $responseDeadline) {
-                Set-RetryPreparationFailedBeforeClick -EvidenceDirectory $EvidenceDirectory -State $state -Category 'ResponseDeadlineExpired'
+            if ((& $UtcNowProvider) -ge $responseDeadline) {
+                Set-RetryPreparationFailedBeforeClick -EvidenceDirectory $EvidenceDirectory -State $state -Category 'ResponseDeadlineExpired' -Message 'The absolute response deadline expired before retry preparation.'
                 Throw-SidebarError -ExitCode $Script:ExitCodes.Timeout -Category 'RetryNotSubmitted' -Message 'The absolute response deadline expired before retry preparation. No second click occurred.'
             }
             try {
@@ -5173,7 +5183,7 @@ function Invoke-AgentBrowserSend {
                 }) -ExpectedPromptSha256 $promptSha
             }
             catch {
-                Set-RetryPreparationFailedBeforeClick -EvidenceDirectory $EvidenceDirectory -State $state -Category (Get-ExceptionCategory -Exception $_.Exception)
+                Set-RetryPreparationFailedBeforeClick -EvidenceDirectory $EvidenceDirectory -State $state -Category (Get-ExceptionCategory -Exception $_.Exception) -Message $_.Exception.Message
                 Throw-SidebarError -ExitCode $Script:ExitCodes.SendUncertain -Category 'RetryNotSubmitted' -Message 'The first click was proved unsubmitted and the background retry failed before a second click. No request was resent.'
             }
         }
@@ -5203,11 +5213,11 @@ function Invoke-AgentBrowserSend {
                 Write-EvidenceState -Directory $EvidenceDirectory -State $state
                 throw
             }
-            Set-RetryPreparationFailedBeforeClick -EvidenceDirectory $EvidenceDirectory -State $state -Category (Get-ExceptionCategory -Exception $_.Exception)
+            Set-RetryPreparationFailedBeforeClick -EvidenceDirectory $EvidenceDirectory -State $state -Category (Get-ExceptionCategory -Exception $_.Exception) -Message $_.Exception.Message
             Throw-SidebarError -ExitCode $Script:ExitCodes.SendUncertain -Category 'RetryNotSubmitted' -Message 'The background retry failed before its click. No third send is allowed.'
         }
 
-        $clickStartedAt = [DateTime]::UtcNow
+        $clickStartedAt = & $UtcNowProvider
         if ($attemptNumber -eq 1) {
             try {
                 $responseDeadline = Resolve-SendResponseDeadlineUtc `
@@ -5233,7 +5243,7 @@ function Invoke-AgentBrowserSend {
                 Write-EvidenceState -Directory $EvidenceDirectory -State $state
                 Throw-SidebarError -ExitCode $Script:ExitCodes.Timeout -Category 'ResponseDeadlineExpired' -Message 'The absolute response deadline expired before the first click.'
             }
-            Set-RetryPreparationFailedBeforeClick -EvidenceDirectory $EvidenceDirectory -State $state -Category 'ResponseDeadlineExpired'
+            Set-RetryPreparationFailedBeforeClick -EvidenceDirectory $EvidenceDirectory -State $state -Category 'ResponseDeadlineExpired' -Message 'The absolute response deadline expired before the second click.'
             Throw-SidebarError -ExitCode $Script:ExitCodes.Timeout -Category 'RetryNotSubmitted' -Message 'The absolute response deadline expired before the second click. No second click occurred.'
         }
         $observationDeadline = $clickStartedAt.AddSeconds($ObservationSecondsValue)
@@ -5253,6 +5263,23 @@ function Invoke-AgentBrowserSend {
         Set-ObjectProperty -InputObject $state -Name 'attemptCount' -Value $attemptNumber
         Set-ObjectProperty -InputObject $state -Name 'invokeAttempted' -Value $true
         Write-EvidenceState -Directory $EvidenceDirectory -State $state
+        if ((& $UtcNowProvider) -ge $responseDeadline) {
+            Set-ObjectProperty -InputObject $attemptRecord -Name 'composerSha256Observed' -Value $promptSha
+            if ($attemptNumber -eq 1) {
+                Set-ObjectProperty -InputObject $attemptRecord -Name 'outcome' -Value 'pre-click-deadline-expired'
+                Set-ObjectProperty -InputObject $state -Name 'phase' -Value 'pre-invoke-failed'
+                Set-ObjectProperty -InputObject $state -Name 'invokeAttempted' -Value $false
+                Set-ObjectProperty -InputObject $state -Name 'preInvokeFailureCategory' -Value 'ResponseDeadlineExpired'
+                Write-EvidenceState -Directory $EvidenceDirectory -State $state
+                Throw-SidebarError -ExitCode $Script:ExitCodes.Timeout -Category 'ResponseDeadlineExpired' -Message 'The absolute response deadline expired after durable intent persistence and before the first click.'
+            }
+            Set-ObjectProperty -InputObject $attemptRecord -Name 'outcome' -Value 'retry-not-submitted'
+            Set-ObjectProperty -InputObject $state -Name 'phase' -Value 'send-uncertain'
+            Set-ObjectProperty -InputObject $state -Name 'retryOutcome' -Value 'retry-not-submitted'
+            Set-ObjectProperty -InputObject $state -Name 'submissionAcknowledged' -Value $false
+            Write-EvidenceState -Directory $EvidenceDirectory -State $state
+            Throw-SidebarError -ExitCode $Script:ExitCodes.Timeout -Category 'RetryNotSubmitted' -Message 'The absolute response deadline expired after durable retry intent persistence and before the second click.'
+        }
 
         try {
             $clickEnvelope = Invoke-AgentBrowserCliJson -Arguments @(
@@ -5270,6 +5297,13 @@ function Invoke-AgentBrowserSend {
             Throw-SidebarError -ExitCode $Script:ExitCodes.SendUncertain -Category 'SendUncertain' -Message 'The agent-browser-cli click had an uncertain result and was not retried.'
         }
 
+        if ((& $UtcNowProvider) -ge $responseDeadline) {
+            Set-ObjectProperty -InputObject $attemptRecord -Name 'outcome' -Value 'recovery-required'
+            Set-ObjectProperty -InputObject $state -Name 'retryOutcome' -Value 'recovery-required'
+            Set-ObjectProperty -InputObject $state -Name 'submissionAcknowledged' -Value $false
+            Set-SendUncertainState -EvidenceDirectory $EvidenceDirectory -State $state -Reason 'response-deadline-expired-after-click' -InvokeReturned:$true
+            Throw-SidebarError -ExitCode $Script:ExitCodes.Timeout -Category 'RecoveryRequired' -Message 'The click returned after the absolute response deadline. Its result cannot be accepted or retried.'
+        }
         Set-ObjectProperty -InputObject $state -Name 'invokeReturned' -Value $true
         Set-ObjectProperty -InputObject $attemptRecord -Name 'outcome' -Value 'observing'
         Write-EvidenceState -Directory $EvidenceDirectory -State $state
@@ -5286,6 +5320,9 @@ function Invoke-AgentBrowserSend {
                 try {
                     $ackTarget = Resolve-AgentBrowserTarget -ExpectedBinding (Get-ObjectProperty $state 'targetBinding' $null)
                     $ackSnapshot = Get-AgentBrowserPageSnapshot -Target $ackTarget
+                    if ((& $UtcNowProvider) -ge $responseDeadline) {
+                        Throw-SidebarError -ExitCode $Script:ExitCodes.Timeout -Category 'ResponseDeadlineExpired' -Message 'A post-click observation returned after the absolute response deadline.'
+                    }
                     $lastSnapshot = $ackSnapshot
                     if (-not [string]::IsNullOrWhiteSpace($conversationUrlBeforeSend)) {
                         Assert-ConversationUrlMatch -ExpectedUrl $conversationUrlBeforeSend -ActualUrl $ackSnapshot.Url
@@ -5326,7 +5363,7 @@ function Invoke-AgentBrowserSend {
                     throw
                 }
             } while ([DateTime]::UtcNow -lt $observationDeadline -and [DateTime]::UtcNow -lt $responseDeadline)
-            if ([DateTime]::UtcNow -ge $responseDeadline -and -not $progressObserved) {
+            if ((& $UtcNowProvider) -ge $responseDeadline -and -not $progressObserved) {
                 Throw-SidebarError -ExitCode $Script:ExitCodes.Timeout -Category 'ResponseDeadlineExpired' -Message 'The absolute response deadline expired before submission progress was proved.'
             }
         }
@@ -5334,15 +5371,22 @@ function Invoke-AgentBrowserSend {
             $observationCategory = Get-ExceptionCategory -Exception $_.Exception
             $observationMessage = $_.Exception.Message
             $baselineAmbiguous = $observationCategory -in @('UserTurnBaselineMismatch', 'UserTurnAcknowledgementMismatch')
-            Set-ObjectProperty -InputObject $attemptRecord -Name 'outcome' -Value $(if ($baselineAmbiguous) { 'recovery-required' } else { 'post-click-observation-error' })
+            $recoveryRequired = $baselineAmbiguous -or $observationCategory -eq 'ResponseDeadlineExpired'
+            Set-ObjectProperty -InputObject $attemptRecord -Name 'outcome' -Value $(if ($recoveryRequired) { 'recovery-required' } else { 'post-click-observation-error' })
             Set-ObjectProperty -InputObject $state -Name 'targetBinding' -Value (ConvertTo-AgentBrowserTargetBinding -Target $ackTarget)
-            if ($baselineAmbiguous) {
+            if ($recoveryRequired) {
                 Set-ObjectProperty -InputObject $state -Name 'retryOutcome' -Value 'recovery-required'
                 Set-ObjectProperty -InputObject $state -Name 'submissionAcknowledged' -Value $false
             }
             Set-SendUncertainState -EvidenceDirectory $EvidenceDirectory -State $state -Reason 'post-click-observation-error' -InvokeReturned:$true
-            if ($baselineAmbiguous) {
-                Throw-SidebarError -ExitCode $Script:ExitCodes.SendUncertain -Category 'RecoveryRequired' -Message ("Post-click user-turn evidence is ambiguous ($observationCategory); automatic retry is prohibited.") -Details ([ordered]@{ observationCategory = $observationCategory })
+            if ($recoveryRequired) {
+                $recoveryMessage = if ($baselineAmbiguous) {
+                    "Post-click user-turn evidence is ambiguous ($observationCategory); automatic retry is prohibited."
+                }
+                else {
+                    'A post-click observation returned after the absolute response deadline; it cannot be accepted or retried.'
+                }
+                Throw-SidebarError -ExitCode $Script:ExitCodes.SendUncertain -Category 'RecoveryRequired' -Message $recoveryMessage -Details ([ordered]@{ observationCategory = $observationCategory })
             }
             Throw-SidebarError -ExitCode $Script:ExitCodes.SendUncertain -Category 'SendUncertain' -Message ("The click returned, but post-click structural observation failed ($observationCategory): $observationMessage Automatic resend is prohibited.") -Details ([ordered]@{ observationCategory = $observationCategory })
         }

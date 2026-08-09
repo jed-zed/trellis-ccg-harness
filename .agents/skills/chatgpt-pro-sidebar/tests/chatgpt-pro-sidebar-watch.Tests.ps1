@@ -751,6 +751,33 @@ Describe 'Atomic RootWait round' {
         Should -Invoke Start-WatchProcess -Times 0 -Exactly
         Should -Invoke Wait-RootWatchEvent -Times 0 -Exactly
     }
+
+    It 'rejects expired adapter terminal outcomes instead of materializing an event' -TestCases @(
+        @{ Outcome = 'retry-not-submitted'; Category = 'RetryNotSubmitted' }
+        @{ Outcome = 'recovery-required'; Category = 'RecoveryRequired' }
+    ) {
+        param($Outcome, $Category)
+        $deadline = [datetime]'2026-08-09T00:00:05Z'
+        $state = Set-AdapterTerminalFixture -Directory $script:roundDirectory -Outcome $Outcome
+        $state.responseDeadlineAtUtc = $deadline.ToString('o')
+        Write-WatchJsonAtomic -Path (Join-Path $script:roundDirectory 'state.json') -Value $state
+        Mock Invoke-WatchAdapterSend {
+            [pscustomobject]@{ ExitCode = 26; Payload = [pscustomobject]@{ ok = $false; category = $Category } }
+        }
+
+        {
+            Invoke-RootWaitRound `
+                -EvidenceDirectory $script:roundDirectory `
+                -ThreadId $script:ThreadId `
+                -PromptFile $script:roundPrompt `
+                -IdempotencyKeyValue ("atomic-root-expired-$Outcome") `
+                -NowAction { $deadline.AddSeconds(1) }
+        } | Should -Throw '*after the absolute response deadline*'
+
+        Test-Path -LiteralPath (Join-Path $script:roundDirectory $Script:EventFileName) | Should -BeFalse
+        Should -Invoke Start-WatchProcess -Times 0 -Exactly
+        Should -Invoke Wait-RootWatchEvent -Times 0 -Exactly
+    }
 }
 
 Describe 'Batch RootWait capacity' {
@@ -1039,6 +1066,7 @@ Describe 'Batch RootWait capacity' {
         $state.attempts = @($state.attempts[0])
         $state | Add-Member -NotePropertyName retryPreparationFailedBeforeClick -NotePropertyValue $true -Force
         $state | Add-Member -NotePropertyName retryFailureCategory -NotePropertyValue 'AgentBrowserTargetMissing' -Force
+        $state | Add-Member -NotePropertyName retryFailureMessage -NotePropertyValue 'retry target disappeared before fill' -Force
         Write-WatchJsonAtomic -Path (Join-Path $directory 'state.json') -Value $state
 
         $release = Release-CapacitySlot -Id $claim.slotId -ExpectedClaimId $claim.claimId -OwnerCompletionObserved

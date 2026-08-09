@@ -1537,6 +1537,7 @@ Describe 'Per-target concurrency and thread ownership' {
             retryOutcome = 'retry-not-submitted'
             retryPreparationFailedBeforeClick = $true
             retryFailureCategory = 'AgentBrowserTargetMissing'
+            retryFailureMessage = 'retry target disappeared before fill'
             submissionAcknowledged = $false
             automaticResendAllowed = $false
             attemptCount = 1
@@ -1549,6 +1550,28 @@ Describe 'Per-target concurrency and thread ownership' {
         Test-AgentBrowserTargetClaimTransferSafeState -State $state | Should -BeTrue
         $state.retryFailureCategory = ''
         Test-AgentBrowserTargetClaimTransferSafeState -State $state | Should -BeFalse
+        $state.retryFailureCategory = 'AgentBrowserTargetMissing'
+        $state.retryFailureMessage = ''
+        Test-AgentBrowserTargetClaimTransferSafeState -State $state | Should -BeFalse
+    }
+
+    It 'persists a bounded retry preparation failure message' {
+        $directory = Join-Path $TestDrive 'retry-preparation-message'
+        $null = New-Item -ItemType Directory -Path $directory
+        $state = [ordered]@{
+            schemaVersion = $Script:SchemaVersion
+            tool = $Script:ToolName
+        }
+
+        Set-RetryPreparationFailedBeforeClick `
+            -EvidenceDirectory $directory `
+            -State $state `
+            -Category 'AgentBrowserTargetMissing' `
+            -Message ('x' * 1100)
+
+        $saved = Read-EvidenceState -Directory $directory
+        $saved.retryFailureCategory | Should -Be 'AgentBrowserTargetMissing'
+        $saved.retryFailureMessage.Length | Should -Be 1024
     }
 
     It 'rejects cross-thread wait before resolving or observing the bound target' {
@@ -2725,6 +2748,220 @@ Describe 'agent-browser-cli V2 transport' {
         $script:v2ClickCalls | Should -Be 1
         $state.submissionAcknowledged | Should -BeFalse
         $state.retryOutcome | Should -Be 'recovery-required'
+    }
+
+    It 'rechecks the deadline after durable intent persistence and before the first click' {
+        $directory = Join-Path $TestDrive 'v2-deadline-after-intent'
+        $null = New-Item -ItemType Directory -Path $directory
+        $prompt = 'deadline before click prompt'
+        $startedAt = [datetime]'2026-08-09T00:00:00Z'
+        $script:v2PageCalls = 0
+        $script:v2ClockCalls = 0
+        $script:v2ClickCalls = 0
+        Mock Resolve-AgentBrowserTarget { $script:v2Target }
+        Mock Get-AgentBrowserPageSnapshot {
+            $script:v2PageCalls++
+            [pscustomobject]@{
+                Url = 'https://chatgpt.com/'; UrlExact = $false; ComposerCount = 1
+                ComposerValue = if ($script:v2PageCalls -eq 1) { '' } else { $prompt }
+                SendCount = if ($script:v2PageCalls -eq 1) { 0 } else { 1 }
+                LoginCount = 0; ProCount = 1; SelectedModeControlCount = 1; SelectedModeLabel = 'Pro'; SelectedModeIsPro = $true
+                SecurityChallengeCount = 0; Generating = $false; UserTurns = @(); Responses = @(); Target = $script:v2Target
+            }
+        }
+        Mock Invoke-AgentBrowserCliJson {
+            param($Arguments)
+            if ($Arguments[0] -eq 'click') { $script:v2ClickCalls++ }
+            [pscustomobject]@{ ok = $true; result = [pscustomobject]@{ status = 'success'; tab_id = '101'; session_key = 'browser-1:profile-1:101' } }
+        }
+
+        Assert-ThrowsCategory -Category 'ResponseDeadlineExpired' -ExitCode 27 -Action {
+            Invoke-AgentBrowserSend `
+                -PromptText $prompt `
+                -EvidenceDirectory $directory `
+                -IdempotencyKeyValue 'v2-deadline-after-intent' `
+                -CodexThreadIdValue $script:v2ThreadId `
+                -RequireFreshConversation `
+                -TargetBinding (ConvertTo-AgentBrowserTargetBinding -Target $script:v2Target) `
+                -ResponseTimeoutSecondsValue 1 `
+                -UtcNowProvider {
+                    $script:v2ClockCalls++
+                    if ($script:v2ClockCalls -eq 1) { return $startedAt }
+                    return $startedAt.AddSeconds(2)
+                }
+        }
+        $state = Read-EvidenceState -Directory $directory
+        $script:v2ClickCalls | Should -Be 0
+        $state.phase | Should -Be 'pre-invoke-failed'
+        $state.invokeAttempted | Should -BeFalse
+        $state.attempts[0].outcome | Should -Be 'pre-click-deadline-expired'
+    }
+
+    It 'does not perform the second click when the deadline expires after its durable intent write' {
+        $directory = Join-Path $TestDrive 'v2-second-click-deadline-after-intent'
+        $null = New-Item -ItemType Directory -Path $directory
+        $prompt = 'retry deadline prompt'
+        $startedAt = [datetime]'2026-08-09T00:00:00Z'
+        $retryTarget = [pscustomobject]@{
+            BrowserId = 'browser-1'; ProfileId = 'profile-1'; ProfileLabel = 'work'; TabId = '202'
+            SessionKey = 'browser-1:profile-1:202'; Origin = 'https://chatgpt.com'; Url = 'https://chatgpt.com/'; UrlExact = $false
+        }
+        $script:v2Filled = @{}
+        $script:v2ClickCalls = 0
+        $script:v2SecondAttempt = $false
+        $script:v2SecondClockCalls = 0
+        Mock Resolve-AgentBrowserTarget {
+            param($ExpectedBinding)
+            if ([string](Get-ObjectProperty $ExpectedBinding 'tabId' '') -eq '202') { return $retryTarget }
+            return $script:v2Target
+        }
+        Mock Invoke-AgentBrowserOpenFreshTab {
+            $script:v2SecondAttempt = $true
+            $retryTarget
+        }
+        Mock Get-AgentBrowserPageSnapshot {
+            param($Target)
+            $tab = [string]$Target.TabId
+            [pscustomobject]@{
+                Url = 'https://chatgpt.com/'; UrlExact = $false; ComposerCount = 1
+                ComposerValue = if ($script:v2Filled[$tab]) { $prompt } else { '' }
+                SendCount = if ($script:v2Filled[$tab]) { 1 } else { 0 }
+                LoginCount = 0; ProCount = 1; SelectedModeControlCount = 1; SelectedModeLabel = 'Pro'; SelectedModeIsPro = $true
+                SecurityChallengeCount = 0; Generating = $false; UserTurns = @(); Responses = @(); Target = $Target
+            }
+        }
+        Mock Invoke-AgentBrowserCliJson {
+            param($Arguments)
+            $tab = [string]$Arguments[$Arguments.IndexOf('--tab') + 1]
+            if ($Arguments[0] -eq 'fill') { $script:v2Filled[$tab] = $true }
+            if ($Arguments[0] -eq 'click') { $script:v2ClickCalls++ }
+            [pscustomobject]@{ ok = $true; result = [pscustomobject]@{ status = 'success'; tab_id = $tab; session_key = "browser-1:profile-1:$tab" } }
+        }
+        Mock Start-Sleep {}
+
+        Assert-ThrowsCategory -Category 'RetryNotSubmitted' -ExitCode 27 -Action {
+            Invoke-AgentBrowserSend `
+                -PromptText $prompt `
+                -EvidenceDirectory $directory `
+                -IdempotencyKeyValue 'v2-second-click-deadline-after-intent' `
+                -CodexThreadIdValue $script:v2ThreadId `
+                -RequireFreshConversation `
+                -TargetBinding (ConvertTo-AgentBrowserTargetBinding -Target $script:v2Target) `
+                -ObservationSecondsValue 0 `
+                -ResponseTimeoutSecondsValue 1 `
+                -UtcNowProvider {
+                    if (-not $script:v2SecondAttempt) { return $startedAt }
+                    $script:v2SecondClockCalls++
+                    if ($script:v2SecondClockCalls -eq 1) { return $startedAt }
+                    return $startedAt.AddSeconds(2)
+                }
+        }
+        $state = Read-EvidenceState -Directory $directory
+        $script:v2ClickCalls | Should -Be 1
+        $state.attemptCount | Should -Be 2
+        $state.attempts[1].outcome | Should -Be 'retry-not-submitted'
+        Test-AgentBrowserTargetClaimTransferSafeState -State $state | Should -BeTrue
+    }
+
+    It 'rejects a click result that returns after the absolute deadline' {
+        $directory = Join-Path $TestDrive 'v2-click-returned-late'
+        $null = New-Item -ItemType Directory -Path $directory
+        $prompt = 'late click result prompt'
+        $startedAt = [datetime]'2026-08-09T00:00:00Z'
+        $script:v2PageCalls = 0
+        $script:v2ClockCalls = 0
+        $script:v2ClickCalls = 0
+        Mock Resolve-AgentBrowserTarget { $script:v2Target }
+        Mock Get-AgentBrowserPageSnapshot {
+            $script:v2PageCalls++
+            [pscustomobject]@{
+                Url = 'https://chatgpt.com/'; UrlExact = $false; ComposerCount = 1
+                ComposerValue = if ($script:v2PageCalls -eq 1) { '' } else { $prompt }
+                SendCount = if ($script:v2PageCalls -eq 1) { 0 } else { 1 }
+                LoginCount = 0; ProCount = 1; SelectedModeControlCount = 1; SelectedModeLabel = 'Pro'; SelectedModeIsPro = $true
+                SecurityChallengeCount = 0; Generating = $false; UserTurns = @(); Responses = @(); Target = $script:v2Target
+            }
+        }
+        Mock Invoke-AgentBrowserCliJson {
+            param($Arguments)
+            if ($Arguments[0] -eq 'click') { $script:v2ClickCalls++ }
+            [pscustomobject]@{ ok = $true; result = [pscustomobject]@{ status = 'success'; tab_id = '101'; session_key = 'browser-1:profile-1:101' } }
+        }
+
+        Assert-ThrowsCategory -Category 'RecoveryRequired' -ExitCode 27 -Action {
+            Invoke-AgentBrowserSend `
+                -PromptText $prompt `
+                -EvidenceDirectory $directory `
+                -IdempotencyKeyValue 'v2-click-returned-late' `
+                -CodexThreadIdValue $script:v2ThreadId `
+                -RequireFreshConversation `
+                -TargetBinding (ConvertTo-AgentBrowserTargetBinding -Target $script:v2Target) `
+                -ResponseTimeoutSecondsValue 1 `
+                -UtcNowProvider {
+                    $script:v2ClockCalls++
+                    if ($script:v2ClockCalls -le 2) { return $startedAt }
+                    return $startedAt.AddSeconds(2)
+                }
+        }
+        $state = Read-EvidenceState -Directory $directory
+        $script:v2ClickCalls | Should -Be 1
+        $state.retryOutcome | Should -Be 'recovery-required'
+        $state.submissionAcknowledged | Should -BeFalse
+    }
+
+    It 'rejects causal progress observed after the deadline' -TestCases @(
+        @{ Name = 'generation'; Generating = $true; AppendUserTurn = $false }
+        @{ Name = 'user-turn'; Generating = $false; AppendUserTurn = $true }
+    ) {
+        param($Name, $Generating, $AppendUserTurn)
+        $directory = Join-Path $TestDrive ("v2-late-progress-$Name")
+        $null = New-Item -ItemType Directory -Path $directory
+        $prompt = 'late causal progress prompt'
+        $startedAt = [datetime]'2026-08-09T00:00:00Z'
+        $newUserTurn = New-TestResponse -Text 'rendered prompt'
+        $script:v2PageCalls = 0
+        $script:v2ClockCalls = 0
+        $script:v2ClickCalls = 0
+        Mock Resolve-AgentBrowserTarget { $script:v2Target }
+        Mock Get-AgentBrowserPageSnapshot {
+            $script:v2PageCalls++
+            $isObservation = $script:v2PageCalls -ge 4
+            [pscustomobject]@{
+                Url = 'https://chatgpt.com/'; UrlExact = $false; ComposerCount = 1
+                ComposerValue = if ($script:v2PageCalls -eq 1) { '' } elseif ($isObservation) { '' } else { $prompt }
+                SendCount = if ($script:v2PageCalls -eq 1 -or $isObservation) { 0 } else { 1 }
+                LoginCount = 0; ProCount = 1; SelectedModeControlCount = 1; SelectedModeLabel = 'Pro'; SelectedModeIsPro = $true
+                SecurityChallengeCount = 0; Generating = ($isObservation -and $Generating)
+                UserTurns = if ($isObservation -and $AppendUserTurn) { @($newUserTurn) } else { @() }
+                Responses = @(); Target = $script:v2Target
+            }
+        }
+        Mock Invoke-AgentBrowserCliJson {
+            param($Arguments)
+            if ($Arguments[0] -eq 'click') { $script:v2ClickCalls++ }
+            [pscustomobject]@{ ok = $true; result = [pscustomobject]@{ status = 'success'; tab_id = '101'; session_key = 'browser-1:profile-1:101' } }
+        }
+        Mock Start-Sleep {}
+
+        Assert-ThrowsCategory -Category 'RecoveryRequired' -ExitCode 26 -Action {
+            Invoke-AgentBrowserSend `
+                -PromptText $prompt `
+                -EvidenceDirectory $directory `
+                -IdempotencyKeyValue ("v2-late-progress-$Name") `
+                -CodexThreadIdValue $script:v2ThreadId `
+                -RequireFreshConversation `
+                -TargetBinding (ConvertTo-AgentBrowserTargetBinding -Target $script:v2Target) `
+                -ResponseTimeoutSecondsValue 1 `
+                -UtcNowProvider {
+                    $script:v2ClockCalls++
+                    if ($script:v2ClockCalls -le 3) { return $startedAt }
+                    return $startedAt.AddSeconds(2)
+                }
+        }
+        $state = Read-EvidenceState -Directory $directory
+        $script:v2ClickCalls | Should -Be 1
+        $state.retryOutcome | Should -Be 'recovery-required'
+        $state.submissionAcknowledged | Should -BeFalse
     }
 
     It 'rejects an expired response deadline before any wait-time browser observation' {

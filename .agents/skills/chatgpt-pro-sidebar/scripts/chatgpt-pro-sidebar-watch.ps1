@@ -1985,7 +1985,10 @@ function Get-CapacityReleaseProof {
             if (
                 [int](Get-WatchProperty $adapterState 'attemptCount' 0) -eq $expectedAttemptCount -and
                 $attempts.Count -eq $expectedAttemptCount -and
-                (-not $retryPreparationFailed -or -not [string]::IsNullOrWhiteSpace([string](Get-WatchProperty $adapterState 'retryFailureCategory' ''))) -and
+                (-not $retryPreparationFailed -or (
+                    -not [string]::IsNullOrWhiteSpace([string](Get-WatchProperty $adapterState 'retryFailureCategory' '')) -and
+                    -not [string]::IsNullOrWhiteSpace([string](Get-WatchProperty $adapterState 'retryFailureMessage' ''))
+                )) -and
                 $proofAttempt.Count -eq 1 -and
                 [string](Get-WatchProperty $proofAttempt[0] 'outcome' '') -eq $proofOutcome -and
                 [string]::IsNullOrWhiteSpace([string](Get-WatchProperty $proofAttempt[0] 'exactConversationUrl' '')) -and
@@ -2670,10 +2673,13 @@ function Invoke-RootWaitRound {
             throw 'Adapter terminal outcome is not bound to this no-resend Codex task.'
         }
         $terminalDeadlineAtUtc = [string](Get-WatchProperty $adapterState 'responseDeadlineAtUtc' '')
-        $null = Get-WatchRemainingDeadlineSeconds `
+        $terminalRemainingSeconds = Get-WatchRemainingDeadlineSeconds `
             -DeadlineAtUtc $terminalDeadlineAtUtc `
             -RequestedTimeoutSeconds $TimeoutSeconds `
             -NowAction $NowAction
+        if ($terminalRemainingSeconds -le 0) {
+            throw 'Adapter terminal outcome arrived after the absolute response deadline and cannot be accepted.'
+        }
         $terminalCategory = if ($terminalOutcome -eq 'retry-not-submitted') { 'RetryNotSubmitted' } else { 'RecoveryRequired' }
         $completed = Complete-RootWaitTerminalFromAdapterState `
             -EvidenceDirectory $EvidenceDirectory `
