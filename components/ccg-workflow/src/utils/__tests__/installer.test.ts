@@ -117,12 +117,13 @@ describe('Codex plugin unified role-routing parity', () => {
     ['skills/ccg-review/SKILL.md', readPluginFile('skills', 'ccg-review', 'SKILL.md')],
   ] as const
 
-  it('keeps ordinary plan/execute/review files independent from generic Claude runtime paths', () => {
+  it('keeps standalone Claude delegation managed and separate from product-manager state', () => {
     for (const [relativePath, content] of ordinaryParityFiles) {
       expect(content, `${relativePath} must not depend on .claude`).not.toContain('.claude')
       expect(content, `${relativePath} must keep Codex as final owner`).toMatch(/Codex .*final|final .*Codex|Codex owns/)
       expect(content, `${relativePath} must state the isolated product-manager boundary`).toContain('product-manager')
-      expect(content, `${relativePath} must keep Claude out of ordinary delegation`).toMatch(/Claude .*ordinary|Claude is not a generic/)
+      expect(content, `${relativePath} must allow configured Claude role evidence`).toMatch(/Claude[\s\S]*(?:frontend\/backend|role call|role evidence)/)
+      expect(content, `${relativePath} must not keep the removed Claude rejection`).not.toMatch(/Claude is disabled|Claude is not a generic|Ordinary Claude delegation is not/)
     }
   })
 

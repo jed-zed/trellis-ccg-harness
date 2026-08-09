@@ -76,7 +76,7 @@ func TestGrokBuildArgs_ReviewModeIsSnapshotOnly(t *testing.T) {
 
 	for _, pair := range [][2]string{
 		{"--tools", ""},
-		{"--disallowed-tools", "read_file,grep,list_dir,search_tool,use_tool"},
+		{"--disallowed-tools", "read_file,grep,list_dir,search_tool,use_tool,search_replace"},
 		{"--permission-mode", "dontAsk"},
 		{"--deny", "mcp__*"},
 		{"--max-turns", "1"},
@@ -234,6 +234,34 @@ func TestFinalizeGrokReview(t *testing.T) {
 	errorStop.observeStopReason("error")
 	if _, err := finalizeGrokReview("review complete", []string{"a.go"}, errorStop); err == nil || !strings.Contains(err.Error(), "stop reason") {
 		t.Fatalf("error-stop error = %v", err)
+	}
+}
+
+func TestRunGrokReadOnlyForcesEnvAndRejectsTools(t *testing.T) {
+	fake := newFakeCmd(fakeCmdConfig{StdoutPlan: []fakeStdoutEvent{{Data: strings.Join([]string{
+		`{"type":"tool_call","toolName":"read_file"}`,
+		`{"type":"text","data":"must not escape"}`,
+		`{"type":"end","stopReason":"EndTurn","sessionId":"session-1"}`,
+	}, "\n") + "\n"}}})
+	originalRunner := newCommandRunner
+	originalLite := liteMode
+	newCommandRunner = func(context.Context, string, ...string) commandRunner { return fake }
+	liteMode = true
+	t.Cleanup(func() {
+		newCommandRunner = originalRunner
+		liteMode = originalLite
+	})
+
+	result := runCodexTaskWithContext(context.Background(), TaskSpec{
+		Task: "inspect only", WorkDir: ".", Backend: "grok", ReadOnly: true,
+	}, GrokBackend{}, nil, false, true, 2)
+	if result.ExitCode == 0 || !strings.Contains(result.Error, "forbidden tool") {
+		t.Fatalf("result = %+v", result)
+	}
+	for key, want := range grokReviewForcedEnv {
+		if got := fake.env[key]; got != want {
+			t.Fatalf("env %s = %q, want %q", key, got, want)
+		}
 	}
 }
 

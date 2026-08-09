@@ -167,6 +167,14 @@ describe('Codex-native CCG route CLI', () => {
     const repairedBackend = run(['routing', 'set', 'backend', 'codex'])
     expect(repairedBackend.status, repairedBackend.stderr).toBe(0)
 
+    const selectedClaude = run(['routing', 'set', 'backend', 'claude'])
+    expect(selectedClaude.status, selectedClaude.stderr).toBe(0)
+    document = parse(await readFile(configPath, 'utf8')) as any
+    expect(document.routing.backend.primary).toBe('claude')
+
+    const restoredBackend = run(['routing', 'set', 'backend', 'codex'])
+    expect(restoredBackend.status, restoredBackend.stderr).toBe(0)
+
     const changed = run(['routing', 'set', 'frontend', 'antigravity'])
     expect(changed.status, changed.stderr).toBe(0)
     document = parse(await readFile(configPath, 'utf8')) as any

@@ -53,7 +53,9 @@ func main() {
 
 	switch name {
 	case "agy":
-		fmt.Println("fake antigravity output")
+		fmt.Println(`{"event":"init","conversation_id":"antigravity-session","init":{"tools":[]}}`)
+		fmt.Println(`{"event":"step_update","step_update":{"conversation_id":"antigravity-session","step_index":0,"state":"DONE","step_type":"agent_response","text_delta":"fake antigravity output"}}`)
+		fmt.Println(`{"event":"result","result":{"conversation_id":"antigravity-session","status":"success","response":"fake antigravity output","num_turns":1}}`)
 	case "grok":
 		fmt.Println(`{"type":"text","data":"fake grok output"}`)
 		fmt.Println(`{"type":"end","stopReason":"EndTurn","sessionId":"grok-session"}`)

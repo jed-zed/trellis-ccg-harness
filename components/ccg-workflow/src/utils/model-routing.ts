@@ -3,8 +3,8 @@ import { REGISTERED_MODEL_TYPES, STANDARD_ROUTING_ROLES } from '../types'
 
 const REGISTERED_MODELS = new Set<ModelType>(REGISTERED_MODEL_TYPES)
 const ROLE_PROVIDER_CAPABILITIES: Record<RoutingRole, readonly ModelType[]> = {
-  frontend: ['codex', 'gemini', 'antigravity', 'grok', 'pi'],
-  backend: ['codex', 'gemini', 'antigravity', 'grok', 'pi'],
+  frontend: ['codex', 'gemini', 'claude', 'antigravity', 'grok', 'pi'],
+  backend: ['codex', 'gemini', 'claude', 'antigravity', 'grok', 'pi'],
   search: ['codex', 'grok'],
   'product-manager': ['codex', 'gemini', 'claude'],
 }
