@@ -44,6 +44,48 @@ describe('Codex plugin release parity', () => {
     expect(template).toContain('<title>gemini - Live Output</title>')
   })
 
+  it('pins external providers to the read-only non-lite wrapper launch contract', () => {
+    const contract = 'ccg wrapper --backend <provider> --read-only --progress - "<workdir>"'
+    const surfaces = [
+      join(root, 'plugins', 'ccg', 'rules', 'ccg-role-routing.md'),
+      ...['ccg-executor', 'ccg-plan', 'ccg-execute', 'ccg-review', 'ccg-analyze', 'ccg-frontend', 'ccg-backend']
+        .map(skill => join(root, 'plugins', 'ccg', 'skills', skill, 'SKILL.md')),
+    ]
+    for (const path of surfaces) {
+      const content = fs.readFileSync(path, 'utf8')
+      expect(content, path).toContain(contract)
+      expect(content, path).toMatch(/prompt.*stdin/i)
+      expect(content, path).toMatch(/do not.*--lite/i)
+    }
+    const routing = fs.readFileSync(surfaces[0], 'utf8')
+    expect(routing).toContain('| `frontend` | `codex`, `gemini`, `claude`, `antigravity`, `grok`, `pi` |')
+    expect(routing).toContain('| `backend` | `codex`, `gemini`, `claude`, `antigravity`, `grok`, `pi` |')
+    expect(routing).not.toMatch(/ordinary Claude.*(?:rejected|disabled|not allowed)/i)
+  })
+
+  it('keeps Gemini previews alive in a tool-managed background job', () => {
+    const surfaces = [
+      join(root, 'plugins', 'ccg', 'rules', 'ccg-role-routing.md'),
+      ...[
+        'ccg-executor',
+        'ccg-plan',
+        'ccg-execute',
+        'ccg-review',
+        'ccg-analyze',
+        'ccg-frontend',
+        'ccg-backend',
+        'ccg-gemini-preview',
+      ]
+        .map(skill => join(root, 'plugins', 'ccg', 'skills', skill, 'SKILL.md')),
+    ]
+    for (const path of surfaces) {
+      const content = fs.readFileSync(path, 'utf8')
+      expect(content, path).toContain('invoke_gemini_preview.py')
+      expect(content, path).toMatch(/tool-managed background (?:task|job)/i)
+      expect(content, path).toMatch(/do not pass\s+`--detach`/i)
+    }
+  })
+
   it('keeps the Grok routing runtime and coverage manifest byte-identical across distributions', () => {
     const pairs = [
       [
@@ -92,7 +134,7 @@ describe('Codex plugin release parity', () => {
     }
   })
 
-  it('keeps every Codex plugin surface independent from Claude runtime and evidence gates', () => {
+  it('keeps every Codex plugin surface independent from unmanaged Claude state and legacy evidence gates', () => {
     const pluginRoot = join(root, 'plugins', 'ccg')
     const pending = [pluginRoot]
     const offenders: Array<{ path: string, pattern: string }> = []
@@ -100,7 +142,6 @@ describe('Codex plugin release parity', () => {
       '~/.claude',
       '.claude/',
       '.claude/plan',
-      '--backend claude',
       '--require-claude-evidence',
       'claudeEvidenceStatus',
     ]

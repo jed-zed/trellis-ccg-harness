@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -19,7 +20,7 @@ var newWebServerForExecution = NewWebServer
 // WebServer manages SSE connections for real-time output streaming
 type WebServer struct {
 	mu            sync.RWMutex
-	clients       map[string][]chan ContentEvent
+	clients       map[string][]chan struct{}
 	sessions      map[string]*SessionState
 	server        *http.Server
 	port          int
@@ -29,27 +30,32 @@ type WebServer struct {
 
 // SessionState tracks a running session
 type SessionState struct {
-	ID        string    `json:"id"`
-	Backend   string    `json:"backend"`
-	Task      string    `json:"task"`
-	StartTime time.Time `json:"start_time"`
-	Content   string    `json:"content"`
-	Done      bool      `json:"done"`
+	ID        string         `json:"id"`
+	Backend   string         `json:"backend"`
+	Task      string         `json:"task"`
+	StartTime time.Time      `json:"start_time"`
+	Content   string         `json:"content"`
+	Done      bool           `json:"done"`
+	History   []ContentEvent `json:"-"`
+	NextEvent uint64         `json:"-"`
 }
 
 // ContentEvent is sent to SSE clients
 type ContentEvent struct {
+	ID          uint64 `json:"-"`
 	SessionID   string `json:"session_id"`
 	Backend     string `json:"backend"`
 	Content     string `json:"content,omitempty"`
-	ContentType string `json:"content_type,omitempty"` // "reasoning", "command", "message"
+	ContentType string `json:"content_type,omitempty"` // "reasoning", "command", "message", "replace_message"
 	Done        bool   `json:"done,omitempty"`
+	ExitCode    *int   `json:"exit_code,omitempty"`
+	Status      string `json:"status,omitempty"`
 }
 
 // NewWebServer creates a new web server
 func NewWebServer(backend string) *WebServer {
 	return &WebServer{
-		clients:       make(map[string][]chan ContentEvent),
+		clients:       make(map[string][]chan struct{}),
 		sessions:      make(map[string]*SessionState),
 		backend:       backend,
 		browserOpener: openBrowser,
@@ -115,7 +121,7 @@ func (ws *WebServer) Stop() error {
 			close(ch)
 		}
 	}
-	ws.clients = make(map[string][]chan ContentEvent)
+	ws.clients = make(map[string][]chan struct{})
 	ws.mu.Unlock()
 
 	return ws.server.Shutdown(ctx)
@@ -176,12 +182,6 @@ func (ws *WebServer) SendContentWithType(sessionID, backend, content, contentTyp
 	ws.mu.Lock()
 	defer ws.mu.Unlock()
 
-	// Update session state
-	if session, ok := ws.sessions[sessionID]; ok {
-		session.Content += content
-	}
-
-	// Send to all subscribers
 	event := ContentEvent{
 		SessionID:   sessionID,
 		Backend:     backend,
@@ -189,33 +189,50 @@ func (ws *WebServer) SendContentWithType(sessionID, backend, content, contentTyp
 		ContentType: contentType,
 	}
 
-	for _, ch := range ws.clients[sessionID] {
-		select {
-		case ch <- event:
-		default:
-			// Skip if channel is full
-		}
+	// Update session state
+	if session, ok := ws.sessions[sessionID]; ok {
+		session.NextEvent++
+		event.ID = session.NextEvent
+		session.Content += content
+		session.History = append(session.History, event)
 	}
+
+	ws.notifyClientsLocked(sessionID)
 }
 
 // EndSession marks a session as complete
 func (ws *WebServer) EndSession(sessionID, backend string) {
+	ws.EndSessionWithStatus(sessionID, backend, 0, "success")
+}
+
+// EndSessionWithStatus records the authoritative process result and completes the SSE stream.
+func (ws *WebServer) EndSessionWithStatus(sessionID, backend string, exitCode int, status string) {
 	ws.mu.Lock()
 	defer ws.mu.Unlock()
 
-	if session, ok := ws.sessions[sessionID]; ok {
-		session.Done = true
+	session, ok := ws.sessions[sessionID]
+	if !ok || session.Done {
+		return
 	}
+	session.Done = true
+	session.NextEvent++
 
 	event := ContentEvent{
+		ID:        session.NextEvent,
 		SessionID: sessionID,
 		Backend:   backend,
 		Done:      true,
+		ExitCode:  &exitCode,
+		Status:    status,
 	}
+	session.History = append(session.History, event)
+	ws.notifyClientsLocked(sessionID)
+}
 
+func (ws *WebServer) notifyClientsLocked(sessionID string) {
 	for _, ch := range ws.clients[sessionID] {
 		select {
-		case ch <- event:
+		case ch <- struct{}{}:
 		default:
 		}
 	}
@@ -347,6 +364,7 @@ func (ws *WebServer) generateIndexHTML() string {
             padding-top: 12px;
             border-top: 1px solid #30363d;
         }
+		.done-indicator.failed { color: #f85149; }
     </style>
 </head>
 <body>
@@ -418,8 +436,15 @@ func (ws *WebServer) generateIndexHTML() string {
                                 contentEl.style.cssText = 'color: #fbbf24; background: #1e1e1e; padding: 8px; margin: 8px 0; display: block; border-left: 3px solid #d97706; font-family: monospace;';
                                 contentEl.textContent = data.content;
                                 break;
+							case 'replace_message':
+								output.querySelectorAll('.assistant-output').forEach((element) => element.remove());
+								contentEl.className = 'assistant-output';
+								contentEl.style.cssText = 'color: #c9d1d9;';
+								contentEl.textContent = data.content;
+								break;
                             case 'message':
                             default:
+								contentEl.className = 'assistant-output';
                                 contentEl.style.cssText = 'color: #c9d1d9;';
                                 contentEl.textContent = data.content;
                                 break;
@@ -438,9 +463,11 @@ func (ws *WebServer) generateIndexHTML() string {
                         const cursor = output.querySelector('.cursor');
                         if (cursor) cursor.remove();
                         liveIndicator.style.display = 'none';
-                        const doneEl = document.createElement('div');
-                        doneEl.className = 'done-indicator';
-                        doneEl.textContent = '✓ 完成 (3秒后自动关闭)';
+						const exitCode = Number(data.exit_code ?? 0);
+						const ok = exitCode === 0 && data.status !== 'failed';
+						const doneEl = document.createElement('div');
+						doneEl.className = ok ? 'done-indicator' : 'done-indicator failed';
+						doneEl.textContent = ok ? '✓ 完成 (3秒后自动关闭)' : '✗ 失败 (exit code ' + exitCode + ')';
                         output.appendChild(doneEl);
 
                         // Force scroll to bottom on completion
@@ -450,18 +477,20 @@ func (ws *WebServer) generateIndexHTML() string {
                         es.close();
 
                         // Browser notification
-                        if (Notification.permission === 'granted') {
+						if (ok && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
                             new Notification('任务完成', { body: '代码生成已完成' });
                         }
 
                         // Auto-close window after 3 seconds
-                        setTimeout(() => {
-                            window.close();
-                            // If window.close() fails (user-opened window), show message
-                            setTimeout(() => {
-                                doneEl.textContent = '✓ 完成 (可以关闭此页面)';
-                            }, 100);
-                        }, 3000);
+						if (ok) {
+							setTimeout(() => {
+								window.close();
+								// If window.close() fails (user-opened window), show message
+								setTimeout(() => {
+									doneEl.textContent = '✓ 完成 (可以关闭此页面)';
+								}, 100);
+							}, 3000);
+						}
                     }
                 };
                 es.onerror = () => {
@@ -510,20 +539,23 @@ func (ws *WebServer) handleStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Create channel for this client
-	ch := make(chan ContentEvent, 100)
-
-	// Register client
-	ws.mu.Lock()
-	ws.clients[sessionID] = append(ws.clients[sessionID], ch)
-	// Only send done state if session is already complete (no historical content)
-	if session, ok := ws.sessions[sessionID]; ok && session.Done {
-		ch <- ContentEvent{
-			SessionID: sessionID,
-			Backend:   session.Backend,
-			Done:      true,
+	lastEventID := uint64(0)
+	if value := r.Header.Get("Last-Event-ID"); value != "" {
+		if parsed, err := strconv.ParseUint(value, 10, 64); err == nil {
+			lastEventID = parsed
 		}
 	}
+
+	// Register a coalescing wake-up channel. History remains authoritative, so
+	// a slow client cannot lose live content or the terminal event.
+	ws.mu.Lock()
+	if _, ok := ws.sessions[sessionID]; !ok {
+		ws.mu.Unlock()
+		http.NotFound(w, r)
+		return
+	}
+	ch := make(chan struct{}, 1)
+	ws.clients[sessionID] = append(ws.clients[sessionID], ch)
 	ws.mu.Unlock()
 
 	// Cleanup on disconnect
@@ -537,18 +569,36 @@ func (ws *WebServer) handleStream(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		ws.mu.Unlock()
-		close(ch)
 	}()
 
-	// Stream events
+	cursor := lastEventID
 	for {
-		select {
-		case event := <-ch:
-			data, _ := json.Marshal(event)
-			fmt.Fprintf(w, "data: %s\n\n", data)
-			flusher.Flush()
+		ws.mu.RLock()
+		session := ws.sessions[sessionID]
+		start := len(session.History)
+		if cursor < uint64(len(session.History)) {
+			start = int(cursor)
+		}
+		events := append([]ContentEvent(nil), session.History[start:]...)
+		done := session.Done
+		ws.mu.RUnlock()
 
+		for _, event := range events {
+			data, _ := json.Marshal(event)
+			fmt.Fprintf(w, "id: %d\ndata: %s\n\n", event.ID, data)
+			flusher.Flush()
+			cursor = event.ID
 			if event.Done {
+				return
+			}
+		}
+		if done {
+			return
+		}
+
+		select {
+		case _, ok := <-ch:
+			if !ok {
 				return
 			}
 		case <-r.Context().Done():

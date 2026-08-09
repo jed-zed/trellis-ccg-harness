@@ -65,12 +65,15 @@ jobs:
             .sort()
           if (expected.size !== 6 || artifacts.length !== 6)
             throw new Error(`Expected 6 pinned digests and 6 artifacts; got ${expected.size} and ${artifacts.length}`)
+          const mismatches = []
           for (const name of artifacts) {
             const actual = createHash('sha256').update(readFileSync(join('artifacts', name))).digest('hex')
             if (actual !== expected.get(name))
-              throw new Error(`${name} digest mismatch: expected ${expected.get(name)}, got ${actual}`)
+              mismatches.push(`${name}: expected ${expected.get(name)}, got ${actual}`)
             console.log(`${name} ${actual}`)
           }
+          if (mismatches.length)
+            throw new Error(`Binary digest mismatch:\n${mismatches.join('\n')}`)
           NODE
 
       - name: Delete existing preset release

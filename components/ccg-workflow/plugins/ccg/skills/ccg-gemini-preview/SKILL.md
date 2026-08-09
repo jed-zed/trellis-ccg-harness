@@ -18,7 +18,7 @@ python "<plugin-skill-root>\ccg-executor\scripts\invoke_gemini_preview.py" --wor
 
 The helper defaults to `gemini-3.1-pro-preview` when `--model` is omitted, while `GEMINI_MODEL` and `--model` can still override it. It also defaults to `--prompt-template general`, with additional templates `plan`, `prototype`, `review`, `frontend`, `analyzer`, `architect`, `debugger`, `optimizer`, and `tester` bundled under `ccg-executor/templates/gemini/`. These templates preserve the original CCG model boundary: Gemini is read-only and Codex owns final application and verification. It runs Gemini in a disposable workspace snapshot by default. For large repositories, use `.ccgignore`, `--respect-gitignore`, `--max-snapshot-bytes`, `--max-snapshot-files`, or `--files-from` to keep snapshots focused without weakening secret exclusions. Use `--direct-workdir` only when the user explicitly accepts direct workspace access.
 
-For background mode, add `--detach`. The helper should still open the browser automatically and print `CCG_GEMINI_PREVIEW_URL`, `CCG_GEMINI_BROWSER_OPENED`, `CCG_GEMINI_RESPONSE_FILE`, `CCG_GEMINI_PROMPT_TEMPLATE`, and `CCG_GEMINI_AUTO_CLOSE_BROWSER_SECONDS`; later read the response file before using Gemini's output. The preview page intentionally follows the original `codeagent-wrapper` single-column Live Output style while the helper still writes raw logs and response files for Codex to inspect. The preview page closes itself after completion by default. Use `--no-auto-close-browser` only when the user explicitly wants the preview tab kept open.
+For background mode, run the default foreground command in a tool-managed background job. Do not pass `--detach` from a Codex workflow; monitor the job until the helper exits, then read `CCG_GEMINI_RESPONSE_FILE` before using Gemini's output. The helper opens the browser automatically and prints `CCG_GEMINI_PREVIEW_URL`, `CCG_GEMINI_BROWSER_OPENED`, `CCG_GEMINI_RESPONSE_FILE`, `CCG_GEMINI_PROMPT_TEMPLATE`, and `CCG_GEMINI_AUTO_CLOSE_BROWSER_SECONDS`. The preview page intentionally follows the original `codeagent-wrapper` single-column Live Output style while the helper still writes raw logs and response files for Codex to inspect. The preview page closes itself after completion by default. Use `--no-auto-close-browser` only when the user explicitly wants the preview tab kept open. The OS-level `--detach` option remains for manual shells outside tool-managed execution.
 
 ## Live Output source and compatibility
 
@@ -38,5 +38,5 @@ The Python helper applies only narrow, assertion-backed compatibility patches:
 - the preview remains bound to `127.0.0.1` and SSE is same-origin.
 
 Template absence or patch-anchor drift is a startup error. Snapshot isolation,
-prompt templates, detached execution, raw logs, and response-file contracts
-remain owned by the Python helper.
+prompt templates, manual-shell detach support, raw logs, and response-file
+contracts remain owned by the Python helper.

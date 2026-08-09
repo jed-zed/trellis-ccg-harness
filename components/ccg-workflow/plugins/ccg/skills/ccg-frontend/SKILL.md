@@ -24,7 +24,13 @@ Use this as the Codex-native equivalent of the original CCG `/ccg:frontend` comm
   then resolve `frontend` and its required `search` companion before assigning
   the frontend draft or review; evaluate the mapped product-manager gate at the
   next eligible checkpoint.
-- Ask the configured frontend provider for UI structure, interaction states, accessibility, responsive behavior, and visual risks. If it is Gemini, use the bundled browser preview helper with `--prompt-template frontend`; otherwise use the existing provider adapter described by the routing rule.
+- Ask the configured frontend provider for UI structure, interaction states,
+  accessibility, responsive behavior, and visual risks. If it is Gemini, run
+  the bundled `../ccg-executor/scripts/invoke_gemini_preview.py` foreground
+  command in a tool-managed background job with `--prompt-template frontend`;
+  monitor it until completion and do not pass `--detach`. Otherwise run
+  `ccg wrapper --backend <provider> --read-only --progress - "<workdir>"`, pass
+  the prompt through stdin, and do not add `--lite`.
 - Codex must adapt provider output to the local framework, design system, and existing component patterns. External output is not authoritative.
 - Codex owns final edits, screenshot/playwright verification where applicable, tests, diff review, and Chinese delivery.
 - Do not create marketing-style landing pages unless the user asked for one; build the actual usable experience first.

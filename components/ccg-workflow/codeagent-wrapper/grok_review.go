@@ -148,14 +148,8 @@ func (s *grokReviewSnapshot) cleanup() {
 }
 
 func finalizeGrokReview(message string, targets []string, evidence *grokReviewEvidence) (string, error) {
-	if evidence == nil || !evidence.stopReasonSeen {
-		return "", fmt.Errorf("Grok review missing terminal stop reason")
-	}
-	if evidence.terminalError != "" {
-		return "", fmt.Errorf("Grok review failed with stop reason %q", evidence.terminalError)
-	}
-	if evidence.forbiddenTool != "" {
-		return "", fmt.Errorf("Grok review attempted forbidden tool %q", evidence.forbiddenTool)
+	if err := validateGrokReadOnly(evidence); err != nil {
+		return "", fmt.Errorf("Grok review%s", strings.TrimPrefix(err.Error(), "Grok read-only"))
 	}
 	if strings.Contains(message, grokReviewMarker) {
 		return "", fmt.Errorf("Grok review response must not contain %s", grokReviewMarker)
@@ -169,4 +163,17 @@ func finalizeGrokReview(message string, targets []string, evidence *grokReviewEv
 		return "", fmt.Errorf("encode Grok review envelope: %w", err)
 	}
 	return strings.TrimSpace(message) + "\n" + grokReviewMarker + string(payload), nil
+}
+
+func validateGrokReadOnly(evidence *grokReviewEvidence) error {
+	if evidence == nil || !evidence.stopReasonSeen {
+		return fmt.Errorf("Grok read-only missing terminal stop reason")
+	}
+	if evidence.terminalError != "" {
+		return fmt.Errorf("Grok read-only failed with stop reason %q", evidence.terminalError)
+	}
+	if evidence.forbiddenTool != "" {
+		return fmt.Errorf("Grok read-only attempted forbidden tool %q", evidence.forbiddenTool)
+	}
+	return nil
 }

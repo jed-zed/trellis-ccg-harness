@@ -24,26 +24,28 @@ Contract**, classify changed areas as frontend, backend, search, or a
 combination, then resolve the required top-level providers. Review is a phase
 inside each role. Have Codex verify every finding before reporting it.
 
-When a selected provider is Gemini, call the bundled preview helper with
-`--prompt-template review`; do not call the raw Gemini CLI. For another
-provider, use the existing adapter described by the routing rule. If required
-external review evidence is missing, say so and do not claim it occurred.
+When a selected provider is Gemini, run the bundled
+`../ccg-executor/scripts/invoke_gemini_preview.py` foreground command in a
+tool-managed background job with `--prompt-template review`; monitor it until
+completion and do not pass `--detach` or call the raw Gemini CLI. For another
+provider, run `ccg wrapper --backend <provider> --read-only --progress - "<workdir>"`;
+pass the prompt through stdin and do not add `--lite`. If required external
+review evidence is missing, say so and do not claim it occurred.
 
 When a selected provider is Grok, treat ordinary code review as local-only;
 do not run the external-intelligence route. Build the prompt from the bundled
 Grok reviewer template and an exact `CCG_REVIEW_TARGETS` list of the regular
-workspace-relative files being reviewed. Invoke the existing wrapper with one
-`--grok-review-target` per listed file. The wrapper snapshots only those files,
+workspace-relative files being reviewed. Invoke `ccg wrapper --backend grok --read-only --progress --grok-review-target <file> - "<workdir>"` with one target flag per listed file and the prompt through stdin; do not add `--lite`. The wrapper snapshots only those files,
 runs Grok without tools, and appends the exact scope envelope. A zero exit and
 the validated final `CCG_GROK_REVIEW_JSON` envelope are required before claiming
 Grok reviewed the files. If no concrete target file can be bound, report missing
 Grok review evidence. Codex must independently verify every finding.
 
 When a selected provider is Antigravity, bind the same concrete review files
-in the prompt and invoke `ccg wrapper --backend antigravity
---antigravity-review`. Require a completed model report before claiming
+in the prompt and invoke `ccg wrapper --backend antigravity --read-only --progress --antigravity-review - "<workdir>"` with the prompt through stdin; do not add `--lite`. Require a completed model report before claiming
 Antigravity review evidence; otherwise report it as missing. This review mode
 is restricted to sandboxed plan execution with slash commands disabled.
 
-Claude is not a generic ordinary reviewer. It may participate only through an
-explicitly selected and authorized read-only `product-manager` contract.
+When frontend/backend routing selects Claude, use the generic managed read-only
+wrapper contract above. This role evidence is separate from any explicitly
+selected and authorized read-only `product-manager` contract.

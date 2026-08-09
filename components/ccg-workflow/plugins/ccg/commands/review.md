@@ -41,6 +41,6 @@ review, bind the concrete files in the prompt and invoke `ccg wrapper --backend
 antigravity --antigravity-review`; require a completed model report. Neither
 local path uses the external-intelligence route or an official-domain gate.
 
-Claude is disabled for ordinary review delegation. It may run only when
-unified CCG routing selects Claude for the isolated, read-only
-`product-manager` role and the project allows the explicit provider call.
+When frontend/backend routing selects Claude, use the managed read-only wrapper.
+This role evidence remains separate from an isolated Claude `product-manager`
+call and its explicit provider authorization gate.
