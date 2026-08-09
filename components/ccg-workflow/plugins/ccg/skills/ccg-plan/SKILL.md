@@ -28,9 +28,9 @@ revised.
 - Read `../../rules/ccg-role-routing.md`, follow its **Companion Role
   Contract**, classify plan slices as frontend, backend, and/or search, then
   resolve the required top-level roles before assigning planning analysis.
-- Claude is disabled for ordinary delegation. It may run only when unified CCG
-  routing selects Claude for the read-only `product-manager` role and the
-  project allows the explicit provider call.
+- Claude may serve a configured frontend/backend role through the managed
+  read-only wrapper. A separate Claude `product-manager` call still requires
+  its explicit provider authorization gate.
 - Do not call `/ccg:execute` automatically and do not ask for a Y/N execution handoff.
 - If no user requirement is provided, answer in Chinese with usage examples and do not write files.
 - If the user explicitly asks to revise an existing plan file, update only that plan file. Otherwise create a new plan and never overwrite an existing plan; use `-v2`, `-v3`, and so on.
@@ -102,10 +102,8 @@ This gate does not apply to empty-input usage/help responses.
    - Classify the task as frontend, backend, search, or a combination and
      resolve those roles.
    - If a selected role uses `codex`, perform that role's analysis directly.
-   - If a selected role uses `gemini`, use the bundled helper from `../ccg-executor/scripts/invoke_gemini_preview.py` with `--approval-mode plan --detach --prompt-template plan`, default model `gemini-3.1-pro-preview`, and no `--direct-workdir`.
-   - For another external provider, use the existing adapter described by
-     `../../rules/ccg-role-routing.md` for bounded read-only analysis of that
-     role's slice.
+   - If a selected role uses `gemini`, run the bundled helper from `../ccg-executor/scripts/invoke_gemini_preview.py` as a foreground command inside a tool-managed background job with `--approval-mode plan --prompt-template plan`, default model `gemini-3.1-pro-preview`, and no `--direct-workdir`. Do not pass `--detach`; monitor the background job until the helper exits and then read its non-empty response file.
+   - For another external provider, run `ccg wrapper --backend <provider> --read-only --progress - "<workdir>"` for bounded analysis of that role's slice. Pass the prompt through stdin and do not add `--lite`.
    - Include the enhanced requirement, context evidence, and a request for concise analysis: alternative approaches, edge cases, UI/UX concerns when relevant, tests, risks, and recommended plan steps.
    - Make at most two total attempts for a failed external provider call, using
      the same configured Provider and stable operation/evidence identity, then

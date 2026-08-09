@@ -25,6 +25,7 @@ type Config struct {
 	GrokModel          string // Grok model name (empty = use default)
 	GrokReviewTargets  []string
 	AntigravityReview  bool
+	ReadOnly           bool
 	Progress           bool // Emit compact progress lines to stderr
 }
 
@@ -49,6 +50,7 @@ type TaskSpec struct {
 	GrokModel         string          `json:"-"`
 	GrokReviewTargets []string        `json:"-"`
 	AntigravityReview bool            `json:"-"`
+	ReadOnly          bool            `json:"-"`
 	Context           context.Context `json:"-"`
 }
 
@@ -191,7 +193,7 @@ func parseParallelConfig(data []byte) (*ParallelConfig, error) {
 			return nil, fmt.Errorf("task block #%d (%q) has empty session_id", taskIndex, task.ID)
 		}
 		if envFlagEnabled("CCG_CODEX_MANAGED_WRAPPER") && strings.EqualFold(strings.TrimSpace(task.Backend), "claude") {
-			return nil, fmt.Errorf("task block #%d (%q) cannot use Claude outside the product-manager contract", taskIndex, task.ID)
+			return nil, fmt.Errorf("task block #%d (%q) cannot use managed parallel Claude because parallel mode has no read-only contract", taskIndex, task.ID)
 		}
 		if _, exists := seen[task.ID]; exists {
 			return nil, fmt.Errorf("task block #%d has duplicate id: %s", taskIndex, task.ID)
@@ -220,6 +222,7 @@ func parseArgs() (*Config, error) {
 	grokModel := strings.TrimSpace(os.Getenv("GROK_MODEL"))
 	var grokReviewTargets []string
 	antigravityReview := false
+	readOnly := false
 
 	backendName := defaultBackendName
 	skipPermissions := envFlagEnabled("CODEAGENT_SKIP_PERMISSIONS")
@@ -298,6 +301,9 @@ func parseArgs() (*Config, error) {
 		case arg == "--antigravity-review":
 			antigravityReview = true
 			continue
+		case arg == "--read-only":
+			readOnly = true
+			continue
 		case arg == "--skip-permissions", arg == "--dangerously-skip-permissions":
 			skipPermissions = true
 			continue
@@ -322,7 +328,7 @@ func parseArgs() (*Config, error) {
 	if antigravityReview && !strings.EqualFold(strings.TrimSpace(backendName), "antigravity") && !strings.EqualFold(strings.TrimSpace(backendName), "agy") {
 		return nil, fmt.Errorf("--antigravity-review requires --backend antigravity")
 	}
-	cfg := &Config{WorkDir: defaultWorkdir, Backend: backendName, SkipPermissions: skipPermissions, GeminiModel: geminiModel, GrokModel: grokModel, GrokReviewTargets: grokReviewTargets, AntigravityReview: antigravityReview, Progress: progress}
+	cfg := &Config{WorkDir: defaultWorkdir, Backend: backendName, SkipPermissions: skipPermissions, GeminiModel: geminiModel, GrokModel: grokModel, GrokReviewTargets: grokReviewTargets, AntigravityReview: antigravityReview, ReadOnly: readOnly, Progress: progress}
 	cfg.MaxParallelWorkers = resolveMaxParallelWorkers()
 
 	if args[0] == "resume" {

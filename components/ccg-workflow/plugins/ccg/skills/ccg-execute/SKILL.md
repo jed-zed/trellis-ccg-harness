@@ -20,7 +20,10 @@ Treat the user argument as a CCG plan path or task description. Plans from
 `ccg routing get <role> --json`; Codex owns context gathering, final code edits,
 verification, review synthesis, and Chinese delivery.
 
-When a role selects Gemini, use the bundled preview helper and do not call the
-raw Gemini CLI. For another provider, use the existing adapter from
-`../../rules/ccg-role-routing.md`. Treat all external diffs as dirty prototypes,
-not final code.
+When a role selects Gemini, run the bundled
+`../ccg-executor/scripts/invoke_gemini_preview.py` foreground command in a
+tool-managed background job and monitor it until completion. Do not pass
+`--detach` or call the raw Gemini CLI. For Claude, Antigravity, Grok, or Pi, run
+`ccg wrapper --backend <provider> --read-only --progress - "<workdir>"`; pass
+the prompt through stdin and do not add `--lite`. Treat all external diffs as
+dirty prototypes, not final code.

@@ -16,16 +16,44 @@ func TestClaudeBuildArgs_ModesAndPermissions(t *testing.T) {
 	t.Run("new mode always bypasses permissions (autonomous orchestration)", func(t *testing.T) {
 		cfg := &Config{Mode: "new", WorkDir: "/repo"}
 		got := backend.BuildArgs(cfg, "todo")
-		want := []string{"-p", "--dangerously-skip-permissions", "--setting-sources", "", "--output-format", "stream-json", "--verbose", "todo"}
+		want := []string{"-p", "--dangerously-skip-permissions", "--setting-sources", "", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "todo"}
 		if !reflect.DeepEqual(got, want) {
 			t.Fatalf("got %v, want %v", got, want)
+		}
+	})
+
+	t.Run("read-only mode uses native safety controls and stdin", func(t *testing.T) {
+		cfg := &Config{Mode: "new", WorkDir: "/repo", ReadOnly: true}
+		got := backend.BuildArgs(cfg, "")
+		want := []string{
+			"-p",
+			"--safe-mode",
+			"--disable-slash-commands",
+			"--tools", "Read,Glob,Grep",
+			"--strict-mcp-config",
+			"--mcp-config", `{"mcpServers":{}}`,
+			"--setting-sources", "",
+			"--settings", "{}",
+			"--no-session-persistence",
+			"--no-chrome",
+			"--permission-mode", "plan",
+			"--input-format", "text",
+			"--output-format", "stream-json",
+			"--verbose",
+			"--include-partial-messages",
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("got %v, want %v", got, want)
+		}
+		if slices.Contains(got, "--dangerously-skip-permissions") {
+			t.Fatalf("read-only args must not bypass permissions: %v", got)
 		}
 	})
 
 	t.Run("new mode can opt-in skip-permissions", func(t *testing.T) {
 		cfg := &Config{Mode: "new", SkipPermissions: true}
 		got := backend.BuildArgs(cfg, "-")
-		want := []string{"-p", "--dangerously-skip-permissions", "--setting-sources", "", "--output-format", "stream-json", "--verbose", "-"}
+		want := []string{"-p", "--dangerously-skip-permissions", "--setting-sources", "", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "-"}
 		if !reflect.DeepEqual(got, want) {
 			t.Fatalf("got %v, want %v", got, want)
 		}
@@ -34,7 +62,7 @@ func TestClaudeBuildArgs_ModesAndPermissions(t *testing.T) {
 	t.Run("resume mode includes session id", func(t *testing.T) {
 		cfg := &Config{Mode: "resume", SessionID: "sid-123", WorkDir: "/ignored"}
 		got := backend.BuildArgs(cfg, "resume-task")
-		want := []string{"-p", "--dangerously-skip-permissions", "--setting-sources", "", "-r", "sid-123", "--output-format", "stream-json", "--verbose", "resume-task"}
+		want := []string{"-p", "--dangerously-skip-permissions", "--setting-sources", "", "-r", "sid-123", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "resume-task"}
 		if !reflect.DeepEqual(got, want) {
 			t.Fatalf("got %v, want %v", got, want)
 		}
@@ -43,7 +71,7 @@ func TestClaudeBuildArgs_ModesAndPermissions(t *testing.T) {
 	t.Run("resume mode without session still returns base flags", func(t *testing.T) {
 		cfg := &Config{Mode: "resume", WorkDir: "/ignored"}
 		got := backend.BuildArgs(cfg, "follow-up")
-		want := []string{"-p", "--dangerously-skip-permissions", "--setting-sources", "", "--output-format", "stream-json", "--verbose", "follow-up"}
+		want := []string{"-p", "--dangerously-skip-permissions", "--setting-sources", "", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "follow-up"}
 		if !reflect.DeepEqual(got, want) {
 			t.Fatalf("got %v, want %v", got, want)
 		}
@@ -52,7 +80,7 @@ func TestClaudeBuildArgs_ModesAndPermissions(t *testing.T) {
 	t.Run("resume mode can opt-in skip permissions", func(t *testing.T) {
 		cfg := &Config{Mode: "resume", SessionID: "sid-123", SkipPermissions: true}
 		got := backend.BuildArgs(cfg, "resume-task")
-		want := []string{"-p", "--dangerously-skip-permissions", "--setting-sources", "", "-r", "sid-123", "--output-format", "stream-json", "--verbose", "resume-task"}
+		want := []string{"-p", "--dangerously-skip-permissions", "--setting-sources", "", "-r", "sid-123", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "resume-task"}
 		if !reflect.DeepEqual(got, want) {
 			t.Fatalf("got %v, want %v", got, want)
 		}
@@ -210,6 +238,7 @@ func TestGeminiBuildArgs_WithModel_OmitsPFlagWhenTargetEmpty(t *testing.T) {
 }
 
 func TestClaudeBuildArgs_BackendMetadata(t *testing.T) {
+	t.Setenv("CCG_CLAUDE_EXECUTABLE", "")
 	tests := []struct {
 		backend Backend
 		name    string
@@ -227,6 +256,13 @@ func TestClaudeBuildArgs_BackendMetadata(t *testing.T) {
 		if got := tt.backend.Command(); got != tt.command {
 			t.Fatalf("Command() = %s, want %s", got, tt.command)
 		}
+	}
+}
+
+func TestClaudeBackend_CommandUsesValidatedOverride(t *testing.T) {
+	t.Setenv("CCG_CLAUDE_EXECUTABLE", "/trusted/claude")
+	if got := (ClaudeBackend{}).Command(); got != "/trusted/claude" {
+		t.Fatalf("Command() = %q, want validated override", got)
 	}
 }
 
@@ -384,11 +420,35 @@ func TestAntigravityBuildArgs_ReviewModeIsSandboxedPlan(t *testing.T) {
 		"--mode", "plan",
 		"--dangerously-skip-permissions",
 		"--disable-slash-commands",
+		"--output-format", "stream-json",
 		"--add-dir", "/tmp/project",
 		"-p", "review the task",
 	}
 	if got := buildAntigravityArgs(cfg, "review the task"); !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+func TestAntigravityBuildArgs_ReadOnlyStreamsSandboxedPlanEvents(t *testing.T) {
+	cfg := &Config{Mode: "new", WorkDir: "/tmp/project", Backend: "antigravity", ReadOnly: true}
+	want := []string{
+		"--sandbox",
+		"--mode", "plan",
+		"--dangerously-skip-permissions",
+		"--disable-slash-commands",
+		"--output-format", "stream-json",
+		"--add-dir", "/tmp/project",
+		"-p", "analyze the task",
+	}
+	if got := buildAntigravityArgs(cfg, "analyze the task"); !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+func TestAntigravityBuildArgs_DefaultStillUsesStreamJSON(t *testing.T) {
+	args := buildAntigravityArgs(&Config{Mode: "new", Backend: "antigravity"}, "task")
+	if !hasArgPair(args, "--output-format", "stream-json") {
+		t.Fatalf("args missing stream-json output: %v", args)
 	}
 }
 
@@ -402,6 +462,32 @@ func TestGrokBuildArgs_ResumeMode(t *testing.T) {
 	}
 	if !strings.Contains(joined, "-p continue") {
 		t.Fatalf("resume args missing -p prompt: %v", args)
+	}
+}
+
+func TestGrokBuildArgs_ReadOnlyIsToolless(t *testing.T) {
+	args := buildGrokArgs(&Config{Mode: "new", Backend: "grok", ReadOnly: true}, "inspect")
+	for _, pair := range [][2]string{
+		{"--tools", ""},
+		{"--disallowed-tools", "read_file,grep,list_dir,search_tool,use_tool,search_replace"},
+		{"--permission-mode", "dontAsk"},
+		{"--deny", "mcp__*"},
+		{"--output-format", "streaming-json"},
+		{"-p", "inspect"},
+	} {
+		if !hasArgPair(args, pair[0], pair[1]) {
+			t.Fatalf("read-only args missing %q %q: %v", pair[0], pair[1], args)
+		}
+	}
+	for _, flag := range []string{"--disable-web-search", "--no-memory", "--no-plan", "--no-subagents"} {
+		if !hasArg(args, flag) {
+			t.Fatalf("read-only args missing %q: %v", flag, args)
+		}
+	}
+	for _, forbidden := range []string{"--always-approve", "--max-turns", "--system-prompt-override", "--prompt-file"} {
+		if hasArg(args, forbidden) {
+			t.Fatalf("read-only args must not contain %q: %v", forbidden, args)
+		}
 	}
 }
 
@@ -469,6 +555,46 @@ func TestParseJSONStream_GrokThoughtsExcludedFromMessage(t *testing.T) {
 	}
 }
 
+func TestParseJSONStream_GrokStreamsSafeIntermediateEvents(t *testing.T) {
+	stream := `{"type":"thought","data":"hidden reasoning"}
+{"type":"tool_call","toolCallId":"tool-1","toolName":"read_file","title":"Read file","status":"in_progress","rawInput":{"path":"secret.txt"}}
+{"type":"tool_call_update","toolCallId":"tool-1","toolName":"read_file","title":"Read file","status":"completed","rawOutput":"secret output"}
+{"type":"plan","entries":[{"title":"Inspect parser","status":"in_progress"}]}
+{"type":"text","data":"Hello"}
+{"type":"text","data":" world"}
+{"type":"end","stopReason":"EndTurn","sessionId":"grok-session"}
+`
+	var content []string
+	complete := 0
+	message, _, terminalError := parseJSONStreamInternalWithContent(
+		strings.NewReader(stream), nil, nil, nil, func() { complete++ },
+		func(text, kind string) { content = append(content, kind+":"+text) }, nil, nil,
+	)
+	joined := strings.Join(content, "\n")
+	if message != "Hello world" || terminalError != "" || complete != 1 {
+		t.Fatalf("got message=%q error=%q complete=%d", message, terminalError, complete)
+	}
+	for _, want := range []string{"command:tool started: read_file (Read file)", "command:tool completed: read_file (Read file)", "reasoning:plan: Inspect parser [in_progress]", "message:Hello", "message: world"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("content missing %q: %q", want, joined)
+		}
+	}
+	for _, secret := range []string{"hidden reasoning", "secret.txt", "secret output"} {
+		if strings.Contains(joined, secret) {
+			t.Fatalf("content leaked %q: %q", secret, joined)
+		}
+	}
+}
+
+func TestParseJSONStream_GrokTerminalFailureIsNotSuccess(t *testing.T) {
+	stream := `{"type":"text","data":"partial"}
+{"type":"end","stopReason":"cancelled","sessionId":"grok-session"}`
+	message, _, terminalError := parseJSONStreamInternalWithContent(strings.NewReader(stream), nil, nil, nil, nil, nil, nil, nil)
+	if message != "partial" || !strings.Contains(terminalError, "cancelled") {
+		t.Fatalf("got message=%q terminalError=%q", message, terminalError)
+	}
+}
+
 func TestPiBuildArgs_ReadOnlyJSONMode(t *testing.T) {
 	cfg := &Config{Mode: "new", WorkDir: "/tmp/project", Backend: "pi"}
 	want := []string{
@@ -531,6 +657,60 @@ func TestParseJSONStream_PiEvents(t *testing.T) {
 	}
 	if terminalError != "" {
 		t.Fatalf("terminalError = %q, want empty", terminalError)
+	}
+}
+
+func TestParseJSONStream_PiStreamsSafeIntermediateEventsWithoutDuplicatingFinal(t *testing.T) {
+	stream := `{"type":"session","version":3,"id":"pi-session"}
+{"type":"message_start","message":{"role":"assistant"}}
+{"type":"message_update","assistantMessageEvent":{"type":"text_delta","contentIndex":0,"delta":"Hel"}}
+{"type":"message_update","assistantMessageEvent":{"type":"thinking_delta","contentIndex":1,"delta":"hidden reasoning"}}
+{"type":"tool_execution_start","toolCallId":"tool-1","toolName":"read","args":{"path":"secret.txt"}}
+{"type":"tool_execution_update","toolCallId":"tool-1","toolName":"read","partialResult":"secret output"}
+{"type":"tool_execution_end","toolCallId":"tool-1","toolName":"read","result":"secret output","isError":false}
+{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"Hello"}],"stopReason":"stop"}}
+{"type":"agent_end"}
+`
+	var content []string
+	complete := 0
+	message, _, terminalError := parseJSONStreamInternalWithContent(
+		strings.NewReader(stream), nil, nil, nil, func() { complete++ },
+		func(text, kind string) { content = append(content, kind+":"+text) }, nil, nil,
+	)
+	joined := strings.Join(content, "\n")
+	if message != "Hello" || terminalError != "" || complete != 1 {
+		t.Fatalf("got message=%q error=%q complete=%d", message, terminalError, complete)
+	}
+	for _, want := range []string{"message:Hel", "message:lo", "command:tool started: read", "command:tool running: read", "command:tool completed: read"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("content missing %q: %q", want, joined)
+		}
+	}
+	if strings.Count(joined, "Hel") != 1 || strings.Count(joined, "lo") != 1 {
+		t.Fatalf("final text was duplicated: %q", joined)
+	}
+	for _, secret := range []string{"hidden reasoning", "secret.txt", "secret output"} {
+		if strings.Contains(joined, secret) {
+			t.Fatalf("content leaked %q: %q", secret, joined)
+		}
+	}
+}
+
+func TestParseJSONStream_ProviderMissingTerminalFails(t *testing.T) {
+	tests := map[string]string{
+		"pi": `{"type":"session","id":"pi-session"}
+{"type":"message_update","assistantMessageEvent":{"type":"text_delta","delta":"partial"}}`,
+		"grok": `{"type":"text","data":"partial"}`,
+		"gemini": `{"type":"init","session_id":"gemini-session"}
+{"type":"message","role":"assistant","content":"partial","delta":true}`,
+	}
+	for name, stream := range tests {
+		t.Run(name, func(t *testing.T) {
+			_, _, terminalError := parseJSONStreamInternalWithContent(strings.NewReader(stream), nil, nil, nil, nil, nil, nil, nil)
+			if !strings.Contains(strings.ToLower(terminalError), "missing terminal") {
+				t.Fatalf("terminalError = %q, want missing terminal", terminalError)
+			}
+		})
 	}
 }
 

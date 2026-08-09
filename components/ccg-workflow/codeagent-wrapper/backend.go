@@ -31,6 +31,9 @@ type ClaudeBackend struct{}
 
 func (ClaudeBackend) Name() string { return "claude" }
 func (ClaudeBackend) Command() string {
+	if executable := strings.TrimSpace(os.Getenv("CCG_CLAUDE_EXECUTABLE")); executable != "" {
+		return executable
+	}
 	return "claude"
 }
 func (ClaudeBackend) BuildArgs(cfg *Config, targetArg string) []string {
@@ -107,17 +110,24 @@ func buildClaudeArgs(cfg *Config, targetArg string) []string {
 		return nil
 	}
 	args := []string{"-p"}
-	// The wrapper is only ever invoked for autonomous orchestration sub-tasks
-	// (review / analysis / implementation), never interactively. Claude must run
-	// non-interactively like the gemini backend's `-y`: without bypassing
-	// permissions, the headless `-p` reviewer blocks on tool-permission gates
-	// while consuming tokens and never returns a result (#143). The old
-	// `cfg.SkipPermissions` gate was effectively dead — no caller set it.
-	args = append(args, "--dangerously-skip-permissions")
-
-	// Prevent infinite recursion: disable all setting sources (user, project, local)
-	// This ensures a clean execution environment without CLAUDE.md or skills that would trigger codeagent
-	args = append(args, "--setting-sources", "")
+	if cfg.ReadOnly {
+		args = append(args,
+			"--safe-mode",
+			"--disable-slash-commands",
+			"--tools", "Read,Glob,Grep",
+			"--strict-mcp-config",
+			"--mcp-config", `{"mcpServers":{}}`,
+			"--setting-sources", "",
+			"--settings", "{}",
+			"--no-session-persistence",
+			"--no-chrome",
+			"--permission-mode", "plan",
+			"--input-format", "text",
+		)
+	} else {
+		// Preserve the legacy autonomous wrapper contract for direct, non-managed use.
+		args = append(args, "--dangerously-skip-permissions", "--setting-sources", "")
+	}
 
 	if cfg.Mode == "resume" {
 		if cfg.SessionID != "" {
@@ -127,7 +137,10 @@ func buildClaudeArgs(cfg *Config, targetArg string) []string {
 	}
 	// Note: claude CLI doesn't support -C flag; workdir set via cmd.Dir
 
-	args = append(args, "--output-format", "stream-json", "--verbose", targetArg)
+	args = append(args, "--output-format", "stream-json", "--verbose", "--include-partial-messages")
+	if targetArg != "" {
+		args = append(args, targetArg)
+	}
 
 	return args
 }
@@ -147,7 +160,7 @@ func buildAntigravityArgs(cfg *Config, targetArg string) []string {
 
 	var args []string
 
-	if cfg.AntigravityReview {
+	if cfg.AntigravityReview || cfg.ReadOnly {
 		args = append(args,
 			"--sandbox",
 			"--mode", "plan",
@@ -157,6 +170,7 @@ func buildAntigravityArgs(cfg *Config, targetArg string) []string {
 	} else if cfg.SkipPermissions {
 		args = append(args, "--dangerously-skip-permissions")
 	}
+	args = append(args, "--output-format", "stream-json")
 
 	if cfg.Mode == "resume" && cfg.SessionID != "" {
 		args = append(args, "--conversation", cfg.SessionID)
@@ -207,20 +221,24 @@ func buildGrokArgs(cfg *Config, targetArg string) []string {
 	}
 
 	args := []string{"--always-approve", "--output-format", "streaming-json"}
-	if len(cfg.GrokReviewTargets) > 0 {
+	if cfg.ReadOnly || len(cfg.GrokReviewTargets) > 0 {
 		args = []string{
 			"--tools", "",
-			"--disallowed-tools", "read_file,grep,list_dir,search_tool,use_tool",
+			"--disallowed-tools", "read_file,grep,list_dir,search_tool,use_tool,search_replace",
 			"--disable-web-search",
 			"--no-memory",
 			"--no-plan",
 			"--no-subagents",
 			"--permission-mode", "dontAsk",
 			"--deny", "mcp__*",
-			"--max-turns", "1",
-			"--system-prompt-override", grokReviewSystemPrompt,
-			"--verbatim",
 			"--output-format", "streaming-json",
+		}
+		if len(cfg.GrokReviewTargets) > 0 {
+			args = append(args,
+				"--max-turns", "1",
+				"--system-prompt-override", grokReviewSystemPrompt,
+				"--verbatim",
+			)
 		}
 		if !isWindows() {
 			args = append(args, "--sandbox", "strict")

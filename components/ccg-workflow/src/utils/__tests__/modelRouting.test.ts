@@ -61,8 +61,8 @@ describe('model routing', () => {
 
   it('allows only providers supported by each role', () => {
     const expected = {
-      frontend: ['codex', 'gemini', 'antigravity', 'grok', 'pi'],
-      backend: ['codex', 'gemini', 'antigravity', 'grok', 'pi'],
+      frontend: ['codex', 'gemini', 'claude', 'antigravity', 'grok', 'pi'],
+      backend: ['codex', 'gemini', 'claude', 'antigravity', 'grok', 'pi'],
       search: ['codex', 'grok'],
       'product-manager': ['codex', 'gemini', 'claude'],
     } as const
@@ -81,8 +81,6 @@ describe('model routing', () => {
       }
     }
 
-    expect(() => setRoleProvider(createDefaultRoleRouting(), 'frontend', 'claude'))
-      .toThrow('is not supported for role frontend')
     expect(() => setRoleProvider(createDefaultRoleRouting(), 'search', 'antigravity'))
       .toThrow('is not supported for role search')
     expect(() => normalizeModelRouting({

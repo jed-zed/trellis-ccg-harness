@@ -8,6 +8,7 @@ import { resolveCodexHome } from '../utils/codex-mode'
 import { verifyBinaryVersion } from '../utils/installer'
 import { assertManagedPath } from '../utils/managed-path'
 import { isRegisteredModel } from '../utils/model-routing'
+import { resolveClaudeExecutable } from './product-manager'
 
 type Spawn = typeof nodeSpawn
 
@@ -28,8 +29,8 @@ export function parseWrapperBackend(args: readonly string[]): ModelType {
   const provider = providers[0]
   if (!isRegisteredModel(provider))
     throw new Error(`Unknown wrapper backend: ${provider}`)
-  if (provider === 'claude')
-    throw new Error('Claude is restricted to the read-only product-manager contract.')
+  if (provider === 'claude' && !args.includes('--read-only'))
+    throw new Error('Managed Claude wrapper calls require --read-only.')
   return provider
 }
 
@@ -60,10 +61,11 @@ export function spawnWrapperProcess(
   executable: string,
   args: readonly string[],
   spawnImpl: Spawn = spawn,
+  environment: NodeJS.ProcessEnv = {},
 ): Promise<number> {
   return new Promise((resolve, reject) => {
     const child: ChildProcess = spawnImpl(executable, [...args], {
-      env: { ...process.env, CCG_CODEX_MANAGED_WRAPPER: '1' },
+      env: { ...process.env, ...environment, CCG_CODEX_MANAGED_WRAPPER: '1' },
       shell: false,
       stdio: 'inherit',
     })
@@ -77,7 +79,14 @@ export function spawnWrapperProcess(
 }
 
 export async function runWrapper(args: readonly string[]): Promise<number> {
-  parseWrapperBackend(args)
+  const backend = parseWrapperBackend(args)
   const wrapperPath = await resolveVerifiedWrapper(resolveCodexHome())
-  return spawnWrapperProcess(wrapperPath, args)
+  if (backend !== 'claude')
+    return spawnWrapperProcess(wrapperPath, args)
+  const claudeExecutable = resolveClaudeExecutable()
+  if (!claudeExecutable)
+    throw new Error(
+      'Trusted native Claude executable not found. Set CCG_PRODUCT_MANAGER_CLAUDE_EXECUTABLE to its canonical path.',
+    )
+  return spawnWrapperProcess(wrapperPath, args, spawn, { CCG_CLAUDE_EXECUTABLE: claudeExecutable })
 }

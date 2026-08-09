@@ -60,8 +60,11 @@ class State:
         self.prompt_preview = ""
         self.session_id = ""
         self.content = ""
+        self.response = ""
         self.raw = ""
         self.clients: list[queue.Queue[dict[str, object]]] = []
+        self.content_events: list[dict[str, object]] = []
+        self.next_event_id = 0
         self.events: list[dict[str, str]] = []
         self.status = "starting"
         self.done = False
@@ -72,6 +75,8 @@ class State:
         self.snapshot_path = ""
         self.snapshot_excludes = ""
         self.stream_events = 0
+        self.result_seen = False
+        self.result_status = ""
         self.started_at = time.strftime("%Y-%m-%d %H:%M:%S")
 
     def update(self, **kwargs: object) -> None:
@@ -96,52 +101,62 @@ class State:
             self.stream_events += 1
             return self.stream_events
 
-    def append_content(self, text: str) -> None:
+    def append_content(
+        self, text: str, content_type: str = "message", response_text: bool = True
+    ) -> None:
         if not text:
             return
         event = {
             "session_id": self.preview_session_id,
             "backend": self.backend,
             "content": text,
-            "content_type": "message",
+            "content_type": content_type,
         }
         clients: list[queue.Queue[dict[str, object]]]
         with self.lock:
             self.content += text
-            clients = list(self.clients)
+            if response_text:
+                if content_type == "replace_message":
+                    self.response = text
+                else:
+                    self.response += text
+            event, clients = self._record_client_event_locked(event)
         for client in clients:
             self._put_client_event(client, event)
 
     def complete(self, exit_code: int, status: str) -> None:
-        event = {
-            "session_id": self.preview_session_id,
-            "backend": self.backend,
-            "done": True,
-            "exit_code": exit_code,
-            "status": status,
-            "auto_close_browser_seconds": self.auto_close_browser_seconds,
-        }
         clients: list[queue.Queue[dict[str, object]]]
         with self.lock:
+            if self.done:
+                return
             self.done = True
             self.exit_code = exit_code
             self.status = status
-            clients = list(self.clients)
+            event, clients = self._record_client_event_locked(
+                {
+                    "session_id": self.preview_session_id,
+                    "backend": self.backend,
+                    "done": True,
+                    "exit_code": exit_code,
+                    "status": status,
+                    "auto_close_browser_seconds": self.auto_close_browser_seconds,
+                }
+            )
         for client in clients:
             self._put_client_event(client, event)
 
-    def _put_client_event(self, client: queue.Queue[dict[str, object]], event: dict[str, object]) -> None:
-        try:
-            client.put_nowait(event)
-        except queue.Full:
-            try:
-                client.get_nowait()
-            except queue.Empty:
-                pass
-            try:
-                client.put_nowait(event)
-            except queue.Full:
-                pass
+    def _record_client_event_locked(
+        self, event: dict[str, object]
+    ) -> tuple[dict[str, object], list[queue.Queue[dict[str, object]]]]:
+        self.next_event_id += 1
+        recorded = {**event, "_event_id": self.next_event_id}
+        self.content_events.append(recorded)
+        return recorded, list(self.clients)
+
+    def _put_client_event(
+        self, client: queue.Queue[dict[str, object]], event: dict[str, object]
+    ) -> None:
+        client.put_nowait(event)
 
     def sessions(self) -> list[dict[str, object]]:
         with self.lock:
@@ -155,12 +170,15 @@ class State:
             ]
 
     def register_client(
-        self, session_id: str
+        self, session_id: str, last_event_id: int = 0
     ) -> tuple[queue.Queue[dict[str, object]], bool, int | None]:
         if session_id != self.preview_session_id:
             raise KeyError(session_id)
-        client: queue.Queue[dict[str, object]] = queue.Queue(maxsize=200)
+        client: queue.Queue[dict[str, object]] = queue.Queue()
         with self.lock:
+            for event in self.content_events:
+                if int(event.get("_event_id", 0)) > last_event_id:
+                    client.put_nowait(event)
             self.clients.append(client)
             done = self.done
             exit_code = self.exit_code
@@ -185,6 +203,7 @@ class State:
                 "preview_session_id": self.preview_session_id,
                 "session_id": self.session_id,
                 "content": self.content,
+                "response": self.response,
                 "raw": self.raw,
                 "events": list(self.events),
                 "status": self.status,
@@ -196,6 +215,8 @@ class State:
                 "snapshot_path": self.snapshot_path,
                 "snapshot_excludes": self.snapshot_excludes,
                 "stream_events": self.stream_events,
+                "result_seen": self.result_seen,
+                "result_status": self.result_status,
                 "started_at": self.started_at,
             }
 
@@ -293,7 +314,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Also apply a lightweight subset of .gitignore rules when creating the snapshot.",
     )
-    parser.add_argument("--detach", action="store_true", help="Start in the background and return PID/log paths")
+    parser.add_argument(
+        "--detach",
+        action="store_true",
+        help="OS-detach for manual shells; Codex workflows should use a tool-managed background job",
+    )
     parser.add_argument("--preview-port", type=int, default=0, help=argparse.SUPPRESS)
     parser.add_argument("--approval-mode", default="plan", choices=["default", "auto_edit", "yolo", "plan"])
     parser.add_argument("--prompt-template", default="general", choices=PROMPT_TEMPLATES)
@@ -459,7 +484,8 @@ def detach(args: argparse.Namespace, prompt: str, output_path: Path) -> int:
         creationflags = subprocess.CREATE_NO_WINDOW
 
     log_handle = launcher_log.open("w", encoding="utf-8", errors="replace")
-    proc = subprocess.Popen(
+    process_factory = getattr(subprocess, "Popen")
+    proc = process_factory(
         child_args,
         cwd=str(workdir_path),
         stdout=log_handle,
@@ -495,6 +521,26 @@ SAFE_TASK_RENDERING = """                    const taskLabel = document.createEl
                     taskEl.appendChild(taskText);"""
 
 PREVIEW_PATCHES = (
+    (
+        "authoritative assistant replacement",
+        """                            case 'message':
+                            default:
+                                contentEl.style.cssText = 'color: #c9d1d9;';
+                                contentEl.textContent = data.content;
+                                break;""",
+        """                            case 'replace_message':
+                                output.querySelectorAll('.assistant-output').forEach((element) => element.remove());
+                                contentEl.className = 'assistant-output';
+                                contentEl.style.cssText = 'color: #c9d1d9;';
+                                contentEl.textContent = data.content;
+                                break;
+                            case 'message':
+                            default:
+                                contentEl.className = 'assistant-output';
+                                contentEl.style.cssText = 'color: #c9d1d9;';
+                                contentEl.textContent = data.content;
+                                break;""",
+    ),
     (
         "failure status color",
         """        .done-indicator {
@@ -636,7 +682,11 @@ def make_handler() -> type[BaseHTTPRequestHandler]:
 
         def stream_session(self, session_id: str) -> None:
             try:
-                client, done, exit_code = STATE.register_client(session_id)
+                last_event_id = int(self.headers.get("Last-Event-ID", "0"))
+            except ValueError:
+                last_event_id = 0
+            try:
+                client, done, _ = STATE.register_client(session_id, last_event_id)
             except KeyError:
                 self.send_response(404)
                 self.end_headers()
@@ -650,7 +700,13 @@ def make_handler() -> type[BaseHTTPRequestHandler]:
 
             def send_event(event: dict[str, object]) -> bool:
                 try:
-                    data = json.dumps(event, ensure_ascii=False).encode("utf-8")
+                    event_id = int(event.get("_event_id", 0))
+                    public_event = {
+                        key: value for key, value in event.items() if not key.startswith("_")
+                    }
+                    data = json.dumps(public_event, ensure_ascii=False).encode("utf-8")
+                    if event_id:
+                        self.wfile.write(f"id: {event_id}\n".encode("ascii"))
                     self.wfile.write(b"data: " + data + b"\n\n")
                     self.wfile.flush()
                     return True
@@ -658,16 +714,7 @@ def make_handler() -> type[BaseHTTPRequestHandler]:
                     return False
 
             try:
-                if done:
-                    send_event(
-                        {
-                            "session_id": STATE.preview_session_id,
-                            "backend": STATE.backend,
-                            "done": True,
-                            "exit_code": exit_code,
-                            "auto_close_browser_seconds": STATE.auto_close_browser_seconds,
-                        }
-                    )
+                if done and client.empty():
                     return
                 while True:
                     try:
@@ -794,7 +841,23 @@ def extract_event_text(event: object) -> str:
     return ""
 
 
+def safe_status_label(value: object, fallback: str) -> str:
+    if not isinstance(value, str):
+        return fallback
+    text = " ".join(value.split())
+    return (text[:120] if text else fallback)
+
+
+def validated_gemini_exit_code(process_code: int, result_seen: bool, result_status: str) -> int:
+    if process_code != 0:
+        return process_code
+    if not result_seen or result_status.lower() not in {"success", "complete"}:
+        return 1
+    return 0
+
+
 def stream_output(pipe, output_file, is_stderr: bool = False) -> None:
+    assistant_text = ""
     for line in pipe:
         if not line:
             continue
@@ -826,16 +889,57 @@ def stream_output(pipe, output_file, is_stderr: bool = False) -> None:
             STATE.add_event("Gemini stream initialized")
             continue
 
+        if event_type == "tool_use":
+            tool_name = safe_status_label(event.get("tool_name"), "tool")
+            STATE.append_content(
+                f"tool started: {tool_name}", "command", response_text=False
+            )
+        elif event_type == "tool_result":
+            status = safe_status_label(event.get("status"), "unknown")
+            if status not in {"success", "error"}:
+                status = "unknown"
+            STATE.append_content(
+                f"tool result: {status}", "command", response_text=False
+            )
+        elif event_type == "error":
+            severity = safe_status_label(event.get("severity"), "error").lower()
+            if severity not in {"warning", "error"}:
+                severity = "error"
+            STATE.append_content(
+                f"Gemini {severity}", "reasoning", response_text=False
+            )
+
+        if event_type == "result":
+            status = str(event.get("status", "")).lower()
+            final_response = extract_event_text(event)
+            if final_response:
+                if not assistant_text:
+                    STATE.append_content(final_response)
+                elif final_response.startswith(assistant_text):
+                    suffix = final_response[len(assistant_text) :]
+                    if suffix:
+                        STATE.append_content(suffix)
+                elif final_response != assistant_text:
+                    STATE.add_event(
+                        "Gemini terminal response did not match streamed assistant text; using terminal response"
+                    )
+                    STATE.append_content(final_response, "replace_message")
+            authoritative_response = final_response or assistant_text
+            STATE.update(
+                response=authoritative_response,
+                result_seen=True,
+                result_status=status,
+                status=status or "error",
+            )
+            STATE.add_event(f"Gemini result status: {status or 'missing'}")
+            continue
+
         extracted = extract_event_text(event)
         if extracted:
+            assistant_text += extracted
             STATE.update(status="streaming")
             STATE.append_content(extracted)
             STATE.add_event(f"parsed assistant text chunk: {len(extracted)} chars")
-
-        if event_type == "result":
-            status = str(event.get("status", "complete"))
-            STATE.update(status=status)
-            STATE.add_event(f"Gemini result status: {status}")
 
 
 def is_snapshot_ignored(name: str) -> bool:
@@ -1067,6 +1171,17 @@ def prepare_gemini_workdir(args: argparse.Namespace) -> tuple[Path, tempfile.Tem
     return snapshot_path, temp_dir
 
 
+def cleanup_snapshot(temp_dir: tempfile.TemporaryDirectory[str]) -> None:
+    for attempt in range(5):
+        try:
+            temp_dir.cleanup()
+            return
+        except PermissionError:
+            if attempt == 4:
+                raise
+            time.sleep(0.25 * (attempt + 1))
+
+
 def build_prompt_for_gemini(args: argparse.Namespace, prompt: str, gemini_workdir: Path) -> str:
     if args.direct_workdir:
         return prompt
@@ -1130,7 +1245,15 @@ def run_gemini(args: argparse.Namespace, prompt: str, output_path: Path, gemini_
         stdout_thread.join(timeout=2)
         stderr_thread.join(timeout=2)
         STATE.add_event(f"Gemini process exited with code {code}")
-        return int(code)
+        snapshot = STATE.snapshot()
+        validated_code = validated_gemini_exit_code(
+            int(code),
+            bool(snapshot.get("result_seen")),
+            str(snapshot.get("result_status", "")),
+        )
+        if validated_code != int(code):
+            STATE.add_event("Gemini stream missing a successful terminal result")
+        return validated_code
 
 
 def main() -> int:
@@ -1165,7 +1288,7 @@ def main() -> int:
         code = run_gemini(args, gemini_prompt, output_path, gemini_workdir)
         STATE.update(status="writing-response")
         STATE.add_event("Writing parsed Gemini response file")
-        response = str(STATE.snapshot().get("content", ""))
+        response = str(STATE.snapshot().get("response", ""))
         response_path.write_text(response, encoding="utf-8", errors="replace")
         STATE.add_event(f"Response file written: {response_path}")
         STATE.complete(code, "complete" if code == 0 else "failed")
@@ -1181,7 +1304,7 @@ def main() -> int:
     finally:
         server.shutdown()
         if temp_dir is not None:
-            temp_dir.cleanup()
+            cleanup_snapshot(temp_dir)
 
 
 if __name__ == "__main__":

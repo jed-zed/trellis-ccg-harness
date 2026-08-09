@@ -24,7 +24,10 @@ Load and follow `skills/ccg-executor/SKILL.md` for context search and reporting 
   Contract**, classify the request as frontend, backend, search, or a
   combination, then resolve the required top-level roles.
 - Ask each applicable role provider for its read-only analysis. If it is
-  Gemini, use the bundled preview helper with `--prompt-template analyzer`;
-  otherwise use the existing provider adapter described by the routing rule.
+  Gemini, run the bundled `../ccg-executor/scripts/invoke_gemini_preview.py`
+  foreground command in a tool-managed background job with `--prompt-template
+  analyzer`; monitor it until completion and do not pass `--detach`. Otherwise
+  run `ccg wrapper --backend <provider> --read-only --progress - "<workdir>"`;
+  pass the prompt through stdin and do not add `--lite`.
   When it is Codex, analyze directly without external delegation.
 - Report in Chinese with findings, evidence, tradeoffs, and recommended next steps.

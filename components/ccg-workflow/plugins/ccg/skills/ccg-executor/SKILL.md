@@ -21,10 +21,10 @@ You are the Codex-side orchestrator for CCG workflow plans. Plans are produced b
 - Do not let any routed provider directly own the real workspace. External
   providers supply bounded analysis, Unified Diff Patch prototypes, tests, or
   review notes; Codex applies final edits and verifies them.
-- Claude is disabled for ordinary delegation. It may run only through an
-  explicitly authorized `ccg product-manager review` call when unified routing
-  selects Claude for `product-manager`; the call remains snapshot-bound,
-  Read/Glob/Grep-only, no-write evidence inside the existing Trellis lifecycle.
+- Claude may serve a configured frontend/backend role only through the managed
+  read-only wrapper contract below. A separately selected `product-manager`
+  Claude call still requires explicit authorization and remains snapshot-bound,
+  Read/Glob/Grep-only evidence inside the existing Trellis lifecycle.
 - Treat external diffs as dirty prototypes. Codex must refactor them into the
   repository's local style before applying, never paste them into the real
   workspace unchecked.
@@ -105,11 +105,11 @@ call.
 Use the configured role provider as a helper, not as the executor of record.
 When the selected provider is Gemini, every call must use the bundled preview
 helper and should open the browser preview automatically unless the user asked
-for headless execution. For `antigravity`, `grok`, or `pi`, use
-`ccg wrapper --backend <provider> ...`. This managed launcher validates the
-pinned wrapper and preserves its default Web UI; add `--lite` only when the
-user explicitly wants headless output. Ordinary Claude delegation is not
-allowed outside the product-manager contract.
+for headless execution. For `claude`, `antigravity`, `grok`, or `pi`, use
+`ccg wrapper --backend <provider> --read-only --progress - "<workdir>"` and
+pass the prompt through stdin. Do not add `--lite`; this managed launcher
+validates the pinned wrapper and preserves its default Web UI. A standalone
+Claude role call remains bounded evidence and is not a product-manager call.
 
 Codex-native trigger rules:
 
@@ -166,7 +166,7 @@ Use `--prompt-template <name>` for every Gemini helper call. Use `--prompt-templ
 
 The disposable snapshot excludes common secret files and credential directories such as `.env`, `.env.*`, `*.pem`, `*.key`, `*.p12`, `*.pfx`, `id_rsa`, `id_ed25519`, `.aws`, `.gcp`, and `.azure`. The helper prints `CCG_GEMINI_SNAPSHOT_PATH`, `CCG_GEMINI_SNAPSHOT_EXCLUDES`, copied file/byte counts, and skipped categories; if a task truly needs one of those files, ask the user for a sanitized excerpt instead of copying secrets into Gemini context. For large repositories, prefer `.ccgignore`, `--respect-gitignore`, `--max-snapshot-bytes`, `--max-snapshot-files`, or `--files-from` rather than weakening secret exclusions.
 
-Use `--no-browser` only for quick smoke tests or when the user explicitly wants headless execution. For long-running background delegation, add `--detach`; the parent process now reserves the preview port, waits for the preview server, opens the browser itself, and prints `CCG_GEMINI_PREVIEW_URL`, `CCG_GEMINI_BROWSER_OPENED`, `CCG_GEMINI_PREVIEW_PID`, `CCG_GEMINI_OUTPUT_FILE`, `CCG_GEMINI_RESPONSE_FILE`, `CCG_GEMINI_LAUNCHER_LOG`, `CCG_GEMINI_PROMPT_TEMPLATE`, and `CCG_GEMINI_AUTO_CLOSE_BROWSER_SECONDS`. The browser preview follows the original `codeagent-wrapper` single-column Live Output style; raw stream-json/debug output remains in the printed log files for Codex to inspect. It attempts to close itself after completion, defaulting to 3 seconds; use `--no-auto-close-browser` only when the user wants to keep the preview open. Later read the response file before acting on Gemini's suggestions. Use `--direct-workdir` only when the user explicitly accepts that Gemini may touch the real workspace.
+Use `--no-browser` only for quick smoke tests or when the user explicitly wants headless execution. For long-running delegation, run the foreground helper command in a tool-managed background job and monitor that job until the helper exits. Do not pass `--detach` from a Codex workflow: Codex tool runners own and clean up their process trees, while the foreground helper keeps the preview and model process in the monitored job. The helper prints `CCG_GEMINI_PREVIEW_URL`, `CCG_GEMINI_BROWSER_OPENED`, `CCG_GEMINI_OUTPUT_FILE`, `CCG_GEMINI_RESPONSE_FILE`, `CCG_GEMINI_PROMPT_TEMPLATE`, and `CCG_GEMINI_AUTO_CLOSE_BROWSER_SECONDS`. The browser preview follows the original `codeagent-wrapper` single-column Live Output style; raw stream-json/debug output remains in the printed log files for Codex to inspect. It attempts to close itself after completion, defaulting to 3 seconds; use `--no-auto-close-browser` only when the user wants to keep the preview open. Read the response file before acting on Gemini's suggestions. Use `--direct-workdir` only when the user explicitly accepts that Gemini may touch the real workspace. The helper's OS-level `--detach` option remains for manual shells outside tool-managed execution.
 
 Gemini task prompts should include only the task-specific payload because the helper prepends the standard CCG template:
 
