@@ -263,10 +263,10 @@ node bin/ccg.mjs doctor --grok-live       # 显式付费 Web/X 冒烟
 ```
 
 Codex 模式按能力矩阵设置四个角色：frontend/backend 支持 `codex`、
-`gemini`、`antigravity`、`grok`、`pi`；search 只支持 `codex`、`grok`；
-product-manager 只支持 `codex`、`gemini` 和只读 `claude`。CCG 工作流用
-`ccg wrapper` 托管 Antigravity/Grok/Pi；直接命令也接受普通 Codex/Gemini
-wrapper 后端，但永远拒绝 Claude，也不会修改角色路由。除非显式传入
+`gemini`、`claude`、`antigravity`、`grok`、`pi`；search 只支持 `codex`、
+`grok`；product-manager 支持 `codex`、`gemini` 和 `claude`。CCG 工作流用
+`ccg wrapper` 托管 Claude/Antigravity/Grok/Pi；直接命令也接受普通
+Codex/Gemini wrapper 后端，但不会修改角色路由。除非显式传入
 `--lite`，否则默认打开浏览器网页。使用 frontend/backend 时还会自动加入
 必需的 search 证据，并在下一适用检查点评估 product-manager 授权门；每次
 Provider 调用仍需显式批准。Codex 仍负责真实工作区的最终写入和验证。
@@ -362,4 +362,4 @@ MIT
 
 ---
 
-v3.4.8 | [Issues](https://github.com/jed-zed/ccg-gptpro-worflow/issues) | [Contributing](./CONTRIBUTING.md)
+v3.4.9 | [Issues](https://github.com/jed-zed/ccg-gptpro-worflow/issues) | [Contributing](./CONTRIBUTING.md)

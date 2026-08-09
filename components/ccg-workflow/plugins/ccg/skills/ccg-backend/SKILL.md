@@ -31,7 +31,7 @@ Use this as the Codex-native equivalent of the original CCG `/ccg:backend` comma
   tool-managed background job and prefer `--prompt-template architect` or
   `--prompt-template tester`; monitor it until completion and do not pass
   `--detach`. Otherwise run
-  `ccg wrapper --backend <provider> --read-only --progress - "<workdir>"`, pass
+  `ccg wrapper --backend <provider> --progress - "<workdir>"`, pass
   the prompt through stdin, and do not add `--lite`.
 - Codex owns final edits, migration safety, tests, diff review, and Chinese delivery.
 

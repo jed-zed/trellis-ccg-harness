@@ -433,8 +433,8 @@ export async function runManualCommand(action, options, runtime = {}) {
     sourceEnv,
   })
   const diagnostics = diagnosticProbe.diagnostics || diagnosticProbe
-  if (diagnostics.safe !== true || typeof diagnostics.version !== 'string' || !diagnostics.version.trim())
-    throw new Error('Grok diagnostics did not return a safe versioned contract')
+  if (typeof diagnostics.version !== 'string' || !diagnostics.version.trim())
+    throw new Error('Grok diagnostics did not return a versioned contract')
   if (!Array.isArray(diagnostics.models) || !diagnostics.models.includes(selectedModel))
     throw new Error(`Configured Grok model is not available in the local CLI inventory: ${selectedModel}`)
   const gitState = await (runtime.gitState || defaultGitState)(repoRoot, files)

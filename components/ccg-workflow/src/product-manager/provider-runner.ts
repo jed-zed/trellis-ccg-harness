@@ -23,7 +23,6 @@ const STDERR_DIAGNOSTIC_LIMIT_BYTES = 4_096
 
 export function buildProductManagerProviderEnvironment(execution: ProviderExecution): NodeJS.ProcessEnv {
   const environment: NodeJS.ProcessEnv = {
-    CCG_PRODUCT_MANAGER_READ_ONLY: '1',
     I18NEXT_NO_SUPPORT_NOTICE: '1',
     NO_COLOR: '1',
   }
@@ -63,7 +62,7 @@ function terminateProviderProcessTree(child: ChildProcessWithoutNullStreams): vo
   }
 }
 
-export async function executeReadOnlyProvider(options: {
+export async function executeProvider(options: {
   execution: ProviderExecution
   cwd: string
   input: string

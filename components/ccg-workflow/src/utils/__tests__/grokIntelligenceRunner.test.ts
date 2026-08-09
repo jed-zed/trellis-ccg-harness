@@ -7,7 +7,7 @@ import { buildExactGrokEnvironment, FORCED_GROK_ENV } from '../../../templates/e
 // @ts-expect-error Runtime template modules intentionally ship as plain ESM.
 import { createPrivateRunRoots, removePrivateRunRoot, securePrivateDirectory } from '../../../templates/engine/tools/grok-intelligence/lib/private-temp.mjs'
 // @ts-expect-error Runtime template modules intentionally ship as plain ESM.
-import { assertCleanGrokDiagnostics, parseGrokModelInventory, runGrokDiagnostics } from '../../../templates/engine/tools/grok-intelligence/lib/process.mjs'
+import { assertGrokDiagnostics, parseGrokModelInventory, runGrokDiagnostics } from '../../../templates/engine/tools/grok-intelligence/lib/process.mjs'
 // @ts-expect-error Runtime template modules intentionally ship as plain ESM.
 import { createFocusedSnapshot } from '../../../templates/engine/tools/grok-intelligence/lib/snapshot.mjs'
 // @ts-expect-error Runtime template modules intentionally ship as plain ESM.
@@ -206,7 +206,7 @@ describe('focused Grok snapshot', () => {
   })
 })
 
-describe('private roots and clean diagnostics', () => {
+describe('private roots and diagnostics', () => {
   let root: string
 
   beforeEach(async () => {
@@ -273,7 +273,7 @@ describe('private roots and clean diagnostics', () => {
     await expect(stat(outside)).resolves.toBeDefined()
   })
 
-  it('runs every non-paid diagnostic with the exact environment and rejects pollution', async () => {
+  it('runs local diagnostics with the exact environment without rejecting native configuration', async () => {
     const calls: any[] = []
     const env = buildExactGrokEnvironment({ sourceEnv: { PATH: process.env.PATH, SECRET_SHOULD_DROP: 'no' }, neutralHome: root, grokHome: root })
     const result = await runGrokDiagnostics({
@@ -282,7 +282,7 @@ describe('private roots and clean diagnostics', () => {
       runProcess: async (command: string, args: string[], options: any) => {
         calls.push({ command, args, env: options.env, timeoutMs: options.timeoutMs })
         if (args.includes('inspect'))
-          return { stdout: '{"externalCompat":{"remoteSettingsLoaded":false,"cells":[{"vendor":"claude","surface":"hooks","enabled":false}]}}', stderr: '', exitCode: 0 }
+          return { stdout: '{"externalCompat":{"remoteSettingsLoaded":true,"cells":[{"vendor":"claude","surface":"hooks","enabled":true}]}}', stderr: '', exitCode: 0 }
         return { stdout: args.includes('version') ? '0.1.20' : args.includes('models') ? 'grok-4.5' : 'none configured', stderr: '', exitCode: 0 }
       },
     })
@@ -290,29 +290,19 @@ describe('private roots and clean diagnostics', () => {
       '--no-auto-update version',
       '--no-auto-update models',
       'inspect --json',
-      'plugin list',
-      'mcp list',
     ])
     expect(calls.every(call => call.env === env)).toBe(true)
     expect(calls.every(call => call.timeoutMs === 30_000)).toBe(true)
     expect(Object.keys(env)).not.toContain('SECRET_SHOULD_DROP')
-    expect(result.safe).toBe(true)
+    expect(result.inspect.externalCompat.remoteSettingsLoaded).toBe(true)
     expect(parseGrokModelInventory('You are not authenticated.\nDefault model: grok-4.5\nAvailable models:\n* grok-4.5 (default)\n* grok-4.5-deep')).toEqual({
       models: ['grok-4.5', 'grok-4.5-deep'],
       defaultModel: 'grok-4.5',
     })
 
-    expect(() => assertCleanGrokDiagnostics({
-      inspect: { externalCompat: { remoteSettingsLoaded: false, cells: [{ vendor: 'claude', surface: 'hooks', enabled: true }] } },
-      plugins: 'polluted enabled',
-      mcp: 'polluted enabled',
-    })).toThrow(/unsafe_cli_context/i)
-
-    expect(() => assertCleanGrokDiagnostics({
-      inspect: { externalCompat: { remoteSettingsLoaded: true, cells: [] } },
-      plugins: 'none configured',
-      mcp: 'none configured',
-    })).toThrow(/remote compatibility/i)
+    expect(assertGrokDiagnostics({ externalCompat: { remoteSettingsLoaded: true, cells: [] } }))
+      .toMatchObject({ externalCompat: { remoteSettingsLoaded: true } })
+    expect(() => assertGrokDiagnostics([])).toThrow(/unsafe_cli_context/i)
   })
 
   it('exercises the fake Grok executable without a model call', async () => {
@@ -327,13 +317,13 @@ describe('private roots and clean diagnostics', () => {
       prefixArgs: [fakeWrapper],
       cwd: root,
       env,
-    })).resolves.toMatchObject({ safe: true, version: '0.1.20' })
+    })).resolves.toMatchObject({ version: '0.1.20' })
     await expect(runGrokDiagnostics({
       command: process.execPath,
       prefixArgs: [fakeWrapper, '--fake-case', 'inspect-pollution'],
       cwd: root,
       env,
-    })).rejects.toThrow(/unsafe_cli_context/i)
+    })).resolves.toMatchObject({ version: '0.1.20' })
   }, 40_000)
 })
 
@@ -382,8 +372,8 @@ describe('isolated Grok runner lifecycle', () => {
         validateDirectory: async (path: string) => path,
       }),
       clock: () => new Date('2026-07-21T12:00:00.000Z'),
-      runDiagnostics: async () => ({ safe: true }),
-      runAcp: async () => ({ notifications: searchNotifications(), mcpPreflight: { serversEmpty: true, toolCount: 0 } }),
+      runDiagnostics: async () => ({}),
+      runAcp: async () => ({ notifications: searchNotifications() }),
       ...overrides,
     }
   }
@@ -407,12 +397,12 @@ describe('isolated Grok runner lifecycle', () => {
         order.push('diagnostics')
         expect(env.USER_SECRET).toBeUndefined()
         expect(env).toMatchObject(FORCED_GROK_ENV)
-        return { safe: true }
+        return {}
       },
       runAcp: async (options: any) => {
         order.push('acp')
         seenAcpOptions = options
-        return { notifications: searchNotifications(), mcpPreflight: { serversEmpty: true, toolCount: 0 } }
+        return { notifications: searchNotifications() }
       },
     }))
     expect(order).toEqual(['diagnostics', 'acp'])
@@ -421,6 +411,7 @@ describe('isolated Grok runner lifecycle', () => {
     expect(seenAcpOptions.prompt).toContain('site:x.com')
     expect(seenAcpOptions.prompt).toContain('only when it is useful')
     expect(seenAcpOptions.prompt).toContain('Predeclared official domains: docs.x.ai')
+    expect(seenAcpOptions.prompt).toContain('provider-native tools')
     expect(result).toMatchObject({ exitCode: 0, status: 'verified' })
     expect(result.evidence.model).toEqual({
       requested: 'grok-4.5',
@@ -441,7 +432,6 @@ describe('isolated Grok runner lifecycle', () => {
       action: 'verify',
       runAcp: async () => ({
         notifications: searchNotifications(undefined, unresolvedText),
-        mcpPreflight: { serversEmpty: true, toolCount: 0 },
       }),
     }))
     expect(result).toMatchObject({
@@ -460,7 +450,7 @@ describe('isolated Grok runner lifecycle', () => {
   it('retries only transient failures with a fresh ACP call', async () => {
     const runAcp = vi.fn()
       .mockRejectedValueOnce(new Error('429 rate limit'))
-      .mockResolvedValueOnce({ notifications: searchNotifications(), mcpPreflight: { serversEmpty: true, toolCount: 0 } })
+      .mockResolvedValueOnce({ notifications: searchNotifications() })
     const result = await runGrokIntelligence(baseOptions({ runAcp }))
     expect(result.exitCode).toBe(0)
     expect(runAcp).toHaveBeenCalledTimes(2)
@@ -481,19 +471,19 @@ describe('isolated Grok runner lifecycle', () => {
     expect((await readdir(root)).filter(name => name.startsWith('ccg-grok-run-'))).toEqual([])
   })
 
-  it('does not retry unsafe inspect/MCP pollution', async () => {
+  it('does not reject enabled provider-native configuration', async () => {
     const runAcp = vi.fn()
     const result = await runGrokIntelligence(baseOptions({
-      runDiagnostics: async () => { throw new Error('unsafe_cli_context: enabled MCP') },
-      runAcp,
+      runDiagnostics: async () => ({ inspect: { externalCompat: { remoteSettingsLoaded: true } } }),
+      runAcp: runAcp.mockResolvedValue({ notifications: searchNotifications() }),
     }))
-    expect(result).toMatchObject({ exitCode: 3, status: 'unsafe_cli_context' })
-    expect(runAcp).not.toHaveBeenCalled()
+    expect(result).toMatchObject({ exitCode: 0, status: 'verified' })
+    expect(runAcp).toHaveBeenCalledOnce()
   })
 
   it('keeps unverified responses while still failing cleanup', async () => {
     const noSearch = searchNotifications().filter((message: any) => !['tool_call', 'tool_call_update'].includes(message.params?.update?.sessionUpdate))
-    expect(await runGrokIntelligence(baseOptions({ runAcp: async () => ({ notifications: noSearch, mcpPreflight: { serversEmpty: true, toolCount: 0 } }) })))
+    expect(await runGrokIntelligence(baseOptions({ runAcp: async () => ({ notifications: noSearch }) })))
       .toMatchObject({ exitCode: 0, status: 'received_unverified' })
 
     const invented = searchNotifications('https://docs.x.ai/build/cli/reference')
@@ -503,12 +493,12 @@ describe('isolated Grok runner lifecycle', () => {
     )
     expect(inventedMessage).toBeDefined()
     inventedMessage.params.update.content.text = `Invented https://invented.invalid is not a source.\nCCG_CLAIMS_JSON:{"schemaVersion":1,"claims":[{"id":"claim-1","claim":"Observed contract","status":"verified","urls":["https://docs.x.ai/build/cli/reference"]}]}`
-    const inventedResult = await runGrokIntelligence(baseOptions({ runAcp: async () => ({ notifications: invented, mcpPreflight: { serversEmpty: true, toolCount: 0 } }) }))
+    const inventedResult = await runGrokIntelligence(baseOptions({ runAcp: async () => ({ notifications: invented }) }))
     expect(inventedResult.exitCode).toBe(0)
     expect(inventedResult.evidence.registry.sources.some((source: any) => source.canonical_url.includes('invented.invalid'))).toBe(false)
 
     const missingClaims = await runGrokIntelligence(baseOptions({
-      runAcp: async () => ({ notifications: searchNotifications(undefined, 'Evidence collected.'), mcpPreflight: { serversEmpty: true, toolCount: 0 } }),
+      runAcp: async () => ({ notifications: searchNotifications(undefined, 'Evidence collected.') }),
     }))
     expect(missingClaims).toMatchObject({
       exitCode: 0,

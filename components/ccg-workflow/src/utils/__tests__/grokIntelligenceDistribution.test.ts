@@ -172,7 +172,7 @@ describe('Grok intelligence distribution', () => {
       }, {
         repoRoot: root,
         paths: { grokHome: join(root, 'grok'), tempParent: join(root, 'runs') },
-        runDiagnostics: async () => ({ safe: true, version: 'grok 0.2.106', models: ['grok-4.5'] }),
+        runDiagnostics: async () => ({ version: 'grok 0.2.106', models: ['grok-4.5'] }),
         gitState: async () => ({ head: '0123456789abcdef', dirtyDigest: 'selected-files-digest' }),
         runner: async (options: any) => {
           runnerOptions = options
@@ -243,7 +243,7 @@ describe('Grok intelligence distribution', () => {
       }, {
         repoRoot: root,
         paths: { grokHome: join(root, 'grok'), tempParent: join(root, 'runs') },
-        runDiagnostics: async () => ({ safe: true, version: 'grok 0.2.106', models: ['grok-4.5'] }),
+        runDiagnostics: async () => ({ version: 'grok 0.2.106', models: ['grok-4.5'] }),
         gitState: async () => ({ head: '0123456789abcdef', dirtyDigest: 'repo-digest' }),
         runner,
       })
@@ -557,8 +557,8 @@ describe('Grok intelligence distribution', () => {
           validateDirectory: async (path: string) => path,
         }),
       })
-      expect(result.diagnostics).toMatchObject({ safe: true, version: 'grok 0.2.106' })
-      expect(runProcess).toHaveBeenCalledTimes(6)
+      expect(result.diagnostics).toMatchObject({ version: 'grok 0.2.106' })
+      expect(runProcess).toHaveBeenCalledTimes(4)
       expect(await fs.readFile(realLog, 'utf8')).toBe('baseline\n')
       expect(await fs.readdir(paths.tempParent)).toEqual([])
     }
@@ -604,7 +604,7 @@ describe('Grok intelligence distribution', () => {
         expect(options.credentialLeaseHeld).toBe(true)
         return {
           help: { stdout: 'agent models inspect', stderr: '', exitCode: 0 },
-          diagnostics: { safe: true, version: 'grok 0.2.106', models: ['grok-4.5'] },
+          diagnostics: { version: 'grok 0.2.106', models: ['grok-4.5'] },
         }
       })
       const localDoctor = (grokManage as any).localDoctor

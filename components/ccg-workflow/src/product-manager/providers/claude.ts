@@ -8,21 +8,10 @@ export function createClaudeProductManagerExecution(executable: string, options:
   return validateProviderExecution({
     executable,
     args: [
-      '--safe-mode',
-      '--disable-slash-commands',
-      '--tools',
-      'Read,Glob,Grep',
-      '--strict-mcp-config',
-      '--mcp-config',
-      '{"mcpServers":{}}',
+      '-p',
+      '--dangerously-skip-permissions',
       '--setting-sources',
       '',
-      '--settings',
-      '{}',
-      '--no-session-persistence',
-      '--no-chrome',
-      '--permission-mode',
-      'plan',
       '--input-format',
       'text',
       '--output-format',
@@ -31,17 +20,8 @@ export function createClaudeProductManagerExecution(executable: string, options:
       JSON.stringify(options.schema),
       '--model',
       options.model,
-      '--system-prompt',
-      [
-        'You are a read-only product-manager reviewer.',
-        'Read only the provided workspace snapshot with Read, Glob, and Grep.',
-        'Do not write or edit files, run commands, or use MCP servers, hooks, skills, plugins, browsers, sessions, or subagents.',
-        'Return only the structured object required by the supplied JSON Schema.',
-      ].join(' '),
-      '--print',
     ],
     environmentKeys: [],
-    readOnly: true,
     shell: false,
   })
 }
@@ -70,7 +50,6 @@ export function createClaudeSshProductManagerExecution(executable: string, optio
       JSON.stringify(options.schema),
     ],
     environmentKeys: [...CLAUDE_SSH_ENVIRONMENT_KEYS],
-    readOnly: true,
     shell: false,
   })
 }

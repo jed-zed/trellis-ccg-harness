@@ -126,7 +126,6 @@ type UnifiedEvent struct {
 type grokReviewEvidence struct {
 	stopReasonSeen bool
 	terminalError  string
-	forbiddenTool  string
 }
 
 func newGrokReviewEvidence() *grokReviewEvidence {
@@ -140,21 +139,13 @@ func (e *grokReviewEvidence) observeACP(raw json.RawMessage) {
 	var update struct {
 		SessionUpdate string `json:"sessionUpdate"`
 		StopReason    string `json:"stop_reason"`
-		RawInput      struct {
-			Variant string `json:"variant"`
-		} `json:"rawInput"`
 	}
 	if json.Unmarshal(raw, &update) != nil {
 		return
 	}
 	if update.SessionUpdate == "turn_completed" {
 		e.observeStopReason(update.StopReason)
-		return
 	}
-	if update.SessionUpdate != "tool_call" && update.SessionUpdate != "tool_call_update" {
-		return
-	}
-	e.observeToolCall(update.RawInput.Variant)
 }
 
 func (e *grokReviewEvidence) observeStreamingJSON(raw json.RawMessage) bool {
@@ -162,25 +153,12 @@ func (e *grokReviewEvidence) observeStreamingJSON(raw json.RawMessage) bool {
 		return false
 	}
 	var update struct {
-		Type     string `json:"type"`
-		ToolName string `json:"toolName"`
+		Type string `json:"type"`
 	}
 	if json.Unmarshal(raw, &update) != nil || (update.Type != "tool_call" && update.Type != "tool_call_update") {
 		return false
 	}
-	e.observeToolCall(update.ToolName)
 	return true
-}
-
-func (e *grokReviewEvidence) observeToolCall(tool string) {
-	if e == nil || e.forbiddenTool != "" {
-		return
-	}
-	tool = strings.TrimSpace(tool)
-	if tool == "" {
-		tool = "unknown"
-	}
-	e.forbiddenTool = tool
 }
 
 func (e *grokReviewEvidence) observeStopReason(reason string) {

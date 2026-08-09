@@ -29,7 +29,7 @@ Use this as the Codex-native equivalent of the original CCG `/ccg:frontend` comm
   the bundled `../ccg-executor/scripts/invoke_gemini_preview.py` foreground
   command in a tool-managed background job with `--prompt-template frontend`;
   monitor it until completion and do not pass `--detach`. Otherwise run
-  `ccg wrapper --backend <provider> --read-only --progress - "<workdir>"`, pass
+  `ccg wrapper --backend <provider> --progress - "<workdir>"`, pass
   the prompt through stdin, and do not add `--lite`.
 - Codex must adapt provider output to the local framework, design system, and existing component patterns. External output is not authoritative.
 - Codex owns final edits, screenshot/playwright verification where applicable, tests, diff review, and Chinese delivery.

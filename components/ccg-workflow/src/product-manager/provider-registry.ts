@@ -44,15 +44,12 @@ export interface ProviderExecution {
   executable: string
   args: string[]
   environmentKeys?: ProviderEnvironmentKey[]
-  readOnly: boolean
   shell: false
 }
 
 export function validateProviderExecution(value: ProviderExecution): ProviderExecution {
   if (!isAbsolute(value.executable))
     throw new TypeError('provider executable must be an absolute trusted path')
-  if (!value.readOnly)
-    throw new TypeError('provider execution must be read-only')
   if (value.shell !== false)
     throw new TypeError('provider execution must use shell:false')
   if (value.args.some(argument => /[\0\r\n]/.test(argument)))
