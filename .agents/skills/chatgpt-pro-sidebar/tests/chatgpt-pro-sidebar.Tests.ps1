@@ -2147,11 +2147,26 @@ Describe 'agent-browser-cli V2 transport' {
 
     It 'accepts the equivalent slashless homepage URL when proving a background tab identity' {
         $script:v2TabsCalls = 0
+        $script:v2ExecCalls = 0
         Mock Invoke-AgentBrowserCliJson {
             param($Arguments)
             if ([string]$Arguments[0] -eq 'open') {
                 return [pscustomobject]@{ ok = $true; result = [pscustomobject]@{
                     status = 'success'; opened_tab_id = '202'; opened_session_key = 'browser-1:profile-1:202'
+                } }
+            }
+            if ([string]$Arguments[0] -eq 'exec') {
+                $script:v2ExecCalls++
+                return [pscustomobject]@{ ok = $true; result = [pscustomobject]@{
+                    status = 'success'; tab_id = '202'; session_key = 'browser-1:profile-1:202'
+                    js_return = [pscustomobject]@{
+                        schemaVersion = 1; origin = 'https://chatgpt.com'; url = 'https://chatgpt.com/'
+                        composer = [pscustomobject]@{ count = if ($script:v2ExecCalls -eq 1) { 0 } else { 1 }; value = '' }
+                        send = [pscustomobject]@{ count = 0 }
+                        auth = [pscustomobject]@{ loginCount = 0; challengeCount = 0; proIndicatorCount = 1 }
+                        model = [pscustomobject]@{ controlCount = 1; selectedLabel = 'Pro'; proSelected = $true }
+                        generating = $false; userTurns = @(); assistantTurns = @(); turnLimitExceeded = $false
+                    }
                 } }
             }
             $script:v2TabsCalls++
@@ -2174,6 +2189,7 @@ Describe 'agent-browser-cli V2 transport' {
         $opened.TabId | Should -Be '202'
         $opened.SessionKey | Should -Be 'browser-1:profile-1:202'
         $script:v2TabsCalls | Should -Be 2
+        $script:v2ExecCalls | Should -Be 2
     }
 
     It 'replaces a truncated tab-list URL with the exact inspected page URL' {

@@ -4771,7 +4771,24 @@ function Invoke-AgentBrowserOpenFreshTab {
     if ($targets.Count -ne 1) {
         Throw-SidebarError -ExitCode $Script:ExitCodes.WindowSelection -Category 'AgentBrowserOpenTargetUnproved' -Message 'The background homepage tab could not be bound to one exact browser identity.'
     }
-    return $targets[0]
+
+    $openedTarget = $targets[0]
+    $surfaceDeadline = [DateTime]::UtcNow.AddSeconds(10)
+    while ([DateTime]::UtcNow -lt $surfaceDeadline) {
+        $snapshot = Get-AgentBrowserPageSnapshot -Target $openedTarget
+        try {
+            Assert-AgentBrowserBaseReady -Snapshot $snapshot
+            return $openedTarget
+        }
+        catch {
+            if ((Get-ExceptionCategory -Exception $_.Exception) -ne 'ComposerMissing') {
+                throw
+            }
+        }
+        Start-Sleep -Milliseconds 250
+    }
+    Assert-AgentBrowserBaseReady -Snapshot $snapshot
+    return $openedTarget
 }
 
 function Invoke-AgentBrowserNewChat {
