@@ -4816,7 +4816,14 @@ function Invoke-AgentBrowserNewChat {
         Assert-AgentBrowserPageReady -Snapshot $snapshot
         if ($snapshot.UrlExact -or $snapshot.UserTurns.Count -ne 0 -or $snapshot.Responses.Count -ne 0 -or
             -not (Test-ComposerValueEmpty -Value $snapshot.ComposerValue)) {
-            Throw-SidebarError -ExitCode $Script:ExitCodes.SendUncertain -Category 'NewChatUncertain' -Message 'The background homepage tab was opened, but an empty fresh conversation was not proved.'
+            Throw-SidebarError -ExitCode $Script:ExitCodes.SendUncertain -Category 'NewChatUncertain' -Message 'The background homepage tab was opened, but an empty fresh conversation was not proved.' -Details ([ordered]@{
+                targetBinding = ConvertTo-AgentBrowserTargetBinding -Target $Target
+                url = $snapshot.Url
+                urlExact = $snapshot.UrlExact
+                userTurnCount = $snapshot.UserTurns.Count
+                responseCount = $snapshot.Responses.Count
+                composerEmpty = Test-ComposerValueEmpty -Value $snapshot.ComposerValue
+            })
         }
     }
 
