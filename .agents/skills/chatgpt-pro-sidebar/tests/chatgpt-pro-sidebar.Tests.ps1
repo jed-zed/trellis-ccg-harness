@@ -2485,7 +2485,7 @@ Describe 'agent-browser-cli V2 transport' {
         (Read-EvidenceState -Directory $directory).automaticResendAllowed | Should -BeFalse
     }
 
-    It 'adopts only the same tab canonical URL after a homepage send' {
+    It 'adopts the same tab URL when the model control hides after exact Pro preflight' {
         $directory = Join-Path $TestDrive 'v2-homepage-send'
         $null = New-Item -ItemType Directory -Path $directory
         $prompt = 'homepage prompt'
@@ -2502,6 +2502,7 @@ Describe 'agent-browser-cli V2 transport' {
         }
         $script:v2ResolveCalls = 0
         $script:v2PageCalls = 0
+        $script:v2ClickCalls = 0
         Mock Resolve-AgentBrowserTarget {
             $script:v2ResolveCalls++
             if ($script:v2ResolveCalls -ge 4) { return $exactTarget }
@@ -2519,17 +2520,19 @@ Describe 'agent-browser-cli V2 transport' {
             if ($script:v2PageCalls -le 3) {
                 return [pscustomobject]@{
                     Url = 'https://chatgpt.com/'; UrlExact = $false; ComposerCount = 1; ComposerValue = $prompt; SendCount = 1
-                    LoginCount = 0; ProCount = 1; SelectedModeControlCount = 1; SelectedModeLabel = 'Pro'; SelectedModeIsPro = $true; SecurityChallengeCount = 0; Generating = $false
+                    LoginCount = 0; ProCount = 0; SelectedModeControlCount = 0; SelectedModeLabel = ''; SelectedModeIsPro = $false; SecurityChallengeCount = 0; Generating = $false
                     UserTurns = @(); Responses = @(); Target = $script:v2Target
                 }
             }
             return [pscustomobject]@{
                 Url = $conversationUrl; UrlExact = $true; ComposerCount = 1; ComposerValue = $prompt; SendCount = 0
-                LoginCount = 0; ProCount = 1; SelectedModeControlCount = 1; SelectedModeLabel = 'Pro'; SelectedModeIsPro = $true; SecurityChallengeCount = 0; Generating = $false
+                LoginCount = 0; ProCount = 0; SelectedModeControlCount = 0; SelectedModeLabel = ''; SelectedModeIsPro = $false; SecurityChallengeCount = 0; Generating = $false
                 UserTurns = @(); Responses = @(); Target = $exactTarget
             }
         }
         Mock Invoke-AgentBrowserCliJson {
+            param($Arguments)
+            if ($Arguments[0] -eq 'click') { $script:v2ClickCalls++ }
             [pscustomobject]@{ ok = $true; result = [pscustomobject]@{ status = 'success'; tab_id = '101'; session_key = 'browser-1:profile-1:101' } }
         }
         Mock Start-Sleep {}
@@ -2539,7 +2542,32 @@ Describe 'agent-browser-cli V2 transport' {
         $result.targetBinding.tabId | Should -Be '101'
         $result.targetBinding.sessionKey | Should -Be 'browser-1:profile-1:101'
         $result.targetBinding.url | Should -Be $conversationUrl
+        $result.selectedModeLabel | Should -Be 'Pro'
+        $script:v2ClickCalls | Should -Be 1
         (Read-EvidenceState -Directory $directory).phase | Should -Be 'sent'
+    }
+
+    It 'waits through generation without re-requiring the hidden model control' {
+        $conversationUrl = 'https://chatgpt.com/c/12345678-1234-1234-1234-123456789abc'
+        $exactTarget = [pscustomobject]@{
+            BrowserId = $script:v2Target.BrowserId; ProfileId = $script:v2Target.ProfileId
+            ProfileLabel = $script:v2Target.ProfileLabel; TabId = $script:v2Target.TabId
+            SessionKey = $script:v2Target.SessionKey; Origin = $script:v2Target.Origin
+            Url = $conversationUrl; UrlExact = $true
+        }
+        Mock Resolve-AgentBrowserTarget { $exactTarget }
+        Mock Get-AgentBrowserPageSnapshot {
+            [pscustomobject]@{
+                Url = $conversationUrl; UrlExact = $true; ComposerCount = 1; ComposerValue = ''; SendCount = 0
+                LoginCount = 0; ProCount = 0; SelectedModeControlCount = 0; SelectedModeLabel = ''; SelectedModeIsPro = $false
+                SecurityChallengeCount = 0; Generating = $true; UserTurns = @(); Responses = @(); Target = $exactTarget
+            }
+        }
+
+        $observation = Get-AgentBrowserWaitObservation -Binding (ConvertTo-AgentBrowserTargetBinding -Target $exactTarget) -ExpectedConversationUrl $conversationUrl
+
+        $observation.Transient | Should -BeFalse
+        $observation.Generating | Should -BeTrue
     }
 
     It 'keeps observing through a transitional user-turn mismatch until the same tab exposes an exact URL' {

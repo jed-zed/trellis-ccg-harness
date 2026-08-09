@@ -55,8 +55,11 @@ provider. It controls a user-approved external Chrome tab through
   thinking-mode submenu, and the unique exact `Pro` radio option; it then
   re-reads the fixed page snapshot and requires `Pro`.
 - The prompt is filled once, then its normalized SHA-256 and one Send control
-  are re-proved immediately before one click. The same snapshot must still
-  prove exactly one selected `Pro` mode. Missing/ambiguous controls, a failed
+  are re-proved immediately before one click. ChatGPT may hide the model
+  control after fill; the exact pre-fill `Pro` proof remains valid only while
+  the same target mutex is held and target/URL/composer/send invariants remain
+  unchanged. If the control remains visible, the snapshot must still prove
+  exactly one selected `Pro` mode. Ambiguous controls, a failed
   selection, or post-fill mode drift terminates before the Send click and is
   reported to the original Codex task.
 - After each click, the adapter observes the same bound target for up to `180`
@@ -193,8 +196,9 @@ provider. It controls a user-approved external Chrome tab through
 - PowerShell and fixed JavaScript parse checks.
 - Unit coverage for single-JSON parsing, ambiguous discovery, target/session
   mismatch, URL-first persistence, formatted or delayed user-turn observation,
-  one-click uncertainty, exact `Pro` selection and post-fill mode-drift
-  rejection, the one safe background retry, the two-click maximum, stable
+  one-click uncertainty, exact `Pro` selection, post-fill hidden-control
+  continuity and visible mode-drift rejection, wait without model reselection,
+  the one safe background retry, the two-click maximum, stable
   duplicate-URL read-only recovery, response isolation, RootWait-only launch,
   and no credential or prompt-bearing script access.
 - Unit coverage for distinct-target mutex coexistence, same-target exclusion,

@@ -4560,7 +4560,7 @@ function Get-AgentBrowserPageSnapshot {
     }
 }
 
-function Assert-AgentBrowserBaseReady {
+function Assert-AgentBrowserAuthBarrierAbsent {
     param([Parameter(Mandatory = $true)]$Snapshot)
 
     Assert-AuthReadySnapshot -Snapshot ([pscustomobject]@{
@@ -4569,6 +4569,12 @@ function Assert-AgentBrowserBaseReady {
         SecurityChallengeCount = $Snapshot.SecurityChallengeCount
         ComposerCount = $Snapshot.ComposerCount
     })
+}
+
+function Assert-AgentBrowserBaseReady {
+    param([Parameter(Mandatory = $true)]$Snapshot)
+
+    Assert-AgentBrowserAuthBarrierAbsent -Snapshot $Snapshot
     if ($Snapshot.Generating) {
         Throw-SidebarError -ExitCode $Script:ExitCodes.GenerationActive -Category 'GenerationAlreadyActive' -Message 'ChatGPT is already generating; duplicate submission is prohibited.'
     }
@@ -4595,6 +4601,18 @@ function Assert-AgentBrowserPageReady {
 
     Assert-AgentBrowserBaseReady -Snapshot $Snapshot
     Assert-AgentBrowserSelectedPro -Snapshot $Snapshot
+}
+
+function Assert-AgentBrowserPostFillReady {
+    param([Parameter(Mandatory = $true)]$Snapshot)
+
+    Assert-AgentBrowserBaseReady -Snapshot $Snapshot
+    # ChatGPT may hide the model control once the composer has text. The caller
+    # already proved exact Pro while holding this target's UI mutex; if the
+    # control remains visible, any ambiguity or drift still fails closed.
+    if ([int](Get-ObjectProperty $Snapshot 'SelectedModeControlCount' 0) -ne 0) {
+        Assert-AgentBrowserSelectedPro -Snapshot $Snapshot
+    }
 }
 
 function Get-AgentBrowserProSelectionAction {
@@ -4866,7 +4884,7 @@ function Invoke-AgentBrowserSend {
         Assert-AgentBrowserCommandResultBinding -Envelope $fillEnvelope -Target $target
         $target = Resolve-AgentBrowserTarget -ExpectedBinding (ConvertTo-AgentBrowserTargetBinding -Target $target)
         $prepared = Get-AgentBrowserPageSnapshot -Target $target
-        Assert-AgentBrowserPageReady -Snapshot $prepared
+        Assert-AgentBrowserPostFillReady -Snapshot $prepared
         Assert-PreSendUrlInvariant `
             -InitialUrlState ([pscustomobject]@{ Url = $snapshot.Url; Exact = $snapshot.UrlExact }) `
             -CurrentUrlState ([pscustomobject]@{ Url = $prepared.Url; Exact = $prepared.UrlExact }) `
@@ -4951,7 +4969,7 @@ function Invoke-AgentBrowserSend {
                 Assert-AgentBrowserCommandResultBinding -Envelope $fillEnvelope -Target $currentTarget
                 $currentTarget = Resolve-AgentBrowserTarget -ExpectedBinding (ConvertTo-AgentBrowserTargetBinding -Target $currentTarget)
                 $prepared = Get-AgentBrowserPageSnapshot -Target $currentTarget
-                Assert-AgentBrowserPageReady -Snapshot $prepared
+                Assert-AgentBrowserPostFillReady -Snapshot $prepared
                 Assert-PreSendUrlInvariant `
                     -InitialUrlState ([pscustomobject]@{ Url = $attemptInitialSnapshot.Url; Exact = $attemptInitialSnapshot.UrlExact }) `
                     -CurrentUrlState ([pscustomobject]@{ Url = $prepared.Url; Exact = $prepared.UrlExact }) `
@@ -4975,7 +4993,7 @@ function Invoke-AgentBrowserSend {
         try {
             $commitTarget = Resolve-AgentBrowserTarget -ExpectedBinding (Get-ObjectProperty $state 'targetBinding' $null)
             $commitSnapshot = Get-AgentBrowserPageSnapshot -Target $commitTarget
-            Assert-AgentBrowserPageReady -Snapshot $commitSnapshot
+            Assert-AgentBrowserPostFillReady -Snapshot $commitSnapshot
             Assert-PreSendUrlInvariant `
                 -InitialUrlState ([pscustomobject]@{ Url = $attemptInitialSnapshot.Url; Exact = $attemptInitialSnapshot.UrlExact }) `
                 -CurrentUrlState ([pscustomobject]@{ Url = $commitSnapshot.Url; Exact = $commitSnapshot.UrlExact }) `
@@ -5204,7 +5222,7 @@ function Get-AgentBrowserWaitObservation {
         $uiLease = Enter-UiMutex -TargetBinding $Binding
         $target = Resolve-AgentBrowserTarget -ExpectedBinding $Binding -ExpectedConversationUrl $ExpectedConversationUrl -AllowExactUrlReopen:([bool]$ExpectedConversationUrl)
         $snapshot = Get-AgentBrowserPageSnapshot -Target $target
-        Assert-AuthReadySnapshot -Snapshot $snapshot
+        Assert-AgentBrowserAuthBarrierAbsent -Snapshot $snapshot
         if (-not [string]::IsNullOrWhiteSpace($ExpectedConversationUrl)) {
             Assert-ConversationUrlMatch -ExpectedUrl $ExpectedConversationUrl -ActualUrl $snapshot.Url
         }

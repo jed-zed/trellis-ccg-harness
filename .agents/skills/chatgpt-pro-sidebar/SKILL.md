@@ -126,9 +126,11 @@ create a replacement directory to bypass uncertain evidence.
   URL, login/challenge, generation already active, or DOM ambiguity: stop and
   report the exact category. Before filling a prompt, send/new-chat may change
   the one proved composer-adjacent thinking-mode control to the one exact `Pro`
-  menu option, then must re-read and prove `Pro`. Missing/ambiguous controls,
-  selection failure, or any later drift from `Pro` fails before the Send click
-  and returns the exact category to the original Codex task.
+  menu option, then must re-read and prove `Pro`. After fill, ChatGPT may hide
+  that control; the pre-fill proof remains valid only while the same exact
+  target mutex is held and URL/composer/send invariants are re-proved. If the
+  control remains visible, ambiguity or drift from `Pro` fails before the Send
+  click. Wait never changes or re-requires the model after an acknowledged send.
 - Failure before click: preserve reservation/evidence and diagnose; do not
   silently switch transports.
 - Each click has a 180-second page-progress observation window. The first

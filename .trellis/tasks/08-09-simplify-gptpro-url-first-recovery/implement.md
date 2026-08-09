@@ -57,10 +57,10 @@ M1 里程碑只按“M1 工程证据”列验收；M2 完成时必须补齐右�
 - [x] 用既有 atomic event helper 为 adapter 终止结果写 `stopped-unverified + terminalOutcome`；保持 `requiresCodexReview=true`、`automaticResendAllowed=false`、exact CodexThreadId/watcher identity。
 - [x] 扩展 capacity release proof，仅接受 durable `retry-not-submitted` 完整证明；`recovery-required` 返回 `ConcurrencySlotRecoveryRequired` 且不释放。
 - [x] 更新 `SKILL.md` 与 V2 spec 的 watcher/UX 部分：180 秒、7200 秒、duplicate observation、两种 `terminalOutcome` 的不同用户提示、原 task 通知及 no-focus 合同；M1 已更新的 acknowledgement 条款不得回退。
-- [x] 真实页面暴露“极高被误认作 Pro”后，增加发送前严格模式门槛：固定 DOM 只接受唯一的 composer-adjacent 模式控件；非 `Pro` 时只操作唯一思考强度子菜单与唯一 `Pro` 单选项并复验；缺失、歧义、切换失败或 fill 后漂移均在 Send click 前返回原 Codex task。回归用例为 `switches one unique thinking-mode control to Pro and verifies it before send preparation`、`fails before the send click when the selected mode drifts away from Pro after fill`，完整原始日志保存于 `.ccg-evidence/m2/adapter-strict-pro-full-final.log`。
+- [x] 真实页面暴露“极高被误认作 Pro”后，增加发送前严格模式门槛：固定 DOM 只接受唯一的 composer-adjacent 模式控件；非 `Pro` 时只操作唯一思考强度子菜单与唯一 `Pro` 单选项并复验。后续 live PR review 又证明 ChatGPT 会在 fill 后隐藏已验证控件，因此同一 target mutex 内允许沿用 pre-fill `Pro` 证明，同时继续复验 URL/composer/send；若控件仍可见则歧义或漂移仍在 Send click 前失败，wait 不再重选或重查模型。覆盖用例为 `switches one unique thinking-mode control to Pro and verifies it before send preparation`、`fails before the send click when the selected mode drifts away from Pro after fill`、`adopts the same tab URL when the model control hides after exact Pro preflight`、`waits through generation without re-requiring the hidden model control`。
 - [x] 运行完整离线门槛（受支持 Harness 生命周期全绿；当前主工作树的额外复跑主机超时单独保留，未冒充第二次全绿）：
   - [x] PowerShell adapter/watcher parse；固定 JS parse。
-  - [x] 两个 Pester suite：adapter 现为 `167/167`（严格 Pro 门槛后复跑），watcher `83/83`。
+  - [x] 两个 Pester suite：adapter 现为 `168/168`（严格 Pro 门槛与 fill 后控件隐藏修复后复跑），watcher `83/83`。
   - [x] `pnpm harness:test`：受支持的 3.4.8 更新事务为 `452 passed / 0 failed / 3 skipped`；当前主工作树复跑因本机 PowerShell 进程启动和 hard-kill 标记等待超时未形成第二份全绿终态，完整区分见 `.ccg-evidence/m2/pre-live-offline-gates.log`，不得伪称当前复跑通过。
   - [x] `pnpm doctor`
   - [x] `pnpm harness:conflicts`
