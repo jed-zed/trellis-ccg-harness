@@ -790,6 +790,56 @@ describe('GPT Pro sidebar bridge', () => {
     expect(readFileSync(join(dirname(promptFile), 'response.md'), 'utf-8')).toBe(response)
   })
 
+  maybeIt('rejects unknown or non-completed terminalOutcome before sidebar import', () => {
+    const root = join(TMP_ROOT, 'sidebar-terminal-outcome-rejection')
+    const taskDir = join(root, '.ccg', 'tasks', 'sidebar-terminal-outcome-task')
+    fs.ensureDirSync(taskDir)
+    fs.writeJsonSync(join(taskDir, 'task.json'), { id: 'sidebar-terminal-outcome-task', status: 'in_progress' })
+    const createOutput = runPython(PYTHON!, [
+      BRIDGE,
+      '--mode',
+      'review',
+      '--workdir',
+      root,
+      '--task-dir',
+      '.ccg/tasks/sidebar-terminal-outcome-task',
+      '--prompt',
+      'Reject terminal outcomes that are not completed.',
+    ], root)
+    const sessionDir = parseOutputPath(createOutput, 'CCG_GPTPRO_SESSION_DIR')
+    const promptFile = parseOutputPath(createOutput, 'CCG_GPTPRO_PROMPT_FILE')
+    const sidebarDir = join(dirname(promptFile), 'sidebar')
+    const prompt = readFileSync(promptFile, 'utf-8')
+      .replace(/\r\n/g, '\n')
+      .replace(/\r/g, '\n')
+      .replace(/[\r\n]+$/, '')
+    writeSidebarEvidence(sidebarDir, prompt, 'This response must not be imported.\n')
+    const importArgs = [
+      BRIDGE,
+      '--import-session',
+      sessionDir,
+      '--import-sidebar-evidence',
+      sidebarDir,
+      '--expected-codex-thread-id',
+      '019fa981-725e-7f02-93a7-bb1e1b7aefd3',
+    ]
+    const responsePath = join(dirname(promptFile), 'response.md')
+    const responseBeforeImport = fs.pathExistsSync(responsePath) ? readFileSync(responsePath) : null
+
+    for (const terminalOutcome of ['recovery-required', 'future-unknown-outcome']) {
+      const eventPath = join(sidebarDir, 'watch-event.json')
+      const event = fs.readJsonSync(eventPath)
+      fs.writeJsonSync(eventPath, { ...event, terminalOutcome })
+
+      const stderr = runPythonFailure(PYTHON!, importArgs, root)
+      expect(stderr).toMatch(/terminalOutcome must be completed/i)
+      expect(fs.pathExistsSync(join(sidebarDir, 'watch-continuation-ack.json'))).toBe(false)
+      expect(fs.pathExistsSync(responsePath)).toBe(responseBeforeImport !== null)
+      if (responseBeforeImport !== null)
+        expect(readFileSync(responsePath)).toEqual(responseBeforeImport)
+    }
+  })
+
   maybeIt('keeps completed windows-uia evidence as historical read-only import compatibility', () => {
     const root = join(TMP_ROOT, 'sidebar-historical-uia-import')
     const taskDir = join(root, '.ccg', 'tasks', 'sidebar-historical-task')

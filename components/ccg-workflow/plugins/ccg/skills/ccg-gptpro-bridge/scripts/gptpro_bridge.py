@@ -2100,6 +2100,9 @@ def import_sidebar_evidence(
         raise ValueError("ChatGPT Pro sidebar import requires live evidence.")
     if state.get("phase") != "completed" or event.get("status") != "completed":
         raise ValueError("ChatGPT Pro sidebar watcher has not completed successfully.")
+    for label, payload in (("state", state), ("watch event", event)):
+        if "terminalOutcome" in payload and payload.get("terminalOutcome") != "completed":
+            raise ValueError(f"ChatGPT Pro sidebar {label} terminalOutcome must be completed.")
     if event.get("requiresCodexReview") is not True:
         raise ValueError("ChatGPT Pro sidebar watch event must require Codex review.")
     if (
