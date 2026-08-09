@@ -2146,11 +2146,18 @@ Describe 'agent-browser-cli V2 transport' {
     }
 
     It 'accepts the equivalent slashless homepage URL when proving a background tab identity' {
+        $script:v2TabsCalls = 0
         Mock Invoke-AgentBrowserCliJson {
             param($Arguments)
             if ([string]$Arguments[0] -eq 'open') {
                 return [pscustomobject]@{ ok = $true; result = [pscustomobject]@{
                     status = 'success'; opened_tab_id = '202'; opened_session_key = 'browser-1:profile-1:202'
+                } }
+            }
+            $script:v2TabsCalls++
+            if ($script:v2TabsCalls -eq 1) {
+                return [pscustomobject]@{ ok = $true; result = [pscustomobject]@{
+                    status = 'success'; metadata = [pscustomobject]@{ tabs = @() }
                 } }
             }
             return [pscustomobject]@{ ok = $true; result = [pscustomobject]@{
@@ -2160,11 +2167,13 @@ Describe 'agent-browser-cli V2 transport' {
                 }) }
             } }
         }
+        Mock Start-Sleep {}
 
         $opened = Invoke-AgentBrowserOpenFreshTab -CurrentTarget $script:v2Target
 
         $opened.TabId | Should -Be '202'
         $opened.SessionKey | Should -Be 'browser-1:profile-1:202'
+        $script:v2TabsCalls | Should -Be 2
     }
 
     It 'replaces a truncated tab-list URL with the exact inspected page URL' {

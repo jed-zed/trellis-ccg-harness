@@ -4750,16 +4750,24 @@ function Invoke-AgentBrowserOpenFreshTab {
         Throw-SidebarError -ExitCode $Script:ExitCodes.WindowSelection -Category 'AgentBrowserOpenIdentityMissing' -Message 'agent-browser-cli did not identify the background tab it opened.'
     }
 
-    $targets = @(ConvertTo-AgentBrowserTabRecords -Envelope (Invoke-AgentBrowserCliJson -Arguments @('tabs')) | Where-Object {
-        $sanitizedUrl = ConvertTo-SanitizedChatGptUrl -Candidate ([string]$_.Url)
-        $_.BrowserId -ceq [string]$CurrentTarget.BrowserId -and
-        $_.ProfileId -ceq [string]$CurrentTarget.ProfileId -and
-        $_.TabId -ceq $openedTabId -and
-        $_.SessionKey -ceq $openedSessionKey -and
-        $null -ne $sanitizedUrl -and
-        -not $sanitizedUrl.Exact -and
-        $sanitizedUrl.Url -ceq 'https://chatgpt.com/'
-    })
+    $targets = @()
+    $bindDeadline = [DateTime]::UtcNow.AddSeconds(10)
+    while ([DateTime]::UtcNow -lt $bindDeadline) {
+        $targets = @(ConvertTo-AgentBrowserTabRecords -Envelope (Invoke-AgentBrowserCliJson -Arguments @('tabs')) | Where-Object {
+            $sanitizedUrl = ConvertTo-SanitizedChatGptUrl -Candidate ([string]$_.Url)
+            $_.BrowserId -ceq [string]$CurrentTarget.BrowserId -and
+            $_.ProfileId -ceq [string]$CurrentTarget.ProfileId -and
+            $_.TabId -ceq $openedTabId -and
+            $_.SessionKey -ceq $openedSessionKey -and
+            $null -ne $sanitizedUrl -and
+            -not $sanitizedUrl.Exact -and
+            $sanitizedUrl.Url -ceq 'https://chatgpt.com/'
+        })
+        if ($targets.Count -eq 1) {
+            break
+        }
+        Start-Sleep -Milliseconds 250
+    }
     if ($targets.Count -ne 1) {
         Throw-SidebarError -ExitCode $Script:ExitCodes.WindowSelection -Category 'AgentBrowserOpenTargetUnproved' -Message 'The background homepage tab could not be bound to one exact browser identity.'
     }
