@@ -1,0 +1,121 @@
+{
+  "schemaVersion": 1,
+  "checkpointId": "M1",
+  "baselineCommit": "80ed5d257f70d4b81911096473789d2bf042504e",
+  "files": [
+    {
+      "path": ".agents/skills/chatgpt-pro-sidebar/scripts/chatgpt-pro-sidebar.ps1",
+      "sha256": "713b6b76cbef0b6b4a1522bfdb10b7ded44d891e78378d2ca3976626ad2e31f3"
+    },
+    {
+      "path": ".agents/skills/chatgpt-pro-sidebar/tests/chatgpt-pro-sidebar.Tests.ps1",
+      "sha256": "170064d9ba1c5c3698578f83c1a56528dae61e24f15219c62e0aa7be8d1c6ebd"
+    },
+    {
+      "path": ".trellis/spec/tooling/chatgpt-pro-agent-browser-v2.md",
+      "sha256": "bef2ccb4820e6155bbd9d45d875a693a2c2cd8f9afe201b688570dc1b4dd439d"
+    }
+  ],
+  "verification": {
+    "powershellParse": "passed",
+    "redGreen": {
+      "preImplementation": {
+        "passed": 157,
+        "failed": 7,
+        "evidenceStrength": "observed in the execution session; no raw log was persisted"
+      },
+      "postImplementation": {
+        "passed": 164,
+        "failed": 0
+      }
+    },
+    "adapterPester": {
+      "passed": 164,
+      "failed": 0
+    },
+    "gitDiffCheck": "passed-with-line-ending-warnings",
+    "testMapping": [
+      {
+        "acceptanceCriteria": ["AC1", "AC2"],
+        "test": "adopts only the same tab canonical URL after a homepage send",
+        "proof": "persists the exact same-tab conversation URL before rendered user-turn equality is available"
+      },
+      {
+        "acceptanceCriteria": ["AC2"],
+        "test": "recognizes one structurally appended user turn without comparing rendered prompt text",
+        "proof": "keeps baseline ordering and one-new-turn limit without prompt text hash equality"
+      },
+      {
+        "acceptanceCriteria": ["AC3", "AC5", "AC8"],
+        "test": "uses one background retry only after durable fresh-homepage non-submission proof",
+        "proof": "two attempts share one idempotency key and a 7200-second absolute response deadline"
+      },
+      {
+        "acceptanceCriteria": ["AC4", "AC6"],
+        "test": "stops after two proved non-submissions and never performs a third click",
+        "proof": "click count remains two, retryOutcome is retry-not-submitted, and automatic resend remains disabled"
+      },
+      {
+        "acceptanceCriteria": ["AC3", "AC6"],
+        "test": "requires manual recovery without retry when the first composer proof is lost",
+        "proof": "uncertain first attempt performs one click and ends recovery-required"
+      },
+      {
+        "acceptanceCriteria": ["AC7"],
+        "test": "selects the ordinal-first duplicate exact URL only for read-only recovery",
+        "proof": "duplicate URL tolerance is limited to read-only observation"
+      },
+      {
+        "acceptanceCriteria": ["AC9"],
+        "test": "reopens the exact URL through one persistent profile after the browser id changes",
+        "proof": "the supported reopen command includes --background; live user focus remains an explicit M2 acceptance check"
+      },
+      {
+        "acceptanceCriteria": ["AC1", "AC10"],
+        "test": "recovers an unbound uncertain homepage send only after the same prompt turn is proved",
+        "proof": "the recovered URL is bound to the exact target claim without resending"
+      }
+    ],
+    "syntheticV2ImporterRegression": {
+      "contract": "one synthetic agent-browser-cli-v2 completed evidence bundle with exact thread, URL, target, hash, no-resend, and review bindings",
+      "harnessSnapshot": {
+        "packageVersion": "3.4.6",
+        "bridgeSha256": "9db48cc2478cff6a5931cbf805586e20cb1b5a90e53e279df839fa5ed98ac648",
+        "importExitCode": 0,
+        "imported": true,
+        "browserTransportRequired": "agent-browser-cli-v2"
+      },
+      "installedPlugin": {
+        "pluginVersion": "3.4.6+codex.3",
+        "pluginManifestSha256": "5c838aed7693f1d482d74d74b70ec6507c7b972f647572b217a452bfa6c43184",
+        "bridgeSha256": "308a0f7dea4e50304bfc79561043b10a254737c451d822b9085b352ed0ca6f47",
+        "importExitCode": 2,
+        "imported": false,
+        "browserTransportRequired": null,
+        "error": "Invalid ChatGPT Pro sidebar state transport."
+      },
+      "disposition": "installed runtime drift is confirmed; authoritative importer source remains pending the terminalOutcome negative regression"
+    }
+  },
+  "liveEvidence": {
+    "round1": {
+      "singleClick": true,
+      "automaticResend": false,
+      "exactConversationUrl": "https://chatgpt.com/c/6a786545-9948-83ea-9483-66880fee3116",
+      "observedFailure": "old post-click prompt-hash acknowledgement failed before conversationUrlBound was persisted",
+      "recoveredResponseSha256": "9f2d0daeb27002cbf15cc27ff24384bd57151efaefe04225f7f37ce187e86d49",
+      "recoveredEvidenceSha256": "23c304230504f81e08bf880e58bcdd115cf31c1384e072ff6a03ff6b7b6c852a"
+    },
+    "round2": {
+      "runRootCompleted": true,
+      "singleClick": true,
+      "terminalStatus": "completed",
+      "pollingConsumesModelTokens": false,
+      "focusRequested": false,
+      "responseSha256": "a5c5448781111685cbf66c713ba602b12af75cc13a5ecb91990d28404a4dad85",
+      "evidenceSha256": "850cc04e4618962c0628174082b1d2596785141a93d95c5906b8a6464a5f1b53",
+      "responseQuality": "incomplete: Proceed / The",
+      "importerOutcome": "rejected: installed CCG importer still requires windows-uia transport"
+    }
+  }
+}

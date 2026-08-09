@@ -22,8 +22,10 @@ The logical Skill name remains `chatgpt-pro-sidebar`; its active transport is
 - Never use the Codex Desktop side browser, Windows UIA, coordinates, keyboard,
   clipboard, CDP, Playwright, Selenium, internal ChatGPT APIs, or a model watcher
   as a fallback.
-- Never resend after `send-intent` or `send-uncertain`. Preserve the evidence
-  directory for review.
+- Never resend after `send-uncertain`. After the first click, only the adapter
+  may issue one internal second click, and only after the full 180-second
+  observation proves `retry-not-submitted` on an unchanged fresh homepage.
+  External callers never resend; preserve the evidence directory for review.
 - The bridge does not authorize commits, pushes, deployment, production access,
   or external writes.
 
@@ -36,7 +38,9 @@ than one exists, use the exact `browserId`, `profileId`, `tabId`, and
 The target binding and sanitized URL are persisted in `state.json`. If the user
 later closes an exact-conversation tab, observation may reopen only that exact
 URL in the same Chrome profile with a background tab. It may not reopen or
-guess a homepage conversation.
+guess a homepage conversation. If several tabs in that profile show the same
+exact URL, read-only recovery chooses one by a stable opaque-identity order;
+send still requires the exact claimed target.
 
 Independent rounds may bind distinct tabs concurrently. One Codex task owns at
 most three active slots; the per-user global hard limit is six across Codex
@@ -83,18 +87,21 @@ transport.
 
 1. Run `status`; require `ok=true`, `ready=true`,
    `transport=agent-browser-cli-v2`, one target binding, canonical ChatGPT URL,
-   Pro present, no login/challenge, and `generating=false`.
+   `selectedModeControlCount=1`, `selectedModeLabel=Pro`,
+   `selectedModeIsPro=true`, no login/challenge, and `generating=false`.
 2. For a new task, call `new-chat` or use `run`. An empty homepage is already a
    fresh chat; otherwise one same-profile homepage tab is opened in background.
 3. For an existing conversation, use ordinary `send`; it requires an exact
    canonical conversation URL. Use `-FreshConversation` only on a proved empty
    homepage.
 4. For a complete round, call watcher `run-root` once. It invokes one adapter
-   `send`, immediately starts the local RootWait watcher, and does not return to
-   Codex until terminal evidence exists in the same still-running root turn. It
-   never registers a Stop Hook. Do not split new rounds into separate `send`,
-   `start`, and `wait-root` model steps. The recovery commands remain available
-   only for evidence that is already post-send.
+   logical `send` request, including its one permitted proved-not-submitted
+   retry, immediately starts the local RootWait watcher when ordinary post-send
+   observation is needed, and does not return to Codex until terminal evidence
+   exists in the same still-running root turn. It never registers a Stop Hook.
+   Do not split new rounds into separate `send`, `start`, and `wait-root` model
+   steps. The recovery commands remain available only for evidence that is
+   already post-send.
 5. For multiple independent rounds, call `run-batch-root` once with a local
    schema-v1 manifest. It starts at most three local child rounds for the exact
    Codex thread, never exceeds six global slots, and waits without model
@@ -103,22 +110,42 @@ transport.
    durations.
 6. Re-read `watch-event.json`, `state.json`, `evidence.json`, and `response.md`.
    Validate thread/watcher identity, target binding, URL, hashes, baseline, and
-   `automaticResendAllowed=false` before using the response.
+   `automaticResendAllowed=false`. Import is allowed only when state, event, and
+   any present `terminalOutcome` all prove `completed`.
 7. Call `acknowledge-root` only after that independent Codex review. If a CCG
    importer owns acknowledgement, let it use its existing import contract.
 
-Use a new evidence directory for each independent round. At most one send click
-is permitted per directory and idempotency key. Do not create a replacement
-directory to bypass uncertain evidence.
+Use a new evidence directory for each independent round. At most two send
+clicks are permitted per directory, idempotency key, and logical request; the
+second is the adapter's single durable `retry-not-submitted` transition. Do not
+create a replacement directory to bypass uncertain evidence.
 
 ## Failure handling
 
 - Missing extension/daemon/tab, ambiguous target, session mismatch, unsupported
-  URL, login/challenge, missing Pro, generation already active, or DOM ambiguity:
-  stop and report the exact category.
+  URL, login/challenge, generation already active, or DOM ambiguity: stop and
+  report the exact category. Before filling a prompt, send/new-chat may change
+  the one proved composer-adjacent thinking-mode control to the one exact `Pro`
+  menu option, then must re-read and prove `Pro`. Missing/ambiguous controls,
+  selection failure, or any later drift from `Pro` fails before the Send click
+  and returns the exact category to the original Codex task.
 - Failure before click: preserve reservation/evidence and diagnose; do not
   silently switch transports.
-- Any failure at or after the click: treat as send-uncertain and never retry.
+- Each click has a 180-second page-progress observation window. The first
+  timeout may retry once only when durable evidence proves an unchanged fresh
+  homepage, intact composer, no exact conversation URL, no appended user turn,
+  and no generation. The retry opens one same-profile background tab and keeps
+  the original idempotency identity.
+- After the second 180-second timeout, `retry-not-submitted` is terminal: write
+  durable terminal evidence, safely release capacity, and return immediately to
+  the original Codex task for user notification. `recovery-required` is also
+  terminal for the request, but it never retries or releases the isolated slot;
+  it reports `ConcurrencySlotRecoveryRequired` to that same original task.
+- A lost click result or any unproved post-click state is `send-uncertain` or
+  `recovery-required`; never resend it.
+- The response deadline is one absolute 7200-second budget beginning with the
+  first click. Retry and adapter time consume that same budget; they never reset
+  it. Local watcher polling does not consume model tokens.
 - Temporary browser loss during wait is observational only. Exact URL recovery
   may reopen in background; no recovery path may send.
 - Batch slot timeout is `queued-timeout` with `ConcurrencySlotTimeout` and
@@ -147,8 +174,9 @@ Invoke-Pester (Join-Path $skillRoot 'tests\chatgpt-pro-sidebar-watch.Tests.ps1')
 ```
 
 A live release check must prove one external Chrome discovery, one fresh
-exact-once send, stable response evidence, no resend, task/app switching without
-losing the target, closed-tab exact-URL background recovery, and observed focus
+logical send, stable response evidence, no unproved or caller-driven resend, at
+most one proved-not-submitted internal retry, task/app switching without losing
+the target, closed-tab exact-URL background recovery, and observed focus
 behavior. Multi-window release also proves three rounds per Codex task, six
 globally across two tasks, and a seventh item that waits without clicking. Mock
 tests do not substitute for this live evidence.

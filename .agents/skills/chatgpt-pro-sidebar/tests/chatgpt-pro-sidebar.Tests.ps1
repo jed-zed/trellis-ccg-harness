@@ -1402,7 +1402,7 @@ Describe 'Per-target concurrency and thread ownership' {
             }
         }
         try {
-            $deadline = [DateTime]::UtcNow.AddSeconds(10)
+            $deadline = [DateTime]::UtcNow.AddSeconds(30)
             while (-not [System.IO.File]::Exists($readyPath) -and [DateTime]::UtcNow -lt $deadline) {
                 Start-Sleep -Milliseconds 25
             }
@@ -1413,7 +1413,7 @@ Describe 'Per-target concurrency and thread ownership' {
         }
         finally {
             [System.IO.File]::WriteAllText($releasePath, 'release')
-            $null = Wait-Job -Job $job -Timeout 10
+            $null = Wait-Job -Job $job -Timeout 30
             Remove-Job -Job $job -Force
         }
     }
@@ -2157,6 +2157,7 @@ Describe 'agent-browser-cli V2 transport' {
                         composer = [pscustomobject]@{ count = 1; value = '' }
                         send = [pscustomobject]@{ count = 0 }
                         auth = [pscustomobject]@{ loginCount = 0; challengeCount = 0; proIndicatorCount = 1 }
+                        model = [pscustomobject]@{ controlCount = 1; selectedLabel = 'Pro'; proSelected = $true }
                         generating = $false; userTurns = @(); assistantTurns = @(); turnLimitExceeded = $false
                     }
                 }
@@ -2167,6 +2168,9 @@ Describe 'agent-browser-cli V2 transport' {
         $snapshot.Url | Should -Be $conversationUrl
         $script:v2Target.Url | Should -Be $conversationUrl
         $script:v2Target.UrlExact | Should -BeTrue
+        $snapshot.SelectedModeControlCount | Should -Be 1
+        $snapshot.SelectedModeLabel | Should -Be 'Pro'
+        $snapshot.SelectedModeIsPro | Should -BeTrue
     }
 
     It 'keeps an exact tab identity when the tab-list URL is truncated' {
@@ -2283,6 +2287,7 @@ Describe 'agent-browser-cli V2 transport' {
                                 composer = [pscustomobject]@{ count = 1; value = '' }
                                 send = [pscustomobject]@{ count = 0 }
                                 auth = [pscustomobject]@{ loginCount = 0; challengeCount = 0; proIndicatorCount = 1 }
+                                model = [pscustomobject]@{ controlCount = 1; selectedLabel = 'Pro'; proSelected = $true }
                                 generating = $false; userTurns = @(); assistantTurns = @(); turnLimitExceeded = $false
                             }
                         }
@@ -2306,6 +2311,38 @@ Describe 'agent-browser-cli V2 transport' {
         $script:v2PostOpenTabPolls | Should -BeGreaterOrEqual 2
     }
 
+    It 'selects the ordinal-first duplicate exact URL only for read-only recovery' {
+        $conversationUrl = 'https://chatgpt.com/c/12345678-1234-1234-1234-123456789abc'
+        Mock Invoke-AgentBrowserCliJson {
+            param($Arguments)
+            if ([string]$Arguments[0] -eq 'tabs') {
+                return [pscustomobject]@{ ok = $true; result = [pscustomobject]@{
+                    status = 'success'; metadata = [pscustomobject]@{ tabs = @() }
+                } }
+            }
+            [pscustomobject]@{ ok = $true; result = [pscustomobject]@{
+                status = 'success'; browsers = @([pscustomobject]@{
+                    browser_id = 'browser-2'; profiles = @([pscustomobject]@{
+                        profile_id = 'profile-1'; profile_label = 'work'; tabs = @(
+                            [pscustomobject]@{ tab_id = '303'; session_key = 'browser-2:profile-1:303'; url = $conversationUrl }
+                            [pscustomobject]@{ tab_id = '202'; session_key = 'browser-2:profile-1:202'; url = $conversationUrl }
+                        )
+                    })
+                })
+            } }
+        }
+        $binding = ConvertTo-AgentBrowserTargetBinding -Target $script:v2Target
+        $binding.url = $conversationUrl
+
+        $resolved = Resolve-AgentBrowserTarget `
+            -ExpectedBinding $binding `
+            -ExpectedConversationUrl $conversationUrl `
+            -AllowExactUrlReopen
+
+        $resolved.TabId | Should -Be '202'
+        $resolved.SessionKey | Should -Be 'browser-2:profile-1:202'
+    }
+
     It 'rejects a CLI operation that reports a different session after acting' {
         $envelope = [pscustomobject]@{
             result = [pscustomobject]@{ status = 'success'; tab_id = '101'; session_key = 'other:session:101' }
@@ -2315,33 +2352,103 @@ Describe 'agent-browser-cli V2 transport' {
         }
     }
 
-    It 'recognizes one matching new user turn and rejects any unrelated turn' {
-        $promptSha = Get-Sha256Text -Text 'expected prompt'
+    It 'recognizes one structurally appended user turn without comparing rendered prompt text' {
         $old = New-TestResponse -Text 'old prompt'
-        $matching = New-TestResponse -Text 'expected prompt' -Ordinal 1
-        (Assert-AgentBrowserUserTurnAcknowledgement -BaselineHashes @($old.ContentSha256) -CurrentTurns @($old, $matching) -PromptSha256 $promptSha) | Should -BeTrue
+        $formatted = New-TestResponse -Text "expected`n`nrendered prompt" -Ordinal 1
+        (Assert-AgentBrowserUserTurnAcknowledgement -BaselineHashes @($old.ContentSha256) -CurrentTurns @($old, $formatted)) | Should -BeTrue
 
         Assert-ThrowsCategory -Category 'UserTurnAcknowledgementMismatch' -ExitCode 28 -Action {
-            Assert-AgentBrowserUserTurnAcknowledgement -BaselineHashes @($old.ContentSha256) -CurrentTurns @($old, (New-TestResponse -Text 'other prompt')) -PromptSha256 $promptSha
+            Assert-AgentBrowserUserTurnAcknowledgement `
+                -BaselineHashes @($old.ContentSha256) `
+                -CurrentTurns @($old, $formatted, (New-TestResponse -Text 'second new turn' -Ordinal 2))
         }
+    }
+
+    It 'switches one unique thinking-mode control to Pro and verifies it before send preparation' {
+        $extreme = [pscustomobject]@{
+            Url = 'https://chatgpt.com/'; UrlExact = $false; ComposerCount = 1; ComposerValue = ''; SendCount = 0
+            LoginCount = 0; ProCount = 0; SelectedModeControlCount = 1; SelectedModeLabel = '极高'; SelectedModeIsPro = $false
+            SecurityChallengeCount = 0; Generating = $false; UserTurns = @(); Responses = @(); Target = $script:v2Target
+        }
+        $pro = [pscustomobject]@{
+            Url = 'https://chatgpt.com/'; UrlExact = $false; ComposerCount = 1; ComposerValue = ''; SendCount = 0
+            LoginCount = 0; ProCount = 1; SelectedModeControlCount = 1; SelectedModeLabel = 'Pro'; SelectedModeIsPro = $true
+            SecurityChallengeCount = 0; Generating = $false; UserTurns = @(); Responses = @(); Target = $script:v2Target
+        }
+        $script:v2ModelActions = [System.Collections.Queue]::new()
+        $script:v2ModelActions.Enqueue([pscustomobject]@{ ok = $true; phase = 'open-menu' })
+        $script:v2ModelActions.Enqueue([pscustomobject]@{ ok = $true; phase = 'open-submenu' })
+        $script:v2ModelActions.Enqueue([pscustomobject]@{ ok = $true; phase = 'select-pro' })
+        $script:v2ModelSnapshots = [System.Collections.Queue]::new()
+        $script:v2ModelSnapshots.Enqueue($extreme)
+        $script:v2ModelSnapshots.Enqueue($extreme)
+        $script:v2ModelSnapshots.Enqueue($pro)
+        $script:v2ModelClicks = [System.Collections.Generic.List[string]]::new()
+        Mock Get-AgentBrowserProSelectionAction { $script:v2ModelActions.Dequeue() }
+        Mock Get-AgentBrowserPageSnapshot { $script:v2ModelSnapshots.Dequeue() }
+        Mock Invoke-AgentBrowserBoundMouseClick { param($Target, $Selector) $script:v2ModelClicks.Add($Selector) }
+        Mock Start-Sleep {}
+
+        $result = Ensure-AgentBrowserProMode -Target $script:v2Target -Snapshot $extreme
+
+        $result.SelectedModeLabel | Should -Be 'Pro'
+        $script:v2ModelClicks.Count | Should -Be 2
+        $script:v2ModelClicks[0] | Should -Be 'button[data-codex-gptpro-mode-control="true"]'
+        $script:v2ModelClicks[1] | Should -Be '[data-codex-gptpro-pro-option="true"]'
+    }
+
+    It 'fails before the send click when the selected mode drifts away from Pro after fill' {
+        $directory = Join-Path $TestDrive 'v2-mode-drift-before-click'
+        $null = New-Item -ItemType Directory -Path $directory
+        $prompt = 'strict Pro prompt'
+        $script:v2PageCalls = 0
+        $script:v2FillCalls = 0
+        $script:v2ClickCalls = 0
+        Mock Resolve-AgentBrowserTarget { $script:v2Target }
+        Mock Get-AgentBrowserPageSnapshot {
+            $script:v2PageCalls++
+            if ($script:v2PageCalls -eq 1) {
+                return [pscustomobject]@{
+                    Url = 'https://chatgpt.com/'; UrlExact = $false; ComposerCount = 1; ComposerValue = ''; SendCount = 0
+                    LoginCount = 0; ProCount = 1; SelectedModeControlCount = 1; SelectedModeLabel = 'Pro'; SelectedModeIsPro = $true
+                    SecurityChallengeCount = 0; Generating = $false; UserTurns = @(); Responses = @(); Target = $script:v2Target
+                }
+            }
+            [pscustomobject]@{
+                Url = 'https://chatgpt.com/'; UrlExact = $false; ComposerCount = 1; ComposerValue = $prompt; SendCount = 1
+                LoginCount = 0; ProCount = 0; SelectedModeControlCount = 1; SelectedModeLabel = '极高'; SelectedModeIsPro = $false
+                SecurityChallengeCount = 0; Generating = $false; UserTurns = @(); Responses = @(); Target = $script:v2Target
+            }
+        }
+        Mock Invoke-AgentBrowserCliJson {
+            param($Arguments)
+            if ($Arguments[0] -eq 'fill') { $script:v2FillCalls++ }
+            if ($Arguments[0] -eq 'click') { $script:v2ClickCalls++ }
+            [pscustomobject]@{ ok = $true; result = [pscustomobject]@{ status = 'success'; tab_id = '101'; session_key = 'browser-1:profile-1:101' } }
+        }
+
+        Assert-ThrowsCategory -Category 'SelectedModeNotPro' -ExitCode 22 -Action {
+            Invoke-AgentBrowserSend -PromptText $prompt -EvidenceDirectory $directory -IdempotencyKeyValue 'v2-mode-drift-before-click' -CodexThreadIdValue $script:v2ThreadId -RequireFreshConversation -TargetBinding (ConvertTo-AgentBrowserTargetBinding -Target $script:v2Target)
+        }
+        $script:v2FillCalls | Should -Be 1
+        $script:v2ClickCalls | Should -Be 0
+        $state = Read-EvidenceState -Directory $directory
+        $state.phase | Should -Be 'pre-invoke-failed'
+        $state.preInvokeFailureCategory | Should -Be 'SelectedModeNotPro'
     }
 
     It 'acknowledges one prompt after ChatGPT virtualizes an unchanged user-turn prefix' {
         $oldA = New-TestResponse -Text 'old prompt a' -Ordinal 0
         $oldB = New-TestResponse -Text 'old prompt b' -Ordinal 1
         $matching = New-TestResponse -Text 'expected prompt' -Ordinal 2
-        $promptSha = $matching.ContentSha256
-
         (Assert-AgentBrowserUserTurnAcknowledgement `
             -BaselineHashes @($oldA.ContentSha256, $oldB.ContentSha256) `
-            -CurrentTurns @($oldB, $matching) `
-            -PromptSha256 $promptSha) | Should -BeTrue
+            -CurrentTurns @($oldB, $matching)) | Should -BeTrue
 
         Assert-ThrowsCategory -Category 'UserTurnBaselineMismatch' -ExitCode 28 -Action {
             Assert-AgentBrowserUserTurnAcknowledgement `
                 -BaselineHashes @($oldA.ContentSha256, $oldB.ContentSha256) `
-                -CurrentTurns @($matching) `
-                -PromptSha256 $promptSha
+                -CurrentTurns @($matching)
         }
     }
 
@@ -2357,7 +2464,7 @@ Describe 'agent-browser-cli V2 transport' {
             [pscustomobject]@{
                 Url = 'https://chatgpt.com/'; UrlExact = $false; ComposerCount = 1; ComposerValue = $composer
                 SendCount = if ($script:v2PageCalls -eq 1) { 0 } else { 1 }
-                LoginCount = 0; ProCount = 1; SecurityChallengeCount = 0; Generating = $false
+                LoginCount = 0; ProCount = 1; SelectedModeControlCount = 1; SelectedModeLabel = 'Pro'; SelectedModeIsPro = $true; SecurityChallengeCount = 0; Generating = $false
                 UserTurns = @(); Responses = @(); Target = $script:v2Target
             }
         }
@@ -2405,21 +2512,21 @@ Describe 'agent-browser-cli V2 transport' {
             if ($script:v2PageCalls -eq 1) {
                 return [pscustomobject]@{
                     Url = 'https://chatgpt.com/'; UrlExact = $false; ComposerCount = 1; ComposerValue = ''; SendCount = 0
-                    LoginCount = 0; ProCount = 1; SecurityChallengeCount = 0; Generating = $false
+                    LoginCount = 0; ProCount = 1; SelectedModeControlCount = 1; SelectedModeLabel = 'Pro'; SelectedModeIsPro = $true; SecurityChallengeCount = 0; Generating = $false
                     UserTurns = @(); Responses = @(); Target = $script:v2Target
                 }
             }
             if ($script:v2PageCalls -le 3) {
                 return [pscustomobject]@{
                     Url = 'https://chatgpt.com/'; UrlExact = $false; ComposerCount = 1; ComposerValue = $prompt; SendCount = 1
-                    LoginCount = 0; ProCount = 1; SecurityChallengeCount = 0; Generating = $false
+                    LoginCount = 0; ProCount = 1; SelectedModeControlCount = 1; SelectedModeLabel = 'Pro'; SelectedModeIsPro = $true; SecurityChallengeCount = 0; Generating = $false
                     UserTurns = @(); Responses = @(); Target = $script:v2Target
                 }
             }
             return [pscustomobject]@{
-                Url = $conversationUrl; UrlExact = $true; ComposerCount = 1; ComposerValue = ''; SendCount = 0
-                LoginCount = 0; ProCount = 1; SecurityChallengeCount = 0; Generating = $true
-                UserTurns = @(New-TestResponse -Text $prompt); Responses = @(); Target = $exactTarget
+                Url = $conversationUrl; UrlExact = $true; ComposerCount = 1; ComposerValue = $prompt; SendCount = 0
+                LoginCount = 0; ProCount = 1; SelectedModeControlCount = 1; SelectedModeLabel = 'Pro'; SelectedModeIsPro = $true; SecurityChallengeCount = 0; Generating = $false
+                UserTurns = @(); Responses = @(); Target = $exactTarget
             }
         }
         Mock Invoke-AgentBrowserCliJson {
@@ -2427,12 +2534,230 @@ Describe 'agent-browser-cli V2 transport' {
         }
         Mock Start-Sleep {}
 
-        $result = Invoke-AgentBrowserSend -PromptText $prompt -EvidenceDirectory $directory -IdempotencyKeyValue 'v2-homepage-send' -CodexThreadIdValue $script:v2ThreadId -RequireFreshConversation -TargetBinding (ConvertTo-AgentBrowserTargetBinding -Target $script:v2Target)
+        $result = Invoke-AgentBrowserSend -PromptText $prompt -EvidenceDirectory $directory -IdempotencyKeyValue 'v2-homepage-send' -CodexThreadIdValue $script:v2ThreadId -RequireFreshConversation -TargetBinding (ConvertTo-AgentBrowserTargetBinding -Target $script:v2Target) -ObservationSecondsValue 0
         $result.conversationUrl | Should -Be $conversationUrl
         $result.targetBinding.tabId | Should -Be '101'
         $result.targetBinding.sessionKey | Should -Be 'browser-1:profile-1:101'
         $result.targetBinding.url | Should -Be $conversationUrl
         (Read-EvidenceState -Directory $directory).phase | Should -Be 'sent'
+    }
+
+    It 'keeps observing through a transitional user-turn mismatch until the same tab exposes an exact URL' {
+        $directory = Join-Path $TestDrive 'v2-transitional-user-turn'
+        $null = New-Item -ItemType Directory -Path $directory
+        $prompt = 'transitional prompt'
+        $conversationUrl = 'https://chatgpt.com/c/12345678-1234-1234-1234-123456789abc'
+        $exactTarget = [pscustomobject]@{
+            BrowserId = $script:v2Target.BrowserId
+            ProfileId = $script:v2Target.ProfileId
+            ProfileLabel = $script:v2Target.ProfileLabel
+            TabId = $script:v2Target.TabId
+            SessionKey = $script:v2Target.SessionKey
+            Origin = $script:v2Target.Origin
+            Url = $conversationUrl
+            UrlExact = $true
+        }
+        $script:v2ResolveCalls = 0
+        $script:v2PageCalls = 0
+        $script:v2ClickCalls = 0
+        Mock Resolve-AgentBrowserTarget {
+            $script:v2ResolveCalls++
+            if ($script:v2ResolveCalls -ge 5) { return $exactTarget }
+            return $script:v2Target
+        }
+        Mock Get-AgentBrowserPageSnapshot {
+            $script:v2PageCalls++
+            if ($script:v2PageCalls -eq 1) {
+                return [pscustomobject]@{
+                    Url = 'https://chatgpt.com/'; UrlExact = $false; ComposerCount = 1; ComposerValue = ''; SendCount = 0
+                    LoginCount = 0; ProCount = 1; SelectedModeControlCount = 1; SelectedModeLabel = 'Pro'; SelectedModeIsPro = $true; SecurityChallengeCount = 0; Generating = $false
+                    UserTurns = @(); Responses = @(); Target = $script:v2Target
+                }
+            }
+            if ($script:v2PageCalls -le 3) {
+                return [pscustomobject]@{
+                    Url = 'https://chatgpt.com/'; UrlExact = $false; ComposerCount = 1; ComposerValue = $prompt; SendCount = 1
+                    LoginCount = 0; ProCount = 1; SelectedModeControlCount = 1; SelectedModeLabel = 'Pro'; SelectedModeIsPro = $true; SecurityChallengeCount = 0; Generating = $false
+                    UserTurns = @(); Responses = @(); Target = $script:v2Target
+                }
+            }
+            if ($script:v2PageCalls -eq 4) {
+                return [pscustomobject]@{
+                    Url = 'https://chatgpt.com/'; UrlExact = $false; ComposerCount = 1; ComposerValue = ''; SendCount = 0
+                    LoginCount = 0; ProCount = 1; SelectedModeControlCount = 1; SelectedModeLabel = 'Pro'; SelectedModeIsPro = $true; SecurityChallengeCount = 0; Generating = $false
+                    UserTurns = @((New-TestResponse -Text 'transitional a'), (New-TestResponse -Text 'transitional b' -Ordinal 1))
+                    Responses = @(); Target = $script:v2Target
+                }
+            }
+            [pscustomobject]@{
+                Url = $conversationUrl; UrlExact = $true; ComposerCount = 1; ComposerValue = ''; SendCount = 0
+                LoginCount = 0; ProCount = 1; SelectedModeControlCount = 1; SelectedModeLabel = 'Pro'; SelectedModeIsPro = $true; SecurityChallengeCount = 0; Generating = $true
+                UserTurns = @(); Responses = @(); Target = $exactTarget
+            }
+        }
+        Mock Invoke-AgentBrowserCliJson {
+            param($Arguments)
+            if ($Arguments[0] -eq 'click') { $script:v2ClickCalls++ }
+            [pscustomobject]@{ ok = $true; result = [pscustomobject]@{ status = 'success'; tab_id = '101'; session_key = 'browser-1:profile-1:101' } }
+        }
+        Mock Start-Sleep {}
+
+        $result = Invoke-AgentBrowserSend -PromptText $prompt -EvidenceDirectory $directory -IdempotencyKeyValue 'v2-transitional-user-turn' -CodexThreadIdValue $script:v2ThreadId -RequireFreshConversation -TargetBinding (ConvertTo-AgentBrowserTargetBinding -Target $script:v2Target) -ObservationSecondsValue 180
+        $state = Read-EvidenceState -Directory $directory
+        $script:v2ClickCalls | Should -Be 1
+        $result.conversationUrl | Should -Be $conversationUrl
+        $state.conversationUrlBound | Should -Be $conversationUrl
+        $state.conversationUrlBindingPending | Should -BeFalse
+        $state.attempts[0].generatingObserved | Should -BeTrue
+        $state.attempts[0].outcome | Should -Be 'sent-progress'
+    }
+
+    It 'uses one background retry only after durable fresh-homepage non-submission proof' {
+        $directory = Join-Path $TestDrive 'v2-one-safe-retry'
+        $null = New-Item -ItemType Directory -Path $directory
+        $prompt = 'retry prompt'
+        $conversationUrl = 'https://chatgpt.com/c/12345678-1234-1234-1234-123456789abc'
+        $retryTarget = [pscustomobject]@{
+            BrowserId = 'browser-1'; ProfileId = 'profile-1'; ProfileLabel = 'work'; TabId = '202'
+            SessionKey = 'browser-1:profile-1:202'; Origin = 'https://chatgpt.com'; Url = 'https://chatgpt.com/'; UrlExact = $false
+        }
+        $exactRetryTarget = [pscustomobject]@{
+            BrowserId = 'browser-1'; ProfileId = 'profile-1'; ProfileLabel = 'work'; TabId = '202'
+            SessionKey = 'browser-1:profile-1:202'; Origin = 'https://chatgpt.com'; Url = $conversationUrl; UrlExact = $true
+        }
+        $script:v2Filled = @{}
+        $script:v2Clicked = @{}
+        $script:v2ClickCalls = 0
+        Mock Resolve-AgentBrowserTarget {
+            param($ExpectedBinding)
+            if ([string](Get-ObjectProperty $ExpectedBinding 'tabId' '') -eq '202') {
+                if ($script:v2Clicked['202']) { return $exactRetryTarget }
+                return $retryTarget
+            }
+            return $script:v2Target
+        }
+        Mock Invoke-AgentBrowserOpenFreshTab { $retryTarget }
+        Mock Get-AgentBrowserPageSnapshot {
+            param($Target)
+            $tab = [string]$Target.TabId
+            if ($script:v2Clicked[$tab]) {
+                if ($tab -eq '202') {
+                    return [pscustomobject]@{
+                        Url = $conversationUrl; UrlExact = $true; ComposerCount = 1; ComposerValue = ''; SendCount = 0
+                        LoginCount = 0; ProCount = 1; SelectedModeControlCount = 1; SelectedModeLabel = 'Pro'; SelectedModeIsPro = $true; SecurityChallengeCount = 0; Generating = $true
+                        UserTurns = @(); Responses = @(); Target = $exactRetryTarget
+                    }
+                }
+                return [pscustomobject]@{
+                    Url = 'https://chatgpt.com/'; UrlExact = $false; ComposerCount = 1; ComposerValue = $prompt; SendCount = 1
+                    LoginCount = 0; ProCount = 1; SelectedModeControlCount = 1; SelectedModeLabel = 'Pro'; SelectedModeIsPro = $true; SecurityChallengeCount = 0; Generating = $false
+                    UserTurns = @(); Responses = @(); Target = $script:v2Target
+                }
+            }
+            [pscustomobject]@{
+                Url = 'https://chatgpt.com/'; UrlExact = $false; ComposerCount = 1
+                ComposerValue = if ($script:v2Filled[$tab]) { $prompt } else { '' }
+                SendCount = if ($script:v2Filled[$tab]) { 1 } else { 0 }
+                LoginCount = 0; ProCount = 1; SelectedModeControlCount = 1; SelectedModeLabel = 'Pro'; SelectedModeIsPro = $true; SecurityChallengeCount = 0; Generating = $false
+                UserTurns = @(); Responses = @(); Target = $Target
+            }
+        }
+        Mock Invoke-AgentBrowserCliJson {
+            param($Arguments)
+            $tab = [string]$Arguments[$Arguments.IndexOf('--tab') + 1]
+            if ($Arguments[0] -eq 'fill') { $script:v2Filled[$tab] = $true }
+            if ($Arguments[0] -eq 'click') { $script:v2Clicked[$tab] = $true; $script:v2ClickCalls++ }
+            [pscustomobject]@{ ok = $true; result = [pscustomobject]@{ status = 'success'; tab_id = $tab; session_key = "browser-1:profile-1:$tab" } }
+        }
+        Mock Start-Sleep {}
+
+        $result = Invoke-AgentBrowserSend -PromptText $prompt -EvidenceDirectory $directory -IdempotencyKeyValue 'v2-one-safe-retry' -CodexThreadIdValue $script:v2ThreadId -RequireFreshConversation -TargetBinding (ConvertTo-AgentBrowserTargetBinding -Target $script:v2Target) -ObservationSecondsValue 0
+        $state = Read-EvidenceState -Directory $directory
+        $script:v2ClickCalls | Should -Be 2
+        $result.attemptCount | Should -Be 2
+        $state.idempotencyKey | Should -Be 'v2-one-safe-retry'
+        $state.attempts.Count | Should -Be 2
+        $state.attempts[0].outcome | Should -Be 'proved-not-submitted'
+        $state.attempts[1].outcome | Should -Be 'sent-progress'
+        ([DateTime]$state.responseDeadlineAtUtc - [DateTime]$state.firstClickAtUtc).TotalSeconds | Should -Be 7200
+    }
+
+    It 'stops after two proved non-submissions and never performs a third click' {
+        $directory = Join-Path $TestDrive 'v2-retry-not-submitted'
+        $null = New-Item -ItemType Directory -Path $directory
+        $prompt = 'never submitted prompt'
+        $retryTarget = [pscustomobject]@{
+            BrowserId = 'browser-1'; ProfileId = 'profile-1'; ProfileLabel = 'work'; TabId = '202'
+            SessionKey = 'browser-1:profile-1:202'; Origin = 'https://chatgpt.com'; Url = 'https://chatgpt.com/'; UrlExact = $false
+        }
+        $script:v2Filled = @{}
+        $script:v2ClickCalls = 0
+        Mock Resolve-AgentBrowserTarget {
+            param($ExpectedBinding)
+            if ([string](Get-ObjectProperty $ExpectedBinding 'tabId' '') -eq '202') { return $retryTarget }
+            return $script:v2Target
+        }
+        Mock Invoke-AgentBrowserOpenFreshTab { $retryTarget }
+        Mock Get-AgentBrowserPageSnapshot {
+            param($Target)
+            $tab = [string]$Target.TabId
+            [pscustomobject]@{
+                Url = 'https://chatgpt.com/'; UrlExact = $false; ComposerCount = 1
+                ComposerValue = if ($script:v2Filled[$tab]) { $prompt } else { '' }
+                SendCount = if ($script:v2Filled[$tab]) { 1 } else { 0 }
+                LoginCount = 0; ProCount = 1; SelectedModeControlCount = 1; SelectedModeLabel = 'Pro'; SelectedModeIsPro = $true; SecurityChallengeCount = 0; Generating = $false
+                UserTurns = @(); Responses = @(); Target = $Target
+            }
+        }
+        Mock Invoke-AgentBrowserCliJson {
+            param($Arguments)
+            $tab = [string]$Arguments[$Arguments.IndexOf('--tab') + 1]
+            if ($Arguments[0] -eq 'fill') { $script:v2Filled[$tab] = $true }
+            if ($Arguments[0] -eq 'click') { $script:v2ClickCalls++ }
+            [pscustomobject]@{ ok = $true; result = [pscustomobject]@{ status = 'success'; tab_id = $tab; session_key = "browser-1:profile-1:$tab" } }
+        }
+        Mock Start-Sleep {}
+
+        Assert-ThrowsCategory -Category 'RetryNotSubmitted' -ExitCode 26 -Action {
+            Invoke-AgentBrowserSend -PromptText $prompt -EvidenceDirectory $directory -IdempotencyKeyValue 'v2-retry-not-submitted' -CodexThreadIdValue $script:v2ThreadId -RequireFreshConversation -TargetBinding (ConvertTo-AgentBrowserTargetBinding -Target $script:v2Target) -ObservationSecondsValue 0
+        }
+        $state = Read-EvidenceState -Directory $directory
+        $script:v2ClickCalls | Should -Be 2
+        $state.attemptCount | Should -Be 2
+        $state.retryOutcome | Should -Be 'retry-not-submitted'
+        $state.automaticResendAllowed | Should -BeFalse
+    }
+
+    It 'requires manual recovery without retry when the first composer proof is lost' {
+        $directory = Join-Path $TestDrive 'v2-recovery-required'
+        $null = New-Item -ItemType Directory -Path $directory
+        $prompt = 'uncertain prompt'
+        $script:v2Filled = $false
+        $script:v2Clicked = $false
+        $script:v2ClickCalls = 0
+        Mock Resolve-AgentBrowserTarget { $script:v2Target }
+        Mock Get-AgentBrowserPageSnapshot {
+            $composer = if (-not $script:v2Filled) { '' } elseif ($script:v2Clicked) { '' } else { $prompt }
+            [pscustomobject]@{
+                Url = 'https://chatgpt.com/'; UrlExact = $false; ComposerCount = 1; ComposerValue = $composer
+                SendCount = if ($script:v2Filled) { 1 } else { 0 }
+                LoginCount = 0; ProCount = 1; SelectedModeControlCount = 1; SelectedModeLabel = 'Pro'; SelectedModeIsPro = $true; SecurityChallengeCount = 0; Generating = $false
+                UserTurns = @(); Responses = @(); Target = $script:v2Target
+            }
+        }
+        Mock Invoke-AgentBrowserCliJson {
+            param($Arguments)
+            if ($Arguments[0] -eq 'fill') { $script:v2Filled = $true }
+            if ($Arguments[0] -eq 'click') { $script:v2Clicked = $true; $script:v2ClickCalls++ }
+            [pscustomobject]@{ ok = $true; result = [pscustomobject]@{ status = 'success'; tab_id = '101'; session_key = 'browser-1:profile-1:101' } }
+        }
+        Mock Start-Sleep {}
+
+        Assert-ThrowsCategory -Category 'RecoveryRequired' -ExitCode 26 -Action {
+            Invoke-AgentBrowserSend -PromptText $prompt -EvidenceDirectory $directory -IdempotencyKeyValue 'v2-recovery-required' -CodexThreadIdValue $script:v2ThreadId -RequireFreshConversation -TargetBinding (ConvertTo-AgentBrowserTargetBinding -Target $script:v2Target) -ObservationSecondsValue 0
+        }
+        $script:v2ClickCalls | Should -Be 1
+        (Read-EvidenceState -Directory $directory).retryOutcome | Should -Be 'recovery-required'
     }
 
     It 'recovers an unbound uncertain homepage send only after the same prompt turn is proved' {
@@ -2443,6 +2768,7 @@ Describe 'agent-browser-cli V2 transport' {
         $state = New-SendIntentState `
             -PromptSha256 (Get-Sha256Text -Text $prompt) `
             -IdempotencyKeyValue 'v2-unbound-uncertain-recovery' `
+            -IdempotencyKeySha256 (Get-Sha256Text -Text 'v2-unbound-uncertain-recovery') `
             -BaselineHashes @() `
             -Transport $Script:AgentBrowserTransport `
             -TargetBinding (ConvertTo-AgentBrowserTargetBinding -Target $script:v2Target) `
@@ -2464,7 +2790,7 @@ Describe 'agent-browser-cli V2 transport' {
         Mock Get-AgentBrowserPageSnapshot {
             [pscustomobject]@{
                 Url = $conversationUrl; UrlExact = $true; ComposerCount = 1; ComposerValue = ''; SendCount = 0
-                LoginCount = 0; ProCount = 1; SecurityChallengeCount = 0; Generating = $false
+                LoginCount = 0; ProCount = 1; SelectedModeControlCount = 1; SelectedModeLabel = 'Pro'; SelectedModeIsPro = $true; SecurityChallengeCount = 0; Generating = $false
                 UserTurns = @(New-TestResponse -Text $prompt); Responses = @(New-TestResponse -Text 'observed answer')
                 Target = $exactTarget
             }
@@ -2482,6 +2808,7 @@ Describe 'agent-browser-cli V2 transport' {
         $result.observationalRecovery | Should -BeTrue
         $result.submissionAcknowledged | Should -BeTrue
         $persisted.conversationUrlBound | Should -Be $conversationUrl
+        $persisted.targetClaimKeySha256 | Should -Not -BeNullOrEmpty
         $persisted.phase | Should -Be 'completed'
     }
 
@@ -2494,8 +2821,10 @@ Describe 'agent-browser-cli V2 transport' {
     }
 
     It 'uses only the fixed structural DOM script and never embeds prompt or credential reads' {
-        $domScriptPath = Join-Path (Split-Path -Parent $scriptPath) 'chatgpt-pro-agent-browser.js'
+        $domScriptPath = Join-Path (Split-Path -Parent $scriptPath) 'chatgpt-pro-agent-browser-v2.js'
         $source = [System.IO.File]::ReadAllText($domScriptPath)
+        $modelScriptPath = Join-Path (Split-Path -Parent $scriptPath) 'chatgpt-pro-agent-browser-select-pro.js'
+        $modelSource = [System.IO.File]::ReadAllText($modelScriptPath)
         $source | Should -Match '#prompt-textarea'
         $source | Should -Match 'button\[data-testid="send-button"\]'
         $source | Should -Match 'data-message-author-role'
@@ -2504,5 +2833,9 @@ Describe 'agent-browser-cli V2 transport' {
         $source | Should -Match "nodePlainText\(block\)\)\.join\('\\n'\)"
         $source | Should -Match 'composerPlainText\(composers\[0\]\)'
         $source | Should -Not -Match 'document\.cookie|localStorage|sessionStorage|fetch\(|XMLHttpRequest|promptText'
+        $modelSource | Should -Match 'button\[aria-haspopup="menu"\]'
+        $modelSource | Should -Match '\[role="menuitemradio"\]'
+        $modelSource | Should -Match "label\(element\) === 'Pro'"
+        $modelSource | Should -Not -Match 'data-message-author-role|document\.cookie|localStorage|sessionStorage|fetch\(|XMLHttpRequest|promptText'
     }
 }

@@ -15,8 +15,11 @@ provider. It controls a user-approved external Chrome tab through
 - `profileId` is the persistent recovery identity. Browser, tab, and session
   identifiers are re-bound after a browser restart only when `tabtree --full`
   proves one current browser instance for that same profile.
-- More than one matching ChatGPT tab is an error unless the caller supplies the
-  complete opaque browser/profile/tab/session identity.
+- More than one matching ChatGPT tab is an error for discovery and send unless
+  the caller supplies the complete opaque browser/profile/tab/session identity.
+  Read-only recovery may select the ordinal-first same-profile tab only after
+  the original binding is unavailable and every candidate has the same exact
+  canonical conversation URL.
 - Every mutating CLI result must report the same tab and session. A mismatch is
   a hard failure.
 - A closed exact-conversation tab may be reopened only at its exact sanitized
@@ -33,8 +36,10 @@ provider. It controls a user-approved external Chrome tab through
 
 - Page inspection uses only the checked-in fixed JavaScript file. Prompts never
   enter executable JavaScript.
-- The script may inspect the structural composer, Send/Stop controls, login and
-  challenge controls, Pro indicator, and ordered user/assistant turn containers.
+- The checked-in scripts may inspect the structural composer, Send/Stop
+  controls, login and challenge controls, the one visible composer-adjacent
+  thinking-mode control, its bounded menu/submenu, and ordered user/assistant
+  turn containers. Model selection never reads chat text or credentials.
 - It must not read cookies, storage, credentials, unrelated history/titles, or
   make network requests.
 - Output, turn count, identity length, response length, and CLI JSON are bounded.
@@ -43,15 +48,43 @@ provider. It controls a user-approved external Chrome tab through
 ## Exact-once send
 
 - `send` requires an empty evidence directory, a new idempotency reservation,
-  one ready non-generating Pro page, an empty composer, and either the exact
-  existing URL or an explicitly fresh homepage.
+  one ready non-generating page, an empty composer, and either the exact
+  existing URL or an explicitly fresh homepage. Before prompt fill, the adapter
+  requires exactly one composer-adjacent thinking-mode control. If its visible
+  label is not exactly `Pro`, it may open only that control, the unique matching
+  thinking-mode submenu, and the unique exact `Pro` radio option; it then
+  re-reads the fixed page snapshot and requires `Pro`.
 - The prompt is filled once, then its normalized SHA-256 and one Send control
-  are re-proved immediately before one click.
-- A successful send acknowledgement requires exactly one appended user turn
-  whose hash equals the prompt and an emptied composer or active generation.
-- After the click boundary, any lost result, URL drift, target mismatch, or
-  acknowledgement uncertainty records `send-uncertain`. Automatic resend is
-  always forbidden.
+  are re-proved immediately before one click. The same snapshot must still
+  prove exactly one selected `Pro` mode. Missing/ambiguous controls, a failed
+  selection, or post-fill mode drift terminates before the Send click and is
+  reported to the original Codex task.
+- After each click, the adapter observes the same bound target for up to `180`
+  seconds. The first exact canonical conversation URL is persisted atomically
+  before rendered user-turn checks. An existing exact URL, a newly bound exact
+  URL, one structurally appended user turn, or active generation is sufficient
+  progress to enter `sent` observation.
+- Rendered user-turn text is not compared with the original prompt hash. The
+  baseline must still retain an unchanged ordered suffix and may append at most
+  one user turn; the prompt hash remains the pre-click composer and evidence
+  integrity proof.
+- A lost click result, URL drift, target mismatch, or structural baseline
+  failure records `send-uncertain`. `automaticResendAllowed` remains false.
+  The only second click is an internal transition of the same logical request
+  after a fresh homepage preserves the complete prompt, exposes no exact URL,
+  appends no user turn, and starts no generation for the full observation
+  window. It opens one same-profile background tab and enforces a two-click
+  maximum with the original idempotency identity.
+- If the second 180-second observation again proves that unchanged
+  not-submitted state, the adapter writes terminal
+  `terminalOutcome=retry-not-submitted`; capacity may be released only from the
+  complete durable proof. Any unproved or ambiguous post-click state writes
+  terminal `terminalOutcome=recovery-required`, retains the isolated capacity
+  claim, and reports `ConcurrencySlotRecoveryRequired`. Both outcomes return to
+  the exact original Codex thread and never authorize another click.
+- The first click starts one absolute 7200-second response deadline. Adapter
+  observation, the optional retry, watcher startup, and response wait consume
+  the same budget; no transition resets it.
 - Existing-conversation sends must remain on the original exact URL. Fresh
   homepage sends may adopt only the first exact URL observed on the same bound
   tab/session.
@@ -119,21 +152,26 @@ provider. It controls a user-approved external Chrome tab through
 - `wait` reads target identity and response baseline only from `state.json`. It
   never resends and rejects incomplete historical `windows-uia` evidence.
 - Completion requires the unchanged response baseline, exactly one stable new
-  assistant turn, the bound prompt/user-turn acknowledgement, and one exact
+  assistant turn, a durable post-click progress acknowledgement, and one exact
   canonical conversation URL. Evidence records the V2 transport, fixed
-  extractor version, target binding, hashes, timestamps, and no-resend state.
+  extractor version, target binding, hashes, timestamps, attempt history, the
+  absolute response deadline, and no-resend state.
 - ChatGPT may virtualize an old rendered turn prefix. Response and user-turn
   isolation may therefore retain an unchanged ordered hash suffix only when at
   least one baseline turn remains visible and at most one new turn follows. A
   fully missing baseline, changed/reordered suffix, or multiple new turns fails
-  closed; the one new user turn must still hash to the prompt.
+  closed. A single rendered user turn may differ textually from the original
+  prompt because ChatGPT formatting is not a stable identity boundary.
 - The only active watcher continuation is `codex-root-wait`. New starts without
   `-RootWait`, model-monitor mode, and Stop Hook mode fail closed.
 - New complete rounds use one foreground `run-root` command. It invokes adapter
-  `send` once, starts the hidden watcher immediately after waitable post-send
-  evidence exists, and waits on local state/event files before returning to the
-  same Codex turn. Separate `start` and `wait-root` remain recovery/diagnostic
-  commands for an already post-send evidence directory.
+  `send` once as a logical request, starts the hidden watcher immediately after
+  waitable ordinary post-send evidence exists, and waits on local state/event
+  files before returning to the same Codex turn. An adapter terminal
+  `retry-not-submitted` or `recovery-required` result is projected to the same
+  RootWait terminal event in that root turn without starting another watcher.
+  Separate `start` and `wait-root` remain recovery/diagnostic commands for an
+  already post-send evidence directory.
 - The hidden local watcher calls only adapter `status` and `wait`; RootWait polls
   local state/event files. Neither operation invokes a model polling turn.
 - Adapter status exit `GenerationAlreadyActive` is a valid watcher observation
@@ -154,9 +192,11 @@ provider. It controls a user-approved external Chrome tab through
 
 - PowerShell and fixed JavaScript parse checks.
 - Unit coverage for single-JSON parsing, ambiguous discovery, target/session
-  mismatch, exact URL recovery, one-click uncertainty, user-turn
-  acknowledgement, response isolation, RootWait-only launch, and no credential
-  or prompt-bearing script access.
+  mismatch, URL-first persistence, formatted or delayed user-turn observation,
+  one-click uncertainty, exact `Pro` selection and post-fill mode-drift
+  rejection, the one safe background retry, the two-click maximum, stable
+  duplicate-URL read-only recovery, response isolation, RootWait-only launch,
+  and no credential or prompt-bearing script access.
 - Unit coverage for distinct-target mutex coexistence, same-target exclusion,
   stable-conversation claim serialization, incomplete-binding rejection,
   same-round claim recovery, foreign-thread claim rejection, terminal
@@ -186,9 +226,12 @@ provider. It controls a user-approved external Chrome tab through
    `BrowserId`, `ProfileId`, `TabId`, and `SessionKey` tuple; partial tuples
    fail before adapter invocation.
 3. **Contract** — one process performs `send -> watcher start -> local wait` in
-   that order. It returns only after a terminal event, leaves acknowledgement
-   pending for independent Codex review, never resends, and never registers a
-   Stop Hook or invokes a model watcher.
+   that order for ordinary post-send observation. It returns only after a
+   terminal event, leaves acknowledgement pending for independent Codex review,
+   permits no caller-driven resend, and never registers a Stop Hook or invokes
+   a model watcher. The adapter's single durable proved-not-submitted retry is
+   internal to the same logical `send`; adapter terminal outcomes bypass watcher
+   launch and return through the same root task.
 4. **Validation and errors** — a pre-send failure without waitable evidence
    launches no watcher. A process/result failure with valid post-send evidence
    continues observation without retry. Generation-active status is normalized
@@ -196,11 +239,16 @@ provider. It controls a user-approved external Chrome tab through
    unchanged baseline suffix. Wrong thread, invalid state, stale watcher,
    mismatched event, or unproved baseline fails closed.
 5. **Cases** — good: acknowledged send reaches `completed`; base: a valid
-   `send-uncertain` state is observed without resend; bad: `pre-invoke-failed`
-   stops before watcher launch.
+   `send-uncertain` state is observed without resend; terminal-safe:
+   `retry-not-submitted` releases capacity only with complete durable proof;
+   terminal-isolated: `recovery-required` returns
+   `ConcurrencySlotRecoveryRequired` and retains capacity; bad:
+   `pre-invoke-failed` stops before watcher launch.
 6. **Required tests** — prove the ordered single command, one adapter send,
    post-send failure continuation, pre-send no-launch, strict generation-active
    normalization, retained baseline suffix, full-baseline-loss rejection,
+   shared absolute deadline, both adapter terminal outcomes returning to the
+   original thread, safe release versus retained isolation, batch non-success,
    terminal RootWait return, and separate matching acknowledgement.
 7. **Wrong vs correct** — wrong: return to the model between `send`, `start`,
    and `wait-root`; correct: issue one `run-root` tool call, review its evidence,

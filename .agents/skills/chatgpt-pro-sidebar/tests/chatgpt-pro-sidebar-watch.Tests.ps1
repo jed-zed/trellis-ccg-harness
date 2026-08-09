@@ -132,6 +132,130 @@ BeforeAll {
         Write-WatchJsonAtomic -Path $path -Value $manifest
         return $path
     }
+
+    function Set-AdapterTerminalFixture {
+        param(
+            [Parameter(Mandatory = $true)][string]$Directory,
+            [Parameter(Mandatory = $true)][ValidateSet('retry-not-submitted', 'recovery-required')][string]$Outcome,
+            [string]$ThreadId = $script:ThreadId
+        )
+
+        New-WatchFixtureEvidence -Directory $Directory -Phase 'send-uncertain'
+        $state = Read-WatchJson -Path (Join-Path $Directory 'state.json') -Required
+        $state.conversationUrlBound = ''
+        $state.targetBinding.url = 'https://chatgpt.com/'
+        $state | Add-Member -NotePropertyName conversationUrlBeforeSend -NotePropertyValue '' -Force
+        $state | Add-Member -NotePropertyName codexThreadId -NotePropertyValue $ThreadId -Force
+        $state | Add-Member -NotePropertyName automaticResendAllowed -NotePropertyValue $false -Force
+        $state | Add-Member -NotePropertyName submissionAcknowledged -NotePropertyValue $false -Force
+        $state | Add-Member -NotePropertyName retryOutcome -NotePropertyValue $Outcome -Force
+        $attempts = if ($Outcome -eq 'retry-not-submitted') {
+            @(
+                [ordered]@{
+                    attempt = 1
+                    outcome = 'proved-not-submitted'
+                    exactConversationUrl = ''
+                    userTurnObserved = $false
+                    generatingObserved = $false
+                    composerSha256Observed = $state.promptSha256
+                },
+                [ordered]@{
+                    attempt = 2
+                    outcome = 'retry-not-submitted'
+                    exactConversationUrl = ''
+                    userTurnObserved = $false
+                    generatingObserved = $false
+                    composerSha256Observed = $state.promptSha256
+                }
+            )
+        }
+        else {
+            @(
+                [ordered]@{
+                    attempt = 1
+                    outcome = 'recovery-required'
+                    exactConversationUrl = ''
+                    userTurnObserved = $false
+                    generatingObserved = $false
+                    composerSha256Observed = ''
+                }
+            )
+        }
+        $state | Add-Member -NotePropertyName attemptCount -NotePropertyValue $attempts.Count -Force
+        $state | Add-Member -NotePropertyName attempts -NotePropertyValue $attempts -Force
+        Write-WatchJsonAtomic -Path (Join-Path $Directory 'state.json') -Value $state
+        return $state
+    }
+
+    function Write-TerminalOutcomeWatcher {
+        param(
+            [Parameter(Mandatory = $true)][string]$Path,
+            [Parameter(Mandatory = $true)][ValidateSet('retry-not-submitted', 'recovery-required')][string]$Outcome
+        )
+
+        $category = if ($Outcome -eq 'retry-not-submitted') { 'RetryNotSubmitted' } else { 'RecoveryRequired' }
+        $source = @'
+param(
+    [Parameter(Position = 0)][string]$Command,
+    [string]$EvidenceDir,
+    [string]$CodexThreadId,
+    [string]$PromptPath,
+    [string]$IdempotencyKey,
+    [string]$BrowserId,
+    [string]$Profile,
+    [string]$TabId,
+    [string]$SessionKey,
+    [int]$TimeoutSeconds
+)
+$outcome = '__OUTCOME__'
+$category = '__CATEGORY__'
+$promptSha = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+$attempts = if ($outcome -eq 'retry-not-submitted') {
+    @(
+        [ordered]@{ attempt = 1; outcome = 'proved-not-submitted'; exactConversationUrl = ''; userTurnObserved = $false; generatingObserved = $false; composerSha256Observed = $promptSha },
+        [ordered]@{ attempt = 2; outcome = 'retry-not-submitted'; exactConversationUrl = ''; userTurnObserved = $false; generatingObserved = $false; composerSha256Observed = $promptSha }
+    )
+}
+else {
+    @([ordered]@{ attempt = 1; outcome = 'recovery-required'; exactConversationUrl = ''; userTurnObserved = $false; generatingObserved = $false; composerSha256Observed = '' })
+}
+$state = [ordered]@{
+    phase = 'send-uncertain'
+    transport = 'agent-browser-cli-v2'
+    codexThreadId = $CodexThreadId
+    conversationUrlBound = ''
+    submissionAcknowledged = $false
+    automaticResendAllowed = $false
+    promptSha256 = $promptSha
+    retryOutcome = $outcome
+    attemptCount = $attempts.Count
+    attempts = $attempts
+}
+$utf8 = [System.Text.UTF8Encoding]::new($false)
+[System.IO.File]::WriteAllText((Join-Path $EvidenceDir 'state.json'), ($state | ConvertTo-Json -Depth 10), $utf8)
+$event = [ordered]@{
+    status = 'stopped-unverified'
+    terminalOutcome = $outcome
+    watcherId = [guid]::NewGuid().ToString()
+    codexThreadId = $CodexThreadId
+    requiresCodexReview = $true
+    automaticResendAllowed = $false
+}
+[System.IO.File]::WriteAllText((Join-Path $EvidenceDir 'watch-event.json'), ($event | ConvertTo-Json -Depth 10), $utf8)
+[ordered]@{
+    ok = $true
+    command = 'run-root'
+    terminalStatus = 'stopped-unverified'
+    terminalOutcome = $outcome
+    category = $category
+    submissionAcknowledged = $false
+    watcherId = $event.watcherId
+    codexThreadId = $CodexThreadId
+} | ConvertTo-Json -Compress
+'@
+        $source = $source.Replace('__OUTCOME__', $Outcome).Replace('__CATEGORY__', $category)
+        [System.IO.File]::WriteAllText($Path, $source, [System.Text.UTF8Encoding]::new($true))
+    }
 }
 
 Describe 'Watcher binding validation' {
@@ -479,6 +603,104 @@ Describe 'Atomic RootWait round' {
         Should -Invoke Start-WatchProcess -Times 0 -Exactly
         Should -Invoke Wait-RootWatchEvent -Times 0 -Exactly
     }
+
+    It 'subtracts adapter time from the durable two-hour response deadline' {
+        $startedAt = [datetime]'2026-08-09T00:00:00Z'
+        $deadline = $startedAt.AddSeconds(7200)
+        $script:capturedWaitTimeout = 0
+        Mock Invoke-WatchAdapterSend {
+            [pscustomobject]@{
+                ExitCode = 0
+                Payload = [pscustomobject]@{
+                    ok = $true
+                    submissionAcknowledged = $true
+                    responseDeadlineAtUtc = $deadline.ToString('o')
+                }
+            }
+        }
+        Mock Get-WatchEvidenceBinding {
+            [pscustomobject]@{
+                Phase = 'sent'
+                ResponseDeadlineAtUtc = $deadline.ToString('o')
+            }
+        }
+        Mock Wait-RootWatchEvent {
+            param($WaitTimeoutSeconds)
+            $script:capturedWaitTimeout = $WaitTimeoutSeconds
+            [pscustomobject]@{
+                watcherId = 'watcher-deadline'
+                codexThreadId = $script:ThreadId
+                terminalStatus = 'completed'
+                eventFile = $Script:EventFileName
+            }
+        }
+
+        $result = Invoke-RootWaitRound `
+            -EvidenceDirectory $script:roundDirectory `
+            -ThreadId $script:ThreadId `
+            -PromptFile $script:roundPrompt `
+            -IdempotencyKeyValue 'atomic-root-deadline' `
+            -NowAction { $startedAt.AddSeconds(120) }
+
+        $script:capturedWaitTimeout | Should -Be 7080
+        $result.responseDeadlineAtUtc | Should -Be $deadline.ToString('o')
+    }
+
+    It 'returns retry-not-submitted to the original task without starting a watcher' {
+        $null = Set-AdapterTerminalFixture -Directory $script:roundDirectory -Outcome 'retry-not-submitted'
+        Mock Invoke-WatchAdapterSend {
+            [pscustomobject]@{
+                ExitCode = 26
+                Payload = [pscustomobject]@{ ok = $false; category = 'RetryNotSubmitted' }
+            }
+        }
+
+        $result = Invoke-RootWaitRound `
+            -EvidenceDirectory $script:roundDirectory `
+            -ThreadId $script:ThreadId `
+            -PromptFile $script:roundPrompt `
+            -IdempotencyKeyValue 'atomic-root-retry-not-submitted'
+        $event = Read-WatchJson -Path (Join-Path $script:roundDirectory $Script:EventFileName) -Required
+
+        $result.terminalStatus | Should -Be 'stopped-unverified'
+        $result.terminalOutcome | Should -Be 'retry-not-submitted'
+        $result.codexThreadId | Should -Be $script:ThreadId
+        $result.watcherStarted | Should -BeFalse
+        $event.terminalOutcome | Should -Be 'retry-not-submitted'
+        $event.codexThreadId | Should -Be $script:ThreadId
+        $event.automaticResendAllowed | Should -BeFalse
+        Should -Invoke Get-WatchEvidenceBinding -Times 0 -Exactly
+        Should -Invoke Start-WatchProcess -Times 0 -Exactly
+        Should -Invoke Wait-RootWatchEvent -Times 0 -Exactly
+    }
+
+    It 'returns recovery-required to the original task without starting a watcher' {
+        $null = Set-AdapterTerminalFixture -Directory $script:roundDirectory -Outcome 'recovery-required'
+        Mock Invoke-WatchAdapterSend {
+            [pscustomobject]@{
+                ExitCode = 27
+                Payload = [pscustomobject]@{ ok = $false; category = 'RecoveryRequired' }
+            }
+        }
+
+        $result = Invoke-RootWaitRound `
+            -EvidenceDirectory $script:roundDirectory `
+            -ThreadId $script:ThreadId `
+            -PromptFile $script:roundPrompt `
+            -IdempotencyKeyValue 'atomic-root-recovery-required'
+        $event = Read-WatchJson -Path (Join-Path $script:roundDirectory $Script:EventFileName) -Required
+
+        $result.terminalStatus | Should -Be 'stopped-unverified'
+        $result.terminalOutcome | Should -Be 'recovery-required'
+        $result.sendCategory | Should -Be 'RecoveryRequired'
+        $result.codexThreadId | Should -Be $script:ThreadId
+        $result.watcherStarted | Should -BeFalse
+        $event.terminalOutcome | Should -Be 'recovery-required'
+        $event.codexThreadId | Should -Be $script:ThreadId
+        Should -Invoke Get-WatchEvidenceBinding -Times 0 -Exactly
+        Should -Invoke Start-WatchProcess -Times 0 -Exactly
+        Should -Invoke Wait-RootWatchEvent -Times 0 -Exactly
+    }
 }
 
 Describe 'Batch RootWait capacity' {
@@ -678,6 +900,65 @@ Describe 'Batch RootWait capacity' {
         (Release-CapacitySlot -Id $orphanClaims[0].slotId).proof | Should -Be 'durable-pre-click-unsent'
     }
 
+    It 'releases retry-not-submitted only from the complete durable second-attempt proof' {
+        $directory = Join-Path $TestDrive 'retry-not-submitted-release'
+        $null = New-Item -ItemType Directory -Path $directory -Force
+        $claim = Acquire-CapacitySlot -ThreadId $script:ThreadId -RoundId 'retry-not-submitted' -EvidenceDirectory $directory
+        $null = Set-CapacitySlotClaim -Id $claim.slotId -ClaimId $claim.claimId -Changes ([ordered]@{
+            phase = 'run-starting'; submissionAttempted = $true
+        })
+        $null = Set-AdapterTerminalFixture -Directory $directory -Outcome 'retry-not-submitted'
+
+        $release = Release-CapacitySlot -Id $claim.slotId -ExpectedClaimId $claim.claimId -OwnerCompletionObserved
+
+        $release.proof | Should -Be 'durable-retry-not-submitted'
+        (Get-CapacitySlots).slots.Count | Should -Be 0
+    }
+
+    It 'rejects an incomplete retry-not-submitted proof and retains the slot' {
+        $directory = Join-Path $TestDrive 'retry-not-submitted-incomplete'
+        $null = New-Item -ItemType Directory -Path $directory -Force
+        $claim = Acquire-CapacitySlot -ThreadId $script:ThreadId -RoundId 'retry-incomplete' -EvidenceDirectory $directory
+        $null = Set-CapacitySlotClaim -Id $claim.slotId -ClaimId $claim.claimId -Changes ([ordered]@{
+            phase = 'run-starting'; submissionAttempted = $true
+        })
+        $state = Set-AdapterTerminalFixture -Directory $directory -Outcome 'retry-not-submitted'
+        $state.attempts[1].composerSha256Observed = ('c' * 64)
+        Write-WatchJsonAtomic -Path (Join-Path $directory 'state.json') -Value $state
+        $category = ''
+
+        try {
+            $null = Release-CapacitySlot -Id $claim.slotId -ExpectedClaimId $claim.claimId -OwnerCompletionObserved
+        }
+        catch {
+            $category = [string]$_.Exception.Data['Category']
+        }
+
+        $category | Should -Be 'ConcurrencySlotRecoveryRequired'
+        (Get-CapacitySlots).slots.Count | Should -Be 1
+    }
+
+    It 'returns ConcurrencySlotRecoveryRequired and retains a recovery-required slot' {
+        $directory = Join-Path $TestDrive 'recovery-required-release'
+        $null = New-Item -ItemType Directory -Path $directory -Force
+        $claim = Acquire-CapacitySlot -ThreadId $script:ThreadId -RoundId 'recovery-required' -EvidenceDirectory $directory
+        $null = Set-CapacitySlotClaim -Id $claim.slotId -ClaimId $claim.claimId -Changes ([ordered]@{
+            phase = 'run-starting'; submissionAttempted = $true
+        })
+        $null = Set-AdapterTerminalFixture -Directory $directory -Outcome 'recovery-required'
+        $category = ''
+
+        try {
+            $null = Release-CapacitySlot -Id $claim.slotId -ExpectedClaimId $claim.claimId -OwnerCompletionObserved
+        }
+        catch {
+            $category = [string]$_.Exception.Data['Category']
+        }
+
+        $category | Should -Be 'ConcurrencySlotRecoveryRequired'
+        (Get-CapacitySlots).slots.Count | Should -Be 1
+    }
+
     It 'returns queued-timeout without starting a browser process' {
         $otherThreads = @([guid]::NewGuid().ToString(), [guid]::NewGuid().ToString())
         $claims = [System.Collections.ArrayList]::new()
@@ -742,6 +1023,38 @@ Start-Sleep -Milliseconds 300
         @($result.items | Where-Object { $_.terminalStatus -eq 'completed' }).Count | Should -Be 4
         Test-Path -LiteralPath (Join-Path $root $Script:BatchResultFileName) | Should -BeTrue
         (Get-CapacitySlots).slots.Count | Should -Be 0
+    }
+
+    It 'does not count retry-not-submitted as batch success and safely releases its slot' {
+        $root = Join-Path $TestDrive 'retry-not-submitted-batch'
+        $manifestPath = New-BatchFixture -Root $root -TimeoutSeconds 30
+        $fakeWatcher = Join-Path $root 'retry-not-submitted-watch.ps1'
+        Write-TerminalOutcomeWatcher -Path $fakeWatcher -Outcome 'retry-not-submitted'
+        $Script:WatcherScriptPath = $fakeWatcher
+
+        $result = Invoke-RootWaitBatch -Path $manifestPath -ExpectedThreadId $script:ThreadId
+
+        $result.allSucceeded | Should -BeFalse
+        $result.items[0].terminalStatus | Should -Be 'stopped-unverified'
+        $result.items[0].terminalOutcome | Should -Be 'retry-not-submitted'
+        (Get-CapacitySlots).slots.Count | Should -Be 0
+    }
+
+    It 'does not count recovery-required as batch success and retains its slot' {
+        $root = Join-Path $TestDrive 'recovery-required-batch'
+        $manifestPath = New-BatchFixture -Root $root -TimeoutSeconds 30
+        $fakeWatcher = Join-Path $root 'recovery-required-watch.ps1'
+        Write-TerminalOutcomeWatcher -Path $fakeWatcher -Outcome 'recovery-required'
+        $Script:WatcherScriptPath = $fakeWatcher
+
+        $result = Invoke-RootWaitBatch -Path $manifestPath -ExpectedThreadId $script:ThreadId
+
+        $result.allSucceeded | Should -BeFalse
+        $result.items[0].terminalStatus | Should -Be 'stopped-unverified'
+        $result.items[0].terminalOutcome | Should -Be 'recovery-required'
+        $result.items[0].status | Should -Be 'recovery-required'
+        $result.items[0].errorCategory | Should -Be 'ConcurrencySlotRecoveryRequired'
+        (Get-CapacitySlots).slots.Count | Should -Be 1
     }
 }
 

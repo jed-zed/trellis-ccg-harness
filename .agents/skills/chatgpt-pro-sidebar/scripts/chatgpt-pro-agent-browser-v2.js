@@ -12,6 +12,8 @@ return (() => {
     return rect.width > 0 && rect.height > 0;
   };
   const visibleAll = selector => Array.from(document.querySelectorAll(selector)).filter(visible);
+  const compactText = element => String(element?.innerText || element?.textContent || '')
+    .trim().replace(/\s+/g, ' ');
   const boundedText = (element, preserveUserSource = false) => {
     const clone = element.cloneNode(true);
     clone.querySelectorAll('button, form, textarea, input, [contenteditable="true"], [aria-hidden="true"], [data-testid*="copy"], [data-testid*="action"]').forEach(node => node.remove());
@@ -62,8 +64,15 @@ return (() => {
   const stopButtons = visibleAll('button[data-testid="stop-button"], button[data-testid="stop-generating-button"]');
   const loginControls = visibleAll('a[data-testid="login-button"], button[data-testid="login-button"], form[action*="/auth/login"]');
   const challengeControls = visibleAll('input[type="password"], input[autocomplete="one-time-code"], iframe[src*="captcha" i], [data-testid*="captcha" i], [data-testid*="challenge" i]');
-  const modelControls = visibleAll('button[data-testid="model-switcher-dropdown-button"], button[aria-haspopup="menu"]')
-    .filter(element => /(^|\s)pro(\s|$)/i.test(normalize(element.innerText || element.textContent || element.getAttribute('aria-label') || '')));
+  const composerRect = composers.length === 1 ? composers[0].getBoundingClientRect() : null;
+  const modeControls = composerRect
+    ? visibleAll('button[aria-haspopup="menu"]').filter(element => {
+      const rect = element.getBoundingClientRect();
+      return !element.closest('[role="menu"]') && compactText(element) &&
+        Math.abs((rect.y + rect.height / 2) - (composerRect.y + composerRect.height / 2)) <= 80;
+    })
+    : [];
+  const selectedModeLabel = modeControls.length === 1 ? compactText(modeControls[0]) : '';
   const userTurns = collectTurns('user');
   const assistantTurns = collectTurns('assistant');
   const composerValue = composers.length === 1
@@ -79,7 +88,12 @@ return (() => {
     auth: {
       loginCount: loginControls.length,
       challengeCount: challengeControls.length,
-      proIndicatorCount: modelControls.length,
+      proIndicatorCount: selectedModeLabel === 'Pro' ? 1 : 0,
+    },
+    model: {
+      controlCount: modeControls.length,
+      selectedLabel: selectedModeLabel,
+      proSelected: selectedModeLabel === 'Pro',
     },
     generating: stopButtons.length > 0,
     userTurns,
