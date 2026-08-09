@@ -2164,7 +2164,12 @@ Describe 'agent-browser-cli V2 transport' {
                         composer = [pscustomobject]@{ count = if ($script:v2ExecCalls -eq 1) { 0 } else { 1 }; value = '' }
                         send = [pscustomobject]@{ count = 0 }
                         auth = [pscustomobject]@{ loginCount = 0; challengeCount = 0; proIndicatorCount = 1 }
-                        model = [pscustomobject]@{ controlCount = 1; selectedLabel = 'Pro'; proSelected = $true }
+                        model = if ($script:v2ExecCalls -lt 3) {
+                            [pscustomobject]@{ controlCount = 0; selectedLabel = ''; proSelected = $false }
+                        }
+                        else {
+                            [pscustomobject]@{ controlCount = 1; selectedLabel = 'Pro'; proSelected = $true }
+                        }
                         generating = $false; userTurns = @(); assistantTurns = @(); turnLimitExceeded = $false
                     }
                 } }
@@ -2189,7 +2194,7 @@ Describe 'agent-browser-cli V2 transport' {
         $opened.TabId | Should -Be '202'
         $opened.SessionKey | Should -Be 'browser-1:profile-1:202'
         $script:v2TabsCalls | Should -Be 2
-        $script:v2ExecCalls | Should -Be 2
+        $script:v2ExecCalls | Should -Be 3
     }
 
     It 'replaces a truncated tab-list URL with the exact inspected page URL' {

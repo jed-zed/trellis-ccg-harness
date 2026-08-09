@@ -4778,7 +4778,9 @@ function Invoke-AgentBrowserOpenFreshTab {
         $snapshot = Get-AgentBrowserPageSnapshot -Target $openedTarget
         try {
             Assert-AgentBrowserBaseReady -Snapshot $snapshot
-            return $openedTarget
+            if ([int](Get-ObjectProperty $snapshot 'SelectedModeControlCount' 0) -gt 0) {
+                return $openedTarget
+            }
         }
         catch {
             if ((Get-ExceptionCategory -Exception $_.Exception) -ne 'ComposerMissing') {
@@ -4788,6 +4790,7 @@ function Invoke-AgentBrowserOpenFreshTab {
         Start-Sleep -Milliseconds 250
     }
     Assert-AgentBrowserBaseReady -Snapshot $snapshot
+    Assert-AgentBrowserSelectedPro -Snapshot $snapshot
     return $openedTarget
 }
 
