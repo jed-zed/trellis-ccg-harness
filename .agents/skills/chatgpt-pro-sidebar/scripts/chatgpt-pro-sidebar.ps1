@@ -22,6 +22,8 @@ param(
 
     [int]$ResponseTimeoutSeconds = 7200,
 
+    [string]$ResponseDeadlineAtUtc,
+
     [int]$PollMilliseconds = 1000,
 
     [switch]$NoPanelRecovery,
@@ -659,18 +661,22 @@ function Test-AgentBrowserTargetClaimTransferSafeState {
     if ($phase -ne 'send-uncertain' -or
         [string](Get-ObjectProperty $State 'retryOutcome' '') -ne 'retry-not-submitted' -or
         [bool](Get-ObjectProperty $State 'submissionAcknowledged' $true) -or
-        [bool](Get-ObjectProperty $State 'automaticResendAllowed' $true) -or
-        [int](Get-ObjectProperty $State 'attemptCount' 0) -ne 2) {
+        [bool](Get-ObjectProperty $State 'automaticResendAllowed' $true)) {
         return $false
     }
 
     $promptSha256 = [string](Get-ObjectProperty $State 'promptSha256' '')
     $attempts = @((Get-ObjectProperty $State 'attempts' @()))
-    if ($promptSha256 -notmatch '^[0-9a-f]{64}$' -or $attempts.Count -ne 2) {
+    $attemptCount = [int](Get-ObjectProperty $State 'attemptCount' 0)
+    $retryPreparationFailed = [bool](Get-ObjectProperty $State 'retryPreparationFailedBeforeClick' $false)
+    $expectedAttemptCount = if ($retryPreparationFailed) { 1 } else { 2 }
+    if ($promptSha256 -notmatch '^[0-9a-f]{64}$' -or
+        ($retryPreparationFailed -and [string]::IsNullOrWhiteSpace([string](Get-ObjectProperty $State 'retryFailureCategory' ''))) -or
+        $attemptCount -ne $expectedAttemptCount -or $attempts.Count -ne $expectedAttemptCount) {
         return $false
     }
     $expectedOutcomes = @('proved-not-submitted', 'retry-not-submitted')
-    for ($index = 0; $index -lt 2; $index++) {
+    for ($index = 0; $index -lt $expectedAttemptCount; $index++) {
         $attempt = $attempts[$index]
         if ([string](Get-ObjectProperty $attempt 'outcome' '') -ne $expectedOutcomes[$index] -or
             -not [string]::IsNullOrWhiteSpace([string](Get-ObjectProperty $attempt 'exactConversationUrl' '')) -or
@@ -681,6 +687,21 @@ function Test-AgentBrowserTargetClaimTransferSafeState {
         }
     }
     return $true
+}
+
+function Set-RetryPreparationFailedBeforeClick {
+    param(
+        [Parameter(Mandatory = $true)][string]$EvidenceDirectory,
+        [Parameter(Mandatory = $true)]$State,
+        [Parameter(Mandatory = $true)][string]$Category
+    )
+
+    Set-ObjectProperty -InputObject $State -Name 'phase' -Value 'send-uncertain'
+    Set-ObjectProperty -InputObject $State -Name 'retryOutcome' -Value 'retry-not-submitted'
+    Set-ObjectProperty -InputObject $State -Name 'retryPreparationFailedBeforeClick' -Value $true
+    Set-ObjectProperty -InputObject $State -Name 'retryFailureCategory' -Value $Category
+    Set-ObjectProperty -InputObject $State -Name 'submissionAcknowledged' -Value $false
+    Write-EvidenceState -Directory $EvidenceDirectory -State $State
 }
 
 function Reserve-AgentBrowserTargetClaim {
@@ -1567,10 +1588,16 @@ function Invoke-PollUntilCompleted {
         [Parameter(Mandatory = $true)][scriptblock]$SleepAction,
         [Parameter(Mandatory = $true)][scriptblock]$UtcNowProvider,
         [Parameter(Mandatory = $true)][int]$TimeoutSeconds,
-        [Parameter(Mandatory = $true)][int]$PollMilliseconds
+        [Parameter(Mandatory = $true)][int]$PollMilliseconds,
+        $AbsoluteDeadlineUtc = $null
     )
 
-    $deadline = (& $UtcNowProvider).AddSeconds($TimeoutSeconds)
+    $deadline = if ($PSBoundParameters.ContainsKey('AbsoluteDeadlineUtc') -and $null -ne $AbsoluteDeadlineUtc) {
+        ([datetime]$AbsoluteDeadlineUtc).ToUniversalTime()
+    }
+    else {
+        (& $UtcNowProvider).AddSeconds($TimeoutSeconds)
+    }
     $stableHash = $null
     $stablePolls = 0
     $requiredStablePolls = [Math]::Max(2, [int][Math]::Ceiling(1500.0 / $PollMilliseconds) + 1)
@@ -1579,6 +1606,9 @@ function Invoke-PollUntilCompleted {
 
     while ((& $UtcNowProvider) -lt $deadline) {
         $observation = & $ObservationProvider
+        if ((& $UtcNowProvider) -ge $deadline) {
+            break
+        }
         if ([bool](Get-ObjectProperty $observation 'Transient' $false)) {
             $transientCount++
             & $SleepAction $PollMilliseconds
@@ -1644,7 +1674,7 @@ function Get-EffectiveResponseTimeoutSeconds {
 
     $deadlineText = [string](Get-ObjectProperty $State 'responseDeadlineAtUtc' '')
     if ([string]::IsNullOrWhiteSpace($deadlineText)) {
-        return $RequestedTimeoutSeconds
+        Throw-SidebarError -ExitCode $Script:ExitCodes.Evidence -Category 'ResponseDeadlineMissing' -Message 'Post-click V2 evidence has no responseDeadlineAtUtc; recovery cannot synthesize a new wait budget.'
     }
     try {
         $deadline = [DateTimeOffset]::Parse(
@@ -1661,6 +1691,32 @@ function Get-EffectiveResponseTimeoutSeconds {
         Throw-SidebarError -ExitCode $Script:ExitCodes.Timeout -Category 'ResponseDeadlineExpired' -Message 'The original response deadline has expired; recovery cannot grant a new wait budget.'
     }
     return [Math]::Min($RequestedTimeoutSeconds, $remaining)
+}
+
+function Resolve-SendResponseDeadlineUtc {
+    param(
+        [AllowEmptyString()][string]$DeadlineAtUtcValue,
+        [Parameter(Mandatory = $true)][datetime]$ClickStartedAtUtc,
+        [Parameter(Mandatory = $true)][int]$ResponseTimeoutSecondsValue
+    )
+
+    if ([string]::IsNullOrWhiteSpace($DeadlineAtUtcValue)) {
+        return $ClickStartedAtUtc.AddSeconds($ResponseTimeoutSecondsValue)
+    }
+    try {
+        $deadline = [DateTimeOffset]::Parse(
+            $DeadlineAtUtcValue,
+            [Globalization.CultureInfo]::InvariantCulture,
+            [Globalization.DateTimeStyles]::AssumeUniversal
+        ).UtcDateTime
+    }
+    catch {
+        Throw-SidebarError -ExitCode $Script:ExitCodes.InvalidArguments -Category 'ResponseDeadlineInvalid' -Message 'ResponseDeadlineAtUtc must be one valid absolute UTC deadline.'
+    }
+    if ($deadline -gt $ClickStartedAtUtc.AddSeconds(7200)) {
+        Throw-SidebarError -ExitCode $Script:ExitCodes.InvalidArguments -Category 'ResponseDeadlineInvalid' -Message 'ResponseDeadlineAtUtc cannot extend the fixed 7200-second response budget.'
+    }
+    return $deadline
 }
 
 function Initialize-LiveUiAutomation {
@@ -4941,7 +4997,8 @@ function Invoke-AgentBrowserSend {
         [switch]$RequireExistingConversation,
         [Parameter(Mandatory = $true)]$TargetBinding,
         [ValidateRange(0, 180)][int]$ObservationSecondsValue = 180,
-        [ValidateRange(1, 86400)][int]$ResponseTimeoutSecondsValue = 7200
+        [ValidateRange(1, 7200)][int]$ResponseTimeoutSecondsValue = 7200,
+        [AllowEmptyString()][string]$ResponseDeadlineAtUtcValue = ''
     )
 
     $threadId = Resolve-CodexThreadId -Value $CodexThreadIdValue
@@ -5068,6 +5125,10 @@ function Invoke-AgentBrowserSend {
     $responseDeadline = [DateTime]::MaxValue
     while ($attemptNumber -le 2) {
         if ($attemptNumber -eq 2) {
+            if ([DateTime]::UtcNow -ge $responseDeadline) {
+                Set-RetryPreparationFailedBeforeClick -EvidenceDirectory $EvidenceDirectory -State $state -Category 'ResponseDeadlineExpired'
+                Throw-SidebarError -ExitCode $Script:ExitCodes.Timeout -Category 'RetryNotSubmitted' -Message 'The absolute response deadline expired before retry preparation. No second click occurred.'
+            }
             try {
                 $currentTarget = Invoke-AgentBrowserOpenFreshTab -CurrentTarget $currentTarget
                 $retryUiLease = Enter-UiMutex -TargetBinding (ConvertTo-AgentBrowserTargetBinding -Target $currentTarget)
@@ -5112,10 +5173,7 @@ function Invoke-AgentBrowserSend {
                 }) -ExpectedPromptSha256 $promptSha
             }
             catch {
-                Set-ObjectProperty -InputObject $state -Name 'phase' -Value 'send-uncertain'
-                Set-ObjectProperty -InputObject $state -Name 'retryOutcome' -Value 'retry-not-submitted'
-                Set-ObjectProperty -InputObject $state -Name 'retryFailureCategory' -Value (Get-ExceptionCategory -Exception $_.Exception)
-                Write-EvidenceState -Directory $EvidenceDirectory -State $state
+                Set-RetryPreparationFailedBeforeClick -EvidenceDirectory $EvidenceDirectory -State $state -Category (Get-ExceptionCategory -Exception $_.Exception)
                 Throw-SidebarError -ExitCode $Script:ExitCodes.SendUncertain -Category 'RetryNotSubmitted' -Message 'The first click was proved unsubmitted and the background retry failed before a second click. No request was resent.'
             }
         }
@@ -5145,18 +5203,38 @@ function Invoke-AgentBrowserSend {
                 Write-EvidenceState -Directory $EvidenceDirectory -State $state
                 throw
             }
-            Set-ObjectProperty -InputObject $state -Name 'phase' -Value 'send-uncertain'
-            Set-ObjectProperty -InputObject $state -Name 'retryOutcome' -Value 'retry-not-submitted'
-            Set-ObjectProperty -InputObject $state -Name 'retryFailureCategory' -Value (Get-ExceptionCategory -Exception $_.Exception)
-            Write-EvidenceState -Directory $EvidenceDirectory -State $state
+            Set-RetryPreparationFailedBeforeClick -EvidenceDirectory $EvidenceDirectory -State $state -Category (Get-ExceptionCategory -Exception $_.Exception)
             Throw-SidebarError -ExitCode $Script:ExitCodes.SendUncertain -Category 'RetryNotSubmitted' -Message 'The background retry failed before its click. No third send is allowed.'
         }
 
         $clickStartedAt = [DateTime]::UtcNow
         if ($attemptNumber -eq 1) {
-            $responseDeadline = $clickStartedAt.AddSeconds($ResponseTimeoutSecondsValue)
+            try {
+                $responseDeadline = Resolve-SendResponseDeadlineUtc `
+                    -DeadlineAtUtcValue $ResponseDeadlineAtUtcValue `
+                    -ClickStartedAtUtc $clickStartedAt `
+                    -ResponseTimeoutSecondsValue $ResponseTimeoutSecondsValue
+            }
+            catch {
+                Set-ObjectProperty -InputObject $state -Name 'phase' -Value 'pre-invoke-failed'
+                Set-ObjectProperty -InputObject $state -Name 'invokeAttempted' -Value $false
+                Set-ObjectProperty -InputObject $state -Name 'preInvokeFailureCategory' -Value (Get-ExceptionCategory -Exception $_.Exception)
+                Write-EvidenceState -Directory $EvidenceDirectory -State $state
+                throw
+            }
             Set-ObjectProperty -InputObject $state -Name 'firstClickAtUtc' -Value ($clickStartedAt.ToString('o'))
             Set-ObjectProperty -InputObject $state -Name 'responseDeadlineAtUtc' -Value ($responseDeadline.ToString('o'))
+        }
+        if ($clickStartedAt -ge $responseDeadline) {
+            if ($attemptNumber -eq 1) {
+                Set-ObjectProperty -InputObject $state -Name 'phase' -Value 'pre-invoke-failed'
+                Set-ObjectProperty -InputObject $state -Name 'invokeAttempted' -Value $false
+                Set-ObjectProperty -InputObject $state -Name 'preInvokeFailureCategory' -Value 'ResponseDeadlineExpired'
+                Write-EvidenceState -Directory $EvidenceDirectory -State $state
+                Throw-SidebarError -ExitCode $Script:ExitCodes.Timeout -Category 'ResponseDeadlineExpired' -Message 'The absolute response deadline expired before the first click.'
+            }
+            Set-RetryPreparationFailedBeforeClick -EvidenceDirectory $EvidenceDirectory -State $state -Category 'ResponseDeadlineExpired'
+            Throw-SidebarError -ExitCode $Script:ExitCodes.Timeout -Category 'RetryNotSubmitted' -Message 'The absolute response deadline expired before the second click. No second click occurred.'
         }
         $observationDeadline = $clickStartedAt.AddSeconds($ObservationSecondsValue)
         $attemptRecord = [ordered]@{
@@ -5234,8 +5312,7 @@ function Invoke-AgentBrowserSend {
                     Set-ObjectProperty -InputObject $attemptRecord -Name 'userTurnObserved' -Value $userTurnObserved
                     Set-ObjectProperty -InputObject $attemptRecord -Name 'generatingObserved' -Value ([bool]$ackSnapshot.Generating)
                     Set-ObjectProperty -InputObject $attemptRecord -Name 'composerSha256Observed' -Value (Get-Sha256Text -Text $ackSnapshot.ComposerValue)
-                    $composerCleared = $ackSnapshot.ComposerCount -eq 1 -and (Test-ComposerValueEmpty -Value $ackSnapshot.ComposerValue)
-                    $progressObserved = [bool]$ackSnapshot.Generating -or $composerCleared
+                    $progressObserved = [bool]$ackSnapshot.Generating -or $userTurnObserved
                     if ($progressObserved) {
                         break
                     }
@@ -5249,6 +5326,9 @@ function Invoke-AgentBrowserSend {
                     throw
                 }
             } while ([DateTime]::UtcNow -lt $observationDeadline -and [DateTime]::UtcNow -lt $responseDeadline)
+            if ([DateTime]::UtcNow -ge $responseDeadline -and -not $progressObserved) {
+                Throw-SidebarError -ExitCode $Script:ExitCodes.Timeout -Category 'ResponseDeadlineExpired' -Message 'The absolute response deadline expired before submission progress was proved.'
+            }
         }
         catch {
             $observationCategory = Get-ExceptionCategory -Exception $_.Exception
@@ -5407,6 +5487,11 @@ function Invoke-AgentBrowserWait {
         Throw-SidebarError -ExitCode $Script:ExitCodes.SendUncertain -Category 'SendStateNotWaitable' -Message 'wait requires sent or an uncertain post-click phase. It never resubmits.' -Details ([ordered]@{ phase = $phase })
     }
     $effectiveTimeoutSeconds = Get-EffectiveResponseTimeoutSeconds -State $state -RequestedTimeoutSeconds $TimeoutSecondsValue
+    $absoluteDeadlineUtc = [DateTimeOffset]::Parse(
+        [string](Get-ObjectProperty $state 'responseDeadlineAtUtc' ''),
+        [Globalization.CultureInfo]::InvariantCulture,
+        [Globalization.DateTimeStyles]::AssumeUniversal
+    ).UtcDateTime
     $binding = Get-ObjectProperty $state 'targetBinding' $null
     if ($null -eq $binding) {
         Throw-SidebarError -ExitCode $Script:ExitCodes.WindowSelection -Category 'AgentBrowserTargetBindingMissing' -Message 'Incomplete evidence has no immutable browser target binding.'
@@ -5458,7 +5543,6 @@ function Invoke-AgentBrowserWait {
                     Set-ObjectProperty -InputObject $state -Name 'conversationUrlBound' -Value $observationState.BoundConversationUrl
                     Set-ObjectProperty -InputObject $state -Name 'conversationUrlBoundAtUtc' -Value ([DateTime]::UtcNow.ToString('o'))
                     Set-ObjectProperty -InputObject $state -Name 'conversationUrlBindingPending' -Value $false
-                    Set-ObjectProperty -InputObject $state -Name 'submissionAcknowledged' -Value $true
                     Write-EvidenceState -Directory $EvidenceDirectory -State $state
                     $stableClaim = Reserve-AgentBrowserTargetClaim `
                         -CodexThreadIdValue $threadId `
@@ -5468,6 +5552,16 @@ function Invoke-AgentBrowserWait {
                     Set-ObjectProperty -InputObject $state -Name 'targetClaimKeySha256' -Value $stableClaim.KeySha256
                     Write-EvidenceState -Directory $EvidenceDirectory -State $state
                 }
+                if (-not [bool](Get-ObjectProperty $state 'submissionAcknowledged' $false)) {
+                    $baselineUserHashes = @((Get-ObjectProperty $state 'baselineUserTurnSha256' @()) | ForEach-Object { [string]$_ })
+                    $submissionAcknowledged = Assert-AgentBrowserUserTurnAcknowledgement `
+                        -BaselineHashes $baselineUserHashes `
+                        -CurrentTurns $observationState.Snapshot.UserTurns
+                    if ($submissionAcknowledged) {
+                        Set-ObjectProperty -InputObject $state -Name 'submissionAcknowledged' -Value $true
+                        Write-EvidenceState -Directory $EvidenceDirectory -State $state
+                    }
+                }
             }
             return $observation
         }
@@ -5475,6 +5569,7 @@ function Invoke-AgentBrowserWait {
         UtcNowProvider = { [DateTime]::UtcNow }
         TimeoutSeconds = $effectiveTimeoutSeconds
         PollMilliseconds = $PollMillisecondsValue
+        AbsoluteDeadlineUtc = $absoluteDeadlineUtc
     }
     $result = Invoke-PollUntilCompleted @pollArguments
     $boundConversationUrl = [string]$observationState.BoundConversationUrl
@@ -5506,6 +5601,9 @@ function Invoke-AgentBrowserWait {
     }
     Set-ObjectProperty -InputObject $state -Name 'targetBinding' -Value (ConvertTo-AgentBrowserTargetBinding -Target $latestTarget)
     Write-EvidenceState -Directory $EvidenceDirectory -State $state
+    if (-not [bool](Get-ObjectProperty $state 'submissionAcknowledged' $false)) {
+        Throw-SidebarError -ExitCode $Script:ExitCodes.SendUncertain -Category 'RecoveryRequired' -Message 'The response completed, but one appended user turn was not proved. Evidence cannot be completed or imported.'
+    }
 
     $evidence = Complete-Evidence -EvidenceDirectory $EvidenceDirectory -State $state -Response $result.Response -ConversationUrl $boundConversationUrl -TransientObservationCount $result.TransientObservationCount -StablePollCount $result.StablePollCount -CodexThreadIdValue $threadId
     return [ordered]@{
@@ -5548,8 +5646,11 @@ function Invoke-MainCommand {
     if ($TimeoutSeconds -lt 5 -or $TimeoutSeconds -gt 3600) {
         Throw-SidebarError -ExitCode $Script:ExitCodes.InvalidArguments -Category 'TimeoutInvalid' -Message 'TimeoutSeconds must be between 5 and 3600.'
     }
-    if ($ResponseTimeoutSeconds -lt 1 -or $ResponseTimeoutSeconds -gt 86400) {
-        Throw-SidebarError -ExitCode $Script:ExitCodes.InvalidArguments -Category 'ResponseTimeoutInvalid' -Message 'ResponseTimeoutSeconds must be between 1 and 86400.'
+    if ($ResponseTimeoutSeconds -lt 1 -or $ResponseTimeoutSeconds -gt 7200) {
+        Throw-SidebarError -ExitCode $Script:ExitCodes.InvalidArguments -Category 'ResponseTimeoutInvalid' -Message 'ResponseTimeoutSeconds must be between 1 and 7200.'
+    }
+    if (-not [string]::IsNullOrWhiteSpace($ResponseDeadlineAtUtc) -and $Command -ne 'send') {
+        Throw-SidebarError -ExitCode $Script:ExitCodes.InvalidArguments -Category 'ResponseDeadlineModeInvalid' -Message 'ResponseDeadlineAtUtc is valid only with the send command.'
     }
     if ($PollMilliseconds -lt 250 -or $PollMilliseconds -gt 5000) {
         Throw-SidebarError -ExitCode $Script:ExitCodes.InvalidArguments -Category 'PollIntervalInvalid' -Message 'PollMilliseconds must be between 250 and 5000.'
@@ -5609,7 +5710,8 @@ function Invoke-MainCommand {
                     -RequireFreshConversation:$FreshConversation `
                     -RequireExistingConversation:(-not $FreshConversation) `
                     -TargetBinding (ConvertTo-AgentBrowserTargetBinding -Target $target) `
-                    -ResponseTimeoutSecondsValue $ResponseTimeoutSeconds
+                    -ResponseTimeoutSecondsValue $ResponseTimeoutSeconds `
+                    -ResponseDeadlineAtUtcValue $ResponseDeadlineAtUtc
             }
             finally {
                 $lock.Dispose()
@@ -5652,8 +5754,8 @@ function Invoke-MainCommand {
                 $sourceLease = Enter-UiMutex -TargetBinding (ConvertTo-AgentBrowserTargetBinding -Target $target)
                 try { $newChatResult = Invoke-AgentBrowserNewChat -Target $target }
                 finally { Exit-UiMutex -Lease $sourceLease }
-                $sendResult = Invoke-AgentBrowserSend -PromptText $promptText -EvidenceDirectory $directory -IdempotencyKeyValue $key -CodexThreadIdValue $threadId -RequireFreshConversation -TargetBinding $newChatResult.targetBinding -ResponseTimeoutSecondsValue $TimeoutSeconds
-                $waitResult = Invoke-AgentBrowserWait -EvidenceDirectory $directory -TimeoutSecondsValue $TimeoutSeconds -PollMillisecondsValue $PollMilliseconds -CodexThreadIdValue $threadId
+                $sendResult = Invoke-AgentBrowserSend -PromptText $promptText -EvidenceDirectory $directory -IdempotencyKeyValue $key -CodexThreadIdValue $threadId -RequireFreshConversation -TargetBinding $newChatResult.targetBinding -ResponseTimeoutSecondsValue $ResponseTimeoutSeconds
+                $waitResult = Invoke-AgentBrowserWait -EvidenceDirectory $directory -TimeoutSecondsValue $ResponseTimeoutSeconds -PollMillisecondsValue $PollMilliseconds -CodexThreadIdValue $threadId
                 $responseResult = Get-CompletedResponseResult -EvidenceDirectory $directory -CodexThreadIdValue $threadId
 
                 return [ordered]@{

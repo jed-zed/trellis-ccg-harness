@@ -10,6 +10,7 @@ param(
     [string]$CodexThreadId = $env:CODEX_THREAD_ID,
     [string]$PromptPath,
     [string]$IdempotencyKey,
+    [string]$ResponseDeadlineAtUtc,
     [string]$WorkerToken,
     [string]$WatcherId,
     [string]$BrowserId,
@@ -364,6 +365,11 @@ function Get-WatchEvidenceBinding {
         throw 'state.json targetBinding URL does not match the bound conversation URL.'
     }
 
+    $responseDeadlineAtUtc = [string](Get-WatchProperty $state 'responseDeadlineAtUtc' '')
+    $null = Get-WatchRemainingDeadlineSeconds `
+        -DeadlineAtUtc $responseDeadlineAtUtc `
+        -RequestedTimeoutSeconds 7200
+
     return [pscustomobject]@{
         Phase = $phase
         Transport = 'agent-browser-cli-v2'
@@ -372,7 +378,7 @@ function Get-WatchEvidenceBinding {
         TargetBinding = $targetBinding
         PromptSha256 = [string](Get-WatchProperty $state 'promptSha256' '')
         IdempotencyKeySha256 = [string](Get-WatchProperty $state 'idempotencyKeySha256' '')
-        ResponseDeadlineAtUtc = [string](Get-WatchProperty $state 'responseDeadlineAtUtc' '')
+        ResponseDeadlineAtUtc = $responseDeadlineAtUtc
         CodexThreadId = $ThreadId
     }
 }
@@ -385,7 +391,7 @@ function Get-WatchRemainingDeadlineSeconds {
     )
 
     if ([string]::IsNullOrWhiteSpace($DeadlineAtUtc)) {
-        return $RequestedTimeoutSeconds
+        throw 'Adapter evidence has no responseDeadlineAtUtc; RootWait cannot synthesize a new wait budget.'
     }
     try {
         $deadline = [datetimeoffset]::Parse(
@@ -481,8 +487,8 @@ function Assert-WatchConfiguration {
     if ($MaxProbeFailures -lt 1 -or $MaxProbeFailures -gt 20) {
         throw 'MaxProbeFailures must be between 1 and 20.'
     }
-    if ($ConfiguredTimeoutSeconds -lt 1 -or $ConfiguredTimeoutSeconds -gt 86400) {
-        throw 'TimeoutSeconds must be between 1 and 86400.'
+    if ($ConfiguredTimeoutSeconds -lt 1 -or $ConfiguredTimeoutSeconds -gt 7200) {
+        throw 'TimeoutSeconds must be between 1 and 7200.'
     }
     if ($ConfiguredFinalizeTimeoutSeconds -lt 5 -or $ConfiguredFinalizeTimeoutSeconds -gt 300) {
         throw 'FinalizeTimeoutSeconds must be between 5 and 300.'
@@ -683,6 +689,7 @@ function Invoke-WatchAdapterSend {
         [AllowEmptyString()][string]$TabIdValue = '',
         [AllowEmptyString()][string]$SessionKeyValue = '',
         [int]$ResponseTimeoutSecondsValue = $TimeoutSeconds,
+        [AllowEmptyString()][string]$ResponseDeadlineAtUtcValue = '',
         [switch]$RequireFreshConversation
     )
 
@@ -715,6 +722,9 @@ function Invoke-WatchAdapterSend {
     }
     if ($RequireFreshConversation) {
         $arguments += '-FreshConversation'
+    }
+    if (-not [string]::IsNullOrWhiteSpace($ResponseDeadlineAtUtcValue)) {
+        $arguments += @('-ResponseDeadlineAtUtc', $ResponseDeadlineAtUtcValue)
     }
     return Invoke-WatchAdapterProcess -Arguments $arguments -ProcessTimeoutSeconds 600
 }
@@ -1649,8 +1659,8 @@ function Wait-RootWatchEvent {
         [scriptblock]$ProcessAliveAction = { param($ProcessId) $null -ne (Get-Process -Id $ProcessId -ErrorAction SilentlyContinue) }
     )
 
-    if ($WaitTimeoutSeconds -lt 1 -or $WaitTimeoutSeconds -gt 86400) {
-        throw 'WaitTimeoutSeconds must be between 1 and 86400.'
+    if ($WaitTimeoutSeconds -lt 1 -or $WaitTimeoutSeconds -gt 7200) {
+        throw 'WaitTimeoutSeconds must be between 1 and 7200.'
     }
     if (-not (Test-WatchThreadId -Value $ThreadId)) {
         throw 'CodexThreadId must be the exact current Codex thread UUID.'
@@ -1674,9 +1684,15 @@ function Wait-RootWatchEvent {
         $adapterState = Read-WatchJson -Path (Join-Path $EvidenceDirectory 'state.json')
         $responseDeadlineAtUtc = [string](Get-WatchProperty $adapterState 'responseDeadlineAtUtc' '')
     }
+    if ([string]::IsNullOrWhiteSpace($responseDeadlineAtUtc)) {
+        throw 'Root-wait evidence has no responseDeadlineAtUtc.'
+    }
 
     $started = [datetime](& $NowAction)
     while ($true) {
+        if ((Get-WatchRemainingDeadlineSeconds -DeadlineAtUtc $responseDeadlineAtUtc -RequestedTimeoutSeconds $WaitTimeoutSeconds -NowAction $NowAction) -le 0) {
+            throw 'The original response deadline expired while waiting for the root-wait watcher event.'
+        }
         if ([System.IO.File]::Exists($eventPath)) {
             $validated = Get-ValidatedLocalContinuationEvent `
                 -EvidenceDirectory $EvidenceDirectory `
@@ -1687,6 +1703,9 @@ function Wait-RootWatchEvent {
             if ($phase -eq 'terminal') {
                 if ([string](Get-WatchProperty $validated.State 'terminalStatus' '') -ne $validated.Status) {
                     throw 'Root-wait terminal state does not match its event.'
+                }
+                if ((Get-WatchRemainingDeadlineSeconds -DeadlineAtUtc $responseDeadlineAtUtc -RequestedTimeoutSeconds $WaitTimeoutSeconds -NowAction $NowAction) -le 0) {
+                    throw 'The original response deadline expired before the root-wait terminal event was accepted.'
                 }
                 return [ordered]@{
                     ok = $true
@@ -1702,10 +1721,6 @@ function Wait-RootWatchEvent {
             if (@('starting', 'running') -notcontains $phase) {
                 throw 'Root-wait event appeared with an invalid watcher phase.'
             }
-        }
-        if (-not [string]::IsNullOrWhiteSpace($responseDeadlineAtUtc) -and
-            (Get-WatchRemainingDeadlineSeconds -DeadlineAtUtc $responseDeadlineAtUtc -RequestedTimeoutSeconds $WaitTimeoutSeconds -NowAction $NowAction) -le 0) {
-            throw 'The original response deadline expired while waiting for the root-wait watcher event.'
         }
         if (([datetime](& $NowAction) - $started).TotalSeconds -ge $WaitTimeoutSeconds) {
             throw 'Timed out waiting for the root-wait watcher event.'
@@ -1958,20 +1973,26 @@ function Get-CapacityReleaseProof {
         }
         if (
             [string](Get-WatchProperty $adapterState 'codexThreadId' '') -eq [string](Get-WatchProperty $Claim 'codexThreadId' '') -and
-            -not [bool](Get-WatchProperty $adapterState 'automaticResendAllowed' $true) -and
-            [int](Get-WatchProperty $adapterState 'attemptCount' 0) -eq 2
+            -not [bool](Get-WatchProperty $adapterState 'automaticResendAllowed' $true)
         ) {
             $attempts = @(Get-WatchProperty $adapterState 'attempts' @())
-            $secondAttempt = @($attempts | Where-Object { [int](Get-WatchProperty $_ 'attempt' 0) -eq 2 })
+            $retryPreparationFailed = [bool](Get-WatchProperty $adapterState 'retryPreparationFailedBeforeClick' $false)
+            $expectedAttemptCount = if ($retryPreparationFailed) { 1 } else { 2 }
+            $proofAttemptNumber = if ($retryPreparationFailed) { 1 } else { 2 }
+            $proofOutcome = if ($retryPreparationFailed) { 'proved-not-submitted' } else { 'retry-not-submitted' }
+            $proofAttempt = @($attempts | Where-Object { [int](Get-WatchProperty $_ 'attempt' 0) -eq $proofAttemptNumber })
             $promptSha256 = [string](Get-WatchProperty $adapterState 'promptSha256' '')
             if (
-                $secondAttempt.Count -eq 1 -and
-                [string](Get-WatchProperty $secondAttempt[0] 'outcome' '') -eq 'retry-not-submitted' -and
-                [string]::IsNullOrWhiteSpace([string](Get-WatchProperty $secondAttempt[0] 'exactConversationUrl' '')) -and
-                -not [bool](Get-WatchProperty $secondAttempt[0] 'userTurnObserved' $true) -and
-                -not [bool](Get-WatchProperty $secondAttempt[0] 'generatingObserved' $true) -and
+                [int](Get-WatchProperty $adapterState 'attemptCount' 0) -eq $expectedAttemptCount -and
+                $attempts.Count -eq $expectedAttemptCount -and
+                (-not $retryPreparationFailed -or -not [string]::IsNullOrWhiteSpace([string](Get-WatchProperty $adapterState 'retryFailureCategory' ''))) -and
+                $proofAttempt.Count -eq 1 -and
+                [string](Get-WatchProperty $proofAttempt[0] 'outcome' '') -eq $proofOutcome -and
+                [string]::IsNullOrWhiteSpace([string](Get-WatchProperty $proofAttempt[0] 'exactConversationUrl' '')) -and
+                -not [bool](Get-WatchProperty $proofAttempt[0] 'userTurnObserved' $true) -and
+                -not [bool](Get-WatchProperty $proofAttempt[0] 'generatingObserved' $true) -and
                 -not [string]::IsNullOrWhiteSpace($promptSha256) -and
-                [string](Get-WatchProperty $secondAttempt[0] 'composerSha256Observed' '') -eq $promptSha256
+                [string](Get-WatchProperty $proofAttempt[0] 'composerSha256Observed' '') -eq $promptSha256
             ) {
                 return [pscustomobject]@{ safe = $true; reason = 'durable-retry-not-submitted' }
             }
@@ -2197,8 +2218,8 @@ function Read-RootWaitBatchManifest {
         throw 'Batch maxConcurrency must be between 1 and 3.'
     }
     $batchTimeout = [int](Get-WatchProperty $manifest 'timeoutSeconds' 7200)
-    if ($batchTimeout -lt 30 -or $batchTimeout -gt 86400) {
-        throw 'Batch timeoutSeconds must be between 30 and 86400.'
+    if ($batchTimeout -lt 30 -or $batchTimeout -gt 7200) {
+        throw 'Batch timeoutSeconds must be between 30 and 7200.'
     }
     $rounds = @(Get-WatchProperty $manifest 'rounds' @())
     if ($rounds.Count -lt 1 -or $rounds.Count -gt $Script:MaximumBatchRounds) {
@@ -2275,7 +2296,8 @@ function New-BatchRoundArgumentList {
     param(
         [Parameter(Mandatory = $true)]$Round,
         [Parameter(Mandatory = $true)][string]$ThreadId,
-        [Parameter(Mandatory = $true)][int]$RoundTimeoutSeconds
+        [Parameter(Mandatory = $true)][int]$RoundTimeoutSeconds,
+        [Parameter(Mandatory = $true)][string]$RoundDeadlineAtUtc
     )
 
     foreach ($path in @($Script:WatcherScriptPath, $Round.PromptPath, $Round.EvidenceDirectory)) {
@@ -2287,7 +2309,8 @@ function New-BatchRoundArgumentList {
         '-CodexThreadId', $ThreadId,
         '-PromptPath', $Round.PromptPath,
         '-IdempotencyKey', [string]$Round.IdempotencyKey,
-        '-TimeoutSeconds', [string]$RoundTimeoutSeconds
+        '-TimeoutSeconds', [string]$RoundTimeoutSeconds,
+        '-ResponseDeadlineAtUtc', $RoundDeadlineAtUtc
     )
     $target = $Round.TargetBinding
     if ($null -ne $target) {
@@ -2307,13 +2330,14 @@ function Start-BatchRoundProcess {
         [Parameter(Mandatory = $true)]$Round,
         [Parameter(Mandatory = $true)][string]$ThreadId,
         [Parameter(Mandatory = $true)][int]$RoundTimeoutSeconds,
+        [Parameter(Mandatory = $true)][string]$RoundDeadlineAtUtc,
         [Parameter(Mandatory = $true)][string]$RuntimeDirectory
     )
 
     $stdout = Join-Path $RuntimeDirectory ($Round.RoundId + '.stdout.log')
     $stderr = Join-Path $RuntimeDirectory ($Round.RoundId + '.stderr.log')
     $process = Start-Process -FilePath 'powershell.exe' `
-        -ArgumentList (New-BatchRoundArgumentList -Round $Round -ThreadId $ThreadId -RoundTimeoutSeconds $RoundTimeoutSeconds) `
+        -ArgumentList (New-BatchRoundArgumentList -Round $Round -ThreadId $ThreadId -RoundTimeoutSeconds $RoundTimeoutSeconds -RoundDeadlineAtUtc $RoundDeadlineAtUtc) `
         -WindowStyle Hidden `
         -RedirectStandardOutput $stdout `
         -RedirectStandardError $stderr `
@@ -2467,16 +2491,25 @@ function Invoke-RootWaitBatch {
                 }
                 break
             }
+            $now = & $NowAction
+            if ($now -ge $deadline) {
+                $null = Set-CapacitySlotClaim -Id $slot.slotId -ClaimId $slot.claimId -Changes ([ordered]@{
+                    phase = 'pre-click-unsent'; submissionAttempted = $false
+                })
+                $null = Release-CapacitySlot -Id $slot.slotId -ExpectedClaimId $slot.claimId -OwnerCompletionObserved
+                break
+            }
             $null = $queued.RemoveAt(0)
             $null = Set-CapacitySlotClaim -Id $slot.slotId -ClaimId $slot.claimId -Changes ([ordered]@{
                 phase = 'run-starting'; submissionAttempted = $true
             })
-            $remaining = [Math]::Max(30, [int][Math]::Ceiling(($deadline - $now).TotalSeconds))
+            $remaining = [int][Math]::Ceiling(($deadline - $now).TotalSeconds)
             try {
                 $started = Start-BatchRoundProcess `
                     -Round $queuedItem.Round `
                     -ThreadId $manifest.CodexThreadId `
                     -RoundTimeoutSeconds $remaining `
+                    -RoundDeadlineAtUtc $deadline.ToUniversalTime().ToString('o') `
                     -RuntimeDirectory $runtime
             }
             catch {
@@ -2592,11 +2625,14 @@ function Invoke-RootWaitRound {
         [AllowEmptyString()][string]$ProfileValue = '',
         [AllowEmptyString()][string]$TabIdValue = '',
         [AllowEmptyString()][string]$SessionKeyValue = '',
+        [AllowEmptyString()][string]$ResponseDeadlineAtUtcValue = '',
         [switch]$RequireFreshConversation,
         [scriptblock]$NowAction = { [datetime]::UtcNow }
     )
 
-    $roundStartedAt = ([datetime](& $NowAction)).ToUniversalTime()
+    if ($TimeoutSeconds -lt 1 -or $TimeoutSeconds -gt 7200) {
+        throw 'TimeoutSeconds must be between 1 and 7200 for run-root.'
+    }
     $adapterPath = Get-WatchAdapterPath
     $sendResult = $null
     $sendFailure = ''
@@ -2612,6 +2648,7 @@ function Invoke-RootWaitRound {
             -TabIdValue $TabIdValue `
             -SessionKeyValue $SessionKeyValue `
             -ResponseTimeoutSecondsValue $TimeoutSeconds `
+            -ResponseDeadlineAtUtcValue $ResponseDeadlineAtUtcValue `
             -RequireFreshConversation:$RequireFreshConversation
     }
     catch {
@@ -2632,6 +2669,11 @@ function Invoke-RootWaitRound {
         ) {
             throw 'Adapter terminal outcome is not bound to this no-resend Codex task.'
         }
+        $terminalDeadlineAtUtc = [string](Get-WatchProperty $adapterState 'responseDeadlineAtUtc' '')
+        $null = Get-WatchRemainingDeadlineSeconds `
+            -DeadlineAtUtc $terminalDeadlineAtUtc `
+            -RequestedTimeoutSeconds $TimeoutSeconds `
+            -NowAction $NowAction
         $terminalCategory = if ($terminalOutcome -eq 'retry-not-submitted') { 'RetryNotSubmitted' } else { 'RecoveryRequired' }
         $completed = Complete-RootWaitTerminalFromAdapterState `
             -EvidenceDirectory $EvidenceDirectory `
@@ -2659,7 +2701,7 @@ function Invoke-RootWaitRound {
             terminalStatus = [string](Get-WatchProperty $completed.Event 'status' '')
             terminalOutcome = $terminalOutcome
             category = $terminalCategory
-            responseDeadlineAtUtc = [string](Get-WatchProperty $adapterState 'responseDeadlineAtUtc' '')
+            responseDeadlineAtUtc = $terminalDeadlineAtUtc
             eventFile = $Script:EventFileName
             continuationTransport = 'codex-root-wait'
             pollingConsumesModelTokens = $false
@@ -2687,7 +2729,7 @@ function Invoke-RootWaitRound {
         $responseDeadlineAtUtc = [string](Get-WatchProperty $sendPayload 'responseDeadlineAtUtc' '')
     }
     if ([string]::IsNullOrWhiteSpace($responseDeadlineAtUtc)) {
-        $responseDeadlineAtUtc = $roundStartedAt.AddSeconds($TimeoutSeconds).ToUniversalTime().ToString('o')
+        throw 'Adapter post-click evidence has no responseDeadlineAtUtc; run-root cannot synthesize a new deadline.'
     }
     $remainingSeconds = Get-WatchRemainingDeadlineSeconds `
         -DeadlineAtUtc $responseDeadlineAtUtc `
@@ -2766,6 +2808,9 @@ function Invoke-WatchMain {
     if (@('run-root', 'run-batch-root', 'slots', 'release-slot', 'start', 'worker', 'status', 'wait-root', 'acknowledge', 'acknowledge-monitor', 'acknowledge-root') -notcontains $Command) {
         throw 'Command must be run-root, run-batch-root, slots, release-slot, start, worker, status, wait-root, acknowledge, acknowledge-monitor, or acknowledge-root.'
     }
+    if (-not [string]::IsNullOrWhiteSpace($ResponseDeadlineAtUtc) -and $Command -ne 'run-root') {
+        throw 'ResponseDeadlineAtUtc is valid only with run-root.'
+    }
     switch ($Command) {
         'run-batch-root' {
             if ($NoWake -or $AgentMonitor -or $RootWait -or $KeepLauncherAlive -or $FreshConversation) {
@@ -2796,6 +2841,7 @@ function Invoke-WatchMain {
                 -ProfileValue $Profile `
                 -TabIdValue $TabId `
                 -SessionKeyValue $SessionKey `
+                -ResponseDeadlineAtUtcValue $ResponseDeadlineAtUtc `
                 -RequireFreshConversation:$FreshConversation
         }
         'start' {

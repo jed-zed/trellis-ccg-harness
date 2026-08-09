@@ -58,6 +58,7 @@ BeforeAll {
             targetBinding = New-TestTargetBinding
             promptSha256 = ('a' * 64)
             idempotencyKeySha256 = ('b' * 64)
+            responseDeadlineAtUtc = [datetime]::UtcNow.AddHours(2).ToString('o')
         })
     }
 
@@ -84,6 +85,7 @@ BeforeAll {
             maxProbeFailures = 2
             timeoutSeconds = 30
             finalizeTimeoutSeconds = 5
+            responseDeadlineAtUtc = [datetime]::UtcNow.AddHours(2).ToString('o')
             noWake = $DisableWake
             workerTokenSha256 = Get-WatchSha256Text -Text $Token
         })
@@ -205,7 +207,8 @@ param(
     [string]$Profile,
     [string]$TabId,
     [string]$SessionKey,
-    [int]$TimeoutSeconds
+    [int]$TimeoutSeconds,
+    [string]$ResponseDeadlineAtUtc
 )
 $outcome = '__OUTCOME__'
 $category = '__CATEGORY__'
@@ -295,13 +298,13 @@ Describe 'Watcher binding validation' {
         $payload.message | Should -Match 'must be started with RootWait'
     }
 
-    It 'keeps the legacy timeout range when Stop Hook continuation is disabled' {
+    It 'enforces the fixed two-hour timeout ceiling even without Stop Hook continuation' {
         {
             Assert-WatchConfiguration `
                 -DisableStopHookHorizon `
                 -ConfiguredTimeoutSeconds 8000 `
                 -ConfiguredFinalizeTimeoutSeconds 45
-        } | Should -Not -Throw
+        } | Should -Throw '*between 1 and 7200*'
 
         {
             Assert-WatchConfiguration `
@@ -314,7 +317,7 @@ Describe 'Watcher binding validation' {
             Assert-WatchConfiguration `
                 -ConfiguredTimeoutSeconds 8000 `
                 -ConfiguredFinalizeTimeoutSeconds 45
-        } | Should -Throw '*Stop Hook horizon*'
+        } | Should -Throw '*between 1 and 7200*'
     }
 
     It 'loads the post-send evidence binding' {
@@ -482,11 +485,12 @@ Describe 'Atomic RootWait round' {
         $script:roundPrompt = Join-Path $script:roundDirectory 'request.md'
         [System.IO.File]::WriteAllText($script:roundPrompt, 'bounded request', [System.Text.UTF8Encoding]::new($false))
         $script:roundOrder = [System.Collections.ArrayList]::new()
+        $script:roundDeadline = [DateTime]::UtcNow.AddHours(2).ToString('o')
 
         Mock Get-WatchAdapterPath { 'adapter.ps1' }
         Mock Get-WatchEvidenceBinding {
             $null = $script:roundOrder.Add('binding')
-            [pscustomobject]@{ Phase = 'sent' }
+            [pscustomobject]@{ Phase = 'sent'; ResponseDeadlineAtUtc = $script:roundDeadline }
         }
         Mock Start-WatchProcess {
             $null = $script:roundOrder.Add('start')
@@ -522,6 +526,7 @@ Describe 'Atomic RootWait round' {
             -TabIdValue '101' `
             -SessionKeyValue 'browser-1:profile-1:101' `
             -ResponseTimeoutSecondsValue 3210 `
+            -ResponseDeadlineAtUtcValue $script:roundDeadline `
             -RequireFreshConversation
 
         $script:adapterArguments | Should -Contain 'send'
@@ -534,6 +539,7 @@ Describe 'Atomic RootWait round' {
         $script:adapterArguments | Should -Contain '-BrowserId'
         $script:adapterArguments | Should -Contain 'browser-1:profile-1:101'
         $script:adapterArguments[$script:adapterArguments.IndexOf('-ResponseTimeoutSeconds') + 1] | Should -Be '3210'
+        $script:adapterArguments[$script:adapterArguments.IndexOf('-ResponseDeadlineAtUtc') + 1] | Should -Be $script:roundDeadline
         $script:adapterArguments | Should -Contain '-FreshConversation'
         Should -Invoke Invoke-WatchAdapterProcess -Times 1 -Exactly -ParameterFilter {
             $ProcessTimeoutSeconds -eq 600
@@ -580,7 +586,7 @@ Describe 'Atomic RootWait round' {
         }
         Mock Get-WatchEvidenceBinding {
             $null = $script:roundOrder.Add('binding')
-            [pscustomobject]@{ Phase = 'send-uncertain' }
+            [pscustomobject]@{ Phase = 'send-uncertain'; ResponseDeadlineAtUtc = $script:roundDeadline }
         }
 
         $result = Invoke-RootWaitRound `
@@ -774,6 +780,68 @@ Describe 'Batch RootWait capacity' {
         $manifest.rounds[1].promptPath = $outside
         Write-WatchJsonAtomic -Path $path -Value $manifest
         { Read-RootWaitBatchManifest -Path $path } | Should -Throw '*inside the batch manifest directory*'
+
+        $tooLong = New-BatchFixture -Root (Join-Path $TestDrive 'manifest-too-long') -TimeoutSeconds 7201
+        { Read-RootWaitBatchManifest -Path $tooLong } | Should -Throw '*between 30 and 7200*'
+    }
+
+    It 'passes the exact final second and absolute batch deadline to a child round' {
+        $manifestPath = New-BatchFixture -Root (Join-Path $TestDrive 'batch-final-second') -TimeoutSeconds 30
+        $script:batchClock = [datetime]'2026-08-09T00:00:00Z'
+        $script:batchClockCalls = 0
+        $script:capturedRoundTimeout = 0
+        $script:capturedRoundDeadline = ''
+        Mock Start-BatchRoundProcess {
+            param($Round, $ThreadId, $RoundTimeoutSeconds, $RoundDeadlineAtUtc, $RuntimeDirectory)
+            $script:capturedRoundTimeout = $RoundTimeoutSeconds
+            $script:capturedRoundDeadline = $RoundDeadlineAtUtc
+            $process = [pscustomobject]@{ Id = $PID; HasExited = $true }
+            $process | Add-Member -MemberType ScriptMethod -Name Refresh -Value { }
+            $process | Add-Member -MemberType ScriptMethod -Name Dispose -Value { }
+            [pscustomobject]@{ Process = $process; StdoutPath = ''; StderrPath = '' }
+        }
+        Mock Read-BatchRoundProcessResult {
+            [ordered]@{
+                roundId = 'round-1'; status = 'completed'; terminalStatus = 'completed'; terminalOutcome = ''
+                errorCategory = $null; submissionAcknowledged = $true; watcherId = 'watcher-final-second'
+            }
+        }
+
+        $result = Invoke-RootWaitBatch `
+            -Path $manifestPath `
+            -ExpectedThreadId $script:ThreadId `
+            -NowAction {
+                $script:batchClockCalls++
+                if ($script:batchClockCalls -ge 3) { return $script:batchClock.AddSeconds(29) }
+                return $script:batchClock
+            } `
+            -SleepAction { }
+
+        $result.allSucceeded | Should -BeTrue
+        $script:capturedRoundTimeout | Should -Be 1
+        $script:capturedRoundDeadline | Should -Be '2026-08-09T00:00:30.0000000Z'
+    }
+
+    It 'does not start a child after capacity acquisition reaches the batch deadline' {
+        $manifestPath = New-BatchFixture -Root (Join-Path $TestDrive 'batch-deadline-before-start') -TimeoutSeconds 30
+        $script:batchClock = [datetime]'2026-08-09T00:00:00Z'
+        $script:batchClockCalls = 0
+        Mock Start-BatchRoundProcess { throw 'must not start at or after the absolute deadline' }
+
+        $result = Invoke-RootWaitBatch `
+            -Path $manifestPath `
+            -ExpectedThreadId $script:ThreadId `
+            -NowAction {
+                $script:batchClockCalls++
+                if ($script:batchClockCalls -ge 3) { return $script:batchClock.AddSeconds(30) }
+                return $script:batchClock
+            } `
+            -SleepAction { }
+
+        $result.items[0].status | Should -Be 'queued-timeout'
+        $result.items[0].errorCategory | Should -Be 'ConcurrencySlotTimeout'
+        Should -Invoke Start-BatchRoundProcess -Times 0 -Exactly
+        (Get-CapacitySlots).slots.Count | Should -Be 0
     }
 
     It 'recognizes a live owner from its recorded UTC process start time' {
@@ -959,6 +1027,26 @@ Describe 'Batch RootWait capacity' {
         (Get-CapacitySlots).slots.Count | Should -Be 0
     }
 
+    It 'releases a retry preparation failure only after one durable proved-not-submitted attempt' {
+        $directory = Join-Path $TestDrive 'retry-preparation-failed-release'
+        $null = New-Item -ItemType Directory -Path $directory -Force
+        $claim = Acquire-CapacitySlot -ThreadId $script:ThreadId -RoundId 'retry-preparation-failed' -EvidenceDirectory $directory
+        $null = Set-CapacitySlotClaim -Id $claim.slotId -ClaimId $claim.claimId -Changes ([ordered]@{
+            phase = 'run-starting'; submissionAttempted = $true
+        })
+        $state = Set-AdapterTerminalFixture -Directory $directory -Outcome 'retry-not-submitted'
+        $state.attemptCount = 1
+        $state.attempts = @($state.attempts[0])
+        $state | Add-Member -NotePropertyName retryPreparationFailedBeforeClick -NotePropertyValue $true -Force
+        $state | Add-Member -NotePropertyName retryFailureCategory -NotePropertyValue 'AgentBrowserTargetMissing' -Force
+        Write-WatchJsonAtomic -Path (Join-Path $directory 'state.json') -Value $state
+
+        $release = Release-CapacitySlot -Id $claim.slotId -ExpectedClaimId $claim.claimId -OwnerCompletionObserved
+
+        $release.proof | Should -Be 'durable-retry-not-submitted'
+        (Get-CapacitySlots).slots.Count | Should -Be 0
+    }
+
     It 'rejects an incomplete retry-not-submitted proof and retains the slot' {
         $directory = Join-Path $TestDrive 'retry-not-submitted-incomplete'
         $null = New-Item -ItemType Directory -Path $directory -Force
@@ -1045,7 +1133,8 @@ param(
     [string]$Profile,
     [string]$TabId,
     [string]$SessionKey,
-    [int]$TimeoutSeconds
+    [int]$TimeoutSeconds,
+    [string]$ResponseDeadlineAtUtc
 )
 Start-Sleep -Milliseconds 300
 [ordered]@{
@@ -1631,6 +1720,7 @@ Describe 'Codex Stop Hook continuation contract' {
             phase = 'running'
             noWake = $true
             rootWait = $true
+            responseDeadlineAtUtc = '2026-08-05T20:00:00Z'
         })
 
         $wait = Wait-RootWatchEvent `
@@ -1676,6 +1766,7 @@ Describe 'Codex Stop Hook continuation contract' {
             codexThreadId = $script:ThreadId
             noWake = $true
             rootWait = $true
+            responseDeadlineAtUtc = [datetime]::UtcNow.AddHours(2).ToString('o')
         })
         Write-WatchJsonAtomic -Path (Join-Path $directory $Script:EventFileName) -Value ([ordered]@{
             schemaVersion = 1
@@ -1695,6 +1786,7 @@ Describe 'Codex Stop Hook continuation contract' {
         $watcherId = [guid]::NewGuid().ToString()
         $times = [System.Collections.Queue]::new()
         $times.Enqueue([datetime]'2026-08-05T18:00:00Z')
+        $times.Enqueue([datetime]'2026-08-05T18:00:00Z')
         $times.Enqueue([datetime]'2026-08-05T18:00:31Z')
         $null = New-Item -ItemType Directory -Path $directory -Force
         Write-WatchJsonAtomic -Path (Join-Path $directory $Script:StateFileName) -Value ([ordered]@{
@@ -1703,6 +1795,7 @@ Describe 'Codex Stop Hook continuation contract' {
             codexThreadId = $script:ThreadId
             noWake = $true
             rootWait = $true
+            responseDeadlineAtUtc = '2026-08-05T20:00:00Z'
         })
 
         {
@@ -1741,6 +1834,38 @@ Describe 'Codex Stop Hook continuation contract' {
         } | Should -Throw '*response deadline expired*'
     }
 
+    It 'rejects a terminal root-wait event that appears after the original response deadline' {
+        $directory = Join-Path $TestDrive 'root-wait-late-terminal-event'
+        $watcherId = [guid]::NewGuid().ToString()
+        $null = New-Item -ItemType Directory -Path $directory -Force
+        Write-WatchJsonAtomic -Path (Join-Path $directory $Script:StateFileName) -Value ([ordered]@{
+            schemaVersion = 1
+            watcherId = $watcherId
+            codexThreadId = $script:ThreadId
+            phase = 'terminal'
+            terminalStatus = 'completed'
+            noWake = $true
+            rootWait = $true
+            responseDeadlineAtUtc = '2026-08-05T18:00:00Z'
+        })
+        Write-WatchJsonAtomic -Path (Join-Path $directory $Script:EventFileName) -Value ([ordered]@{
+            schemaVersion = 1
+            watcherId = $watcherId
+            codexThreadId = $script:ThreadId
+            status = 'completed'
+            requiresCodexReview = $true
+            automaticResendAllowed = $false
+        })
+
+        {
+            Wait-RootWatchEvent `
+                -EvidenceDirectory $directory `
+                -ThreadId $script:ThreadId `
+                -WaitTimeoutSeconds 30 `
+                -NowAction { [datetime]'2026-08-05T18:00:01Z' }
+        } | Should -Throw '*response deadline expired*'
+    }
+
     It 'terminates root wait when the watcher process exits without an event' {
         $directory = Join-Path $TestDrive 'root-wait-worker-crashed'
         $watcherId = [guid]::NewGuid().ToString()
@@ -1754,6 +1879,7 @@ Describe 'Codex Stop Hook continuation contract' {
             noWake = $true
             rootWait = $true
             automaticResendAllowed = $false
+            responseDeadlineAtUtc = '2026-08-05T20:00:00Z'
         })
 
         $wait = Wait-RootWatchEvent `
@@ -2308,7 +2434,7 @@ catch {
         New-WatchFixtureEvidence -Directory $directory
         $adapterStatePath = Join-Path $directory 'state.json'
         $adapterState = Read-WatchJson -Path $adapterStatePath -Required
-        $adapterState | Add-Member -NotePropertyName responseDeadlineAtUtc -NotePropertyValue ([DateTime]::UtcNow.AddSeconds(-1).ToString('o'))
+        $adapterState | Add-Member -NotePropertyName responseDeadlineAtUtc -NotePropertyValue ([DateTime]::UtcNow.AddSeconds(-1).ToString('o')) -Force
         Write-WatchJsonAtomic -Path $adapterStatePath -Value $adapterState
         Mock Start-Process { throw 'must not launch after the absolute deadline' }
 

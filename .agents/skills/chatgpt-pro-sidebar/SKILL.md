@@ -61,7 +61,7 @@ powershell.exe -NoProfile -File $adapter send -PromptPath <prompt.md> -EvidenceD
 powershell.exe -NoProfile -File $adapter send -PromptPath <prompt.md> -EvidenceDir <empty-dir> -IdempotencyKey <opaque-key>
 powershell.exe -NoProfile -File $adapter wait -EvidenceDir <dir> -TimeoutSeconds 900
 powershell.exe -NoProfile -File $adapter response -EvidenceDir <dir>
-powershell.exe -NoProfile -File $adapter run -PromptPath <prompt.md> -EvidenceDir <empty-dir> -IdempotencyKey <opaque-key> -TimeoutSeconds 900
+powershell.exe -NoProfile -File $adapter run -PromptPath <prompt.md> -EvidenceDir <empty-dir> -IdempotencyKey <opaque-key> -ResponseTimeoutSeconds 7200
 
 # Preferred complete round: send once, start the local watcher immediately,
 # and keep this same root Codex turn blocked until terminal evidence exists.
@@ -142,9 +142,10 @@ create a replacement directory to bypass uncertain evidence.
   the original idempotency identity.
 - An exact conversation URL is persisted as soon as it appears, but URL
   navigation alone never acknowledges an existing-conversation click. The
-  composer must clear or generation must start. A missing, reordered, or
-  multiply appended rendered user-turn baseline is ambiguous post-click state:
-  return `recovery-required` after one click and never retry.
+  page must start generation or append exactly one structurally isolated user
+  turn. Composer clearing alone is not causal evidence. A missing, reordered,
+  or multiply appended rendered user-turn baseline is ambiguous post-click
+  state: return `recovery-required` after one click and never retry.
 - After the second 180-second timeout, `retry-not-submitted` is terminal: write
   durable terminal evidence, safely release capacity, and return immediately to
   the original Codex task for user notification. `recovery-required` is also
@@ -154,8 +155,9 @@ create a replacement directory to bypass uncertain evidence.
   `recovery-required`; never resend it.
 - The response deadline is one absolute 7200-second budget beginning with the
   first click. Retry, adapter wait, watcher startup/wait, recovery, and batch
-  child time consume that same budget; they never reset it. Local watcher
-  polling does not consume model tokens.
+  child time consume that same budget; they never reset or round it up. Missing
+  deadline evidence fails closed, and an observation or terminal event arriving
+  after it is not accepted. Local watcher polling does not consume model tokens.
 - Temporary browser loss during wait is observational only. Exact URL recovery
   may reopen in background; no recovery path may send.
 - Batch slot timeout is `queued-timeout` with `ConcurrencySlotTimeout` and
@@ -166,7 +168,9 @@ create a replacement directory to bypass uncertain evidence.
 - Global idempotency is reserved before the target claim. If later target
   claiming fails, the round records durable pre-click failure. A same-thread
   target may transfer after completed/pre-invoke failure or the complete
-  terminal `retry-not-submitted` proof, never from generic `send-uncertain`.
+  terminal `retry-not-submitted` proof, including a proved first non-submission
+  followed by retry preparation failure before the second click, never from
+  generic `send-uncertain`.
 - A normal generating page may surface as adapter `GenerationAlreadyActive`;
   the watcher accepts it only from matching structured status details. Long
   conversations may omit an old rendered turn prefix, but response isolation

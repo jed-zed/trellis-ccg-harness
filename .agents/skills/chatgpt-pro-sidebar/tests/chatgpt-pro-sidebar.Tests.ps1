@@ -1530,6 +1530,27 @@ Describe 'Per-target concurrency and thread ownership' {
             -Binding $binding).Reused | Should -BeFalse
     }
 
+    It 'accepts target transfer after retry preparation fails before any second click' {
+        $promptSha = 'f' * 64
+        $state = [ordered]@{
+            phase = 'send-uncertain'
+            retryOutcome = 'retry-not-submitted'
+            retryPreparationFailedBeforeClick = $true
+            retryFailureCategory = 'AgentBrowserTargetMissing'
+            submissionAcknowledged = $false
+            automaticResendAllowed = $false
+            attemptCount = 1
+            promptSha256 = $promptSha
+            attempts = @(
+                [ordered]@{ outcome = 'proved-not-submitted'; exactConversationUrl = ''; userTurnObserved = $false; generatingObserved = $false; composerSha256Observed = $promptSha }
+            )
+        }
+
+        Test-AgentBrowserTargetClaimTransferSafeState -State $state | Should -BeTrue
+        $state.retryFailureCategory = ''
+        Test-AgentBrowserTargetClaimTransferSafeState -State $state | Should -BeFalse
+    }
+
     It 'rejects cross-thread wait before resolving or observing the bound target' {
         $directory = Join-Path $TestDrive 'cross-thread-wait'
         $null = [System.IO.Directory]::CreateDirectory($directory)
@@ -1601,6 +1622,27 @@ Describe 'Bounded waiting and stale UI recovery' {
         $result.TransientObservationCount | Should -Be 1
         $script:observations | Should -Be 8
         $result.StablePollCount | Should -Be 7
+    }
+
+    It 'does not accept an observation that returns after the absolute deadline' {
+        $response = New-TestResponse -Text 'late answer'
+        $script:deadlineNowCalls = 0
+        Assert-ThrowsCategory -Category 'ResponseTimeout' -ExitCode 27 -Action {
+            Invoke-PollUntilCompleted `
+                -BaselineHashes @() `
+                -ObservationProvider {
+                    [pscustomobject]@{ Transient = $false; Generating = $false; Responses = @($response) }
+                } `
+                -SleepAction { } `
+                -UtcNowProvider {
+                    [void]($script:deadlineNowCalls++)
+                    if ($script:deadlineNowCalls -eq 1) { return [DateTimeOffset]::Parse('2026-08-09T00:00:00Z').UtcDateTime }
+                    return [DateTimeOffset]::Parse('2026-08-09T00:00:02Z').UtcDateTime
+                } `
+                -TimeoutSeconds 30 `
+                -PollMilliseconds 250 `
+                -AbsoluteDeadlineUtc ([DateTimeOffset]::Parse('2026-08-09T00:00:01Z').UtcDateTime)
+        }
     }
 }
 
@@ -2707,6 +2749,27 @@ Describe 'agent-browser-cli V2 transport' {
         Should -Invoke Get-AgentBrowserWaitObservation -Times 0 -Exactly
     }
 
+    It 'rejects post-click recovery when the durable response deadline is missing' {
+        $directory = Join-Path $TestDrive 'v2-missing-response-deadline'
+        $null = New-Item -ItemType Directory -Path $directory
+        $state = New-SendIntentState `
+            -PromptSha256 ('a' * 64) `
+            -IdempotencyKeyValue 'v2-missing-response-deadline' `
+            -BaselineHashes @() `
+            -ConversationUrlBeforeSend 'https://chatgpt.com/c/12345678-1234-1234-1234-123456789abc' `
+            -Transport $Script:AgentBrowserTransport `
+            -TargetBinding (ConvertTo-AgentBrowserTargetBinding -Target $script:v2Target) `
+            -CodexThreadIdValue $script:v2ThreadId
+        Set-ObjectProperty -InputObject $state -Name 'phase' -Value 'sent'
+        Write-EvidenceState -Directory $directory -State $state
+        Mock Get-AgentBrowserWaitObservation { throw 'browser observation must not run without the durable deadline' }
+
+        Assert-ThrowsCategory -Category 'ResponseDeadlineMissing' -ExitCode 30 -Action {
+            Invoke-AgentBrowserWait -EvidenceDirectory $directory -TimeoutSecondsValue 600 -PollMillisecondsValue 250 -CodexThreadIdValue $script:v2ThreadId
+        }
+        Should -Invoke Get-AgentBrowserWaitObservation -Times 0 -Exactly
+    }
+
     It 'adopts the same tab URL when the model control hides after exact Pro preflight' {
         $directory = Join-Path $TestDrive 'v2-homepage-send'
         $null = New-Item -ItemType Directory -Path $directory
@@ -2748,7 +2811,7 @@ Describe 'agent-browser-cli V2 transport' {
             }
             return [pscustomobject]@{
                 Url = $conversationUrl; UrlExact = $true; ComposerCount = 1; ComposerValue = ''; SendCount = 0
-                LoginCount = 0; ProCount = 0; SelectedModeControlCount = 0; SelectedModeLabel = ''; SelectedModeIsPro = $false; SecurityChallengeCount = 0; Generating = $false
+                LoginCount = 0; ProCount = 0; SelectedModeControlCount = 0; SelectedModeLabel = ''; SelectedModeIsPro = $false; SecurityChallengeCount = 0; Generating = $true
                 UserTurns = @(); Responses = @(); Target = $exactTarget
             }
         }
@@ -3027,6 +3090,7 @@ Describe 'agent-browser-cli V2 transport' {
         Set-ObjectProperty -InputObject $state -Name 'invokeAttempted' -Value $true
         Set-ObjectProperty -InputObject $state -Name 'invokeReturned' -Value $true
         Set-ObjectProperty -InputObject $state -Name 'baselineUserTurnSha256' -Value @()
+        Set-ObjectProperty -InputObject $state -Name 'responseDeadlineAtUtc' -Value ([DateTime]::UtcNow.AddMinutes(5).ToString('o'))
         Write-EvidenceState -Directory $directory -State $state
 
         $conversationUrl = 'https://chatgpt.com/c/12345678-1234-1234-1234-123456789abc'
@@ -3062,11 +3126,64 @@ Describe 'agent-browser-cli V2 transport' {
         $persisted.phase | Should -Be 'completed'
     }
 
+    It 'binds an exact URL without treating the URL alone as submission acknowledgement' {
+        $directory = Join-Path $TestDrive 'v2-url-only-recovery'
+        $null = New-Item -ItemType Directory -Path $directory
+        $state = New-SendIntentState `
+            -PromptSha256 (Get-Sha256Text -Text 'url only prompt') `
+            -IdempotencyKeyValue 'v2-url-only-recovery' `
+            -IdempotencyKeySha256 (Get-Sha256Text -Text 'v2-url-only-recovery') `
+            -BaselineHashes @() `
+            -Transport $Script:AgentBrowserTransport `
+            -TargetBinding (ConvertTo-AgentBrowserTargetBinding -Target $script:v2Target) `
+            -CodexThreadIdValue $script:v2ThreadId
+        Set-ObjectProperty -InputObject $state -Name 'phase' -Value 'send-uncertain'
+        Set-ObjectProperty -InputObject $state -Name 'invokeAttempted' -Value $true
+        Set-ObjectProperty -InputObject $state -Name 'invokeReturned' -Value $true
+        Set-ObjectProperty -InputObject $state -Name 'baselineUserTurnSha256' -Value @()
+        Set-ObjectProperty -InputObject $state -Name 'responseDeadlineAtUtc' -Value ([DateTime]::UtcNow.AddMinutes(5).ToString('o'))
+        Write-EvidenceState -Directory $directory -State $state
+        $conversationUrl = 'https://chatgpt.com/c/12345678-1234-1234-1234-123456789abc'
+        $exactTarget = [pscustomobject]@{
+            BrowserId = $script:v2Target.BrowserId; ProfileId = $script:v2Target.ProfileId
+            ProfileLabel = $script:v2Target.ProfileLabel; TabId = $script:v2Target.TabId
+            SessionKey = $script:v2Target.SessionKey; Origin = $script:v2Target.Origin
+            Url = $conversationUrl; UrlExact = $true
+        }
+        $null = Reserve-AgentBrowserTargetClaim `
+            -CodexThreadIdValue $script:v2ThreadId `
+            -EvidenceDirectory $directory `
+            -IdempotencyKeySha256Value (Get-Sha256Text -Text 'v2-url-only-recovery') `
+            -Binding (ConvertTo-AgentBrowserTargetBinding -Target $script:v2Target)
+        Mock Get-AgentBrowserWaitObservation {
+            [pscustomobject]@{
+                Transient = $false; Generating = $false; Responses = @(New-TestResponse -Text 'unbound answer')
+                Target = $exactTarget
+                Snapshot = [pscustomobject]@{ Url = $conversationUrl; UrlExact = $true; UserTurns = @() }
+            }
+        }
+        Mock Invoke-PollUntilCompleted {
+            param($ObservationProvider)
+            $null = & $ObservationProvider
+            [pscustomobject]@{ Response = New-TestResponse -Text 'unbound answer'; TransientObservationCount = 0; StablePollCount = 2 }
+        }
+
+        Assert-ThrowsCategory -Category 'RecoveryRequired' -ExitCode 26 -Action {
+            Invoke-AgentBrowserWait -EvidenceDirectory $directory -TimeoutSecondsValue 300 -PollMillisecondsValue 250 -CodexThreadIdValue $script:v2ThreadId
+        }
+        $persisted = Read-EvidenceState -Directory $directory
+        $persisted.conversationUrlBound | Should -Be $conversationUrl
+        [bool](Get-ObjectProperty $persisted 'submissionAcknowledged' $false) | Should -BeFalse
+        Test-Path -LiteralPath (Join-Path $directory 'response.md') | Should -BeFalse
+    }
+
     It 'keeps the active dispatcher on V2 and leaves UIA unreachable' {
         $source = [System.IO.File]::ReadAllText($scriptPath)
         $dispatcher = [regex]::Match($source, '(?s)function Invoke-MainCommand\s*\{.*?(?=\r?\nif \(\$MyInvocation\.InvocationName)').Value
         $dispatcher | Should -Match 'Invoke-AgentBrowserSend'
         $dispatcher | Should -Match 'Invoke-AgentBrowserWait'
+        $dispatcher | Should -Match '(?s)Invoke-AgentBrowserSend.+-ResponseTimeoutSecondsValue \$ResponseTimeoutSeconds'
+        $dispatcher | Should -Match '(?s)Invoke-AgentBrowserWait.+-TimeoutSecondsValue \$ResponseTimeoutSeconds'
         $dispatcher | Should -Not -Match 'Initialize-LiveUiAutomation|Invoke-LiveSend|Invoke-LiveWait|Invoke-LiveNewChat'
     }
 

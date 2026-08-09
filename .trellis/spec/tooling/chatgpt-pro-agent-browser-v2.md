@@ -65,8 +65,9 @@ provider. It controls a user-approved external Chrome tab through
 - After each click, the adapter observes the same bound target for up to `180`
   seconds. The first exact canonical conversation URL is persisted atomically
   before rendered user-turn checks. URL navigation alone never acknowledges an
-  existing-conversation click; the same composer must clear or generation must
-  start before the attempt enters `sent` observation.
+  existing-conversation click; generation must start or exactly one structurally
+  isolated user turn must be appended before the attempt enters `sent`
+  observation. Composer clearing alone is not causal evidence.
 - Rendered user-turn text is not compared with the original prompt hash. The
   baseline must still retain an unchanged ordered suffix and may append at most
   one user turn; the prompt hash remains the pre-click composer and evidence
@@ -89,7 +90,10 @@ provider. It controls a user-approved external Chrome tab through
   the exact original Codex thread and never authorize another click.
 - The first click starts one absolute 7200-second response deadline. Adapter
   observation, the optional retry, watcher startup, and response wait consume
-  the same budget; no transition resets it.
+  the same budget; no transition resets or rounds it up. Missing deadline state
+  fails closed. The direct `run` command, RootWait, and batch children all use
+  the same fixed ceiling, and observations or terminal completion arriving after
+  the deadline are not accepted.
 - Existing-conversation sends must remain on the original exact URL. Fresh
   homepage sends may adopt only the first exact URL observed on the same bound
   tab/session.
@@ -115,7 +119,9 @@ provider. It controls a user-approved external Chrome tab through
 - Claims have no TTL and are never automatically deleted. The same exact round
   may recover idempotently; the same thread may start a different round on that
   target only after the previous round is completed, definitely failed before
-  invocation, or carries the complete terminal `retry-not-submitted` proof.
+  invocation, or carries the complete terminal `retry-not-submitted` proof. That
+  proof may contain one proved first non-submission plus a retry preparation
+  failure recorded before any second click.
   Generic `send-uncertain` never releases or transfers ownership.
 - Claim updates are serialized by the stable claim key, so two runtime tabs
   showing the same canonical profile-plus-URL conversation cannot race a
@@ -135,6 +141,10 @@ provider. It controls a user-approved external Chrome tab through
 - Batch timeout defaults to `7200` seconds. An item that never acquires a slot
   ends as `queued-timeout` with `errorCategory=ConcurrencySlotTimeout` and
   `submissionAcknowledged=false`; it must not be represented as sent.
+- The scheduler passes the exact remaining whole-second budget and the parent
+  absolute deadline to each child. It never raises a final sub-30-second budget,
+  and a slot acquired at or after the deadline is released as pre-click-unsent
+  without starting a child.
 - An orphaned slot whose durable state proves neither pre-click-unsent nor
   terminal remains isolated and returns `ConcurrencySlotRecoveryRequired`.
 - A slot owner's persisted process-start value is an ISO-8601 UTC identity, not
@@ -161,7 +171,9 @@ provider. It controls a user-approved external Chrome tab through
 - `wait` reads target identity and response baseline only from `state.json`. It
   never resends and rejects incomplete historical `windows-uia` evidence. It
   checks the persisted absolute response deadline before any browser recovery
-  or polling.
+  or polling. An exact URL discovered during recovery is persisted but does not
+  set `submissionAcknowledged`; one appended user turn is still required before
+  completed evidence can be written.
 - Completion requires the unchanged response baseline, exactly one stable new
   assistant turn, a durable post-click progress acknowledgement, and one exact
   canonical conversation URL. Evidence records the V2 transport, fixed
