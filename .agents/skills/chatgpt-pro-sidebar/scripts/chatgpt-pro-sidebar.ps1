@@ -4751,11 +4751,14 @@ function Invoke-AgentBrowserOpenFreshTab {
     }
 
     $targets = @(ConvertTo-AgentBrowserTabRecords -Envelope (Invoke-AgentBrowserCliJson -Arguments @('tabs')) | Where-Object {
+        $sanitizedUrl = ConvertTo-SanitizedChatGptUrl -Candidate ([string]$_.Url)
         $_.BrowserId -ceq [string]$CurrentTarget.BrowserId -and
         $_.ProfileId -ceq [string]$CurrentTarget.ProfileId -and
         $_.TabId -ceq $openedTabId -and
         $_.SessionKey -ceq $openedSessionKey -and
-        $_.Url -ceq 'https://chatgpt.com/'
+        $null -ne $sanitizedUrl -and
+        -not $sanitizedUrl.Exact -and
+        $sanitizedUrl.Url -ceq 'https://chatgpt.com/'
     })
     if ($targets.Count -ne 1) {
         Throw-SidebarError -ExitCode $Script:ExitCodes.WindowSelection -Category 'AgentBrowserOpenTargetUnproved' -Message 'The background homepage tab could not be bound to one exact browser identity.'

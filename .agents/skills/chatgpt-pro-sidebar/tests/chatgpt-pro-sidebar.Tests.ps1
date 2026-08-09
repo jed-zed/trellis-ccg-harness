@@ -2145,6 +2145,28 @@ Describe 'agent-browser-cli V2 transport' {
         ($binding | ConvertTo-Json -Compress) | Should -Not -Match 'title|history'
     }
 
+    It 'accepts the equivalent slashless homepage URL when proving a background tab identity' {
+        Mock Invoke-AgentBrowserCliJson {
+            param($Arguments)
+            if ([string]$Arguments[0] -eq 'open') {
+                return [pscustomobject]@{ ok = $true; result = [pscustomobject]@{
+                    status = 'success'; opened_tab_id = '202'; opened_session_key = 'browser-1:profile-1:202'
+                } }
+            }
+            return [pscustomobject]@{ ok = $true; result = [pscustomobject]@{
+                status = 'success'; metadata = [pscustomobject]@{ tabs = @([pscustomobject]@{
+                    browser_id = 'browser-1'; profile_id = 'profile-1'; profile_label = 'work'
+                    tab_id = '202'; session_key = 'browser-1:profile-1:202'; url = 'https://chatgpt.com'
+                }) }
+            } }
+        }
+
+        $opened = Invoke-AgentBrowserOpenFreshTab -CurrentTarget $script:v2Target
+
+        $opened.TabId | Should -Be '202'
+        $opened.SessionKey | Should -Be 'browser-1:profile-1:202'
+    }
+
     It 'replaces a truncated tab-list URL with the exact inspected page URL' {
         $conversationUrl = 'https://chatgpt.com/c/12345678-1234-1234-1234-123456789abc'
         Mock Invoke-AgentBrowserCliJson {
