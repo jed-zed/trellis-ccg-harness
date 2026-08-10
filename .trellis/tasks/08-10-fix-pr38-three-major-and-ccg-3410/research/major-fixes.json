@@ -1,0 +1,61 @@
+{
+  "schemaVersion": 1,
+  "capturedAtUtc": "2026-08-10T21:35:55.0745285Z",
+  "implementationCommit": "349cdc4c19fd4b09d6231ea16343b1b8d8d7a38f",
+  "findings": [
+    {
+      "id": "direct-run-root-capacity",
+      "severity": "Major",
+      "status": "closed",
+      "acceptanceCriteria": ["AC3", "AC4"],
+      "implementation": [
+        ".agents/skills/chatgpt-pro-sidebar/scripts/chatgpt-pro-sidebar-watch.ps1"
+      ],
+      "tests": [
+        ".agents/skills/chatgpt-pro-sidebar/tests/chatgpt-pro-sidebar-watch.Tests.ps1",
+        ".trellis/tasks/08-10-fix-pr38-three-major-and-ccg-3410/.ccg-evidence/rootwait-capacity-smoke.ps1"
+      ],
+      "evidence": "Direct run-root acquires before adapter work; batch child reuses an exact parent claim; release remains proof-gated; Pester 304/304 and ROOTWAIT_CAPACITY_SMOKE_OK."
+    },
+    {
+      "id": "atomic-response-persistence",
+      "severity": "Major",
+      "status": "closed",
+      "acceptanceCriteria": ["AC5"],
+      "implementation": [
+        "components/ccg-workflow/templates/engine/tools/gptpro/gptpro_bridge.py",
+        "components/ccg-workflow/plugins/ccg/skills/ccg-gptpro-bridge/scripts/gptpro_bridge.py"
+      ],
+      "sourceCommit": "28a428cedbe218cc217d4207f04532c8ac785337",
+      "tests": [
+        "components/ccg-workflow/src/utils/__tests__/gptproBridge.test.ts"
+      ],
+      "evidence": "Both bridge copies use same-directory write, flush, fsync, and os.replace; fault injection and replay checks pass in 59/59 focused bridge tests."
+    },
+    {
+      "id": "product-manager-pr39-permission-contract",
+      "severity": "Major",
+      "status": "closed",
+      "acceptanceCriteria": ["AC6"],
+      "implementation": [
+        ".trellis/spec/tooling/product-manager-review.md",
+        ".trellis/spec/guides/layered-harness-adapter.md",
+        ".agents/skills/harness-init/references/constraint-checklist.md",
+        "AGENTS.md",
+        "scripts/DESIGN.md",
+        "docs/trellis-ccg-conflicts.md"
+      ],
+      "tests": [
+        "tests/product-manager-state.test.mjs",
+        "tests/product-manager-concurrency.test.mjs",
+        "tests/product-manager-e2e.test.mjs"
+      ],
+      "evidence": "Provider native permissions are valid only in the disposable snapshot; canonical workspace/Trellis authority, no-fallback, identity, timeout, network/payment authorization, CAS, and hard gates remain enforced; focused PM 25/25."
+    }
+  ],
+  "independentReview": {
+    "status": "completed",
+    "openCriticalHighMajor": 0,
+    "note": "A read-only independent audit raised a release-path concern; Codex traced Release-CapacitySlot and verified that recovery-required or incomplete proof rejects deletion with ConcurrencySlotRecoveryRequired. Smoke and Pester regressions confirm slot retention."
+  }
+}
