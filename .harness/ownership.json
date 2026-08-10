@@ -1,15 +1,15 @@
 {
   "schemaVersion": 3,
   "owner": "trellis-ccg-harness",
-  "contractSha256": "7fad2bebfa925374afcc11d13d502dc40c618d0f09f73c9ac3fffacd5654e58c",
-  "schemaSha256": "c506917fe9094be16567e61f23205ca815ca4ef8fc1714d564b3228af129c6a9",
+  "contractSha256": "d1a6540df334bde5bf2b10ddaa56d71a15e94134e203f8002716616df81bc3fd",
+  "schemaSha256": "a8a4a6e802cc3d7625e7b21f735aa26f5a05f06f05aaba2a428aa644f789ad3a",
   "productManagerSchemaSha256": "5ee7d491645d37e17d6fe99ded51f849c3482e2409b1286c8ebd50e9ea2c5008",
   "policy": {
-    "policyVersion": 7,
+    "policyVersion": 8,
     "markerFormatVersion": 1,
     "sourcePath": ".harness/policies/collaboration-policy.md",
-    "sourceSha256": "67b5d1a10fdd5c1b6470aa407f0f78c1d8dc04041c85a35d53ae2def98cc4f24",
-    "renderedBlockSha256": "f5d2c8624aa34702c319abdca573bcbdd578183811270f28f2ed7ea34cf0f5cc"
+    "sourceSha256": "20b66f94ac6b7b7b339b93a13c9810d5fc59ce54b550caebc8f4555d38f105e6",
+    "renderedBlockSha256": "fce1cdd6062f3aeff8e7753c39145f5e57b946ce9b44ce17a30a9443f74d478d"
   },
   "managedPaths": [
     ".harness/ownership.json",
@@ -26,7 +26,7 @@
       "startMarker": "<!-- HARNESS-COLLABORATION:START -->",
       "endMarker": "<!-- HARNESS-COLLABORATION:END -->",
       "markerFormatVersion": 1,
-      "renderedBlockSha256": "f5d2c8624aa34702c319abdca573bcbdd578183811270f28f2ed7ea34cf0f5cc"
+      "renderedBlockSha256": "fce1cdd6062f3aeff8e7753c39145f5e57b946ce9b44ce17a30a9443f74d478d"
     }
   ],
   "thirdPartySourceManifestSha256": "748796e09774955811aa1d4a8ed165efb865d88643d493cd9cf211d835a34850",

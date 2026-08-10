@@ -145,33 +145,7 @@
       "codex",
       "gemini",
       "claude"
-    ],
-    "providerCapabilities": {
-      "codex": {
-        "readOnly": true,
-        "workspaceWrite": false,
-        "terminal": false,
-        "subagents": false,
-        "network": "explicit-per-call",
-        "paid": "explicit-per-call"
-      },
-      "gemini": {
-        "readOnly": true,
-        "workspaceWrite": false,
-        "terminal": false,
-        "subagents": false,
-        "network": "explicit-per-call",
-        "paid": "explicit-per-call"
-      },
-      "claude": {
-        "readOnly": true,
-        "workspaceWrite": false,
-        "terminal": false,
-        "subagents": false,
-        "network": "explicit-per-call",
-        "paid": "explicit-per-call"
-      }
-    }
+    ]
   },
   "hooks": {
     "projectAuthorities": [

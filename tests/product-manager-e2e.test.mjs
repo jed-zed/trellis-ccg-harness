@@ -148,16 +148,6 @@ function configureInstalledRuntime(value) {
     `${JSON.stringify({
       productManager: {
         allowedProviders: ["codex"],
-        providerCapabilities: {
-          codex: {
-            readOnly: true,
-            workspaceWrite: false,
-            terminal: false,
-            subagents: false,
-            network: "explicit-per-call",
-            paid: "explicit-per-call",
-          },
-        },
       },
     })}\n`,
   );

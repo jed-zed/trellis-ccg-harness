@@ -176,8 +176,8 @@ Then fill only explicit gaps:
 
 ## Product-manager review boundary
 
-The optional product-manager role is a read-only CCG evidence provider inside
-the existing Trellis lifecycle. It never owns task identity, requirements,
+The optional product-manager role is a CCG evidence provider inside the
+existing Trellis lifecycle. It never owns task identity, requirements,
 plans, milestones, status, completion, or workspace writes.
 
 - CCG unified routing role `product-manager` is the only selected-provider
@@ -196,17 +196,18 @@ plans, milestones, status, completion, or workspace writes.
 - The current Codex task is the sole orchestrator. It prepares review input,
   explicitly authorizes any network or paid provider call, validates the
   response, and applies it through the Harness adapter.
-- Provider executions must be independently read-only with workspace writes,
-  terminal tools, subagents, and provider fallback disabled. A provider failure
-  records `unavailable`; it never fabricates acceptance.
-- Claude Code may be the explicitly selected product-manager Provider. It must
-  see only a bounded task-local snapshot and may use Read, Glob, and Grep.
-  Write/Edit/Bash/Shell, MCP, skills/plugins, hooks, browser, session
-  persistence, subagents, and workspace writes stay disabled. Project transport
-  defaults to native local Claude; explicit SSH stores only `ssh` in the project
-  contract, reads connection details from the fixed environment allowlist,
-  requires bridge protocol v2, and never falls back. Harness initialization
-  still never installs or logs in Claude.
+- Provider executions inherit the personal CCG fork's upstream Provider
+  permission mode. The task-local snapshot, schema, identity, timeout, output,
+  retry, no-fallback, network/payment authorization, and user-gate contracts
+  remain enforced. A provider failure records `unavailable`; it never fabricates
+  acceptance or gains authority over the canonical workspace.
+- Claude Code may be explicitly selected for frontend, backend, or
+  product-manager routing; defaults stay unchanged and Claude is not a search
+  Provider. Product-manager Claude sees a bounded task-local snapshot. Project
+  transport defaults to native local Claude; explicit SSH stores only `ssh` in
+  the project contract, reads connection details from the fixed environment
+  allowlist, requires bridge protocol v2, and never falls back. Harness
+  initialization still never installs or logs in Claude.
 - Existing prompt hooks may inject only pending-gate and resume breadcrumbs.
   They must not call a provider, acquire a product-manager lock, write product
   state, create another hook, or become a second orchestrator.

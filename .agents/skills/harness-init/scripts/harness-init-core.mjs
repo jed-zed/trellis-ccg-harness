@@ -109,7 +109,7 @@ const PROJECT_SKILL_MAX_FILE_BYTES = 16 * 1024 * 1024;
 const PROJECT_SKILL_MAX_TOTAL_BYTES = 64 * 1024 * 1024;
 const COLLABORATION_BLOCK_START = "<!-- HARNESS-COLLABORATION:START -->";
 const COLLABORATION_BLOCK_END = "<!-- HARNESS-COLLABORATION:END -->";
-const PROJECT_POLICY_VERSION = 7;
+const PROJECT_POLICY_VERSION = 8;
 const COLLABORATION_MARKER_FORMAT_VERSION = 1;
 const PROJECT_OWNERSHIP_SCHEMA_VERSION = 2;
 const PROJECT_SKILL_OWNERSHIP_SCHEMA_VERSION = 3;
@@ -2051,7 +2051,6 @@ function assertProductManager(productManager) {
       "selectedProviderAuthority",
       ...(hasClaudeTransport ? ["claudeTransport"] : []),
       "allowedProviders",
-      "providerCapabilities",
     ],
     "productManager",
   );
@@ -2087,46 +2086,6 @@ function assertProductManager(productManager) {
     throw new Error(
       "productManager.allowedProviders must be a unique non-empty subset of codex, gemini, and claude.",
     );
-  }
-  assertObject(
-    productManager.providerCapabilities,
-    "productManager.providerCapabilities",
-  );
-  assertExactKeys(
-    productManager.providerCapabilities,
-    ["codex", "gemini", "claude"],
-    "productManager.providerCapabilities",
-  );
-  for (const provider of ["codex", "gemini", "claude"]) {
-    const capabilities = productManager.providerCapabilities[provider];
-    assertObject(
-      capabilities,
-      `productManager.providerCapabilities.${provider}`,
-    );
-    assertExactKeys(
-      capabilities,
-      [
-        "readOnly",
-        "workspaceWrite",
-        "terminal",
-        "subagents",
-        "network",
-        "paid",
-      ],
-      `productManager.providerCapabilities.${provider}`,
-    );
-    if (
-      capabilities.readOnly !== true ||
-      capabilities.workspaceWrite !== false ||
-      capabilities.terminal !== false ||
-      capabilities.subagents !== false ||
-      capabilities.network !== "explicit-per-call" ||
-      capabilities.paid !== "explicit-per-call"
-    ) {
-      throw new Error(
-        `productManager provider ${provider} must be independently read-only with no terminal, workspace-write, or subagent authority.`,
-      );
-    }
   }
 }
 
