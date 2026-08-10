@@ -5362,7 +5362,7 @@ function Invoke-AgentBrowserSend {
                     }
                     throw
                 }
-            } while ([DateTime]::UtcNow -lt $observationDeadline -and [DateTime]::UtcNow -lt $responseDeadline)
+            } while ((($observationNow = & $UtcNowProvider) -lt $observationDeadline) -and $observationNow -lt $responseDeadline)
             if ((& $UtcNowProvider) -ge $responseDeadline -and -not $progressObserved) {
                 Throw-SidebarError -ExitCode $Script:ExitCodes.Timeout -Category 'ResponseDeadlineExpired' -Message 'The absolute response deadline expired before submission progress was proved.'
             }
@@ -5722,7 +5722,7 @@ function Invoke-MainCommand {
             finally { Exit-UiMutex -Lease $uiLease }
             $payload = New-AgentBrowserStatusPayload -Target $target -Snapshot $snapshot
             try {
-                Assert-AgentBrowserPageReady -Snapshot $snapshot
+                Assert-AgentBrowserBaseReady -Snapshot $snapshot
                 Assert-ChatGptUrlState -UrlState ([pscustomobject]@{ Url = $snapshot.Url; Exact = $snapshot.UrlExact })
                 if (-not [string]::IsNullOrWhiteSpace($ExpectedConversationUrl)) {
                     Assert-ConversationUrlMatch -ExpectedUrl $ExpectedConversationUrl -ActualUrl $snapshot.Url

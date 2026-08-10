@@ -100,6 +100,15 @@ provider. It controls a user-approved external Chrome tab through
 - Prompts over the declared Windows argument bound fail before fill or click.
   The adapter does not fall back to clipboard, keyboard, coordinates, CDP, or
   prompt-bearing JavaScript.
+- `status` is observational after send: it still requires the exact bound
+  target, allowed URL, login/challenge clearance, and one composer, but a mode
+  control hidden by ChatGPT does not turn the observation into an adapter
+  failure. The payload keeps `ready=false` and the selected-mode evidence;
+  `send` alone retains the strict final pre-click `Pro` proof.
+- Post-click observation reads only the injected `UtcNowProvider`. One sampled
+  time value is compared with both the 180-second observation deadline and the
+  absolute 7200-second response deadline; the loop must not consult wall-clock
+  UTC through a second path.
 
 ## Thread and target ownership
 
@@ -222,6 +231,9 @@ provider. It controls a user-approved external Chrome tab through
   the one safe background retry, the two-click maximum, stable
   duplicate-URL read-only recovery, response isolation, RootWait-only launch,
   and no credential or prompt-bearing script access.
+- Unit coverage named `keeps status observational when the proved mode control
+  stays hidden after generation` and `uses only the injected clock to stop the
+  post-click observation window`.
 - Unit coverage for distinct-target mutex coexistence, same-target exclusion,
   stable-conversation claim serialization, incomplete-binding rejection,
   global-reservation failure without target claiming, same-round claim recovery,

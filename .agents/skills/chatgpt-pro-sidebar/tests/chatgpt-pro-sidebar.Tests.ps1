@@ -3092,6 +3092,95 @@ Describe 'agent-browser-cli V2 transport' {
         $observation.Generating | Should -BeTrue
     }
 
+    It 'keeps status observational when the proved mode control stays hidden after generation' {
+        $conversationUrl = 'https://chatgpt.com/c/12345678-1234-1234-1234-123456789abc'
+        $exactTarget = [pscustomobject]@{
+            BrowserId = $script:v2Target.BrowserId; ProfileId = $script:v2Target.ProfileId
+            ProfileLabel = $script:v2Target.ProfileLabel; TabId = $script:v2Target.TabId
+            SessionKey = $script:v2Target.SessionKey; Origin = $script:v2Target.Origin
+            Url = $conversationUrl; UrlExact = $true
+        }
+        $snapshot = [pscustomobject]@{
+            Url = $conversationUrl; UrlExact = $true; ComposerCount = 1; ComposerValue = ''; SendCount = 0
+            LoginCount = 0; ProCount = 0; SelectedModeControlCount = 0; SelectedModeLabel = ''; SelectedModeIsPro = $false
+            SecurityChallengeCount = 0; Generating = $false; UserTurns = @(); Responses = @(); Target = $exactTarget
+        }
+        $previousCommand = $script:Command
+        $previousExpectedUrl = $script:ExpectedConversationUrl
+        $script:Command = 'status'
+        $script:ExpectedConversationUrl = $conversationUrl
+        Mock Resolve-AgentBrowserCommandTarget { $exactTarget }
+        Mock Get-AgentBrowserPageSnapshot { $snapshot }
+        Mock Enter-UiMutex { $null }
+        Mock Exit-UiMutex {}
+        try {
+            $result = Invoke-MainCommand
+            $result.ok | Should -BeTrue
+            $result.ready | Should -BeFalse
+            $result.generating | Should -BeFalse
+            $result.selectedModeControlCount | Should -Be 0
+        }
+        finally {
+            $script:Command = $previousCommand
+            $script:ExpectedConversationUrl = $previousExpectedUrl
+        }
+
+        Assert-ThrowsCategory -Category 'SelectedModeControlMissing' -ExitCode 23 -Action {
+            Assert-AgentBrowserSelectedPro -Snapshot $snapshot
+        }
+    }
+
+    It 'uses only the injected clock to stop the post-click observation window' {
+        $directory = Join-Path $TestDrive 'v2-injected-observation-clock'
+        $null = New-Item -ItemType Directory -Path $directory
+        $prompt = 'injected observation clock prompt'
+        $startedAt = [DateTime]::UtcNow.AddYears(20)
+        $script:v2PageCalls = 0
+        $script:v2ClockCalls = 0
+        $script:v2ClickCalls = 0
+        Mock Resolve-AgentBrowserTarget { $script:v2Target }
+        Mock Get-AgentBrowserPageSnapshot {
+            $script:v2PageCalls++
+            $isFirst = $script:v2PageCalls -eq 1
+            $isSecondObservation = $script:v2PageCalls -ge 5
+            [pscustomobject]@{
+                Url = 'https://chatgpt.com/'; UrlExact = $false; ComposerCount = 1
+                ComposerValue = if ($isFirst) { '' } elseif ($isSecondObservation) { '' } else { $prompt }
+                SendCount = if ($isFirst -or $isSecondObservation) { 0 } else { 1 }
+                LoginCount = 0; ProCount = 1; SelectedModeControlCount = 1; SelectedModeLabel = 'Pro'; SelectedModeIsPro = $true
+                SecurityChallengeCount = 0; Generating = $isSecondObservation; UserTurns = @(); Responses = @(); Target = $script:v2Target
+            }
+        }
+        Mock Invoke-AgentBrowserCliJson {
+            param($Arguments)
+            if ($Arguments[0] -eq 'click') { $script:v2ClickCalls++ }
+            [pscustomobject]@{ ok = $true; result = [pscustomobject]@{ status = 'success'; tab_id = '101'; session_key = 'browser-1:profile-1:101' } }
+        }
+        Mock Invoke-AgentBrowserOpenFreshTab { throw 'retry tab unavailable' }
+        Mock Start-Sleep {}
+
+        Assert-ThrowsCategory -Category 'RetryNotSubmitted' -ExitCode 26 -Action {
+            Invoke-AgentBrowserSend `
+                -PromptText $prompt `
+                -EvidenceDirectory $directory `
+                -IdempotencyKeyValue 'v2-injected-observation-clock' `
+                -CodexThreadIdValue $script:v2ThreadId `
+                -RequireFreshConversation `
+                -TargetBinding (ConvertTo-AgentBrowserTargetBinding -Target $script:v2Target) `
+                -ObservationSecondsValue 1 `
+                -UtcNowProvider {
+                    $script:v2ClockCalls++
+                    if ($script:v2ClockCalls -le 4) { return $startedAt }
+                    return $startedAt.AddSeconds(1)
+                }
+        }
+        $state = Read-EvidenceState -Directory $directory
+        $script:v2ClickCalls | Should -Be 1
+        $script:v2PageCalls | Should -Be 4
+        $state.retryOutcome | Should -Be 'retry-not-submitted'
+        $state.attempts[0].outcome | Should -Be 'proved-not-submitted'
+    }
+
     It 'treats a transitional user-turn baseline mismatch as recovery-required without retry' {
         $directory = Join-Path $TestDrive 'v2-transitional-user-turn'
         $null = New-Item -ItemType Directory -Path $directory
