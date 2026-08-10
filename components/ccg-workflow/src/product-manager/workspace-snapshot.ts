@@ -189,7 +189,7 @@ export async function prepareProductManagerWorkspaceSnapshot(options: {
   const allowedSnapshotPaths = await reviewSnapshotPaths({ workdir, taskDir, trackedPaths: new Set(trackedPaths) })
   const selectedPaths = [...new Set([
     ...trackedPaths,
-    ...gitOutput(workdir, ['ls-files', '--others', '--exclude-standard', '-z']).split('\0').filter(Boolean),
+    ...gitOutput(workdir, ['ls-files', '--others', '--exclude-standard', '-z']).split('\0').filter(path => path && path !== 'pnpm-lock.yaml'),
     ...allowedSnapshotPaths,
   ])]
   const existingPaths: string[] = []

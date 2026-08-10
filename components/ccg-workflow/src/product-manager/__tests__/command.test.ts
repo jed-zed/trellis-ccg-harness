@@ -232,6 +232,7 @@ describe('product-manager command', () => {
       execFileSync('git', ['add', '.'], { cwd: root, shell: false, stdio: 'ignore' })
       await writeFile(join(root, 'tracked.txt'), 'after\n')
       await writeFile(join(root, 'untracked.txt'), 'visible\n')
+      await writeFile(join(root, 'pnpm-lock.yaml'), 'user-owned: true\n')
       await writeFile(join(root, 'ignored.txt'), 'excluded\n')
       await mkdir(join(taskDir, '.ccg-evidence'), { recursive: true })
       await writeFile(join(taskDir, '.ccg-evidence', 'previous.txt'), 'must not recurse\n')
@@ -259,6 +260,7 @@ describe('product-manager command', () => {
         'untracked.txt',
       ]))
       expect(manifest.files.map((file: { path: string }) => file.path)).not.toContain('.env')
+      expect(manifest.files.map((file: { path: string }) => file.path)).not.toContain('pnpm-lock.yaml')
       expect(manifest.files.map((file: { path: string }) => file.path)).not.toContain('ignored.txt')
       expect(manifest.files.map((file: { path: string }) => file.path)).not.toContain('.trellis/tasks/pm/.ccg-evidence/previous.txt')
       expect(manifest.files.map((file: { path: string }) => file.path)).not.toContain('linked-repository/untracked-secret.txt')
