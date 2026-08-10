@@ -55,7 +55,7 @@ If the user provided no argument, answer in Chinese with the CCG command index:
 - `/ccg:verify-security <changed-path>` - scan security-sensitive changes.
 - `ccg routing list` - show the provider selected for the four top-level roles.
 - `ccg routing set <role> <provider>` - change one role without changing the others.
-- `ccg wrapper --backend <provider> ...` - run a managed Claude, Antigravity, Grok, or Pi role provider with Web UI enabled by default; Claude requires `--read-only`.
+- `ccg wrapper --backend <provider> ...` - run a managed Claude, Antigravity, Grok, or Pi role provider with Web UI enabled by default.
 
 If the user provided a plan path or task, treat it as `/ccg:execute`.
 

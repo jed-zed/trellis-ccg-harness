@@ -51,8 +51,8 @@ the execution route is worth local implementation before real code landing.
 - GPT Pro is not an implementation owner. Code-like output must be labeled advisory / illustrative
   and reimplemented locally by Codex.
 - Expected questions: 1.
-- Maximum questions: 2.
-- Round 2 should be converted into `/ccg:gptpro-review` whenever possible; use Gemini `--prompt-template review` and `--gemini-evidence-role frontend-review` for frontend review evidence over the applied diff.
+- Additional sequential follow-up questions have no fixed bridge limit.
+- Follow-up rounds should be converted into `/ccg:gptpro-review` whenever possible; use Gemini `--prompt-template review` and `--gemini-evidence-role frontend-review` for frontend review evidence over the applied diff.
 - Use `scripts/gptpro_bridge.py --mode exc --gemini-policy optional --gemini-evidence-role frontend-prototype --routing-evidence-file <routing-evidence-file> --routing-summary-file <routing-summary-file> --require-routing-evidence [--require-external-intelligence --expected-intelligence-mode <route investigation_mode> --expected-intelligence-depth <route depth> when route status=verified or status=received_unverified and requirement=required]`; omit those three external-intelligence flags for `status=waived`.
 - When frontend/full-stack Gemini output is available, add `--gemini-response-file <CCG_GEMINI_RESPONSE_FILE> --gemini-summary-file <summary-file>`.
 - Delegate, monitor, wake, and import through the installed `chatgpt-pro-sidebar` Skill exactly as defined by the shared bridge Skill.

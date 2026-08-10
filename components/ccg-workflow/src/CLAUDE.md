@@ -168,7 +168,7 @@ v1.7.83 将原 1878 行单文件拆分为 5 个聚焦模块，各自边界清晰
 #### Binary 管理（`src/utils/installer.ts:61`）
 
 ```typescript
-const EXPECTED_BINARY_VERSION = '5.12.8'  // 必须与 codeagent-wrapper/main.go 中 version 常量保持一致
+const EXPECTED_BINARY_VERSION = '5.12.9'  // 必须与 codeagent-wrapper/main.go 中 version 常量保持一致
 
 // 唯一可执行来源：个人仓库 preset Release
 const BINARY_SOURCES = [

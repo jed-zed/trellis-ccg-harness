@@ -40,7 +40,7 @@ function customizeHelp(sections: any[]): any[] {
       `  ${ansis.cyan('ccg grok login')}   Sign in to the isolated Grok intelligence profile`,
       `  ${ansis.cyan('ccg routing')}      List or change CCG role-to-provider routing`,
       `  ${ansis.cyan('ccg wrapper')}      Run a managed provider with Web UI enabled by default`,
-      `  ${ansis.cyan('ccg product-manager status')}  Show the read-only product-manager contract status`,
+      `  ${ansis.cyan('ccg product-manager status')}  Show the product-manager contract status`,
       `  ${ansis.cyan('ccg routing')}      List or change Codex role-to-provider routing`,
       `  ${ansis.cyan('ccg status')}       Show installation overview`,
       `  ${ansis.cyan('ccg codex-mode')}   Install/uninstall/recover Codex-Led mode`,
@@ -274,7 +274,7 @@ export async function setupCommands(cli: CAC): Promise<void> {
     })
 
   cli
-    .command('product-manager <action>', 'Run the read-only product-manager contract')
+    .command('product-manager <action>', 'Run the product-manager contract')
     .option('--json', 'Print machine-readable output')
     .option('--input <path>', 'Strict product-manager input JSON')
     .option('--workdir <path>', 'Canonical project workdir for offline snapshot preparation')

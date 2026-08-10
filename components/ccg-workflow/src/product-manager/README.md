@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This module implements the bounded, read-only product-manager contract used by
+This module implements the bounded product-manager contract used by
 Codex-led CCG workflows. It exists to turn product requirements, plan state,
 evidence, and user feedback into a strictly validated recommendation without
 becoming a task or workspace authority.
@@ -12,9 +12,8 @@ becoming a task or workspace authority.
 - Define the versioned input/output contract and canonical invocation identity.
 - Validate facts, hypotheses, progress, verdicts, evidence references, and a
   vendor-neutral provider identity.
-- Run only an explicitly selected, implemented Codex, Gemini, or Claude adapter through
-  a snapshot-bound, read-only boundary with file reads/searches but no writes,
-  terminal, MCP, network, plugins, sessions, browser, or subagents.
+- Run only an explicitly selected, implemented Codex, Gemini, or Claude adapter
+  against the bound snapshot, using that Provider's upstream permission model.
 - Redact provider payloads and task-local runtime evidence.
 - Keep machine-readable stdout to exactly one JSON document by suppressing
   support notices in both CCG and provider children, and record bounded,
@@ -58,8 +57,9 @@ resolved exclusively from unified routing.
 
 Claude execution reuses an already installed and authenticated native Claude
 CLI. CCG does not install Claude, log it in, create project `.claude` state, or
-enable it for ordinary delegation. The adapter always passes `--model`; its
-default is the native `opus` alias, while
+select it automatically. Claude may be explicitly routed to `frontend`,
+`backend`, or `product-manager`, but not `search`. The adapter always passes
+`--model`; its default is the native `opus` alias, while
 `CCG_PRODUCT_MANAGER_CLAUDE_MODEL` can explicitly override that value.
 Local transport is the default and accepts only native Claude. SSH is a
 project opt-in whose seven connection settings are environment-only; it

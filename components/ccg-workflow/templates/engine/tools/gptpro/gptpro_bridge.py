@@ -35,7 +35,6 @@ ACTIVE_BROWSER_TRANSPORT = "agent-browser-cli-v2"
 HISTORICAL_BROWSER_TRANSPORT = "windows-uia"
 LEGACY_PROVIDERS = {"chatgpt-pro-manual", PROVIDER}
 MANUAL_QUESTIONS_EXPECTED = 1
-MANUAL_QUESTIONS_MAX = 2
 MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 _SCRIPT_DIRECTORY = Path(__file__).resolve().parent
 TEMPLATE_DIR = (
@@ -1249,7 +1248,7 @@ def compose_prompt(
     project_context: dict[str, Any],
 ) -> str:
     sections = [read_template("base")]
-    if round_number == 2:
+    if round_number > 1:
         sections.append(read_template("followup"))
         if followup_reason:
             sections.append(f"## Follow-up Reason\n\n{followup_reason.strip()}")
@@ -1408,7 +1407,6 @@ class BridgeSession:
             "prompt": self.prompt_file.read_text(encoding="utf-8"),
             "response_saved": bool(status["rounds"][self.round_name]["response_saved"]),
             "manual_questions_expected": MANUAL_QUESTIONS_EXPECTED,
-            "manual_questions_max": MANUAL_QUESTIONS_MAX,
             "web_automation": True,
             "dom_extraction": True,
             "manual_copy_required": False,
@@ -1442,12 +1440,10 @@ def create_session(
     project_context: dict[str, Any] | None = None,
     codex_thread_id: str = "",
 ) -> BridgeSession:
-    if round_number > MANUAL_QUESTIONS_MAX:
-        raise ValueError("Maximum manual questions: 2. Decompose the task or return to Codex-native CCG workflows.")
     if round_number < 1:
-        raise ValueError("Round must be 1 or 2.")
-    if round_number == 2 and not followup_session:
-        raise ValueError("Round 2 requires --followup-session. Create round 1 first.")
+        raise ValueError("Round must be a positive integer.")
+    if round_number > 1 and not followup_session:
+        raise ValueError("Rounds after round 1 require --followup-session.")
     codex_thread_id = codex_thread_id.strip().lower()
     if codex_thread_id and CODEX_THREAD_ID_PATTERN.fullmatch(codex_thread_id) is None:
         raise ValueError("--codex-thread-id must be one exact UUID.")
@@ -1467,11 +1463,14 @@ def create_session(
         session_dir = Path(followup_session).resolve()
         if not session_dir.exists():
             raise ValueError(f"Follow-up session not found: {session_dir}")
-        round_number = 2
         status_file = session_dir / "status.json"
         if not status_file.exists():
             raise ValueError(f"Follow-up status file not found: {status_file}")
         status = json.loads(status_file.read_text(encoding="utf-8"))
+        next_round = int(status.get("current_round") or 1) + 1
+        if round_number not in (1, next_round):
+            raise ValueError(f"The next follow-up round for this session is {next_round}.")
+        round_number = next_round
         inherited_thread_id = str(status.get("codex_thread_id") or "").lower()
         if codex_thread_id and inherited_thread_id and codex_thread_id != inherited_thread_id:
             raise ValueError("Follow-up session belongs to another Codex task.")
@@ -1581,7 +1580,6 @@ def create_session(
         "session_dir": display_path(session_dir, workdir_path),
         "current_round": round_number,
         "manual_questions_expected": MANUAL_QUESTIONS_EXPECTED,
-        "manual_questions_max": MANUAL_QUESTIONS_MAX,
         "followup_allowed": True,
         "followup_reason": followup_reason,
         "rounds": rounds,
@@ -2554,7 +2552,7 @@ def render_page(session: BridgeSession) -> bytes:
       <dt>Round</dt><dd>{state["round"]}</dd>
       <dt>Prompt file</dt><dd>{html.escape(str(state["prompt_file"]))}</dd>
       <dt>Response file</dt><dd>{html.escape(str(state["response_file"]))}</dd>
-      <dt>Manual questions</dt><dd>{MANUAL_QUESTIONS_EXPECTED} expected, {MANUAL_QUESTIONS_MAX} maximum</dd>
+      <dt>Manual questions</dt><dd>{MANUAL_QUESTIONS_EXPECTED} expected per independent task; sequential follow-ups allowed</dd>
     </dl>
   </section>
 </main>
@@ -2740,7 +2738,6 @@ def print_outputs(session: BridgeSession, preview_url: str) -> None:
     print("CCG_GPTPRO_WEB_AUTOMATION=0", flush=True)
     print("CCG_GPTPRO_DOM_EXTRACTION=0", flush=True)
     print(f"CCG_GPTPRO_MANUAL_QUESTIONS_EXPECTED={MANUAL_QUESTIONS_EXPECTED}", flush=True)
-    print(f"CCG_GPTPRO_MANUAL_QUESTIONS_MAX={MANUAL_QUESTIONS_MAX}", flush=True)
 
 
 def print_prompt(session: BridgeSession) -> None:
@@ -2862,17 +2859,11 @@ def main(argv: list[str] | None = None) -> int:
     if not args.mode:
         print("--mode is required unless --serve-session is used", file=sys.stderr)
         return 2
-    if args.round > MANUAL_QUESTIONS_MAX:
-        print(
-            "Maximum manual questions: 2. Decompose the task or return to Codex-native CCG workflows.",
-            file=sys.stderr,
-        )
-        return 2
     if args.round < 1:
-        print("Round must be 1 or 2.", file=sys.stderr)
+        print("Round must be a positive integer.", file=sys.stderr)
         return 2
-    if args.round == 2 and not args.followup_session:
-        print("Round 2 requires --followup-session. Create round 1 first.", file=sys.stderr)
+    if args.round > 1 and not args.followup_session:
+        print("Rounds after round 1 require --followup-session.", file=sys.stderr)
         return 2
     try:
         raw_prompt = "" if args.create_batch_manifest else read_prompt(args.prompt, args.prompt_file)

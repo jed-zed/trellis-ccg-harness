@@ -407,7 +407,7 @@ describe('GPT Pro sidebar bridge', () => {
       'bridge, root, thread_id = sys.argv[1], pathlib.Path(sys.argv[2]), sys.argv[3]',
       'task_dir = root / ".ccg" / "tasks" / "parallel-task"',
       'commands = [[sys.executable, bridge, "--mode", "exc", "--workdir", str(root), "--task-dir", ".ccg/tasks/parallel-task", "--prompt", f"parallel evidence {index}", "--slug", f"parallel-{index}", "--gemini-policy", "optional", "--gemini-evidence-role", "frontend-prototype", "--codex-thread-id", thread_id] for index in range(10)]',
-      'creators = [subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8") for command in commands]',
+      'creators = [subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace") for command in commands]',
       'session_dirs = []',
       'for process in creators:',
       '    stdout, stderr = process.communicate(timeout=30)',
@@ -424,7 +424,7 @@ describe('GPT Pro sidebar bridge', () => {
       '    "metadata = {\'transport\': \'chatgpt-pro-sidebar\', \'browserTransport\': \'agent-browser-cli-v2\', \'conversationUrl\': \'https://chatgpt.com/c/parallel-session\', \'codexThreadId\': sys.argv[4], \'submissionAcknowledged\': True, \'observationalRecovery\': False, \'sidebarEvidenceFile\': str(session.status_file), \'sidebarEvidenceSha256\': \'0\' * 64}",',
       '    "mod.save_response(session, sys.argv[3], transport_metadata=metadata)",',
       '])',
-      'imports = [subprocess.Popen([sys.executable, "-c", importer, bridge, session_dir, f"response {index}\\n", thread_id], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8") for index, session_dir in enumerate(session_dirs)]',
+      'imports = [subprocess.Popen([sys.executable, "-c", importer, bridge, session_dir, f"response {index}\\n", thread_id], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace") for index, session_dir in enumerate(session_dirs)]',
       'for process in imports:',
       '    _stdout, stderr = process.communicate(timeout=30)',
       '    if process.returncode != 0:',
@@ -1499,7 +1499,7 @@ describe('GPT Pro sidebar bridge', () => {
     expect(gptproEvidence.artifactBytes).toBeGreaterThan(gptproEvidence.artifactChars)
   })
 
-  maybeIt('inherits required routing evidence for follow-up sessions without fresh routing files', () => {
+  maybeIt('inherits required routing evidence across sequential follow-ups without a fixed round limit', () => {
     const root = join(TMP_ROOT, 'routing-followup-session')
     const taskDir = join(root, '.ccg', 'tasks', 'followup-task')
     const evidenceDir = join(taskDir, 'evidence')
@@ -1577,6 +1577,34 @@ describe('GPT Pro sidebar bridge', () => {
     expect(promptText).toContain('Routing evidence file: .ccg/tasks/followup-task/evidence/routing.md')
     expect(promptText).toContain('Claude evidence status: automatic')
     expect(promptText).toContain(routing.summary)
+
+    const roundThreeOutput = runPython(PYTHON!, [
+      BRIDGE,
+      '--mode',
+      'review',
+      '--workdir',
+      root,
+      '--task-dir',
+      '.ccg/tasks/followup-task',
+      '--prompt',
+      'Review round three without fresh routing files.',
+      '--followup-session',
+      sessionDir,
+      '--followup-reason',
+      'Re-check the remaining blocker.',
+      '--require-routing-evidence',
+      '--require-claude-evidence',
+    ], root)
+    const roundThreeStatusFile = parseOutputPath(roundThreeOutput, 'CCG_GPTPRO_STATUS_FILE')
+    const roundThreePromptFile = parseOutputPath(roundThreeOutput, 'CCG_GPTPRO_PROMPT_FILE')
+    const roundThreeStatus = fs.readJsonSync(roundThreeStatusFile)
+
+    expect(roundThreeStatus.current_round).toBe(3)
+    expect(roundThreeStatus.rounds['round-3']).toBeDefined()
+    expect(roundThreeStatus.manual_questions_max).toBeUndefined()
+    expect(readFileSync(roundThreePromptFile, 'utf-8')).toContain(
+      'This is a sequential follow-up round in a GPT Pro sidebar bridge session.',
+    )
   })
 
   maybeIt('rejects required Claude evidence when routing evidence lacks a valid status', () => {

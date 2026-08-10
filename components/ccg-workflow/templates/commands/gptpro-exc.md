@@ -182,8 +182,8 @@ Continue only after:
 - `response_sha256` is present for the saved round;
 - `<evidence-root>/evidence.json` contains the GPT Pro item.
 
-## Round Budget
+## Round Guidance
 
-Default one GPT Pro question. A second round should normally become `/ccg:gptpro-review`
-after Codex applies changes. Use round 2 only for blocker re-check, applied diff review, or another
-high-risk follow-up.
+Default one GPT Pro question. Sequential follow-ups have no fixed bridge limit and should normally
+become `/ccg:gptpro-review` after Codex applies changes. Use follow-up rounds only for blocker
+re-check, applied diff review, or another high-risk follow-up.

@@ -24,6 +24,6 @@ When a role selects Gemini, run the bundled
 `../ccg-executor/scripts/invoke_gemini_preview.py` foreground command in a
 tool-managed background job and monitor it until completion. Do not pass
 `--detach` or call the raw Gemini CLI. For Claude, Antigravity, Grok, or Pi, run
-`ccg wrapper --backend <provider> --read-only --progress - "<workdir>"`; pass
+`ccg wrapper --backend <provider> --progress - "<workdir>"`; pass
 the prompt through stdin and do not add `--lite`. Treat all external diffs as
 dirty prototypes, not final code.

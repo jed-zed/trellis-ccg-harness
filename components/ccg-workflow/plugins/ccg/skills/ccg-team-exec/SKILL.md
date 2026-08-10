@@ -26,4 +26,4 @@ Execute scoped worker plans conservatively.
 
 Follow the shared **Companion Role Contract** for routed evidence: frontend or
 backend makes search required and evaluates the mapped product-manager gate.
-Providers remain read-only and cannot own the real workspace.
+Providers remain evidence helpers and cannot own the real workspace.

@@ -74,4 +74,4 @@ content from `.context/` or any other unbound workspace file.
 ## Final Output
 
 Return review prose only. Do not emit `CCG_GROK_REVIEW_JSON`; the wrapper appends
-the exact validated scope envelope after a successful tool-less response.
+the exact validated scope envelope after a successful response.

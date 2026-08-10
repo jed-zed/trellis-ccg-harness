@@ -44,11 +44,11 @@ For a Trellis-owned task, the bridge stores CCG/GPT Pro artifacts under
 write CCG gate fields into Trellis `task.json`. Trellis remains authoritative for lifecycle state;
 bridge `status.json` records only GPT Pro evidence state.
 
-## Question And Conversation Budget
+## Question And Conversation Guidance
 
 - Expected questions per independent task: 1.
-- Maximum rounds per conversation: 2.
-- Round 2 is only for blocker re-check, revised-plan comparison, applied-diff review, or another
+- Sequential follow-up rounds in the same conversation have no fixed bridge limit.
+- Follow-up rounds are only for blocker re-check, revised-plan comparison, applied-diff review, or another
   high-risk follow-up.
 - Decompose independent complex workstreams into separate bridge sessions and separate ChatGPT Pro
   conversations.
@@ -138,11 +138,13 @@ evidence but must not report all success. `queued-timeout` means no slot and no 
 `ConcurrencySlotRecoveryRequired` keeps the slot isolated until durable pre-click or terminal proof
 allows explicit diagnostic release. Neither state authorizes resend.
 
-## Follow-up Round
+## Follow-up Rounds
 
-Create round 2 with `--followup-session <session-dir> --round 2 --followup-reason <reason>`. Keep the
-same exact ChatGPT conversation selected. Use ordinary Skill `send`, not `new-chat` or
-`-FreshConversation`, then start a new watcher and import its separate `round-2/sidebar` evidence.
+Create each follow-up with `--followup-session <session-dir> --followup-reason <reason>`. The bridge
+advances to the next sequential round automatically; `--round <next-round>` may be supplied as an
+explicit sequence check. Keep the same exact ChatGPT conversation selected. Use ordinary Skill
+`send`, not `new-chat` or `-FreshConversation`, then start a new watcher and import its separate
+`round-N/sidebar` evidence.
 
 ## Project Context And Final Ownership
 

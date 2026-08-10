@@ -125,40 +125,10 @@ function assertDiagnosticSuccess(name, result) {
     throw new UnsafeCliContextError(`${name} failed locally (exit=${String(result?.exitCode)}): ${String(result?.stderr || '').trim()}`)
 }
 
-function assertDisabledCompatibilityInventory(inspect) {
-  const compatibility = inspect.externalCompat
-  if (!compatibility || typeof compatibility !== 'object' || !Array.isArray(compatibility.cells))
-    throw new UnsafeCliContextError('inspect is missing the external compatibility inventory')
-  if (compatibility.remoteSettingsLoaded !== false)
-    throw new UnsafeCliContextError('remote compatibility settings are loaded')
-  const enabled = compatibility.cells.find(cell => cell?.enabled !== false)
-  if (enabled) {
-    const surface = [enabled.vendor, enabled.surface].filter(Boolean).join('.') || 'unknown'
-    throw new UnsafeCliContextError(`external compatibility surface is not disabled: ${surface}`)
-  }
-}
-
-function textListIsClean(value) {
-  const text = String(value || '').trim()
-  if (!text)
-    return true
-  if (/^No (?:plugins installed|MCP servers configured)\./i.test(text))
-    return true
-  if (/^(?:\[\]|none(?: configured| installed)?|no .+?(?:configured|installed|enabled)\.?|disabled)$/i.test(text))
-    return true
-  const meaningful = text.split(/\r?\n/).map(line => line.trim()).filter(Boolean)
-  return meaningful.every(line => /\bdisabled\b|\bnone\b|not configured|not installed/i.test(line) && !/\benabled\b/i.test(line))
-}
-
-export function assertCleanGrokDiagnostics({ inspect, plugins, mcp }) {
+export function assertGrokDiagnostics(inspect) {
   if (!inspect || typeof inspect !== 'object' || Array.isArray(inspect))
     throw new UnsafeCliContextError('grok inspect --json did not return an object')
-  assertDisabledCompatibilityInventory(inspect)
-  if (!textListIsClean(plugins))
-    throw new UnsafeCliContextError('grok plugin list is not empty/disabled')
-  if (!textListIsClean(mcp))
-    throw new UnsafeCliContextError('grok mcp list is not empty/disabled')
-  return { safe: true }
+  return inspect
 }
 
 export function parseGrokModelInventory(value) {
@@ -194,8 +164,6 @@ export async function runGrokDiagnostics({
     ['version', ['--no-auto-update', 'version']],
     ['models', ['--no-auto-update', 'models']],
     ['inspect', ['--no-auto-update', 'inspect', '--json']],
-    ['plugin', ['--no-auto-update', 'plugin', 'list']],
-    ['mcp', ['--no-auto-update', 'mcp', 'list']],
   ]
   const output = {}
   for (const [name, args] of commands) {
@@ -210,10 +178,9 @@ export async function runGrokDiagnostics({
   catch {
     throw new UnsafeCliContextError('grok inspect --json returned malformed JSON')
   }
-  const safety = assertCleanGrokDiagnostics({ inspect, plugins: output.plugin, mcp: output.mcp })
+  assertGrokDiagnostics(inspect)
   const inventory = parseGrokModelInventory(output.models)
   return {
-    ...safety,
     version: String(output.version).trim(),
     models: inventory.models,
     defaultModel: inventory.defaultModel,

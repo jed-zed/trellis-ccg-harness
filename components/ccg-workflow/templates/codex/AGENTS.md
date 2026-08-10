@@ -14,10 +14,9 @@
 - External-intelligence routing uses `ccg route`; it is disabled by default.
 - Registered provider CLIs may supply bounded drafts or review evidence for
   their configured roles. Provider assignment is configurable, not permanent.
-  Claude is disabled for
-  ordinary Codex-mode delegation; the only exception is when unified routing
-  selects Claude for the snapshot-bound, Read/Glob/Grep-only, no-write
-  `product-manager` contract.
+  Claude may be explicitly selected for `frontend`, `backend`, or the
+  snapshot-bound `product-manager` contract. It is not eligible for `search`;
+  defaults and no-fallback behavior remain unchanged.
 - When `.trellis/` exists, Trellis owns task identity, lifecycle,
   specifications, plans, and completion. CCG must not create a parallel task
   authority.

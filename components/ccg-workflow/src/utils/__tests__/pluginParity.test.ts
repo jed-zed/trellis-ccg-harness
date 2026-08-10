@@ -44,8 +44,8 @@ describe('Codex plugin release parity', () => {
     expect(template).toContain('<title>gemini - Live Output</title>')
   })
 
-  it('pins external providers to the read-only non-lite wrapper launch contract', () => {
-    const contract = 'ccg wrapper --backend <provider> --read-only --progress - "<workdir>"'
+  it('pins external providers to the native-permission non-lite wrapper launch contract', () => {
+    const contract = 'ccg wrapper --backend <provider> --progress - "<workdir>"'
     const surfaces = [
       join(root, 'plugins', 'ccg', 'rules', 'ccg-role-routing.md'),
       ...['ccg-executor', 'ccg-plan', 'ccg-execute', 'ccg-review', 'ccg-analyze', 'ccg-frontend', 'ccg-backend']
@@ -54,6 +54,7 @@ describe('Codex plugin release parity', () => {
     for (const path of surfaces) {
       const content = fs.readFileSync(path, 'utf8')
       expect(content, path).toContain(contract)
+      expect(content, path).not.toContain('--backend <provider> --read-only')
       expect(content, path).toMatch(/prompt.*stdin/i)
       expect(content, path).toMatch(/do not.*--lite/i)
     }

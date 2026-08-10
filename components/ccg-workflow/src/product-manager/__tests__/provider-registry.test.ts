@@ -31,56 +31,43 @@ describe('product-manager provider policy', () => {
     })
   })
 
-  it('requires an absolute trusted executable and read-only execution', () => {
+  it('requires an absolute trusted executable', () => {
     const trustedExecutable = resolve('fixtures', 'codex')
     expect(() => validateProviderExecution({
       executable: 'gemini.cmd',
       args: [],
-      readOnly: true,
       shell: false,
     })).toThrow(/absolute/)
-    expect(() => validateProviderExecution({
-      executable: trustedExecutable,
-      args: [],
-      readOnly: false,
-      shell: false,
-    })).toThrow(/read-only/)
+    expect(validateProviderExecution({ executable: trustedExecutable, args: [], shell: false }))
+      .toEqual({ executable: trustedExecutable, args: [], shell: false })
   })
 
-  it('keeps providers read-only while allowing Claude workspace reads', () => {
+  it('inherits each provider permission mode while preserving PM output binding', () => {
     const workspace = resolve('fixtures', 'empty')
-    const policyFile = resolve(workspace, 'deny-all.toml')
     const codex = createCodexProductManagerExecution(resolve('fixtures', 'codex'), {
       model: 'test',
       workspace,
       schemaFile: resolve(workspace, 'schema.json'),
     })
-    expect(codex.args).toContain('shell_tool')
-    expect(codex.args).toContain('multi_agent')
-    expect(codex.args).toContain('--strict-config')
+    expect(codex.args).toContain('--dangerously-bypass-approvals-and-sandbox')
+    expect(codex.args).not.toContain('--sandbox')
 
     const gemini = createGeminiProductManagerExecution(resolve('fixtures', 'node'), {
       entrypoint: resolve('fixtures', 'gemini.js'),
       model: 'test',
-      policyFile,
     })
-    expect(gemini.args).toContain('--policy')
-    expect(gemini.args).toContain(policyFile)
+    expect(gemini.args).toContain('-y')
+    expect(gemini.args).not.toContain('--policy')
     expect(gemini.args.join(' ')).toContain('from stdin')
 
     const claude = createClaudeProductManagerExecution(resolve('fixtures', 'claude'), {
       model: 'opus',
       schema: PRODUCT_MANAGER_OUTPUT_JSON_SCHEMA,
     })
-    expect(claude.args).toContain('--safe-mode')
-    expect(claude.args).toContain('--disable-slash-commands')
-    expect(claude.args.slice(claude.args.indexOf('--tools'), claude.args.indexOf('--tools') + 2)).toEqual(['--tools', 'Read,Glob,Grep'])
-    expect(claude.args).toContain('--strict-mcp-config')
-    expect(claude.args.slice(
-      claude.args.indexOf('--mcp-config'),
-      claude.args.indexOf('--mcp-config') + 2,
-    )).toEqual(['--mcp-config', '{"mcpServers":{}}'])
-    expect(claude.args).toContain('--no-session-persistence')
+    expect(claude.args).toContain('--dangerously-skip-permissions')
+    expect(claude.args).not.toContain('--safe-mode')
+    expect(claude.args).not.toContain('--tools')
+    expect(claude.args).not.toContain('--mcp-config')
     expect(claude.args).toContain('--json-schema')
     expect(claude.args.slice(
       claude.args.indexOf('--model'),

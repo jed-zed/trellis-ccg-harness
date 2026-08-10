@@ -9,7 +9,7 @@ allowed-tools: [Read, Glob, Grep, Bash, Edit, Write, WebFetch]
 Classify the review before any external route:
 
 - Codex remains the final review owner in both modes.
-- For a pure local code review, use the bound diff, source, tests, CI, and local read-only Provider evidence. Do not run or invoke Grok external-intelligence, and do not apply an official-domain gate.
+- For a pure local code review, use the bound diff, source, tests, CI, and local Provider evidence. Do not run or invoke Grok external-intelligence, and do not apply an official-domain gate.
 - Only when a review conclusion depends on a current external API, version, advisory, incident, or other external fact, predeclare the authoritative domain from the explicit target or trusted package/repository metadata and run the shared route from the controller:
 
 `ccg route --workflow review --phase final-verify --task-file ".ccg/tasks/<task-id>/intelligence-request.md" --state-file ".ccg/tasks/<task-id>/intelligence-route.json"`
@@ -35,12 +35,12 @@ call the raw Gemini CLI.
 
 For local Grok review, bind an exact `CCG_REVIEW_TARGETS` list and pass each
 regular workspace-relative file through `--grok-review-target`. The wrapper
-must embed only those files in a fresh, tool-less Provider session. Require a
+must embed only those files in a fresh Provider session. Require a
 zero exit and wrapper-generated, validated `CCG_GROK_REVIEW_JSON` envelope. For local Antigravity
 review, bind the concrete files in the prompt and invoke `ccg wrapper --backend
 antigravity --antigravity-review`; require a completed model report. Neither
 local path uses the external-intelligence route or an official-domain gate.
 
-When frontend/backend routing selects Claude, use the managed read-only wrapper.
-This role evidence remains separate from an isolated Claude `product-manager`
-call and its explicit provider authorization gate.
+Claude may be explicitly selected for `frontend`, `backend`, or
+`product-manager`. It is not eligible for `search`; defaults and no-fallback
+behavior remain unchanged.

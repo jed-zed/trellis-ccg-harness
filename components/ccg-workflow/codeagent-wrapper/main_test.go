@@ -1445,7 +1445,7 @@ do something`
 	}
 }
 
-func TestParallelParseConfig_ManagedRejectsClaudeWithoutReadOnlyContract(t *testing.T) {
+func TestParallelParseConfig_ManagedAcceptsClaude(t *testing.T) {
 	input := `---TASK---
 id: task-1
 backend: claude
@@ -1453,13 +1453,8 @@ backend: claude
 do something`
 
 	t.Setenv("CCG_CODEX_MANAGED_WRAPPER", "1")
-	if _, err := parseParallelConfig([]byte(input)); err == nil || !strings.Contains(err.Error(), "read-only") {
-		t.Fatalf("managed parallel wrapper should reject Claude without a read-only contract: %v", err)
-	}
-
-	t.Setenv("CCG_CODEX_MANAGED_WRAPPER", "")
 	if _, err := parseParallelConfig([]byte(input)); err != nil {
-		t.Fatalf("legacy wrapper should keep accepting Claude: %v", err)
+		t.Fatalf("managed wrapper should accept explicitly selected Claude: %v", err)
 	}
 }
 
@@ -3518,7 +3513,7 @@ func TestVersionFlag(t *testing.T) {
 		}
 	})
 
-	want := "codeagent-wrapper version 5.12.8\n"
+	want := "codeagent-wrapper version 5.12.9\n"
 
 	if output != want {
 		t.Fatalf("output = %q, want %q", output, want)
@@ -3534,7 +3529,7 @@ func TestVersionShortFlag(t *testing.T) {
 		}
 	})
 
-	want := "codeagent-wrapper version 5.12.8\n"
+	want := "codeagent-wrapper version 5.12.9\n"
 
 	if output != want {
 		t.Fatalf("output = %q, want %q", output, want)
@@ -3550,7 +3545,7 @@ func TestVersionLegacyAlias(t *testing.T) {
 		}
 	})
 
-	want := "codex-wrapper version 5.12.8\n"
+	want := "codex-wrapper version 5.12.9\n"
 
 	if output != want {
 		t.Fatalf("output = %q, want %q", output, want)
@@ -3840,6 +3835,44 @@ task`)
 			t.Fatalf("run exit = %d, want error for invalid DAG", code)
 		}
 	})
+}
+
+func TestRun_AntigravitySkipPermissionsReachesBackend(t *testing.T) {
+	defer resetTestHooks()
+	cleanupLogsFn = func() (CleanupStats, error) { return CleanupStats{}, nil }
+	isTerminalFn = func() bool { return true }
+
+	originalLite := liteMode
+	liteMode = true
+	t.Cleanup(func() { liteMode = originalLite })
+
+	fake := newFakeCmd(fakeCmdConfig{
+		StdoutPlan: []fakeStdoutEvent{{Data: `{"event":"result","result":{"conversation_id":"review-1","status":"success","response":"review complete"}}` + "\n"}},
+	})
+	var capturedName string
+	var capturedArgs []string
+	newCommandRunner = func(_ context.Context, name string, args ...string) commandRunner {
+		capturedName = name
+		capturedArgs = append([]string(nil), args...)
+		return fake
+	}
+
+	os.Args = []string{
+		"codeagent-wrapper",
+		"--backend", "antigravity",
+		"--antigravity-review",
+		"--skip-permissions",
+		"review",
+	}
+	if code := run(); code != 0 {
+		t.Fatalf("run exit = %d, want 0", code)
+	}
+	if capturedName != "agy" {
+		t.Fatalf("command = %q, want agy", capturedName)
+	}
+	if !slices.Contains(capturedArgs, "--dangerously-skip-permissions") {
+		t.Fatalf("final Antigravity args lost permission bypass: %v", capturedArgs)
+	}
 }
 
 func TestVersionMainWrapper(t *testing.T) {

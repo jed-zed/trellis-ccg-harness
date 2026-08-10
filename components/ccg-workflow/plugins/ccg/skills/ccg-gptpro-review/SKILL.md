@@ -43,8 +43,8 @@ Load and follow `skills/ccg-gptpro-bridge/SKILL.md`.
 - Require output sections: `Critical`, `Major`, `Minor`, `False Positives`, `Required Tests`.
 - Build a single-round review prompt by default.
 - Expected questions: 1.
-- Maximum questions: 2.
-- Round 2 only after Codex fixes blocker findings.
+- Additional sequential follow-up questions have no fixed bridge limit.
+- Follow-up rounds are only after Codex fixes blocker findings.
 - Use `scripts/gptpro_bridge.py --mode review --gemini-policy optional --gemini-evidence-role gate --routing-evidence-file <routing-evidence-file> --routing-summary-file <routing-summary-file> --require-routing-evidence [--gemini-response-file <CCG_GEMINI_RESPONSE_FILE> --gemini-summary-file <summary-file> when Gemini actually ran] [--require-external-intelligence --expected-intelligence-mode <route investigation_mode> --expected-intelligence-depth <route depth> when route status=verified or status=received_unverified and requirement=required]`; omit those three external-intelligence flags for `status=waived`.
 - Delegate, monitor, wake, and import through the installed `chatgpt-pro-sidebar` Skill exactly as defined by the shared bridge Skill.
 - After the sidebar response import succeeds, classify Critical/Major/Minor findings, false positives, required tests,
