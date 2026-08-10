@@ -1506,7 +1506,7 @@ Describe 'Per-target concurrency and thread ownership' {
             attemptCount = 2
             promptSha256 = $promptSha
             attempts = @(
-                [ordered]@{ outcome = 'proved-not-submitted'; exactConversationUrl = ''; userTurnObserved = $false; generatingObserved = $false; composerSha256Observed = $promptSha }
+                [ordered]@{ attempt = 1; outcome = 'proved-not-submitted'; exactConversationUrl = ''; userTurnObserved = $false; generatingObserved = $false; composerSha256Observed = $promptSha }
             )
         }
         Write-EvidenceState -Directory $firstDirectory -State $previousState
@@ -1519,7 +1519,7 @@ Describe 'Per-target concurrency and thread ownership' {
         }
 
         $previousState.attempts += @(
-            [ordered]@{ outcome = 'retry-not-submitted'; exactConversationUrl = ''; userTurnObserved = $false; generatingObserved = $false; composerSha256Observed = $promptSha }
+            [ordered]@{ attempt = 2; outcome = 'retry-not-submitted'; exactConversationUrl = ''; userTurnObserved = $false; generatingObserved = $false; composerSha256Observed = $promptSha }
         )
         Write-EvidenceState -Directory $firstDirectory -State $previousState
 
@@ -1543,7 +1543,7 @@ Describe 'Per-target concurrency and thread ownership' {
             attemptCount = 1
             promptSha256 = $promptSha
             attempts = @(
-                [ordered]@{ outcome = 'proved-not-submitted'; exactConversationUrl = ''; userTurnObserved = $false; generatingObserved = $false; composerSha256Observed = $promptSha }
+                [ordered]@{ attempt = 1; outcome = 'proved-not-submitted'; exactConversationUrl = ''; userTurnObserved = $false; generatingObserved = $false; composerSha256Observed = $promptSha }
             )
         }
 
@@ -1552,6 +1552,29 @@ Describe 'Per-target concurrency and thread ownership' {
         Test-AgentBrowserTargetClaimTransferSafeState -State $state | Should -BeFalse
         $state.retryFailureCategory = 'AgentBrowserTargetMissing'
         $state.retryFailureMessage = ''
+        Test-AgentBrowserTargetClaimTransferSafeState -State $state | Should -BeFalse
+    }
+
+    It 'rejects duplicate or reordered retry attempt numbers' {
+        $promptSha = 'f' * 64
+        $state = [ordered]@{
+            phase = 'send-uncertain'
+            retryOutcome = 'retry-not-submitted'
+            submissionAcknowledged = $false
+            automaticResendAllowed = $false
+            attemptCount = 2
+            promptSha256 = $promptSha
+            attempts = @(
+                [ordered]@{ attempt = 1; outcome = 'proved-not-submitted'; exactConversationUrl = ''; userTurnObserved = $false; generatingObserved = $false; composerSha256Observed = $promptSha },
+                [ordered]@{ attempt = 2; outcome = 'retry-not-submitted'; exactConversationUrl = ''; userTurnObserved = $false; generatingObserved = $false; composerSha256Observed = $promptSha }
+            )
+        }
+
+        Test-AgentBrowserTargetClaimTransferSafeState -State $state | Should -BeTrue
+        $state.attempts[1].attempt = 1
+        Test-AgentBrowserTargetClaimTransferSafeState -State $state | Should -BeFalse
+        $state.attempts[1].attempt = 2
+        $state.attempts = @($state.attempts[1], $state.attempts[0])
         Test-AgentBrowserTargetClaimTransferSafeState -State $state | Should -BeFalse
     }
 

@@ -681,7 +681,8 @@ function Test-AgentBrowserTargetClaimTransferSafeState {
     $expectedOutcomes = @('proved-not-submitted', 'retry-not-submitted')
     for ($index = 0; $index -lt $expectedAttemptCount; $index++) {
         $attempt = $attempts[$index]
-        if ([string](Get-ObjectProperty $attempt 'outcome' '') -ne $expectedOutcomes[$index] -or
+        if ([int](Get-ObjectProperty $attempt 'attempt' 0) -ne ($index + 1) -or
+            [string](Get-ObjectProperty $attempt 'outcome' '') -ne $expectedOutcomes[$index] -or
             -not [string]::IsNullOrWhiteSpace([string](Get-ObjectProperty $attempt 'exactConversationUrl' '')) -or
             [bool](Get-ObjectProperty $attempt 'userTurnObserved' $true) -or
             [bool](Get-ObjectProperty $attempt 'generatingObserved' $true) -or

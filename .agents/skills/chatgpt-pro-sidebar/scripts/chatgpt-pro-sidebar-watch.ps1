@@ -38,6 +38,7 @@ $ErrorActionPreference = 'Stop'
 $Script:WatcherName = 'chatgpt-pro-sidebar-watch'
 $Script:WatcherSchemaVersion = 1
 $Script:Utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+$Script:Utf8Strict = [System.Text.UTF8Encoding]::new($false, $true)
 $Script:WatcherScriptPath = $PSCommandPath
 $Script:StateFileName = 'watch-state.json'
 $Script:EventFileName = 'watch-event.json'
@@ -1950,6 +1951,55 @@ function Test-CapacityOwnerAlive {
     }
 }
 
+function Test-WatchRetryNotSubmittedProof {
+    param(
+        [AllowNull()]$State,
+        [AllowEmptyString()][string]$ExpectedThreadId = ''
+    )
+
+    if ($null -eq $State -or
+        [string](Get-WatchProperty $State 'phase' '') -ne 'send-uncertain' -or
+        [string](Get-WatchProperty $State 'retryOutcome' '') -ne 'retry-not-submitted' -or
+        [bool](Get-WatchProperty $State 'submissionAcknowledged' $true) -or
+        [bool](Get-WatchProperty $State 'automaticResendAllowed' $true) -or
+        -not [string]::IsNullOrWhiteSpace([string](Get-WatchProperty $State 'conversationUrlBound' ''))) {
+        return $false
+    }
+    if (-not [string]::IsNullOrWhiteSpace($ExpectedThreadId) -and
+        [string](Get-WatchProperty $State 'codexThreadId' '') -ne $ExpectedThreadId) {
+        return $false
+    }
+
+    $promptSha256 = [string](Get-WatchProperty $State 'promptSha256' '')
+    $attempts = @(Get-WatchProperty $State 'attempts' @())
+    $attemptCount = [int](Get-WatchProperty $State 'attemptCount' 0)
+    $retryPreparationFailed = [bool](Get-WatchProperty $State 'retryPreparationFailedBeforeClick' $false)
+    $expectedAttemptCount = if ($retryPreparationFailed) { 1 } else { 2 }
+    if ($promptSha256 -notmatch '^[0-9a-f]{64}$' -or
+        $attemptCount -ne $expectedAttemptCount -or
+        $attempts.Count -ne $expectedAttemptCount -or
+        ($retryPreparationFailed -and (
+            [string]::IsNullOrWhiteSpace([string](Get-WatchProperty $State 'retryFailureCategory' '')) -or
+            [string]::IsNullOrWhiteSpace([string](Get-WatchProperty $State 'retryFailureMessage' ''))
+        ))) {
+        return $false
+    }
+
+    $expectedOutcomes = @('proved-not-submitted', 'retry-not-submitted')
+    for ($index = 0; $index -lt $expectedAttemptCount; $index++) {
+        $attempt = $attempts[$index]
+        if ([int](Get-WatchProperty $attempt 'attempt' 0) -ne ($index + 1) -or
+            [string](Get-WatchProperty $attempt 'outcome' '') -ne $expectedOutcomes[$index] -or
+            -not [string]::IsNullOrWhiteSpace([string](Get-WatchProperty $attempt 'exactConversationUrl' '')) -or
+            [bool](Get-WatchProperty $attempt 'userTurnObserved' $true) -or
+            [bool](Get-WatchProperty $attempt 'generatingObserved' $true) -or
+            [string](Get-WatchProperty $attempt 'composerSha256Observed' '') -cne $promptSha256) {
+            return $false
+        }
+    }
+    return $true
+}
+
 function Get-CapacityReleaseProof {
     param(
         [Parameter(Mandatory = $true)]$Claim,
@@ -1971,34 +2021,10 @@ function Get-CapacityReleaseProof {
         if ($retryOutcome -ne 'retry-not-submitted') {
             return [pscustomobject]@{ safe = $false; reason = 'adapter-recovery-required' }
         }
-        if (
-            [string](Get-WatchProperty $adapterState 'codexThreadId' '') -eq [string](Get-WatchProperty $Claim 'codexThreadId' '') -and
-            -not [bool](Get-WatchProperty $adapterState 'automaticResendAllowed' $true)
-        ) {
-            $attempts = @(Get-WatchProperty $adapterState 'attempts' @())
-            $retryPreparationFailed = [bool](Get-WatchProperty $adapterState 'retryPreparationFailedBeforeClick' $false)
-            $expectedAttemptCount = if ($retryPreparationFailed) { 1 } else { 2 }
-            $proofAttemptNumber = if ($retryPreparationFailed) { 1 } else { 2 }
-            $proofOutcome = if ($retryPreparationFailed) { 'proved-not-submitted' } else { 'retry-not-submitted' }
-            $proofAttempt = @($attempts | Where-Object { [int](Get-WatchProperty $_ 'attempt' 0) -eq $proofAttemptNumber })
-            $promptSha256 = [string](Get-WatchProperty $adapterState 'promptSha256' '')
-            if (
-                [int](Get-WatchProperty $adapterState 'attemptCount' 0) -eq $expectedAttemptCount -and
-                $attempts.Count -eq $expectedAttemptCount -and
-                (-not $retryPreparationFailed -or (
-                    -not [string]::IsNullOrWhiteSpace([string](Get-WatchProperty $adapterState 'retryFailureCategory' '')) -and
-                    -not [string]::IsNullOrWhiteSpace([string](Get-WatchProperty $adapterState 'retryFailureMessage' ''))
-                )) -and
-                $proofAttempt.Count -eq 1 -and
-                [string](Get-WatchProperty $proofAttempt[0] 'outcome' '') -eq $proofOutcome -and
-                [string]::IsNullOrWhiteSpace([string](Get-WatchProperty $proofAttempt[0] 'exactConversationUrl' '')) -and
-                -not [bool](Get-WatchProperty $proofAttempt[0] 'userTurnObserved' $true) -and
-                -not [bool](Get-WatchProperty $proofAttempt[0] 'generatingObserved' $true) -and
-                -not [string]::IsNullOrWhiteSpace($promptSha256) -and
-                [string](Get-WatchProperty $proofAttempt[0] 'composerSha256Observed' '') -eq $promptSha256
-            ) {
-                return [pscustomobject]@{ safe = $true; reason = 'durable-retry-not-submitted' }
-            }
+        if (Test-WatchRetryNotSubmittedProof `
+            -State $adapterState `
+            -ExpectedThreadId ([string](Get-WatchProperty $Claim 'codexThreadId' ''))) {
+            return [pscustomobject]@{ safe = $true; reason = 'durable-retry-not-submitted' }
         }
         return [pscustomobject]@{ safe = $false; reason = 'retry-not-submitted-proof-incomplete' }
     }
@@ -2240,14 +2266,23 @@ function Read-RootWaitBatchManifest {
         }
         $seenRoundIds[$roundId] = $true
         $key = [string](Get-WatchProperty $round 'idempotencyKey' '')
-        if ([string]::IsNullOrWhiteSpace($key) -or $key.Length -gt 512 -or $seenKeys.ContainsKey($key)) {
-            throw 'Batch idempotencyKey values must be non-empty, unique, and at most 512 characters.'
+        if ($key -notmatch '^[A-Za-z0-9._:-]{1,128}$' -or $seenKeys.ContainsKey($key)) {
+            throw 'Batch idempotencyKey values must be unique and contain 1 and 128 allowed characters.'
         }
         $seenKeys[$key] = $true
         $prompt = Resolve-BatchContainedPath -Path ([string](Get-WatchProperty $round 'promptPath' '')) -Root $root -Label 'promptPath'
         $evidence = Resolve-BatchContainedPath -Path ([string](Get-WatchProperty $round 'evidenceDirectory' '')) -Root $root -Label 'evidenceDirectory'
         if (-not [System.IO.File]::Exists($prompt)) { throw 'Every batch promptPath must exist.' }
         if (-not [System.IO.Directory]::Exists($evidence)) { throw 'Every batch evidenceDirectory must exist.' }
+        try {
+            $promptText = [System.IO.File]::ReadAllText($prompt, $Script:Utf8Strict)
+        }
+        catch [System.Text.DecoderFallbackException] {
+            throw 'Every batch prompt must be valid UTF-8.'
+        }
+        if ([string]::IsNullOrWhiteSpace($promptText) -or $promptText.Length -gt 24000) {
+            throw 'Every batch prompt must contain between 1 and 24000 characters.'
+        }
         if (@([System.IO.Directory]::EnumerateFileSystemEntries($evidence)).Count -ne 0) {
             throw 'Every batch evidenceDirectory must be empty before its first send.'
         }
@@ -2264,6 +2299,14 @@ function Read-RootWaitBatchManifest {
         $targetCount = @($targetValues | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }).Count
         if ($targetCount -ne 0 -and $targetCount -ne 4) {
             throw 'Each batch targetBinding must be complete or omitted.'
+        }
+        if ($targetCount -eq 4) {
+            $targetFields = @('browserId', 'profileId', 'tabId', 'sessionKey')
+            for ($targetIndex = 0; $targetIndex -lt $targetFields.Count; $targetIndex++) {
+                if ($targetValues[$targetIndex].Length -gt 512 -or $targetValues[$targetIndex] -match '[\r\n]') {
+                    throw "Batch targetBinding has an invalid $($targetFields[$targetIndex])."
+                }
+            }
         }
         if ($rounds.Count -gt 1 -and $targetCount -ne 4) {
             throw 'Multi-round batches require one complete targetBinding per round.'
@@ -2392,22 +2435,40 @@ function Read-BatchRoundProcessResult {
         }
     }
     $state = Read-WatchJson -Path (Join-Path $ActiveRound.Round.EvidenceDirectory 'state.json')
-    $event = Read-WatchJson -Path (Join-Path $ActiveRound.Round.EvidenceDirectory $Script:EventFileName)
-    $terminalStatus = [string](Get-WatchProperty $payload 'terminalStatus' '')
-    if ([string]::IsNullOrWhiteSpace($terminalStatus)) {
-        $eventStatus = [string](Get-WatchProperty $event 'status' '')
-        if ($Script:TerminalStatuses -contains $eventStatus) {
-            $terminalStatus = $eventStatus
+    $validated = $null
+    try {
+        $validated = Get-ValidatedLocalContinuationEvent `
+            -EvidenceDirectory $ActiveRound.Round.EvidenceDirectory `
+            -ThreadId ([string]$ActiveRound.ThreadId) `
+            -Transport 'codex-root-wait' `
+            -ModeLabel 'Batch RootWait'
+        if ([string](Get-WatchProperty $validated.State 'phase' '') -ne 'terminal' -or
+            [string](Get-WatchProperty $validated.State 'terminalStatus' '') -ne $validated.Status) {
+            $validated = $null
         }
+    }
+    catch {
+        $validated = $null
+    }
+    $terminalStatus = if ($null -eq $validated) { '' } else { [string]$validated.Status }
+    $event = if ($null -eq $validated) { $null } else { $validated.Event }
+    $payloadTerminalStatus = [string](Get-WatchProperty $payload 'terminalStatus' '')
+    $payloadTerminalOutcome = [string](Get-WatchProperty $payload 'terminalOutcome' '')
+    $durableTerminalOutcome = [string](Get-WatchProperty $event 'terminalOutcome' '')
+    if ($null -ne $validated -and (
+        (-not [string]::IsNullOrWhiteSpace($payloadTerminalStatus) -and $payloadTerminalStatus -ne $terminalStatus) -or
+        (-not [string]::IsNullOrWhiteSpace($payloadTerminalOutcome) -and $payloadTerminalOutcome -ne $durableTerminalOutcome)
+    )) {
+        $validated = $null
+        $terminalStatus = ''
+        $event = $null
+        $durableTerminalOutcome = ''
     }
     $errorCategory = [string](Get-WatchProperty $payload 'category' '')
     if ([string]::IsNullOrWhiteSpace($errorCategory)) {
         $errorCategory = [string](Get-WatchProperty $state 'preInvokeFailureCategory' '')
     }
-    $terminalOutcome = [string](Get-WatchProperty $payload 'terminalOutcome' '')
-    if ([string]::IsNullOrWhiteSpace($terminalOutcome)) {
-        $terminalOutcome = [string](Get-WatchProperty $event 'terminalOutcome' '')
-    }
+    $terminalOutcome = $durableTerminalOutcome
     if ([string]::IsNullOrWhiteSpace($terminalOutcome)) {
         $terminalOutcome = [string](Get-WatchProperty $state 'retryOutcome' '')
     }
@@ -2418,17 +2479,17 @@ function Read-BatchRoundProcessResult {
     }
     return [ordered]@{
         roundId = $ActiveRound.Round.RoundId
-        status = if ([string]::IsNullOrWhiteSpace($terminalStatus)) { 'failed' } else { $terminalStatus }
+        status = if ([string]::IsNullOrWhiteSpace($terminalStatus)) { 'recovery-required' } else { $terminalStatus }
         terminalStatus = $terminalStatus
         terminalOutcome = $terminalOutcome
-        errorCategory = if ([string]::IsNullOrWhiteSpace($errorCategory)) { $null } else { $errorCategory }
+        errorCategory = if ([string]::IsNullOrWhiteSpace($terminalStatus)) { 'ConcurrencySlotRecoveryRequired' } elseif ([string]::IsNullOrWhiteSpace($errorCategory)) { $null } else { $errorCategory }
         submissionAcknowledged = [bool](Get-WatchProperty $payload 'submissionAcknowledged' (Get-WatchProperty $state 'submissionAcknowledged' $false))
         targetBinding = $target
         conversationUrl = $conversationUrl
         promptSha256 = [string](Get-WatchProperty $state 'promptSha256' '')
         responseSha256 = [string](Get-WatchProperty $state 'responseSha256' '')
         evidenceSha256 = [string](Get-WatchProperty $state 'evidenceSha256' '')
-        watcherId = [string](Get-WatchProperty $payload 'watcherId' (Get-WatchProperty $event 'watcherId' ''))
+        watcherId = [string](Get-WatchProperty $event 'watcherId' '')
         evidenceDirectory = $ActiveRound.Round.EvidenceDirectory
         slotId = $ActiveRound.SlotId
         slotWaitMilliseconds = [math]::Round(($ActiveRound.StartedAt - $ActiveRound.QueuedAt).TotalMilliseconds)
@@ -2522,17 +2583,13 @@ function Invoke-RootWaitBatch {
                 $null = Release-CapacitySlot -Id $slot.slotId -ExpectedClaimId $slot.claimId -OwnerCompletionObserved
                 throw
             }
-            $owner = Get-CapacityProcessIdentity -ProcessId $started.Process.Id
-            $null = Set-CapacitySlotClaim -Id $slot.slotId -ClaimId $slot.claimId -Changes ([ordered]@{
-                ownerPid = $owner.processId
-                ownerProcessStartedAtUtc = $owner.processStartedAtUtc
-            })
             $null = $active.Add([pscustomobject]@{
                 Round = $queuedItem.Round
                 QueuedAt = $queuedItem.QueuedAt
                 StartedAt = $now
                 SlotId = $slot.slotId
                 ClaimId = $slot.claimId
+                ThreadId = $manifest.CodexThreadId
                 Process = $started.Process
                 StdoutPath = $started.StdoutPath
                 StderrPath = $started.StderrPath
@@ -2612,7 +2669,11 @@ function Invoke-RootWaitBatch {
 
     $final = Read-WatchJson -Path $manifest.ResultPath -Required
     $final.allSucceeded = @($final.items).Count -eq $manifest.Rounds.Count -and
-        @($final.items | Where-Object { $_.terminalStatus -ne 'completed' }).Count -eq 0
+        @($final.items | Where-Object {
+            $_.status -ne 'completed' -or
+            $_.terminalStatus -ne 'completed' -or
+            (-not [string]::IsNullOrWhiteSpace([string]$_.terminalOutcome) -and $_.terminalOutcome -ne 'completed')
+        }).Count -eq 0
     $final | Add-Member -NotePropertyName completedAtUtc -NotePropertyValue ((& $NowAction).ToString('o')) -Force
     Write-WatchJsonAtomic -Path $manifest.ResultPath -Value $final
     return $final
@@ -2671,6 +2732,12 @@ function Invoke-RootWaitRound {
             [bool](Get-WatchProperty $adapterState 'automaticResendAllowed' $true)
         ) {
             throw 'Adapter terminal outcome is not bound to this no-resend Codex task.'
+        }
+        if ($terminalOutcome -eq 'retry-not-submitted' -and
+            -not (Test-WatchRetryNotSubmittedProof -State $adapterState -ExpectedThreadId $ThreadId.ToLowerInvariant())) {
+            $exception = [System.InvalidOperationException]::new('Adapter retry-not-submitted proof is incomplete or inconsistent.')
+            $exception.Data['Category'] = 'ConcurrencySlotRecoveryRequired'
+            throw $exception
         }
         $terminalDeadlineAtUtc = [string](Get-WatchProperty $adapterState 'responseDeadlineAtUtc' '')
         $terminalRemainingSeconds = Get-WatchRemainingDeadlineSeconds `

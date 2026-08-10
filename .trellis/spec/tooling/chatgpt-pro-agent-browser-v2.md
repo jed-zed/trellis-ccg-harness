@@ -164,6 +164,31 @@ provider. It controls a user-approved external Chrome tab through
   recovery operation may release only a provably pre-click-unsent or terminal
   slot. It must not delete idempotency or target claims or authorize another
   click.
+- Batch admission accepts `TimeoutSeconds` only from `30` through `7200`.
+  Idempotency keys must match `^[A-Za-z0-9._:-]{1,128}$`; the final composed
+  prompt must be nonblank UTF-8 and no more than `24000` characters; each
+  `browserId`, `profileId`, `tabId`, and `sessionKey` must be nonblank, no more
+  than `512` characters, and contain no CR/LF. These checks complete before
+  session creation, capacity acquisition, or child launch.
+
+## Bridge persistence boundaries
+
+- A durable batch mapping and every session status bind the watcher manifest
+  SHA-256, batch/round identity, idempotency-key SHA-256, final prompt SHA-256,
+  original target binding, and `freshConversation`. Import preflights every
+  member against the manifest, mapping, session, adapter state, and result
+  before writing any response, continuation acknowledgement, or canonical
+  evidence. Any mismatch fails closed; an untampered completed member in a
+  partial batch remains importable.
+- A session recording `browser_transport_required=agent-browser-cli-v2` accepts
+  response persistence only through completed sidebar import with verified
+  transport metadata. Manual `/save-response`, direct metadata-free saves, and
+  caller-forged transport metadata are rejected without mutation. Historical sessions with no required V2
+  transport retain legacy manual compatibility.
+- Follow-up creation canonicalizes and reloads the existing session, verifies
+  mode/workdir/task/evidence/thread bindings, and holds the session lock across
+  current-round read, next-round selection, artifact creation, and atomic
+  status update. Concurrent valid follow-ups therefore receive distinct rounds.
 
 ## New chat and focus
 
@@ -303,7 +328,8 @@ provider. It controls a user-approved external Chrome tab through
    declares schema version `1`, one exact `codexThreadId`, optional
    `maxConcurrency` from `1` to `3`, optional timeout defaulting to `7200`, and
    one or more rounds with unique IDs, prompt paths, evidence directories,
-   idempotency keys, and complete target bindings for multi-round batches.
+   idempotency keys, and complete target bindings for multi-round batches. The
+   timeout/key/prompt/target limits are the exact admission bounds stated above.
 3. **Contract** — the parent process acquires capacity before starting a child
    `run-root`. At most three children for one task and six for the local user may
    run at once. An item without capacity remains local and must not open a page,
@@ -321,7 +347,9 @@ provider. It controls a user-approved external Chrome tab through
    no browser child, cross-thread slot ownership, atomic partial results,
    duplicate-key rejection, UTC owner identity round-trip, locked-stdout
    terminal fallback, nonterminal durable-evidence rejection, safe release
-   proof, and no-resend recovery.
+   proof, no-resend recovery, immutable manifest/intent binding, V2 manual-save
+   rejection with legacy compatibility, and serialized follow-up identity
+   checks.
 7. **Wrong vs correct** — wrong: treat a child exit or unreadable stdout as
    terminal and free its slot; correct: classify stdout as diagnostic, consult
    durable watcher state/event, and retain the slot as

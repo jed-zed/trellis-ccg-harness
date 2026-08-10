@@ -244,6 +244,14 @@ $event = [ordered]@{
     requiresCodexReview = $true
     automaticResendAllowed = $false
 }
+$watchState = [ordered]@{
+    phase = 'terminal'
+    terminalStatus = 'stopped-unverified'
+    rootWait = $true
+    codexThreadId = $CodexThreadId
+    watcherId = $event.watcherId
+}
+[System.IO.File]::WriteAllText((Join-Path $EvidenceDir 'watch-state.json'), ($watchState | ConvertTo-Json -Depth 10), $utf8)
 [System.IO.File]::WriteAllText((Join-Path $EvidenceDir 'watch-event.json'), ($event | ConvertTo-Json -Depth 10), $utf8)
 [ordered]@{
     ok = $true
@@ -724,6 +732,31 @@ Describe 'Atomic RootWait round' {
         Should -Invoke Wait-RootWatchEvent -Times 0 -Exactly
     }
 
+    It 'rejects incomplete retry proof before RootWait terminal projection' {
+        $state = Set-AdapterTerminalFixture -Directory $script:roundDirectory -Outcome 'retry-not-submitted'
+        $state.attempts[0].exactConversationUrl = $script:BoundUrl
+        Write-WatchJsonAtomic -Path (Join-Path $script:roundDirectory 'state.json') -Value $state
+        Mock Invoke-WatchAdapterSend {
+            [pscustomobject]@{ ExitCode = 26; Payload = [pscustomobject]@{ ok = $false; category = 'RetryNotSubmitted' } }
+        }
+
+        $category = ''
+        try {
+            $null = Invoke-RootWaitRound `
+                -EvidenceDirectory $script:roundDirectory `
+                -ThreadId $script:ThreadId `
+                -PromptFile $script:roundPrompt `
+                -IdempotencyKeyValue 'atomic-root-invalid-proof'
+        }
+        catch {
+            $category = [string]$_.Exception.Data['Category']
+        }
+
+        $category | Should -Be 'ConcurrencySlotRecoveryRequired'
+        Test-Path -LiteralPath (Join-Path $script:roundDirectory $Script:EventFileName) | Should -BeFalse
+        Should -Invoke Start-WatchProcess -Times 0 -Exactly
+    }
+
     It 'returns recovery-required to the original task without starting a watcher' {
         $null = Set-AdapterTerminalFixture -Directory $script:roundDirectory -Outcome 'recovery-required'
         Mock Invoke-WatchAdapterSend {
@@ -812,6 +845,38 @@ Describe 'Batch RootWait capacity' {
         { Read-RootWaitBatchManifest -Path $tooLong } | Should -Throw '*between 30 and 7200*'
     }
 
+    It 'rejects key prompt and target bounds before capacity acquisition' {
+        $root = Join-Path $TestDrive 'manifest-admission-bounds'
+        $path = New-BatchFixture -Root $root
+        $manifest = Read-WatchJson -Path $path -Required
+        Mock Acquire-CapacitySlot { throw 'capacity must not be acquired' }
+        Mock Start-BatchRoundProcess { throw 'child must not start' }
+
+        $manifest.rounds[0].idempotencyKey = 'k' * 129
+        Write-WatchJsonAtomic -Path $path -Value $manifest
+        { Invoke-RootWaitBatch -Path $path -ExpectedThreadId $script:ThreadId } | Should -Throw '*idempotencyKey*1 and 128*'
+
+        $manifest.rounds[0].idempotencyKey = 'invalid/key'
+        Write-WatchJsonAtomic -Path $path -Value $manifest
+        { Invoke-RootWaitBatch -Path $path -ExpectedThreadId $script:ThreadId } | Should -Throw '*idempotencyKey*1 and 128*'
+
+        $manifest.rounds[0].idempotencyKey = 'valid-key'
+        [System.IO.File]::WriteAllText($manifest.rounds[0].promptPath, ('p' * 24001), $Script:Utf8NoBom)
+        Write-WatchJsonAtomic -Path $path -Value $manifest
+        { Invoke-RootWaitBatch -Path $path -ExpectedThreadId $script:ThreadId } | Should -Throw '*prompt*24000*'
+
+        [System.IO.File]::WriteAllText($manifest.rounds[0].promptPath, ('p' * 24000), $Script:Utf8NoBom)
+        $manifest.rounds[0].targetBinding.browserId = ('b' * 513)
+        Write-WatchJsonAtomic -Path $path -Value $manifest
+        { Invoke-RootWaitBatch -Path $path -ExpectedThreadId $script:ThreadId } | Should -Throw '*targetBinding*browserId*'
+
+        $manifest.rounds[0].targetBinding.browserId = "browser`r`n2"
+        Write-WatchJsonAtomic -Path $path -Value $manifest
+        { Invoke-RootWaitBatch -Path $path -ExpectedThreadId $script:ThreadId } | Should -Throw '*targetBinding*browserId*'
+        Should -Invoke Acquire-CapacitySlot -Times 0 -Exactly
+        Should -Invoke Start-BatchRoundProcess -Times 0 -Exactly
+    }
+
     It 'passes the exact final second and absolute batch deadline to a child round' {
         $manifestPath = New-BatchFixture -Root (Join-Path $TestDrive 'batch-final-second') -TimeoutSeconds 30
         $script:batchClock = [datetime]'2026-08-09T00:00:00Z'
@@ -891,8 +956,11 @@ Describe 'Batch RootWait capacity' {
         Write-WatchJsonAtomic -Path (Join-Path $directory 'state.json') -Value ([ordered]@{
             phase = 'completed'; submissionAcknowledged = $true
         })
+        Write-WatchJsonAtomic -Path (Join-Path $directory $Script:StateFileName) -Value ([ordered]@{
+            phase = 'terminal'; terminalStatus = 'completed'; rootWait = $true; codexThreadId = $script:ThreadId; watcherId = 'sharing-watcher'
+        })
         Write-WatchJsonAtomic -Path (Join-Path $directory $Script:EventFileName) -Value ([ordered]@{
-            status = 'completed'; watcherId = 'sharing-watcher'
+            status = 'completed'; watcherId = 'sharing-watcher'; codexThreadId = $script:ThreadId; requiresCodexReview = $true; automaticResendAllowed = $false
         })
         $process = [pscustomobject]@{}
         $script:processDisposed = 0
@@ -902,6 +970,7 @@ Describe 'Batch RootWait capacity' {
         $activeRound = [pscustomobject]@{
             Process = $process
             StdoutPath = $stdout
+            ThreadId = $script:ThreadId
             Round = [pscustomobject]@{
                 RoundId = 'sharing-retry'
                 EvidenceDirectory = $directory
@@ -967,9 +1036,38 @@ Describe 'Batch RootWait capacity' {
             $locked.Dispose()
         }
 
-        $result.status | Should -Be 'failed'
+        $result.status | Should -Be 'recovery-required'
         $result.terminalStatus | Should -BeNullOrEmpty
+        $result.errorCategory | Should -Be 'ConcurrencySlotRecoveryRequired'
         $result.submissionAcknowledged | Should -BeFalse
+    }
+
+    It 'rejects completed stdout when durable watcher identity does not match' {
+        $directory = Join-Path $TestDrive 'batch-read-wrong-thread'
+        $null = New-Item -ItemType Directory -Path $directory -Force
+        $stdout = Join-Path $directory 'stdout.log'
+        [System.IO.File]::WriteAllText($stdout, '{"terminalStatus":"completed","watcherId":"stdout-watcher"}', $Script:Utf8NoBom)
+        Write-WatchJsonAtomic -Path (Join-Path $directory $Script:StateFileName) -Value ([ordered]@{
+            phase = 'terminal'; terminalStatus = 'completed'; rootWait = $true; codexThreadId = ([guid]::NewGuid().ToString()); watcherId = 'durable-watcher'
+        })
+        Write-WatchJsonAtomic -Path (Join-Path $directory $Script:EventFileName) -Value ([ordered]@{
+            status = 'completed'; watcherId = 'durable-watcher'; codexThreadId = ([guid]::NewGuid().ToString()); requiresCodexReview = $true; automaticResendAllowed = $false
+        })
+        $process = [pscustomobject]@{}
+        $process | Add-Member -MemberType ScriptMethod -Name WaitForExit -Value { }
+        $process | Add-Member -MemberType ScriptMethod -Name Dispose -Value { }
+        $started = [datetime]::UtcNow
+        $activeRound = [pscustomobject]@{
+            Process = $process; StdoutPath = $stdout; ThreadId = $script:ThreadId
+            Round = [pscustomobject]@{ RoundId = 'wrong-thread'; EvidenceDirectory = $directory; TargetBinding = $null }
+            SlotId = 1; QueuedAt = $started; StartedAt = $started
+        }
+
+        $result = Read-BatchRoundProcessResult -ActiveRound $activeRound -CompletedAt $started.AddSeconds(1)
+
+        $result.status | Should -Be 'recovery-required'
+        $result.terminalStatus | Should -BeNullOrEmpty
+        $result.errorCategory | Should -Be 'ConcurrencySlotRecoveryRequired'
     }
 
     It 'enforces three slots per task and six slots globally' {
@@ -1098,6 +1196,52 @@ Describe 'Batch RootWait capacity' {
         (Get-CapacitySlots).slots.Count | Should -Be 1
     }
 
+    It 'rejects every historical attempt mutation and retains the slot' {
+        $directory = Join-Path $TestDrive 'retry-history-incomplete'
+        $null = New-Item -ItemType Directory -Path $directory -Force
+        $claim = Acquire-CapacitySlot -ThreadId $script:ThreadId -RoundId 'retry-history' -EvidenceDirectory $directory
+        $null = Set-CapacitySlotClaim -Id $claim.slotId -ClaimId $claim.claimId -Changes ([ordered]@{
+            phase = 'run-starting'; submissionAttempted = $true
+        })
+        $state = Set-AdapterTerminalFixture -Directory $directory -Outcome 'retry-not-submitted'
+        $state.attempts[0].exactConversationUrl = $script:BoundUrl
+        $state.attempts[1].attempt = 1
+        Write-WatchJsonAtomic -Path (Join-Path $directory 'state.json') -Value $state
+
+        $category = ''
+        try {
+            $null = Release-CapacitySlot -Id $claim.slotId -ExpectedClaimId $claim.claimId -OwnerCompletionObserved
+        }
+        catch {
+            $category = [string]$_.Exception.Data['Category']
+        }
+
+        $category | Should -Be 'ConcurrencySlotRecoveryRequired'
+        (Get-CapacitySlots).slots.Count | Should -Be 1
+    }
+
+    It 'does not report batch success when terminal slot release fails' {
+        $manifestPath = New-BatchFixture -Root (Join-Path $TestDrive 'release-failure-batch') -TimeoutSeconds 30
+        $process = [pscustomobject]@{ Id = $PID; HasExited = $true }
+        $process | Add-Member -MemberType ScriptMethod -Name Refresh -Value { }
+        $process | Add-Member -MemberType ScriptMethod -Name Dispose -Value { }
+        Mock Start-BatchRoundProcess { [pscustomobject]@{ Process = $process; StdoutPath = ''; StderrPath = '' } }
+        Mock Read-BatchRoundProcessResult {
+            [ordered]@{ roundId = 'round-1'; status = 'completed'; terminalStatus = 'completed'; terminalOutcome = ''; errorCategory = $null; watcherId = 'release-failure-watcher' }
+        }
+        Mock Release-CapacitySlot {
+            $exception = [System.InvalidOperationException]::new('release proof failed')
+            $exception.Data['Category'] = 'ConcurrencySlotRecoveryRequired'
+            throw $exception
+        }
+
+        $result = Invoke-RootWaitBatch -Path $manifestPath -ExpectedThreadId $script:ThreadId -SleepAction { }
+
+        $result.items[0].status | Should -Be 'recovery-required'
+        $result.items[0].errorCategory | Should -Be 'ConcurrencySlotRecoveryRequired'
+        $result.allSucceeded | Should -BeFalse
+    }
+
     It 'returns ConcurrencySlotRecoveryRequired and retains a recovery-required slot' {
         $directory = Join-Path $TestDrive 'recovery-required-release'
         $null = New-Item -ItemType Directory -Path $directory -Force
@@ -1165,12 +1309,30 @@ param(
     [string]$ResponseDeadlineAtUtc
 )
 Start-Sleep -Milliseconds 300
+$watcherId = [guid]::NewGuid().ToString()
+$utf8 = [System.Text.UTF8Encoding]::new($false)
+$watchState = [ordered]@{
+    phase = 'terminal'
+    terminalStatus = 'completed'
+    rootWait = $true
+    codexThreadId = $CodexThreadId
+    watcherId = $watcherId
+}
+$event = [ordered]@{
+    status = 'completed'
+    watcherId = $watcherId
+    codexThreadId = $CodexThreadId
+    requiresCodexReview = $true
+    automaticResendAllowed = $false
+}
+[System.IO.File]::WriteAllText((Join-Path $EvidenceDir 'watch-state.json'), ($watchState | ConvertTo-Json -Depth 10), $utf8)
+[System.IO.File]::WriteAllText((Join-Path $EvidenceDir 'watch-event.json'), ($event | ConvertTo-Json -Depth 10), $utf8)
 [ordered]@{
     ok = $true
     command = 'run-root'
     terminalStatus = 'completed'
     submissionAcknowledged = $true
-    watcherId = [guid]::NewGuid().ToString()
+    watcherId = $watcherId
 } | ConvertTo-Json -Compress
 '@
         [System.IO.File]::WriteAllText($fakeWatcher, $fakeSource, [System.Text.UTF8Encoding]::new($true))
