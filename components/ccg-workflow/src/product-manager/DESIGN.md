@@ -21,16 +21,13 @@ instruction, plugin, cache, link, hardlink, race, and size boundaries. Its
 manifest summary and project-selected Claude transport are part of the input
 digest and invocation key; ephemeral paths are not.
 
-Codex runs in a read-only sandbox over that snapshot. Gemini runs in plan mode
-with only `read_file`, `read_many_files`, `list_directory`, `glob`, and
-`grep_search` allowed; all other tools and MCP are denied. Claude runs in safe
-mode with only Read/Glob/Grep, while slash commands, settings sources, MCP,
-browser integration, and session persistence stay disabled. All providers
-run with `shell:false`, a provider-scoped minimal environment, timeouts, and
-output caps. Claude always receives an explicit `--model`; the default is the
-native `opus` alias and `CCG_PRODUCT_MANAGER_CLAUDE_MODEL` remains an explicit
-override. The same selected provider is retried; invalid or unavailable
-responses become an explicit `unavailable` verdict and never trigger fallback.
+Each Provider runs over that disposable snapshot with the selected official
+baseline's normal permission behavior. CCG still launches the Provider with
+`shell:false`, a provider-scoped minimal environment, timeouts, and output caps.
+Claude always receives an explicit `--model`; the default is the native `opus`
+alias and `CCG_PRODUCT_MANAGER_CLAUDE_MODEL` remains an explicit override. The
+same selected Provider is retried; invalid or unavailable responses become an
+explicit `unavailable` verdict and never trigger fallback.
 
 Claude transport defaults to native local execution. Explicit SSH validates
 seven environment-only settings and a protocol-v2 bridge before each attempt.
@@ -56,8 +53,9 @@ disallowed unified selection fails closed without changing the role protocol.
   support notices, and other diagnostics are kept off stdout.
 - Each failed same-provider attempt appends a bounded, redacted diagnostic to
   the invocation audit before the final `unavailable` verdict.
-- Absolute executable/entrypoint validation, no shell, a file-read/search-only
-  allowlist, no subagents, and no workspace writes constrain provider capability.
+- Absolute executable/entrypoint validation, no shell, the disposable snapshot,
+  and independent response validation keep Provider tool use from granting
+  canonical workspace authority.
 - Atomic `input.json`, `provider-request.json`, `response.raw`, `result.json`,
   and `status.json` evidence files, append-only NDJSON audit, nonce ownership,
   heartbeat leases, live-process checks before stale takeover, bounded waits,
@@ -119,6 +117,6 @@ environment override for an intentionally selected exact model name.
 
 ### 2026-08-03 - Snapshot workspace access and explicit Claude transport
 
-Bound reviews to a strict read-only workspace snapshot, enabled only provider
-file-read/search tools, made local native Claude the default, and added an
-environment-only SSH protocol-v2 opt-in with no automatic fallback.
+Bound reviews to a strict disposable workspace snapshot, made local native
+Claude the default, and added an environment-only SSH protocol-v2 opt-in with
+no automatic fallback.

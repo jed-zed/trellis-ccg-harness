@@ -171,6 +171,13 @@ describe('doctor command helpers', () => {
     ])
   })
 
+  it('does not require the Grok manager to report an empty MCP surface', async () => {
+    const pluginDoctor = await fs.readFile(join(process.cwd(), 'plugins', 'ccg', 'scripts', 'doctor.ps1'), 'utf8')
+    expect(pluginDoctor).toContain('if ($grokResult.ok)')
+    expect(pluginDoctor).not.toContain('mcpServersEmpty')
+    expect(pluginDoctor).not.toContain('mcpToolCount -eq 0')
+  })
+
   it('includes all four role providers in health checks and status rows', () => {
     const routing: ModelRouting = {
       frontend: { primary: 'gemini', models: ['gemini'], strategy: 'fallback' },
