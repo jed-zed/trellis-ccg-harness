@@ -15,6 +15,9 @@ becoming a task or workspace authority.
 - Run only an explicitly selected, implemented Codex, Gemini, or Claude adapter
   against the bound snapshot, using that Provider's upstream permission model.
 - Redact provider payloads and task-local runtime evidence.
+- When a task-local review manifest exists, include its fixed review evidence
+  and exact Git-tracked targets; reject missing, untracked, or private targets
+  before starting the Provider.
 - Keep machine-readable stdout to exactly one JSON document by suppressing
   support notices in both CCG and provider children, and record bounded,
   redacted diagnostics for every failed same-provider attempt.

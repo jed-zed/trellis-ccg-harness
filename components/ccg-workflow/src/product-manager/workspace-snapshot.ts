@@ -31,6 +31,25 @@ const MANIFEST_FIELDS = [
   'files',
 ] as const
 
+function normalizeReviewPath(input: unknown, label: string): string {
+  if (typeof input !== 'string'
+    || !input
+    || input.includes('\\')
+    || /[\0\r\n:]/.test(input)
+    || input.startsWith('/')
+    || input.split('/').some(segment => !segment || segment === '.' || segment === '..')) {
+    throw new TypeError(`${label} must be a safe relative path`)
+  }
+  return input
+}
+
+function reviewEvidenceName(input: unknown, label: string): string {
+  const path = normalizeReviewPath(input, label)
+  if (path.includes('/'))
+    throw new TypeError(`${label} must be a file name`)
+  return path
+}
+
 function isInside(root: string, candidate: string): boolean {
   const rel = relative(root, candidate)
   return rel === '' || (!rel.startsWith(`..${sep}`) && rel !== '..' && !isAbsolute(rel))
@@ -94,6 +113,67 @@ function trackedSnapshotPaths(output: string): string[] {
   })
 }
 
+async function reviewSnapshotPaths(options: {
+  workdir: string
+  taskDir: string
+  trackedPaths: Set<string>
+}): Promise<string[]> {
+  const taskPath = relative(options.workdir, options.taskDir).split(sep).join('/')
+  const reviewPath = `${taskPath}/.ccg-evidence/review`
+  const manifestPath = `${reviewPath}/review-manifest.json`
+  const manifestFile = resolve(options.workdir, ...manifestPath.split('/'))
+  let metadata
+  try {
+    metadata = await lstat(manifestFile)
+  }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT')
+      return []
+    throw error
+  }
+  if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.size > 2 * 1024 * 1024)
+    throw new Error('product-manager review snapshot manifest must be a bounded regular file')
+
+  const parsed = JSON.parse(await readFile(manifestFile, 'utf8')) as unknown
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
+    throw new TypeError('product-manager review snapshot manifest must be an object')
+  const manifest = parsed as Record<string, unknown>
+  if (manifest.schemaVersion !== 1 || !Array.isArray(manifest.trackedReviewFiles))
+    throw new TypeError('product-manager review snapshot manifest has an unsupported schema')
+  const trackedReviewFiles = manifest.trackedReviewFiles.map((path, index) =>
+    normalizeReviewPath(path, `trackedReviewFiles[${index}]`))
+  if (new Set(trackedReviewFiles).size !== trackedReviewFiles.length || trackedReviewFiles.length > 2000)
+    throw new Error('product-manager review snapshot target list is invalid')
+
+  const requiredPaths = [
+    manifestPath,
+    `${reviewPath}/${reviewEvidenceName(manifest.diffFile, 'diffFile')}`,
+    `${reviewPath}/${reviewEvidenceName(manifest.fileListFile, 'fileListFile')}`,
+    `${reviewPath}/test-summary.md`,
+    ...trackedReviewFiles,
+  ]
+  const missing: string[] = []
+  for (const path of requiredPaths) {
+    try {
+      const entry = await lstat(resolve(options.workdir, ...path.split('/')))
+      if (!entry.isFile() || entry.isSymbolicLink())
+        missing.push(path)
+    }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT')
+        missing.push(path)
+      else
+        throw error
+    }
+  }
+  if (missing.length)
+    throw new Error(`Product-manager required review snapshot paths are missing or invalid: ${missing.join(', ')}`)
+  const untrackedTargets = trackedReviewFiles.filter(path => !options.trackedPaths.has(path))
+  if (untrackedTargets.length)
+    throw new Error(`Product-manager review snapshot targets must be tracked files: ${untrackedTargets.sort().join(', ')}`)
+  return requiredPaths
+}
+
 export async function prepareProductManagerWorkspaceSnapshot(options: {
   workdir: string
   taskDir: string
@@ -105,9 +185,12 @@ export async function prepareProductManagerWorkspaceSnapshot(options: {
   if (!isInside(workdir, taskDir))
     throw new Error('product-manager snapshot task directory must stay inside the workdir')
 
+  const trackedPaths = trackedSnapshotPaths(gitOutput(workdir, ['ls-files', '--stage', '-z']))
+  const allowedSnapshotPaths = await reviewSnapshotPaths({ workdir, taskDir, trackedPaths: new Set(trackedPaths) })
   const selectedPaths = [...new Set([
-    ...trackedSnapshotPaths(gitOutput(workdir, ['ls-files', '--stage', '-z'])),
+    ...trackedPaths,
     ...gitOutput(workdir, ['ls-files', '--others', '--exclude-standard', '-z']).split('\0').filter(Boolean),
+    ...allowedSnapshotPaths,
   ])]
   const existingPaths: string[] = []
   for (const path of selectedPaths) {
@@ -168,6 +251,7 @@ export async function prepareProductManagerWorkspaceSnapshot(options: {
       allowEmpty: true,
       allowDestinationInsideSource: true,
       skipExcludedSelectedPaths: true,
+      allowedSnapshotPaths,
     })
     const files = [...snapshot.files].sort((left, right) => left.path.localeCompare(right.path))
     const workspaceSnapshot: ProductManagerWorkspaceSnapshot = {

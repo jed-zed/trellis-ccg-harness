@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Bounded product-manager review snapshots** — Include the current Trellis
+  review manifest, diff, file list, test summary, and its exact tracked target
+  files while still rejecting missing targets and private files before a
+  Provider starts.
+
 ## [3.4.9] - 2026-08-09
 
 ### Changed
