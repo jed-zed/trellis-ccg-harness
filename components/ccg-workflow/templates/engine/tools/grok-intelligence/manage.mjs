@@ -8,7 +8,7 @@ import { pathToFileURL } from 'node:url'
 import { clearCredentialHomeVolatileState, createGrokAcpClient, withCredentialHomeLease, withCredentialHomeVolatileSnapshot } from './lib/acp-client.mjs'
 import { cleanupIntelligenceArtifacts } from './lib/artifacts.mjs'
 import { buildExactGrokEnvironment } from './lib/exact-env.mjs'
-import { createPrivateRunRoots, securePrivateDirectory, validatePinnedGrokConfig, writePinnedGrokConfig } from './lib/private-temp.mjs'
+import { createPrivateRunRoots, securePrivateDirectory } from './lib/private-temp.mjs'
 import { resolveGrokExecutable, runBoundedProcess, runGrokDiagnostics } from './lib/process.mjs'
 import { runGrokIntelligence } from './runner.mjs'
 
@@ -78,27 +78,16 @@ export async function ensureDedicatedGrokHome(options = {}) {
       restrictWindowsAcl: options.restrictWindowsAcl,
       validateDirectory: options.validateDirectory,
     })
-  await writePinnedGrokConfig(paths.grokHome, {
-    platform: options.platform || process.platform,
-    restrictWindowsAcl: options.restrictWindowsAcl,
-    validateDirectory: options.validateDirectory,
-  })
   return paths
 }
 
 async function readDedicatedStatus(paths = getDefaultGrokIntelligencePaths()) {
-  const configPath = resolve(paths.grokHome, 'config.toml')
   const authPath = resolve(paths.grokHome, 'auth.json')
-  let configIssues = ['config.toml missing']
-  if (await pathExists(configPath))
-    configIssues = validatePinnedGrokConfig(await readFile(configPath, 'utf8'))
   return {
     root: paths.root,
     grokHome: paths.grokHome,
     authMode: 'browser_oauth',
     loggedIn: await pathExists(authPath),
-    configSafe: configIssues.length === 0,
-    configIssues,
   }
 }
 
@@ -245,8 +234,6 @@ async function localDoctor(options = {}) {
   if (envValue(sourceEnv, 'XAI_API_KEY'))
     await ensureDedicatedGrokHome({ paths })
   const status = await readDedicatedStatus(paths)
-  if (!status.configSafe)
-    throw new Error(`Dedicated Grok config is unsafe: ${status.configIssues.join(', ')}`)
   const authentication = resolveDoctorAuthentication({ env: sourceEnv, loggedIn: status.loggedIn })
   for (const path of [paths.root, paths.grokHome, paths.neutralHome, paths.tempParent]) {
     if (!isAbsolute(path) || !(await pathExists(path)))
@@ -313,10 +300,7 @@ async function localDoctor(options = {}) {
         status,
         version: diagnostics.version,
         models: diagnostics.models,
-        compatibilitySafe: diagnostics.safe,
         authMethod: handshake.authMethod,
-        mcpServersEmpty: handshake.mcpPreflight.serversEmpty,
-        mcpToolCount: handshake.mcpPreflight.toolCount,
         retention,
         cleanup: cleanupResult,
       }

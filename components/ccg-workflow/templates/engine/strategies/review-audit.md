@@ -2,7 +2,7 @@
 
 ## Evidence Mode Selection
 
-For a pure local code review, use the diff, source, tests, CI, and local read-only Provider evidence; do not run Grok external-intelligence or apply an official-domain gate. Only when a conclusion depends on a current external fact, predeclare its authoritative domain and run:
+For a pure local code review, use the diff, source, tests, CI, and local Provider evidence; do not run Grok external-intelligence or apply an official-domain gate. Only when a conclusion depends on a current external fact, predeclare its authoritative domain and run:
 
 `ccg route --workflow review --phase final-verify --task-file ".ccg/tasks/<task-id>/intelligence-request.md" --state-file ".ccg/tasks/<task-id>/intelligence-route.json"`
 
@@ -10,7 +10,7 @@ For that external-fact path append `--trigger final_diff_verify`, repeated `--of
 
 For local Grok review, bind every regular workspace-relative file with
 `--grok-review-target`. The wrapper embeds only those files in a fresh,
-tool-less Provider session and appends the validated `CCG_GROK_REVIEW_JSON`
+Provider session and appends the validated `CCG_GROK_REVIEW_JSON`
 scope envelope. For local Antigravity review, bind the concrete files in the prompt
 and invoke `ccg wrapper --backend antigravity --antigravity-review`; require a
 completed model report. Neither local path uses the external-intelligence

@@ -5,7 +5,7 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 // @ts-expect-error Runtime template modules intentionally ship as plain ESM.
-import { GROK_ACP_DENY_RULES, GROK_ACP_DISALLOWED_TOOLS, GROK_INTELLIGENCE_SYSTEM_PROMPT, buildGrokAcpArgs, createExclusiveCapture, createGrokAcpClient, selectAcpAuthMethod, validatePrivateDirectory, validateWorkingDirectory, withCredentialHomeLease } from '../../../templates/engine/tools/grok-intelligence/lib/acp-client.mjs'
+import { GROK_INTELLIGENCE_SYSTEM_PROMPT, buildGrokAcpArgs, createExclusiveCapture, createGrokAcpClient, selectAcpAuthMethod, selectAcpPermissionOption, validatePrivateDirectory, validateWorkingDirectory, withCredentialHomeLease } from '../../../templates/engine/tools/grok-intelligence/lib/acp-client.mjs'
 // @ts-expect-error Runtime template modules intentionally ship as plain ESM.
 import * as grokAcp from '../../../templates/engine/tools/grok-intelligence/lib/acp-client.mjs'
 // @ts-expect-error Runtime template modules intentionally ship as plain ESM.
@@ -112,7 +112,15 @@ rl.on('line', line => {
       jsonrpc: '2.0',
       id: 900,
       method: 'session/request_permission',
-      params: { sessionId: 'fake-session', toolCall: { title: 'blocked' } },
+      params: {
+        sessionId: 'fake-session',
+        toolCall: { title: 'native tool' },
+        options: [
+          { optionId: 'once', kind: 'allow_once', name: 'Allow once' },
+          { optionId: 'always', kind: 'allow_always', name: 'Always allow' },
+          { optionId: 'reject', kind: 'reject_once', name: 'Reject' },
+        ],
+      },
     })
     return
   }
@@ -233,21 +241,18 @@ describe('Grok intelligence ACP transport', () => {
     expect(backend).toContain('args := []string{"--always-approve", "--output-format", "streaming-json"}')
   })
 
-  it('builds the strict agent-stdio command and never uses one-shot prompt mode', () => {
+  it('builds the native-permission agent-stdio command and never uses one-shot prompt mode', () => {
     const args = buildGrokAcpArgs({ maxTurns: 6, model: 'grok-4.5' })
     expect(args.slice(-4)).toEqual(['agent', '--model', 'grok-4.5', 'stdio'])
     expect(args).not.toContain('-p')
-    expect(args).toContain('dontAsk')
-    expect(args).toContain('--no-plan')
-    expect(args).toContain('--no-memory')
-    expect(args).toContain('--no-subagents')
+    expect(args).toContain('--always-approve')
     expect(args).toContain('--verbatim')
     expect(args).toContain('--system-prompt-override')
     expect(args).toContain(GROK_INTELLIGENCE_SYSTEM_PROMPT)
     expect(args).toContain('6')
-    expect(args[args.indexOf('--tools') + 1]).toBe('web_search')
-    expect(args[args.indexOf('--disallowed-tools') + 1]).toBe(GROK_ACP_DISALLOWED_TOOLS.join(','))
-    expect(args.filter((arg: string) => GROK_ACP_DENY_RULES.includes(arg))).toEqual(GROK_ACP_DENY_RULES)
+    expect(args).not.toContain('--tools')
+    expect(args).not.toContain('--disallowed-tools')
+    expect(args).not.toContain('--deny')
     expect(() => buildGrokAcpArgs({ maxTurns: 7 })).toThrow(/maxTurns/i)
     expect(() => buildGrokAcpArgs({ maxTurns: 6, model: 'bad\nmodel' })).toThrow(/model/i)
   })
@@ -264,7 +269,7 @@ describe('Grok intelligence ACP transport', () => {
     expect(directSignals).toEqual([])
   })
 
-  it('builds child env from an allowlist and forces compatibility surfaces off', () => {
+  it('builds child env from an allowlist without forcing provider capabilities off', () => {
     const env = buildExactGrokEnvironment({
       sourceEnv: {
         PATH: 'safe-path',
@@ -303,7 +308,16 @@ describe('Grok intelligence ACP transport', () => {
     expect(() => selectAcpAuthMethod(methods, { authMode: 'api_key', hasApiKey: false })).toThrow(/API key/i)
   })
 
-  it('advertises no filesystem/terminal capability, creates an empty-MCP session, and cancels permissions', async () => {
+  it('prefers persistent ACP approval and falls back to one-shot approval', () => {
+    expect(selectAcpPermissionOption([
+      { optionId: 'once', kind: 'allow_once' },
+      { optionId: 'always', kind: 'allow_always' },
+    ])).toBe('always')
+    expect(selectAcpPermissionOption([{ optionId: 'once', kind: 'allow_once' }])).toBe('once')
+    expect(() => selectAcpPermissionOption([{ optionId: 'reject', kind: 'reject_once' }])).toThrow(/allow option/i)
+  })
+
+  it('keeps client-hosted capabilities bounded and lets Grok load its native MCP configuration', async () => {
     let spawnedEnvironment: Record<string, string> | undefined
     const result = await makeClient('success', {
       spawnProcess: (...spawnArgs: Parameters<typeof spawn>) => {
@@ -315,10 +329,9 @@ describe('Grok intelligence ACP transport', () => {
       fs: { readTextFile: false, writeTextFile: false },
       terminal: false,
     })
-    expect(result.sessionResult.observedSession).toEqual({ cwd: await realpath(cwd), mcpServers: [] })
-    expect(result.promptResult.permissionResponse).toEqual({ outcome: { outcome: 'cancelled' } })
+    expect(result.sessionResult.observedSession).toEqual({ cwd: await realpath(cwd) })
+    expect(result.promptResult.permissionResponse).toEqual({ outcome: { outcome: 'selected', optionId: 'always' } })
     expect(result.authMethod).toBe('cached_token')
-    expect(result.mcpPreflight).toEqual({ serversEmpty: true, toolCount: 0 })
     expect(result.promptResult.receivedArgs).toEqual(buildGrokAcpArgs({ maxTurns: 6 }))
     const unexpectedEnvironmentKeys = Object.keys(spawnedEnvironment || {}).filter(key => !INTELLIGENCE_ENV_ALLOWLIST.includes(key))
     expect(unexpectedEnvironmentKeys).toEqual([])
@@ -347,7 +360,6 @@ describe('Grok intelligence ACP transport', () => {
   it('supports a local-only doctor handshake without sending session/prompt', async () => {
     const result = await makeClient('success').run(runOptions({ handshakeOnly: true, prompt: undefined }))
     expect(result.authMethod).toBe('cached_token')
-    expect(result.mcpPreflight).toEqual({ serversEmpty: true, toolCount: 0 })
     expect(result.promptResult).toBeNull()
     expect(result.notifications.some((message: any) => message.method === 'session/request_permission')).toBe(false)
   })
@@ -376,8 +388,6 @@ describe('Grok intelligence ACP transport', () => {
   })
 
   it.each([
-    ['nonempty-mcp', /non-empty MCP/i],
-    ['mcp-tool', /mcpToolCount/i],
     ['missing-cached-auth', /cached_token/i],
     ['malformed', /malformed JSON-RPC/i],
     ['unknown-after-prompt', /unknown response/i],
@@ -387,6 +397,11 @@ describe('Grok intelligence ACP transport', () => {
   ])('fails closed for %s', async (mode, error) => {
     await expect(makeClient(mode).run(runOptions())).rejects.toThrow(error)
   }, 15_000)
+
+  it.each(['nonempty-mcp', 'mcp-tool'])('does not reject configured provider capability event %s', async (mode) => {
+    const result = await makeClient(mode).run(runOptions())
+    expect(result.promptResult.permissionResponse).toEqual({ outcome: { outcome: 'selected', optionId: 'always' } })
+  })
 
   it('rejects unknown response correlation during initialization', async () => {
     await expect(makeClient('unknown-response').run(runOptions())).rejects.toThrow(/unknown response/i)

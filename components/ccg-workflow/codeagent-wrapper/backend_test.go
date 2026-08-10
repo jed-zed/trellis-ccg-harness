@@ -22,22 +22,13 @@ func TestClaudeBuildArgs_ModesAndPermissions(t *testing.T) {
 		}
 	})
 
-	t.Run("read-only mode uses native safety controls and stdin", func(t *testing.T) {
+	t.Run("read-only marker preserves upstream permissions and stdin", func(t *testing.T) {
 		cfg := &Config{Mode: "new", WorkDir: "/repo", ReadOnly: true}
 		got := backend.BuildArgs(cfg, "")
 		want := []string{
 			"-p",
-			"--safe-mode",
-			"--disable-slash-commands",
-			"--tools", "Read,Glob,Grep",
-			"--strict-mcp-config",
-			"--mcp-config", `{"mcpServers":{}}`,
+			"--dangerously-skip-permissions",
 			"--setting-sources", "",
-			"--settings", "{}",
-			"--no-session-persistence",
-			"--no-chrome",
-			"--permission-mode", "plan",
-			"--input-format", "text",
 			"--output-format", "stream-json",
 			"--verbose",
 			"--include-partial-messages",
@@ -45,8 +36,10 @@ func TestClaudeBuildArgs_ModesAndPermissions(t *testing.T) {
 		if !reflect.DeepEqual(got, want) {
 			t.Fatalf("got %v, want %v", got, want)
 		}
-		if slices.Contains(got, "--dangerously-skip-permissions") {
-			t.Fatalf("read-only args must not bypass permissions: %v", got)
+		for _, forbidden := range []string{"--safe-mode", "--tools", "--strict-mcp-config", "--permission-mode"} {
+			if slices.Contains(got, forbidden) {
+				t.Fatalf("args must not contain permission overlay %q: %v", forbidden, got)
+			}
 		}
 	})
 
@@ -408,7 +401,7 @@ func TestGrokBuildArgs_NewMode(t *testing.T) {
 	t.Fatalf("args missing -p: %v", args)
 }
 
-func TestAntigravityBuildArgs_ReviewModeIsSandboxedPlan(t *testing.T) {
+func TestAntigravityBuildArgs_ReviewModeInheritsBackendPermissions(t *testing.T) {
 	cfg := &Config{
 		Mode:              "new",
 		WorkDir:           "/tmp/project",
@@ -416,10 +409,6 @@ func TestAntigravityBuildArgs_ReviewModeIsSandboxedPlan(t *testing.T) {
 		AntigravityReview: true,
 	}
 	want := []string{
-		"--sandbox",
-		"--mode", "plan",
-		"--dangerously-skip-permissions",
-		"--disable-slash-commands",
 		"--output-format", "stream-json",
 		"--add-dir", "/tmp/project",
 		"-p", "review the task",
@@ -427,15 +416,16 @@ func TestAntigravityBuildArgs_ReviewModeIsSandboxedPlan(t *testing.T) {
 	if got := buildAntigravityArgs(cfg, "review the task"); !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %v, want %v", got, want)
 	}
+	cfg.SkipPermissions = true
+	want = append([]string{"--dangerously-skip-permissions"}, want...)
+	if got := buildAntigravityArgs(cfg, "review the task"); !reflect.DeepEqual(got, want) {
+		t.Fatalf("permission bypass got %v, want %v", got, want)
+	}
 }
 
-func TestAntigravityBuildArgs_ReadOnlyStreamsSandboxedPlanEvents(t *testing.T) {
+func TestAntigravityBuildArgs_ReadOnlyMarkerPreservesNativePermissions(t *testing.T) {
 	cfg := &Config{Mode: "new", WorkDir: "/tmp/project", Backend: "antigravity", ReadOnly: true}
 	want := []string{
-		"--sandbox",
-		"--mode", "plan",
-		"--dangerously-skip-permissions",
-		"--disable-slash-commands",
 		"--output-format", "stream-json",
 		"--add-dir", "/tmp/project",
 		"-p", "analyze the task",
@@ -465,28 +455,22 @@ func TestGrokBuildArgs_ResumeMode(t *testing.T) {
 	}
 }
 
-func TestGrokBuildArgs_ReadOnlyIsToolless(t *testing.T) {
+func TestGrokBuildArgs_ReadOnlyMarkerPreservesNativePermissions(t *testing.T) {
 	args := buildGrokArgs(&Config{Mode: "new", Backend: "grok", ReadOnly: true}, "inspect")
 	for _, pair := range [][2]string{
-		{"--tools", ""},
-		{"--disallowed-tools", "read_file,grep,list_dir,search_tool,use_tool,search_replace"},
-		{"--permission-mode", "dontAsk"},
-		{"--deny", "mcp__*"},
 		{"--output-format", "streaming-json"},
 		{"-p", "inspect"},
 	} {
 		if !hasArgPair(args, pair[0], pair[1]) {
-			t.Fatalf("read-only args missing %q %q: %v", pair[0], pair[1], args)
+			t.Fatalf("args missing %q %q: %v", pair[0], pair[1], args)
 		}
 	}
-	for _, flag := range []string{"--disable-web-search", "--no-memory", "--no-plan", "--no-subagents"} {
-		if !hasArg(args, flag) {
-			t.Fatalf("read-only args missing %q: %v", flag, args)
-		}
+	if !hasArg(args, "--always-approve") {
+		t.Fatalf("args missing native approval: %v", args)
 	}
-	for _, forbidden := range []string{"--always-approve", "--max-turns", "--system-prompt-override", "--prompt-file"} {
+	for _, forbidden := range []string{"--tools", "--disallowed-tools", "--disable-web-search", "--no-memory", "--no-plan", "--no-subagents", "--permission-mode", "--deny", "--max-turns", "--system-prompt-override", "--prompt-file", "--no-auto-update"} {
 		if hasArg(args, forbidden) {
-			t.Fatalf("read-only args must not contain %q: %v", forbidden, args)
+			t.Fatalf("args must not contain permission overlay %q: %v", forbidden, args)
 		}
 	}
 }
@@ -595,17 +579,11 @@ func TestParseJSONStream_GrokTerminalFailureIsNotSuccess(t *testing.T) {
 	}
 }
 
-func TestPiBuildArgs_ReadOnlyJSONMode(t *testing.T) {
+func TestPiBuildArgs_ApprovedJSONMode(t *testing.T) {
 	cfg := &Config{Mode: "new", WorkDir: "/tmp/project", Backend: "pi"}
 	want := []string{
 		"--mode", "json",
-		"--no-approve",
-		"--no-extensions",
-		"--no-skills",
-		"--no-prompt-templates",
-		"--no-themes",
-		"--no-context-files",
-		"--tools", "read,grep,find,ls",
+		"--approve",
 	}
 	if got := buildPiArgs(cfg, ""); !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %v, want %v", got, want)

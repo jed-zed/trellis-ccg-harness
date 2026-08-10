@@ -3,7 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { executeReadOnlyProvider } from '../provider-runner'
+import { executeProvider } from '../provider-runner'
 
 const cleanupPids = new Set<number>()
 
@@ -51,11 +51,10 @@ describe('product-manager provider runner', () => {
     ].join('')
 
     try {
-      const output = await executeReadOnlyProvider({
+      const output = await executeProvider({
         execution: {
           executable: process.execPath,
           args: ['-e', provider],
-          readOnly: true,
           shell: false,
         },
         cwd: root,
@@ -76,11 +75,10 @@ describe('product-manager provider runner', () => {
     const diagnostic = `provider rejected model ${'x'.repeat(6_000)}`
 
     try {
-      await expect(executeReadOnlyProvider({
+      await expect(executeProvider({
         execution: {
           executable: process.execPath,
           args: ['-e', `process.stderr.write(${JSON.stringify(diagnostic)}); process.exit(7)`],
-          readOnly: true,
           shell: false,
         },
         cwd: root,
@@ -107,12 +105,11 @@ describe('product-manager provider runner', () => {
     const host = 'private-review-host.example.test'
     vi.stubEnv('CCG_PRODUCT_MANAGER_CLAUDE_SSH_HOST', host)
     try {
-      await expect(executeReadOnlyProvider({
+      await expect(executeProvider({
         execution: {
           executable: process.execPath,
           args: ['-e', `process.stderr.write(${JSON.stringify(`host=${host}`)}); process.exit(7)`],
           environmentKeys: ['CCG_PRODUCT_MANAGER_CLAUDE_SSH_HOST'],
-          readOnly: true,
           shell: false,
         },
         cwd: root,
@@ -144,11 +141,10 @@ describe('product-manager provider runner', () => {
     ].join('')
 
     try {
-      await expect(executeReadOnlyProvider({
+      await expect(executeProvider({
         execution: {
           executable: process.execPath,
           args: ['-e', parent, descendantPidFile],
-          readOnly: true,
           shell: false,
         },
         cwd: root,

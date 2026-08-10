@@ -60,7 +60,7 @@ If `$ARGUMENTS` is empty, show the available CCG commands in Chinese:
 - `/ccg:verify-security <changed-path>` - check security-sensitive changes.
 - `ccg routing list` - show the four top-level role providers.
 - `ccg routing set <role> <provider>` - change one role independently.
-- `ccg wrapper --backend <provider> ...` - run a managed Claude, Antigravity, Grok, or Pi role provider with Web UI enabled by default; Claude requires `--read-only`.
+- `ccg wrapper --backend <provider> ...` - run a managed Claude, Antigravity, Grok, or Pi role provider with Web UI enabled by default.
 
 All ordinary routes follow the shared **Companion Role Contract**: frontend or
 backend work adds required search evidence and evaluates the product-manager

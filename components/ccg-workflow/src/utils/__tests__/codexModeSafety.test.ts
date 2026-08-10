@@ -251,8 +251,7 @@ describe('Codex mode ownership and reversibility', () => {
     const hook = await readFile(join(codexHome, 'hooks', 'ccg-workflow.py'), 'utf8')
     expect(hook).not.toContain('--backend claude')
     expect(hook).toContain('applicable frontend/backend/search providers')
-    expect(hook).toContain('Standalone Claude role evidence uses the managed read-only wrapper')
-    expect(hook).toContain('Claude product-manager remains a separate explicitly authorized contract')
+    expect(hook).toContain('Claude may be explicitly selected for frontend, backend, or product-manager, but not search')
     const config = await readFile(join(codexHome, 'config.toml'), 'utf8')
     expect(config).not.toContain('[mcp_servers')
   })
@@ -329,7 +328,7 @@ describe('Codex mode ownership and reversibility', () => {
     expect(installed).toContain('enabled = true')
     expect(installed).not.toMatch(/\[product_manager\][\s\S]*provider\s*=/)
     const nextOwnership = await fs.readJSON(ownershipPath)
-    expect(nextOwnership.version).toBe('3.4.8')
+    expect(nextOwnership.version).toBe('3.4.10')
     expect(nextOwnership.files.find(
       (file: { relativePath: string }) => file.relativePath === 'ccg/config.toml',
     ).installedSha256).toBe(

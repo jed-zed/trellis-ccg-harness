@@ -4,21 +4,12 @@ import { validateProviderExecution } from '../provider-registry'
 export function createGeminiProductManagerExecution(nodeExecutable: string, options: {
   entrypoint: string
   model: string
-  policyFile: string
 }): ProviderExecution {
   return validateProviderExecution({
     executable: nodeExecutable,
     args: [
       options.entrypoint,
-      '--approval-mode',
-      'plan',
-      '--policy',
-      options.policyFile,
-      '--skip-trust',
-      '--extensions',
-      '',
-      '--allowed-mcp-server-names',
-      '',
+      '-y',
       '--output-format',
       'json',
       '--model',
@@ -27,7 +18,6 @@ export function createGeminiProductManagerExecution(nodeExecutable: string, opti
       'Read the complete product-manager request from stdin and return only the requested JSON object.',
     ],
     environmentKeys: ['GEMINI_CLI_HOME'],
-    readOnly: true,
     shell: false,
   })
 }

@@ -2,6 +2,12 @@
 
 Date: 2026-07-21
 
+> This is a historical probe record. The empty-MCP and tool-denial profile
+> below describes the evidence captured on that date; it is not the current
+> Provider-permission contract. Current ACP sessions omit `mcpServers`, accept
+> the Provider's native permission option, and retain the client-side
+> no-filesystem-write/no-terminal capability boundary.
+
 Platform: Windows 11, PowerShell 7
 
 CLI: `grok 0.2.106 (bde89716f6)`
@@ -15,8 +21,8 @@ Rejected transport: one-shot `grok -p --output-format streaming-json`
 The intelligence workflow must use Grok's official ACP transport, not the one-shot CLI stream.
 
 - Browser OAuth login succeeded and ACP advertised `cached_token` and `grok.com` authentication.
-- `session/new` was created with `mcpServers: []`.
-- ACP reported `_x.ai/mcp/servers_updated` with an empty array and `_x.ai/mcp_initialized` with `mcpToolCount: 0`.
+- At the time, `session/new` was created with `mcpServers: []`.
+- At the time, ACP reported `_x.ai/mcp/servers_updated` with an empty array and `_x.ai/mcp_initialized` with `mcpToolCount: 0`.
 - The Web probe exposed stable, correlatable `tool_call` and `tool_call_update` events with source URLs.
 - The X-domain probe exposed the same event contract but returned `sources: []`; its ungrounded final X URL is a required negative case and must be rejected.
 - The legacy `grok -p` probe attempted to start the user's `exa` and `grok-search` MCP servers even though `inspect` marked Claude MCP compatibility disabled. It is unsafe for the intelligence profile.
@@ -36,7 +42,7 @@ The dedicated home is protected with an ACL granting only the current Windows us
 
 Official documentation confirms that browser OIDC is refreshable and intended for interactive workstations, while ACP supports cached local authentication: [Enterprise authentication](https://docs.x.ai/build/enterprise), [ACP headless scripting](https://docs.x.ai/build/cli/headless-scripting).
 
-## Isolation contract
+## Historical isolation probe (superseded)
 
 The paid ACP probes used:
 
@@ -49,7 +55,12 @@ The paid ACP probes used:
 - `--permission-mode dontAsk`, `--no-plan`, `--no-memory`, `--no-subagents`, and bounded turns;
 - `--tools web_search`, a complete `--disallowed-tools` list for all other observed runtime tool IDs, plus explicit `Bash`, `Edit`, `Read`, `Grep`, `MCPTool` and `WebFetch` deny rules.
 
-ACP still reports the CLI's full built-in tool catalogue in `available_commands_update`, even with the allow/deny flags. Therefore the catalogue is diagnostic only and is not evidence of permission. The production client must fail closed on every ACP permission request and accept evidence only from observed `WebSearch` events. Tests must prove shell/edit/read calls cannot succeed before the manual command is published.
+ACP reported the CLI's full built-in tool catalogue in
+`available_commands_update` even with the former allow/deny flags. In the
+current contract, the client selects the Provider's native permission option
+and does not force an empty MCP inventory. Source-backed evidence validation,
+bounded snapshots, exact environment construction, cleanup, and Codex's sole
+workspace-write authority remain separate fail-closed boundaries.
 
 The dedicated `GROK_HOME` also stores local session/log artifacts. The implementation must remove per-run session, prompt-history and log artifacts after extracting the bounded evidence stream while preserving only `auth.json`, the pinned safe config and explicitly retained redacted evidence.
 
@@ -61,7 +72,7 @@ The dedicated `GROK_HOME` also stores local session/log artifacts. The implement
 | Search result | `session/update` → `tool_call_update` | matching `toolCallId`, `status=completed`, `rawOutput.action.type=search`, `rawOutput.action.query`, `rawOutput.action.sources[].url` |
 | Assistant output | `session/update` → `agent_message_chunk` | `content.type=text`, `content.text` |
 | Turn end | `_x.ai/session/update` → `turn_completed` | `stop_reason`, usage, model calls and cost ticks |
-| MCP preflight | `_x.ai/mcp/servers_updated`, `_x.ai/mcp_initialized` | empty `mcpServers`, `mcpToolCount=0` |
+| Historical MCP preflight | `_x.ai/mcp/servers_updated`, `_x.ai/mcp_initialized` | empty `mcpServers`, `mcpToolCount=0` in the 2026-07-21 probe only |
 
 `toolCallId` remained identical between search start and completion. Usage metadata included input/output/cache/reasoning tokens, model calls, duration and `costUsdTicks`. ACP `session/prompt` returned `stopReason=end_turn`; the client then terminated the stdio process. Timeout and process-tree cancellation remain a transport implementation test requirement rather than a model contract assumption.
 

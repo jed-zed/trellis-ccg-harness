@@ -285,15 +285,15 @@ function checkModelPolicy({ contract, add, env }) {
     "blocking",
     valid ? "ok" : "conflict",
     valid
-      ? "Codex is the sole writer; Claude and automated GPT Pro remain read-only."
-      : "Model ownership, Claude read-only policy, or the GPT Pro automation boundary was violated.",
+      ? "Codex is the sole canonical workspace writer; Claude and automated GPT Pro have no canonical workspace-write authority."
+      : "Canonical workspace ownership or Claude/GPT Pro workspace-write authority drifted.",
     {
       workspaceOwner: contract.authorities.workspaceOwner,
       claudeEnabled: contract.models.claude?.enabled,
       claudeEnvironmentOverride: claudeOverride,
       gptProModel: contract.models.gptpro,
     },
-    "Restore Codex-only writes, Claude read-only routing, and the enabled non-manual GPT Pro read-only model.",
+    "Restore Codex-only canonical writes and remove canonical workspace-write authority from Claude and automated GPT Pro.",
   );
 }
 
@@ -341,45 +341,30 @@ function checkCommandNamespaces({ contract, add }) {
 function checkProductManagerPolicy({ contract, add }) {
   const policy = contract.productManager;
   const allowed = policy?.allowedProviders;
-  const capabilities = policy?.providerCapabilities;
   const validAllowed =
     Array.isArray(allowed) &&
     allowed.length > 0 &&
     allowed.every((provider) => ["codex", "gemini", "claude"].includes(provider)) &&
     new Set(allowed).size === allowed.length;
-  const validCapabilities =
-    validAllowed &&
-    allowed.every((provider) => {
-      const capability = capabilities?.[provider];
-      return (
-        capability?.readOnly === true &&
-        capability?.workspaceWrite === false &&
-        capability?.terminal === false &&
-        capability?.subagents === false &&
-        capability?.network === "explicit-per-call" &&
-        capability?.paid === "explicit-per-call"
-      );
-    }) &&
-    capabilities?.grok?.readOnly === false;
   const validAuthority =
     policy?.stateAuthority === "trellis-task-projection" &&
     policy?.stateFile === "product-manager.json" &&
     policy?.evidenceRoot === ".ccg-evidence/product-manager" &&
     policy?.selectedProviderAuthority === "unified-ccg-routing";
-  const valid = validAllowed && validCapabilities && validAuthority;
+  const valid = validAllowed && validAuthority;
   add(
     "product-manager-policy",
     "blocking",
     valid ? "ok" : "conflict",
     valid
-      ? "Product-manager authority and provider capability policy are fail-closed."
-      : "Product-manager authority or provider capability policy is unsafe.",
+      ? "Product-manager authority and provider allowlist are fail-closed."
+      : "Product-manager authority or provider allowlist is invalid.",
     {
       stateAuthority: policy?.stateAuthority,
       selectedProviderAuthority: policy?.selectedProviderAuthority,
       allowedProviders: allowed,
     },
-    "Restore Trellis task projection authority and independently constrained read-only provider capabilities.",
+    "Restore Trellis task projection authority and the explicit provider allowlist.",
   );
 }
 

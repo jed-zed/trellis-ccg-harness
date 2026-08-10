@@ -263,11 +263,11 @@ node bin/ccg.mjs doctor --grok-live       # Explicit paid Web/X smoke
 ```
 
 Codex mode routes four roles through an explicit capability matrix:
-frontend/backend support `codex`, `gemini`, `antigravity`, `grok`, and `pi`;
-search supports `codex` and `grok`; product-manager supports `codex`, `gemini`,
-and read-only `claude`. CCG workflows use `ccg wrapper` for managed
-Antigravity/Grok/Pi runs; the direct command also accepts ordinary Codex and
-Gemini wrapper backends, but never Claude and never changes role routing. It
+frontend/backend support `codex`, `gemini`, `claude`, `antigravity`, `grok`,
+and `pi`; search supports `codex` and `grok`; product-manager supports `codex`,
+`gemini`, and `claude`. CCG workflows use `ccg wrapper` for managed
+Claude/Antigravity/Grok/Pi runs; the direct command also accepts ordinary Codex
+and Gemini wrapper backends but never changes role routing. It
 leaves the browser Web UI enabled unless `--lite` is explicit. Frontend or
 backend work also adds required search evidence and evaluates the
 product-manager authorization gate at the next applicable checkpoint; every
@@ -383,4 +383,4 @@ MIT
 
 ---
 
-v3.4.8 | [Issues](https://github.com/jed-zed/ccg-gptpro-worflow/issues) | [Contributing](./CONTRIBUTING.md)
+v3.4.10 | [Issues](https://github.com/jed-zed/ccg-gptpro-worflow/issues) | [Contributing](./CONTRIBUTING.md)

@@ -27,7 +27,7 @@ Load and follow `skills/ccg-executor/SKILL.md` for context search and reporting 
   Gemini, run the bundled `../ccg-executor/scripts/invoke_gemini_preview.py`
   foreground command in a tool-managed background job with `--prompt-template
   analyzer`; monitor it until completion and do not pass `--detach`. Otherwise
-  run `ccg wrapper --backend <provider> --read-only --progress - "<workdir>"`;
+  run `ccg wrapper --backend <provider> --progress - "<workdir>"`;
   pass the prompt through stdin and do not add `--lite`.
   When it is Codex, analyze directly without external delegation.
 - Report in Chinese with findings, evidence, tradeoffs, and recommended next steps.

@@ -323,8 +323,7 @@
         "stateFile",
         "evidenceRoot",
         "selectedProviderAuthority",
-        "allowedProviders",
-        "providerCapabilities"
+        "allowedProviders"
       ],
       "properties": {
         "stateAuthority": {
@@ -355,26 +354,6 @@
             ]
           },
           "uniqueItems": true
-        },
-        "providerCapabilities": {
-          "type": "object",
-          "required": [
-            "codex",
-            "gemini",
-            "claude"
-          ],
-          "properties": {
-            "codex": {
-              "$ref": "#/$defs/readOnlyProductManagerProvider"
-            },
-            "gemini": {
-              "$ref": "#/$defs/readOnlyProductManagerProvider"
-            },
-            "claude": {
-              "$ref": "#/$defs/readOnlyProductManagerProvider"
-            }
-          },
-          "additionalProperties": false
         }
       },
       "additionalProperties": false
@@ -409,39 +388,5 @@
       ]
     }
   },
-  "additionalProperties": false,
-  "$defs": {
-    "readOnlyProductManagerProvider": {
-      "type": "object",
-      "required": [
-        "readOnly",
-        "workspaceWrite",
-        "terminal",
-        "subagents",
-        "network",
-        "paid"
-      ],
-      "properties": {
-        "readOnly": {
-          "const": true
-        },
-        "workspaceWrite": {
-          "const": false
-        },
-        "terminal": {
-          "const": false
-        },
-        "subagents": {
-          "const": false
-        },
-        "network": {
-          "const": "explicit-per-call"
-        },
-        "paid": {
-          "const": "explicit-per-call"
-        }
-      },
-      "additionalProperties": false
-    }
-  }
+  "additionalProperties": false
 }

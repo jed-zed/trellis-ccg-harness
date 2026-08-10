@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	version               = "5.12.8"
+	version               = "5.12.10"
 	defaultWorkdir        = "."
 	defaultTimeout        = 7200 // seconds (2 hours)
 	defaultCoverageTarget = 90.0
@@ -374,13 +374,6 @@ func run() (exitCode int) {
 		return 1
 	}
 	cfg.Backend = backend.Name()
-	if cfg.ReadOnly &&
-		cfg.Backend != "claude" && cfg.Backend != "antigravity" &&
-		cfg.Backend != "grok" && cfg.Backend != "pi" {
-		logError("--read-only requires --backend claude, antigravity, grok, or pi")
-		return 1
-	}
-
 	cmdInjected := codexCommand != defaultCodexCommand
 	argsInjected := buildCodexArgsFn != nil && reflect.ValueOf(buildCodexArgsFn).Pointer() != reflect.ValueOf(defaultBuildArgsFn).Pointer()
 
@@ -461,7 +454,7 @@ func run() (exitCode int) {
 	// Keep in sync with runCodexTaskWithContext (executor.go): Pi always uses
 	// stdin; Gemini uses it on Windows.
 	promptDirect := useStdin && ((cfg.Backend == "gemini" && !isWindows()) || cfg.Backend == "antigravity" || cfg.Backend == "grok")
-	promptStdinPipe := useStdin && ((cfg.Backend == "gemini" && isWindows()) || (cfg.Backend == "claude" && cfg.ReadOnly) || cfg.Backend == "pi")
+	promptStdinPipe := useStdin && ((cfg.Backend == "gemini" && isWindows()) || cfg.Backend == "claude" || cfg.Backend == "pi")
 	if useStdin && !promptDirect && !promptStdinPipe {
 		targetArg = "-"
 	}
@@ -525,6 +518,7 @@ func run() (exitCode int) {
 		UseStdin:          useStdin,
 		Progress:          cfg.Progress,
 		Backend:           cfg.Backend,
+		SkipPermissions:   cfg.SkipPermissions,
 		GeminiModel:       cfg.GeminiModel,
 		GrokModel:         cfg.GrokModel,
 		GrokReviewTargets: cfg.GrokReviewTargets,
@@ -629,10 +623,9 @@ Options:
                           CLI parameter takes precedence over environment variable
                           Examples: grok-4.5, grok-composer-2.5-fast
 	    --grok-review-target <path>
-	                          Embed this exact file in a fresh tool-less Grok review
+	                          Embed this exact file in a fresh Grok review
 	                          Repeat once per workspace-relative regular file
-	    --antigravity-review  Run Antigravity in sandboxed plan mode for local review
-	    --read-only           Disable writes/tools for managed Antigravity, Grok, or Pi delegation
+	    --antigravity-review  Run a fresh Antigravity local review
 	    --progress            Emit compact progress lines to stderr during execution
 
 Environment Variables:

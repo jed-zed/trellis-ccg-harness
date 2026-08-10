@@ -12,7 +12,7 @@ CCG has four formal top-level routing roles:
 | `frontend` | Frontend analysis, planning, implementation drafts, and review |
 | `backend` | Backend analysis, planning, implementation drafts, and review |
 | `search` | External lookup planning, evidence gathering, analysis, and review |
-| `product-manager` | Read-only intake, milestone, and final product review evidence |
+| `product-manager` | Intake, milestone, and final product review evidence |
 
 `analysis`, `planning`, and `review` are workflow phases inside these roles.
 They are not independently configurable provider roles.
@@ -38,15 +38,16 @@ provider:
 | `search` | `codex`, `grok` |
 | `product-manager` | `codex`, `gemini`, `claude` |
 
-Use `ccg wrapper --backend <provider> --read-only --progress - "<workdir>"`
-for managed Claude, Antigravity, Grok, or Pi delegation. Pass the prompt through stdin.
+Use `ccg wrapper --backend <provider> --progress - "<workdir>"` for managed
+Claude, Antigravity, Grok, or Pi delegation. Pass the prompt through stdin.
 Do not add `--lite`; the launcher keeps the wrapper Web UI enabled. When a role
 resolves to Gemini, run the bundled `ccg-executor/scripts/invoke_gemini_preview.py`
 foreground command in a tool-managed background job. Do not pass `--detach`
 from a Codex workflow because the tool runner owns the process lifetime. Do not
-replace the helper with a raw Gemini CLI call. Standalone Claude frontend/backend
-delegation uses the same managed read-only wrapper contract; it does not become
-a product-manager call or inherit product-manager task authority or authorization.
+replace the helper with a raw Gemini CLI call. Claude may be explicitly selected
+for `frontend`, `backend`, or `product-manager`, but not `search`; standalone
+frontend/backend delegation does not become a product-manager call or inherit
+product-manager task authority or authorization.
 Codex remains the orchestrator, sole real-workspace writer, final verifier, and
 delivery owner regardless of the selected role provider.
 
@@ -57,8 +58,8 @@ projects, and Trellis tasks may restrict allowed Providers but must not select
 one or introduce fallback.
 
 Routing changes never install, authenticate, invoke, or grant permissions to a
-Provider. Product-manager calls remain read-only and require explicit per-call
-authorization.
+Provider. Provider launch permissions follow the upstream CCG baseline;
+product-manager calls still require explicit per-call authorization.
 
 ## Companion Role Contract
 

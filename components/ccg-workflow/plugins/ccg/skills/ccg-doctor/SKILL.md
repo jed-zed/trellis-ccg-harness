@@ -38,7 +38,7 @@ The model probe uses Gemini CLI `--skip-trust` so availability diagnostics do no
 For Grok intelligence diagnostics:
 
 ```powershell
-# Local-only: binary/version/help/models/auth, isolated inspect, ACP handshake, empty MCP, retention report.
+# Local-only: binary/version/help/models/auth, isolated inspect, ACP handshake, retention report.
 # This never sends a model prompt and never performs a paid Web/X call.
 powershell -NoProfile -ExecutionPolicy Bypass -File "<plugin-root>\scripts\doctor.ps1" -Grok -Verbose
 

@@ -67,7 +67,7 @@ func TestParseArgsGrokReviewTargets(t *testing.T) {
 	}
 }
 
-func TestGrokBuildArgs_ReviewModeIsSnapshotOnly(t *testing.T) {
+func TestGrokBuildArgs_ReviewModeKeepsSnapshotAndNativePermissions(t *testing.T) {
 	args := buildGrokArgs(&Config{
 		Mode:              "new",
 		Backend:           "grok",
@@ -75,11 +75,6 @@ func TestGrokBuildArgs_ReviewModeIsSnapshotOnly(t *testing.T) {
 	}, "review-prompt.md")
 
 	for _, pair := range [][2]string{
-		{"--tools", ""},
-		{"--disallowed-tools", "read_file,grep,list_dir,search_tool,use_tool,search_replace"},
-		{"--permission-mode", "dontAsk"},
-		{"--deny", "mcp__*"},
-		{"--max-turns", "1"},
 		{"--system-prompt-override", grokReviewSystemPrompt},
 		{"--output-format", "streaming-json"},
 		{"--prompt-file", "review-prompt.md"},
@@ -88,22 +83,15 @@ func TestGrokBuildArgs_ReviewModeIsSnapshotOnly(t *testing.T) {
 			t.Fatalf("review args missing %q %q: %v", pair[0], pair[1], args)
 		}
 	}
-	for _, flag := range []string{"--disable-web-search", "--no-memory", "--no-plan", "--no-subagents", "--verbatim"} {
+	for _, flag := range []string{"--always-approve", "--verbatim", "--no-auto-update"} {
 		if !hasArg(args, flag) {
 			t.Fatalf("review args missing %q: %v", flag, args)
 		}
 	}
-	for _, forbidden := range []string{"--always-approve", "--allow", "-p", "-r"} {
+	for _, forbidden := range []string{"--tools", "--disallowed-tools", "--disable-web-search", "--no-memory", "--no-plan", "--no-subagents", "--permission-mode", "--deny", "--sandbox", "-p", "-r"} {
 		if hasArg(args, forbidden) {
 			t.Fatalf("review args must not contain %q: %v", forbidden, args)
 		}
-	}
-	if isWindows() {
-		if hasArg(args, "--sandbox") {
-			t.Fatalf("Windows review must not depend on unsupported sandbox: %v", args)
-		}
-	} else if !hasArgPair(args, "--sandbox", "strict") {
-		t.Fatalf("Unix review args missing strict sandbox: %v", args)
 	}
 }
 
@@ -219,11 +207,6 @@ func TestFinalizeGrokReview(t *testing.T) {
 		t.Fatalf("message = %q", got)
 	}
 
-	toolCall := complete()
-	toolCall.observeToolCall("read_file")
-	if _, err := finalizeGrokReview("review complete", []string{"a.go"}, toolCall); err == nil || !strings.Contains(err.Error(), "forbidden tool") {
-		t.Fatalf("tool-call error = %v", err)
-	}
 	if _, err := finalizeGrokReview("review complete\n"+grokReviewMarker+`{}`, []string{"a.go"}, complete()); err == nil || !strings.Contains(err.Error(), "must not contain") {
 		t.Fatalf("model-envelope error = %v", err)
 	}
@@ -237,35 +220,7 @@ func TestFinalizeGrokReview(t *testing.T) {
 	}
 }
 
-func TestRunGrokReadOnlyForcesEnvAndRejectsTools(t *testing.T) {
-	fake := newFakeCmd(fakeCmdConfig{StdoutPlan: []fakeStdoutEvent{{Data: strings.Join([]string{
-		`{"type":"tool_call","toolName":"read_file"}`,
-		`{"type":"text","data":"must not escape"}`,
-		`{"type":"end","stopReason":"EndTurn","sessionId":"session-1"}`,
-	}, "\n") + "\n"}}})
-	originalRunner := newCommandRunner
-	originalLite := liteMode
-	newCommandRunner = func(context.Context, string, ...string) commandRunner { return fake }
-	liteMode = true
-	t.Cleanup(func() {
-		newCommandRunner = originalRunner
-		liteMode = originalLite
-	})
-
-	result := runCodexTaskWithContext(context.Background(), TaskSpec{
-		Task: "inspect only", WorkDir: ".", Backend: "grok", ReadOnly: true,
-	}, GrokBackend{}, nil, false, true, 2)
-	if result.ExitCode == 0 || !strings.Contains(result.Error, "forbidden tool") {
-		t.Fatalf("result = %+v", result)
-	}
-	for key, want := range grokReviewForcedEnv {
-		if got := fake.env[key]; got != want {
-			t.Fatalf("env %s = %q, want %q", key, got, want)
-		}
-	}
-}
-
-func TestParseGrokReviewRejectsAnyToolCall(t *testing.T) {
+func TestParseGrokReviewAcceptsToolEvents(t *testing.T) {
 	for name, stream := range map[string]string{
 		"ACP": strings.Join([]string{
 			`{"method":"session/update","params":{"update":{"sessionUpdate":"tool_call_update","toolCallId":"call-1","rawInput":{"variant":"ReadFile","target_file":"a.go"}}}}`,
@@ -287,7 +242,7 @@ func TestParseGrokReviewRejectsAnyToolCall(t *testing.T) {
 			if message != "done" || threadID != "session-1" || terminalError != "" {
 				t.Fatalf("parse result = (%q, %q, %q)", message, threadID, terminalError)
 			}
-			if evidence.forbiddenTool == "" || !evidence.stopReasonSeen {
+			if !evidence.stopReasonSeen {
 				t.Fatalf("evidence = %+v", evidence)
 			}
 		})
@@ -349,11 +304,6 @@ func TestRunGrokReviewUsesIsolatedPromptSnapshot(t *testing.T) {
 	}
 	if fake.stdinClaim {
 		t.Fatal("snapshot review must not pipe the prompt through stdin")
-	}
-	for key, want := range grokReviewForcedEnv {
-		if got := fake.env[key]; got != want {
-			t.Fatalf("env %s = %q, want %q", key, got, want)
-		}
 	}
 	if _, err := os.Stat(capturedPromptPath); !os.IsNotExist(err) {
 		t.Fatalf("prompt snapshot still exists after run: %v", err)

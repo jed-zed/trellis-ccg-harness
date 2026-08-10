@@ -33,7 +33,7 @@ import {
   resolveEffectiveProductManagerProvider,
   validateProviderExecution,
 } from '../product-manager/provider-registry'
-import { buildProductManagerProviderEnvironment, executeReadOnlyProvider } from '../product-manager/provider-runner'
+import { buildProductManagerProviderEnvironment, executeProvider } from '../product-manager/provider-runner'
 import { createCodexProductManagerExecution } from '../product-manager/providers/codex'
 import {
   createClaudeProductManagerExecution,
@@ -224,7 +224,6 @@ function probeClaudeSshBridge(configuration: ClaudeSshConfiguration): {
     executable: configuration.executable,
     args: ['--product-manager-snapshot-protocol-version'],
     environmentKeys: [...CLAUDE_SSH_ENVIRONMENT_KEYS],
-    readOnly: true,
     shell: false,
   })
   let raw: string
@@ -278,9 +277,8 @@ export function createProductManagerProviderPrompt(input: unknown, identity?: {
   cliVersion: string
 }, schema: Record<string, unknown> = PRODUCT_MANAGER_OUTPUT_JSON_SCHEMA): string {
   return [
-    'You are the read-only product-manager reviewer.',
-    'Use only the provider file-read and file-search tools inside the supplied workspace snapshot.',
-    'Do not execute shell commands, modify files, access the network, or control subagents.',
+    'You are the product-manager reviewer.',
+    'Review the supplied workspace snapshot and product context.',
     'Return exactly one JSON object matching the supplied contract.',
     'Do not include markdown, hidden reasoning, credentials, or commentary.',
     identity
@@ -437,7 +435,7 @@ async function invokeProvider(options: {
         `${JSON.stringify(contract.schema)}\n`,
         { encoding: 'utf8', mode: 0o600 },
       )
-      const raw = await executeReadOnlyProvider({
+      const raw = await executeProvider({
         execution: createCodexProductManagerExecution(executable, {
           model,
           workspace: options.workspace,
@@ -460,7 +458,7 @@ async function invokeProvider(options: {
           model,
           cliVersion: probe.remote_cli_version,
         })
-        const raw = await executeReadOnlyProvider({
+        const raw = await executeProvider({
           execution: createClaudeSshProductManagerExecution(configuration.executable, {
             model,
             schema: contract.schema,
@@ -483,7 +481,7 @@ async function invokeProvider(options: {
         model,
         cliVersion: readProviderCliVersion(executable),
       })
-      const raw = await executeReadOnlyProvider({
+      const raw = await executeProvider({
         execution: createClaudeProductManagerExecution(executable, {
           model,
           schema: contract.schema,
@@ -504,34 +502,10 @@ async function invokeProvider(options: {
       model,
       cliVersion: 'unknown',
     })
-    const policyFile = join(controlRoot, 'read-only-tools.toml')
-    await writeFile(policyFile, [
-      '[[rule]]',
-      'toolName = ["read_file", "read_many_files", "list_directory", "glob", "grep_search"]',
-      'decision = "allow"',
-      'priority = 1000',
-      'modes = ["plan"]',
-      '',
-      '[[rule]]',
-      'toolName = "*"',
-      'decision = "deny"',
-      'priority = 999',
-      'modes = ["plan"]',
-      'denyMessage = "Product-manager provider tools are disabled."',
-      '',
-      '[[rule]]',
-      'mcpName = "*"',
-      'decision = "deny"',
-      'priority = 999',
-      'modes = ["plan"]',
-      'denyMessage = "Product-manager provider MCP tools are disabled."',
-      '',
-    ].join('\n'), { encoding: 'utf8', mode: 0o600 })
-    const raw = await executeReadOnlyProvider({
+    const raw = await executeProvider({
       execution: createGeminiProductManagerExecution(process.execPath, {
         entrypoint,
         model,
-        policyFile,
       }),
       cwd: options.workspace,
       input: contract.prompt,

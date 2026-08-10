@@ -44,16 +44,17 @@ describe('Codex plugin release parity', () => {
     expect(template).toContain('<title>gemini - Live Output</title>')
   })
 
-  it('pins external providers to the read-only non-lite wrapper launch contract', () => {
-    const contract = 'ccg wrapper --backend <provider> --read-only --progress - "<workdir>"'
+  it('pins external providers to the native-permission non-lite wrapper launch contract', () => {
+    const contract = 'ccg wrapper --backend <provider> --progress - "<workdir>"'
     const surfaces = [
       join(root, 'plugins', 'ccg', 'rules', 'ccg-role-routing.md'),
-      ...['ccg-executor', 'ccg-plan', 'ccg-execute', 'ccg-review', 'ccg-analyze', 'ccg-frontend', 'ccg-backend']
+      ...['ccg-executor', 'ccg-plan', 'ccg-execute', 'ccg-analyze', 'ccg-frontend', 'ccg-backend']
         .map(skill => join(root, 'plugins', 'ccg', 'skills', skill, 'SKILL.md')),
     ]
     for (const path of surfaces) {
       const content = fs.readFileSync(path, 'utf8')
       expect(content, path).toContain(contract)
+      expect(content, path).not.toContain('--backend <provider> --read-only')
       expect(content, path).toMatch(/prompt.*stdin/i)
       expect(content, path).toMatch(/do not.*--lite/i)
     }
@@ -61,6 +62,28 @@ describe('Codex plugin release parity', () => {
     expect(routing).toContain('| `frontend` | `codex`, `gemini`, `claude`, `antigravity`, `grok`, `pi` |')
     expect(routing).toContain('| `backend` | `codex`, `gemini`, `claude`, `antigravity`, `grok`, `pi` |')
     expect(routing).not.toMatch(/ordinary Claude.*(?:rejected|disabled|not allowed)/i)
+
+    const review = fs.readFileSync(join(root, 'plugins', 'ccg', 'skills', 'ccg-review', 'SKILL.md'), 'utf8')
+    const reviewHelper = fs.readFileSync(
+      join(root, 'plugins', 'ccg', 'skills', 'ccg-executor', 'scripts', 'invoke_provider_review.py'),
+      'utf8',
+    )
+    const productManagerPrompt = fs.readFileSync(
+      join(root, 'templates', 'prompts', 'product-manager', 'base.md'),
+      'utf8',
+    )
+    const antigravityReviewer = fs.readFileSync(
+      join(root, 'templates', 'prompts', 'antigravity', 'reviewer.md'),
+      'utf8',
+    )
+    expect(review).toContain('invoke_provider_review.py')
+    expect(review).toContain('disposable snapshot')
+    expect(reviewHelper).toContain('copy_snapshot_tree')
+    expect(reviewHelper).toContain('choices=("claude", "antigravity")')
+    expect(productManagerPrompt).toContain('complete review input')
+    expect(productManagerPrompt).not.toContain('Never execute commands')
+    expect(antigravityReviewer).toContain('disposable snapshot is writable and is not an OS sandbox')
+    expect(antigravityReviewer).not.toContain('ZERO file system write permission')
   })
 
   it('keeps Gemini previews alive in a tool-managed background job', () => {

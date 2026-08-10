@@ -9,6 +9,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.4.10] - 2026-08-10
+
+### Fixed
+
+- **Provider review snapshots** — Copy bound review files from a verified open
+  handle, reject identity/content drift, and cap snapshots at 2000 files,
+  2 MiB per file, and 64 MiB total.
+- **Grok review auto-update** — Pass `--no-auto-update` only for bound local
+  Grok reviews while preserving the upstream `--always-approve` permission
+  behavior and ordinary Grok invocation arguments.
+
+### Changed
+
+- **codeagent-wrapper 5.12.10** — Publish the reviewer-only auto-update guard
+  with reproducible six-platform binary digests.
+
+## [3.4.9] - 2026-08-09
+
+### Changed
+
+- **Integrated Provider behavior** — Preserve the automatic preview and
+  Antigravity streaming work from 3.4.8 while restoring the official Provider
+  permission behavior for ordinary Claude, Grok, Gemini, Antigravity, Codex,
+  and Pi execution. GPT Pro remains unchanged.
+- **codeagent-wrapper 5.12.9** — Preserve Antigravity's explicit permission
+  bypass through task execution without reintroducing the fork-only read-only
+  Provider overlay.
+
 ## [3.4.8] - 2026-08-08
 
 ### Fixed
@@ -35,7 +63,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Product-manager workspace snapshot** — Build a strict task-local snapshot
   from Git tracked, dirty, and unignored new files, bind its manifest identity
-  into every review, and expose only provider-native file read/search tools.
+  into every review, and validate the Provider's structured response separately.
 - **Explicit Claude transport** — Default projects to native local Claude and
   add an environment-only SSH bridge protocol-v2 opt-in with remote cleanup and
   no automatic transport fallback.
@@ -58,15 +86,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
-- **Bounded read-only projection** — Reuse the Grok snapshot core for secret,
+- **Bounded snapshot projection** — Reuse the Grok snapshot core for secret,
   instruction, plugin, link, hardlink, race, and size defenses; reject malformed
   or stale manifests before Provider start and delete snapshot contents in
   `finally`.
 - **Bound local Grok reviews** — Snapshot only declared local files into a
-  private prompt, remove Provider tools, and append the validated scope envelope
-  without enabling Web search.
-- **Read-only workflow Providers** — Add an explicit wrapper `--read-only`
-  contract for automatic Antigravity, Grok, and Pi evidence calls.
+  private prompt and append the validated scope envelope without invoking the
+  external-intelligence route.
 
 ### Changed
 
@@ -74,8 +100,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Antigravity streaming, and late-client Web UI history replay.
 - **Product-manager timeout** — Give each Provider attempt the original CCG
   two-hour limit by setting the default and accepted maximum to 7200000 ms.
-- **codeagent-wrapper 5.12.6** — Run Grok local review from pre-opened UTF-8
-  snapshots in tool-less sessions and append deterministic scope evidence.
+- **Provider permission parity** — Restore the official CCG permission behavior
+  for Codex, Claude, Gemini, Grok, Antigravity, and native Pi; keep fork snapshot,
+  evidence, output, retry, no-fallback, and user-gate contracts unchanged. Claude
+  may be explicitly selected for frontend, backend, or product-manager, but not
+  search. GPT Pro permissions are unchanged.
+- **codeagent-wrapper 5.12.8** — Run Grok local review from pre-opened UTF-8
+  snapshots with its inherited permissions, append deterministic scope evidence,
+  and preserve Antigravity's explicit permission bypass through task execution.
 - **Companion role routing** — Ordinary CCG and GPT Pro workflows now require
   configured search evidence whenever frontend or backend participates and
   automatically evaluate the mapped product-manager authorization gate without

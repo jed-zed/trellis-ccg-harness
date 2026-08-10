@@ -1295,19 +1295,16 @@ function allowedProvidersFromContract(contract) {
       "Harness adapter contract is missing productManager.allowedProviders.",
     );
   }
-  const allowed = configured.filter((provider) => {
-    if (!["codex", "gemini", "claude"].includes(provider)) return false;
-    const capability = contract.productManager?.providerCapabilities?.[provider];
-    return (
-      capability?.readOnly === true &&
-      capability?.workspaceWrite === false &&
-      capability?.terminal === false &&
-      capability?.subagents === false &&
-      capability?.network === "explicit-per-call" &&
-      capability?.paid === "explicit-per-call"
+  if (
+    configured.length === 0 ||
+    configured.some((provider) => !["codex", "gemini", "claude"].includes(provider)) ||
+    new Set(configured).size !== configured.length
+  ) {
+    throw new Error(
+      "Harness adapter productManager.allowedProviders must be a unique non-empty subset of codex, gemini, and claude.",
     );
-  });
-  return allowed;
+  }
+  return [...configured];
 }
 
 export async function runInstalledProductManagerReview(
@@ -1332,7 +1329,7 @@ export async function runInstalledProductManagerReview(
   const allowedProviders = allowedProvidersFromContract(contract);
   if (allowedProviders.length === 0) {
     throw new Error(
-      "Harness policy allows no independently read-only product-manager provider.",
+      "Harness policy allows no product-manager provider.",
     );
   }
   const roots = await discoverRoots(["ccg"], { env });

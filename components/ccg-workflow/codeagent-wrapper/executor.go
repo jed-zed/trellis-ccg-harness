@@ -826,6 +826,7 @@ func runCodexTaskWithContext(parentCtx context.Context, taskSpec TaskSpec, backe
 		SessionID:         taskSpec.SessionID,
 		WorkDir:           taskSpec.WorkDir,
 		Backend:           defaultBackendName,
+		SkipPermissions:   taskSpec.SkipPermissions,
 		Progress:          taskSpec.Progress,
 		GeminiModel:       taskSpec.GeminiModel,
 		GrokModel:         taskSpec.GrokModel,
@@ -851,13 +852,6 @@ func runCodexTaskWithContext(parentCtx context.Context, taskSpec TaskSpec, backe
 	}
 	if cfg.WorkDir == "" {
 		cfg.WorkDir = defaultWorkdir
-	}
-	if cfg.ReadOnly &&
-		cfg.Backend != "claude" && cfg.Backend != "antigravity" &&
-		cfg.Backend != "grok" && cfg.Backend != "pi" {
-		result.ExitCode = 1
-		result.Error = "--read-only requires --backend claude, antigravity, grok, or pi"
-		return result
 	}
 	var grokSnapshot *grokReviewSnapshot
 	if len(cfg.GrokReviewTargets) > 0 {
@@ -908,7 +902,7 @@ func runCodexTaskWithContext(parentCtx context.Context, taskSpec TaskSpec, backe
 	// Pi JSON mode reads piped stdin on every platform; use it to avoid Windows
 	// npm shim argument truncation and keep multiline prompts intact.
 	promptDirect := useStdin && ((cfg.Backend == "gemini" && !isWindows()) || cfg.Backend == "antigravity" || cfg.Backend == "grok")
-	promptStdinPipe := useStdin && ((cfg.Backend == "gemini" && isWindows()) || (cfg.Backend == "claude" && cfg.ReadOnly) || cfg.Backend == "pi")
+	promptStdinPipe := useStdin && ((cfg.Backend == "gemini" && isWindows()) || cfg.Backend == "claude" || cfg.Backend == "pi")
 	if useStdin && !promptDirect && !promptStdinPipe {
 		targetArg = "-"
 	}
@@ -1039,11 +1033,6 @@ func runCodexTaskWithContext(parentCtx context.Context, taskSpec TaskSpec, backe
 	// 统一处理所有后端的环境变量
 	// 修复 Windows Git Bash 后台进程 PATH 继承问题
 	env := buildBackendEnv(cfg.Backend)
-	if grokSnapshot != nil || (cfg.ReadOnly && cfg.Backend == "grok") {
-		for key, value := range grokReviewForcedEnv {
-			env[key] = value
-		}
-	}
 	cmd.SetEnv(env) // SetEnv 会自动合并 os.Environ() (executor.go:122-161)
 
 	// Set working directory for backends that don't support -C flag.
@@ -1140,7 +1129,7 @@ func runCodexTaskWithContext(parentCtx context.Context, taskSpec TaskSpec, backe
 		}
 	}
 	var grokReview *grokReviewEvidence
-	if len(cfg.GrokReviewTargets) > 0 || (cfg.ReadOnly && cfg.Backend == "grok") {
+	if len(cfg.GrokReviewTargets) > 0 {
 		grokReview = newGrokReviewEvidence()
 	}
 
@@ -1426,13 +1415,6 @@ waitLoop:
 		var err error
 		message, err = finalizeGrokReview(message, cfg.GrokReviewTargets, grokReview)
 		if err != nil {
-			logErrorFn(err.Error())
-			result.ExitCode = 1
-			result.Error = attachStderr(err.Error())
-			return result
-		}
-	} else if cfg.ReadOnly && cfg.Backend == "grok" {
-		if err := validateGrokReadOnly(grokReview); err != nil {
 			logErrorFn(err.Error())
 			result.ExitCode = 1
 			result.Error = attachStderr(err.Error())

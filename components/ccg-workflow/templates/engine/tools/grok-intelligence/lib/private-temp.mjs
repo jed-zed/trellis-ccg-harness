@@ -1,84 +1,7 @@
 import { spawnSync } from 'node:child_process'
-import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, writeFile } from 'node:fs/promises'
+import { chmod, lstat, mkdir, mkdtemp, readdir, realpath, rm } from 'node:fs/promises'
 import { isAbsolute, relative, resolve } from 'node:path'
 import { validatePrivateDirectory } from './acp-client.mjs'
-import { FORCED_GROK_ENV } from './exact-env.mjs'
-
-const POLICY_FILE = 'ccg-grok-runtime-policy.json'
-
-export const PINNED_GROK_CONFIG = `[compat.claude]
-skills = false
-rules = false
-agents = false
-mcps = false
-hooks = false
-
-[compat.cursor]
-skills = false
-rules = false
-agents = false
-mcps = false
-hooks = false
-
-[compat.codex]
-skills = false
-rules = false
-agents = false
-mcps = false
-hooks = false
-
-[features]
-write_file = false
-tool_search = false
-web_fetch = false
-
-[subagents]
-enabled = false
-
-[memory]
-enabled = false
-
-[cli]
-auto_update = false
-
-[session]
-load_envrc = false
-`
-
-export async function writePinnedGrokConfig(grokHome, options = {}) {
-  if (!isAbsolute(grokHome))
-    throw new Error('GROK_HOME must be absolute')
-  await securePrivateDirectory(grokHome, options)
-  const destination = resolve(grokHome, 'config.toml')
-  const staging = resolve(grokHome, `.config.toml.tmp-${process.pid}`)
-  await writeFile(staging, PINNED_GROK_CONFIG, { flag: 'wx', mode: 0o600 })
-  try {
-    await rename(staging, destination)
-  }
-  catch (error) {
-    await rm(staging, { force: true })
-    throw error
-  }
-  await chmod(destination, 0o600)
-  return destination
-}
-
-export function validatePinnedGrokConfig(content) {
-  const missing = []
-  for (const section of ['claude', 'cursor', 'codex']) {
-    for (const key of ['skills', 'rules', 'agents', 'mcps', 'hooks']) {
-      const block = new RegExp(`\\[compat\\.${section}\\][\\s\\S]*?(?=\\n\\[|$)`, 'i').exec(content)?.[0] || ''
-      if (!new RegExp(`^${key}\\s*=\\s*false\\s*$`, 'im').test(block))
-        missing.push(`compat.${section}.${key}=false`)
-    }
-  }
-  for (const [section, key] of [['features', 'write_file'], ['features', 'tool_search'], ['features', 'web_fetch'], ['subagents', 'enabled'], ['memory', 'enabled'], ['cli', 'auto_update'], ['session', 'load_envrc']]) {
-    const block = new RegExp(`\\[${section}\\][\\s\\S]*?(?=\\n\\[|$)`, 'i').exec(content)?.[0] || ''
-    if (!new RegExp(`^${key}\\s*=\\s*false\\s*$`, 'im').test(block))
-      missing.push(`${section}.${key}=false`)
-  }
-  return missing
-}
 
 export function lockDownWindowsDirectory(path) {
   const shell = process.env.SystemRoot
@@ -192,32 +115,12 @@ export async function createPrivateRunRoots({
     for (const path of [neutralHome, snapshotRoot, rawEventsDir])
       await createPrivateDirectory(path, { platform, restrictWindowsAcl, validateDirectory })
 
-    const policy = {
-      schemaVersion: 1,
-      filesystemTools: false,
-      terminalTools: false,
-      webFetch: false,
-      toolSearch: false,
-      subagents: false,
-      memory: false,
-      autoUpdate: false,
-      compatibility: { claude: false, cursor: false, codex: false },
-      forcedEnvironment: FORCED_GROK_ENV,
-    }
-    const policyPath = resolve(neutralHome, POLICY_FILE)
-    await writeFile(policyPath, `${JSON.stringify(policy, null, 2)}\n`, { flag: 'wx', mode: 0o600 })
-    await chmod(policyPath, 0o400)
-    const verified = JSON.parse(await readFile(policyPath, 'utf8'))
-    if (Object.entries(FORCED_GROK_ENV).some(([name, value]) => verified.forcedEnvironment?.[name] !== value))
-      throw new Error('Private Grok runtime policy did not preserve every forced disabled setting')
-
     return {
       runRoot: await realpath(runRoot),
       neutralHome: await realpath(neutralHome),
       snapshotRoot: await realpath(snapshotRoot),
       rawEventsDir: await realpath(rawEventsDir),
       grokHome: await realpath(grokHome),
-      policyPath,
       cleanup: () => removePrivateRunRoot(runRoot, { allowedParent: canonicalParent }),
     }
   }

@@ -691,7 +691,7 @@ if ($Grok -or $GrokLive) {
     if ($grokCheck.ok) {
       try {
         $grokResult = $grokCheck.output | ConvertFrom-Json
-        if ($grokResult.ok -and $grokResult.mcpServersEmpty -and $grokResult.mcpToolCount -eq 0) {
+        if ($grokResult.ok) {
           $kind = if ($GrokLive) { "paid Web/X" } else { "local-only ACP" }
           Add-Check "Grok intelligence doctor" "PASS" "$kind passed; version=$($grokResult.version); auth=$($grokResult.authMethod); paidPrompt=$($grokResult.paidModelPromptSent)"
         } else {

@@ -971,6 +971,112 @@ def is_snapshot_link(path: Path) -> bool:
         return True
 
 
+def opened_snapshot_path(descriptor: int) -> Path:
+    if os.name == "nt":
+        import ctypes
+        import msvcrt
+        from ctypes import wintypes
+
+        get_final_path = ctypes.WinDLL("kernel32", use_last_error=True).GetFinalPathNameByHandleW
+        get_final_path.argtypes = [wintypes.HANDLE, wintypes.LPWSTR, wintypes.DWORD, wintypes.DWORD]
+        get_final_path.restype = wintypes.DWORD
+        buffer = ctypes.create_unicode_buffer(32768)
+        length = get_final_path(msvcrt.get_osfhandle(descriptor), buffer, len(buffer), 0)
+        if length == 0 or length >= len(buffer):
+            raise ctypes.WinError(ctypes.get_last_error())
+        value = buffer.value
+        if value.startswith("\\\\?\\UNC\\"):
+            value = "\\\\" + value[8:]
+        elif value.startswith("\\\\?\\"):
+            value = value[4:]
+        return Path(value)
+
+    if sys.platform.startswith("linux"):
+        value = os.readlink(f"/proc/self/fd/{descriptor}")
+        if not os.path.isabs(value) or value.endswith(" (deleted)"):
+            raise OSError("snapshot source descriptor has no stable absolute path")
+        return Path(value)
+
+    if sys.platform == "darwin":
+        import ctypes
+
+        buffer = ctypes.create_string_buffer(1024)
+        libc = ctypes.CDLL(None, use_errno=True)
+        if libc.fcntl(descriptor, 50, buffer) == -1:  # F_GETPATH
+            raise OSError(ctypes.get_errno(), "unable to resolve snapshot source descriptor")
+        return Path(os.fsdecode(buffer.value))
+
+    raise OSError(f"snapshot descriptor path verification is unsupported on {sys.platform}")
+
+
+def copy_snapshot_file(
+    source: Path,
+    target: Path,
+    expected: os.stat_result,
+    max_bytes: int | None = None,
+) -> int:
+    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(source, flags)
+    try:
+        opened = os.fstat(descriptor)
+        if not stat.S_ISREG(opened.st_mode) or not os.path.samestat(expected, opened):
+            raise OSError(f"snapshot source identity changed before open: {source}")
+        if (
+            expected.st_size != opened.st_size
+            or expected.st_mtime_ns != opened.st_mtime_ns
+            or (os.name != "nt" and expected.st_ctime_ns != opened.st_ctime_ns)
+        ):
+            raise OSError(f"snapshot source changed before open: {source}")
+
+        actual_path = opened_snapshot_path(descriptor)
+        normalized_actual = os.path.normcase(os.path.normpath(os.path.abspath(actual_path)))
+        normalized_expected = os.path.normcase(os.path.normpath(os.path.abspath(source)))
+        if normalized_actual != normalized_expected:
+            raise OSError(f"snapshot source path changed before open: {source}")
+        if max_bytes is not None and opened.st_size > max_bytes:
+            raise OSError(f"snapshot source exceeds byte limit before copy: {source}")
+
+        target.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            with (
+                os.fdopen(descriptor, "rb", closefd=False) as source_file,
+                target.open("wb") as target_file,
+            ):
+                copied = 0
+                while True:
+                    read_size = 1024 * 1024
+                    if max_bytes is not None:
+                        read_size = min(read_size, max_bytes + 1 - copied)
+                    if read_size <= 0:
+                        raise OSError(f"snapshot source exceeds byte limit while copying: {source}")
+                    chunk = source_file.read(read_size)
+                    if not chunk:
+                        break
+                    target_file.write(chunk)
+                    copied += len(chunk)
+                    if max_bytes is not None and copied > max_bytes:
+                        raise OSError(f"snapshot source exceeds byte limit while copying: {source}")
+
+            final = os.fstat(descriptor)
+            stable = (
+                os.path.samestat(opened, final)
+                and opened.st_size == final.st_size
+                and opened.st_mtime_ns == final.st_mtime_ns
+                and opened.st_ctime_ns == final.st_ctime_ns
+                and copied == final.st_size
+            )
+            if not stable:
+                raise OSError(f"snapshot source changed while copying: {source}")
+            os.chmod(target, stat.S_IMODE(opened.st_mode))
+            os.utime(target, ns=(opened.st_atime_ns, opened.st_mtime_ns))
+            return int(final.st_size)
+        except BaseException:
+            target.unlink(missing_ok=True)
+            raise
+    finally:
+        os.close(descriptor)
+
+
 def normalize_relative_path(value: str) -> str:
     return value.replace("\\", "/").strip("/")
 
@@ -1054,6 +1160,7 @@ def copy_snapshot_tree(source: Path, target: Path, args: argparse.Namespace) -> 
     includes = load_include_paths(str(getattr(args, "files_from", "") or ""), source)
     max_bytes = max(0, int(getattr(args, "max_snapshot_bytes", 0) or 0))
     max_files = max(0, int(getattr(args, "max_snapshot_files", 0) or 0))
+    max_file_bytes = max(0, int(getattr(args, "max_snapshot_file_bytes", 0) or 0))
     stats: dict[str, object] = {
         "files": 0,
         "dirs": 0,
@@ -1096,16 +1203,19 @@ def copy_snapshot_tree(source: Path, target: Path, args: argparse.Namespace) -> 
             if is_dir:
                 copy_dir(entry, dst / entry.name, entry_rel)
                 continue
-            if not entry.is_file():
-                bump("skipped_error")
-                continue
-
             try:
-                size = entry.stat().st_size
+                source_stat = entry.lstat()
             except OSError:
                 bump("skipped_error")
                 continue
+            if not stat.S_ISREG(source_stat.st_mode):
+                bump("skipped_secret_or_link")
+                continue
+            size = source_stat.st_size
             if max_files and int(stats["files"]) + 1 > max_files:
+                bump("skipped_cap")
+                continue
+            if max_file_bytes and size > max_file_bytes:
                 bump("skipped_cap")
                 continue
             if max_bytes and int(stats["bytes"]) + size > max_bytes:
@@ -1114,14 +1224,25 @@ def copy_snapshot_tree(source: Path, target: Path, args: argparse.Namespace) -> 
 
             try:
                 target_file = dst / entry.name
-                target_file.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(entry, target_file)
+                limits = []
+                if max_file_bytes:
+                    limits.append(max_file_bytes)
+                if max_bytes:
+                    limits.append(max_bytes - int(stats["bytes"]))
+                copied_size = copy_snapshot_file(
+                    entry,
+                    target_file,
+                    source_stat,
+                    min(limits) if limits else None,
+                )
                 bump("files")
-                bump("bytes", int(size))
+                bump("bytes", copied_size)
             except OSError:
                 bump("skipped_error")
 
     copy_dir(source, target)
+    if max_bytes and int(stats["bytes"]) > max_bytes:
+        raise OSError("snapshot exceeded total byte limit")
     return stats
 
 

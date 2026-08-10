@@ -43,6 +43,7 @@ type TaskSpec struct {
 	Dependencies      []string        `json:"dependencies,omitempty"`
 	SessionID         string          `json:"session_id,omitempty"`
 	Backend           string          `json:"backend,omitempty"`
+	SkipPermissions   bool            `json:"-"`
 	Progress          bool            `json:"-"`
 	Mode              string          `json:"-"`
 	UseStdin          bool            `json:"-"`
@@ -191,9 +192,6 @@ func parseParallelConfig(data []byte) (*ParallelConfig, error) {
 		}
 		if task.Mode == "resume" && strings.TrimSpace(task.SessionID) == "" {
 			return nil, fmt.Errorf("task block #%d (%q) has empty session_id", taskIndex, task.ID)
-		}
-		if envFlagEnabled("CCG_CODEX_MANAGED_WRAPPER") && strings.EqualFold(strings.TrimSpace(task.Backend), "claude") {
-			return nil, fmt.Errorf("task block #%d (%q) cannot use managed parallel Claude because parallel mode has no read-only contract", taskIndex, task.ID)
 		}
 		if _, exists := seen[task.ID]; exists {
 			return nil, fmt.Errorf("task block #%d has duplicate id: %s", taskIndex, task.ID)

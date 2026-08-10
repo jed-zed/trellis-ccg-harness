@@ -109,25 +109,7 @@ func buildClaudeArgs(cfg *Config, targetArg string) []string {
 	if cfg == nil {
 		return nil
 	}
-	args := []string{"-p"}
-	if cfg.ReadOnly {
-		args = append(args,
-			"--safe-mode",
-			"--disable-slash-commands",
-			"--tools", "Read,Glob,Grep",
-			"--strict-mcp-config",
-			"--mcp-config", `{"mcpServers":{}}`,
-			"--setting-sources", "",
-			"--settings", "{}",
-			"--no-session-persistence",
-			"--no-chrome",
-			"--permission-mode", "plan",
-			"--input-format", "text",
-		)
-	} else {
-		// Preserve the legacy autonomous wrapper contract for direct, non-managed use.
-		args = append(args, "--dangerously-skip-permissions", "--setting-sources", "")
-	}
+	args := []string{"-p", "--dangerously-skip-permissions", "--setting-sources", ""}
 
 	if cfg.Mode == "resume" {
 		if cfg.SessionID != "" {
@@ -160,14 +142,7 @@ func buildAntigravityArgs(cfg *Config, targetArg string) []string {
 
 	var args []string
 
-	if cfg.AntigravityReview || cfg.ReadOnly {
-		args = append(args,
-			"--sandbox",
-			"--mode", "plan",
-			"--dangerously-skip-permissions",
-			"--disable-slash-commands",
-		)
-	} else if cfg.SkipPermissions {
+	if cfg.SkipPermissions {
 		args = append(args, "--dangerously-skip-permissions")
 	}
 	args = append(args, "--output-format", "stream-json")
@@ -221,28 +196,12 @@ func buildGrokArgs(cfg *Config, targetArg string) []string {
 	}
 
 	args := []string{"--always-approve", "--output-format", "streaming-json"}
-	if cfg.ReadOnly || len(cfg.GrokReviewTargets) > 0 {
-		args = []string{
-			"--tools", "",
-			"--disallowed-tools", "read_file,grep,list_dir,search_tool,use_tool,search_replace",
-			"--disable-web-search",
-			"--no-memory",
-			"--no-plan",
-			"--no-subagents",
-			"--permission-mode", "dontAsk",
-			"--deny", "mcp__*",
-			"--output-format", "streaming-json",
-		}
-		if len(cfg.GrokReviewTargets) > 0 {
-			args = append(args,
-				"--max-turns", "1",
-				"--system-prompt-override", grokReviewSystemPrompt,
-				"--verbatim",
-			)
-		}
-		if !isWindows() {
-			args = append(args, "--sandbox", "strict")
-		}
+	if len(cfg.GrokReviewTargets) > 0 {
+		args = append(args,
+			"--no-auto-update",
+			"--system-prompt-override", grokReviewSystemPrompt,
+			"--verbatim",
+		)
 	}
 
 	if model := strings.TrimSpace(cfg.GrokModel); model != "" {
@@ -277,13 +236,7 @@ func buildPiArgs(cfg *Config, _ string) []string {
 
 	args := []string{
 		"--mode", "json",
-		"--no-approve",
-		"--no-extensions",
-		"--no-skills",
-		"--no-prompt-templates",
-		"--no-themes",
-		"--no-context-files",
-		"--tools", "read,grep,find,ls",
+		"--approve",
 	}
 	if cfg.Mode == "resume" && cfg.SessionID != "" {
 		args = append(args, "--session", cfg.SessionID)

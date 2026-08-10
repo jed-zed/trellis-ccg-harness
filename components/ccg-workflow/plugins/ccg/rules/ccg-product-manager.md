@@ -30,10 +30,11 @@ and completion authority.
   product-manager`; `[product_manager]` stores behavior parameters only.
 - Harness and project `allowedProviders` may reject the unified selection but
   must never select or fall back to another Provider.
-- The Provider receives only the validated task-local workspace snapshot.
-  Claude may use Read/Glob/Grep only. Project transport defaults to native
+- The Provider receives only the validated task-local workspace snapshot and
+  inherits its upstream permission mode. Project transport defaults to native
   `local`; explicit `ssh` uses environment-only bridge v2 settings and never
   falls back to local.
 - Never create `.ccg/tasks`, another task, or a parallel plan. Never let the
-  provider write the workspace, use terminal tools, control subagents, mutate
-  Trellis status, or call finish/archive.
+  Provider mutate the canonical workspace, Trellis status, or call
+  finish/archive. Tool use inside the disposable snapshot grants no workspace
+  or lifecycle authority.
