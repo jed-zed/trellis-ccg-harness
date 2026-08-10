@@ -3105,25 +3105,17 @@ Describe 'agent-browser-cli V2 transport' {
             LoginCount = 0; ProCount = 0; SelectedModeControlCount = 0; SelectedModeLabel = ''; SelectedModeIsPro = $false
             SecurityChallengeCount = 0; Generating = $false; UserTurns = @(); Responses = @(); Target = $exactTarget
         }
-        $previousCommand = $script:Command
-        $previousExpectedUrl = $script:ExpectedConversationUrl
-        $script:Command = 'status'
-        $script:ExpectedConversationUrl = $conversationUrl
+        $Command = 'status'
+        $ExpectedConversationUrl = $conversationUrl
         Mock Resolve-AgentBrowserCommandTarget { $exactTarget }
         Mock Get-AgentBrowserPageSnapshot { $snapshot }
         Mock Enter-UiMutex { $null }
         Mock Exit-UiMutex {}
-        try {
-            $result = Invoke-MainCommand
-            $result.ok | Should -BeTrue
-            $result.ready | Should -BeFalse
-            $result.generating | Should -BeFalse
-            $result.selectedModeControlCount | Should -Be 0
-        }
-        finally {
-            $script:Command = $previousCommand
-            $script:ExpectedConversationUrl = $previousExpectedUrl
-        }
+        $result = Invoke-MainCommand
+        $result.ok | Should -BeTrue
+        $result.ready | Should -BeFalse
+        $result.generating | Should -BeFalse
+        $result.selectedModeControlCount | Should -Be 0
 
         Assert-ThrowsCategory -Category 'SelectedModeControlMissing' -ExitCode 23 -Action {
             Assert-AgentBrowserSelectedPro -Snapshot $snapshot

@@ -1,0 +1,79 @@
+{
+  "schemaVersion": 1,
+  "capturedAtUtc": "2026-08-10T13:48:00Z",
+  "subject": {
+    "repository": "jed-zed/trellis-ccg-harness",
+    "pullRequest": 38,
+    "baseCommit": "66da1493327b4905c4c2180f7056d8f30e8796b8",
+    "headCommit": "34de65d8fe10499f431a04a6f13b0a8cb0bcdf1a",
+    "diffSha256": "de04a736647e7cc1266d7b27f70495ecc962f4074c08398c5d3fbbcf82cc7477",
+    "status": "pre-stabilization-history"
+  },
+  "userDecision": {
+    "checkpointId": "PR38-JOINT-REVIEW",
+    "stateRevisionAfterResponse": 8,
+    "decision": "rejected",
+    "reason": "修订 AC2，接受完整的不可用记录作为该路闭合证据，最终仍标注该 Provider 缺失"
+  },
+  "providers": {
+    "antigravity": {
+      "command": "ccg wrapper --backend antigravity --progress --antigravity-review",
+      "sandbox": "none",
+      "exitCode": 1,
+      "status": "missing-accepted-unavailability-record",
+      "failureCategory": "headless-command-permission-denied",
+      "configuredDefaultModel": "gemini-3.1-pro-high",
+      "configuredDefaultModelDisplay": "Gemini 3.1 Pro (High)",
+      "reviewEvidenceValid": false,
+      "mergeRecommendationAllowed": false,
+      "logs": [
+        {
+          "path": "C:/Users/29933/.fastctx/jobs/j-irvoih/output.log",
+          "sha256": "f6ba934321c7f3a68d057464c5ab48e51d17a9ca0bd572ced9c30bc67e6b868b"
+        },
+        {
+          "path": "C:/Users/29933/.gemini/antigravity-cli/log/cli-20260810_071058.log",
+          "sha256": "736c0e84288e86effd0978ecb6de15eb68d377df09d54e148a16dcb68fc4027a"
+        }
+      ]
+    },
+    "grok": {
+      "command": "ccg wrapper --backend grok --progress with ten exact --grok-review-target bindings",
+      "externalIntelligence": false,
+      "exitCode": 0,
+      "sessionId": "019febcd-7541-7eb0-975f-cfcf7157d1d8",
+      "status": "completed-pre-stabilization",
+      "finalEnvelope": "CCG_GROK_REVIEW_JSON schemaVersion=1 findings=[]",
+      "logPath": "C:/Users/29933/.fastctx/jobs/j-ochn1t/output.log",
+      "logSha256": "46155bd9f3954f3b57eb1d822b80c4ccd00ff356b9087edb414815ca9b4722e4"
+    },
+    "claude": {
+      "command": "node scripts/harness-adapter.mjs pm review --trigger DRIFT_REVIEW --checkpoint PR38-JOINT-REVIEW --allow-provider-call",
+      "provider": "claude",
+      "model": "opus",
+      "cliVersion": "2.1.220 (Claude Code)",
+      "exitCode": 0,
+      "status": "completed-pre-stabilization",
+      "invocationKey": "319ae32e56d1043a070921a59485a4c0ccc557368cccff2bfa1419a5741d75ea",
+      "logPath": "C:/Users/29933/.fastctx/jobs/j-qskm2g/output.log",
+      "logSha256": "ffe608e299eb2b96c3a9be4191c60b80712330208ea463913e01543a43215864"
+    },
+    "gptPro": {
+      "status": "pending-stable-head"
+    }
+  },
+  "formalPester": {
+    "version": "5.6.1",
+    "red": {
+      "result": "278 passed, 1 failed",
+      "failure": "new status regression referenced Command outside its dynamic test scope",
+      "logPath": "C:/Users/29933/.fastctx/jobs/j-um2whq/output.log",
+      "logSha256": "450062709d8d6161acaaeafe0fa74ecea86b3ef7b9d3eb41f604716ec209be70"
+    },
+    "green": {
+      "result": "279 passed, 0 failed",
+      "logPath": "C:/Users/29933/.fastctx/jobs/j-eaz3qw/output.log",
+      "logSha256": "d8bfa45a689997b0378d4b8dad8a8bc5f38191a731efedf23ef4ffb993690549"
+    }
+  }
+}

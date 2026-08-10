@@ -3,7 +3,7 @@
 ## 1. Authority and scope
 
 - Trellis 子任务是本次审查唯一任务权威；父任务继续拥有 PR 产品实现与验收。
-- PR identity 固定为 `66da149...7f8531a`。若 head 变化，本轮证据失效，必须重新绑定并重审。
+- 稳定化前 PR identity 为 `66da149...34de65d`，只作为历史台账。包含本任务修订的提交建立最终稳定 identity；绑定更早 head `7f8531a` 或 `9fbcd414` 的证据均已失效。
 - 审查是纯本地代码判断；Grok 不走 external-intelligence route。用户已授权在同一子任务内闭合两个已确认阻断根因和 MCP1，不创建平行任务。
 
 ## 2. Shared evidence bundle
@@ -12,16 +12,16 @@
 
 1. `pr-38.diff`：`git diff --binary origin/main...HEAD`。
 2. `review-manifest.json`：base/head、diff SHA-256、文件清单、工作树状态和 PR URL。
-3. `test-summary.md`：本地门禁与 GitHub 10/10 CI 结果。
+3. `test-summary.md`：按绑定 head 采集的本地门禁与逐项 GitHub CI 结果；不得预写固定通过数量或混入历史 head。
 4. `review-prompt.md`：统一风险清单与禁止写入边界。
 
-原始 Provider 请求、响应和日志保留在忽略目录；可跟踪任务文件只记录必要的摘要、哈希和结论。
+原始 Provider 请求、响应和日志保留在忽略目录；任务 `research/provider-review-evidence.json` 只跟踪必要的命令形状、退出码、身份、日志 SHA-256 和结论，不复制原始响应或用户配置。该分离遵守 product-manager 原始 evidence 必须忽略的上位规范。
 
 ## 3. Provider contracts
 
 ### Antigravity
 
-通过 `ccg wrapper --backend antigravity --progress --antigravity-review` 启动。提示词绑定 shared manifest、diff identity 与高风险文件集；只有进程成功且存在完成报告才计为有效。
+通过 `ccg wrapper --backend antigravity --progress --antigravity-review` 启动。提示词绑定 shared manifest、diff identity 与高风险文件集；只有进程成功且存在完成报告才计为有效。若 Provider 不可达，用户已决定接受包含退出码、失败类别、实际默认模型与日志 SHA-256 的完整不可用记录闭合该路；该路仍标记 missing，联合报告仍为 `incomplete` 且不给合并建议。
 
 ### Grok
 
@@ -39,13 +39,13 @@
 
 1. `status` 保持只读：它仍校验登录、挑战、composer、URL 和 exact target，但把 `selectedMode*` 留在 payload/`ready` 中，不在观察命令里把隐藏模式控件升级为失败；真正的 `send` 继续通过 `Ensure-AgentBrowserProMode` 与 commit preflight 严格证明 Pro。
 2. post-click observation deadline 的循环条件复用现有 `UtcNowProvider`，一次取值同时比较 observation 和 response absolute deadline；不新增时钟抽象。
-3. MCP1 复用现有 product-manager snapshot builder 和 manifest；只给固定 task-bound review evidence 与 manifest 声明的 Git-tracked 精确目标增加包含入口。私密目录、凭据、密钥和秘密文件仍 fail closed；显式审查目标可越过 instruction/plugin 目录排除，且 2000/2MiB/64MiB 上限不变。
+3. MCP1 复用现有 product-manager snapshot builder 和 manifest；只给固定 task-bound review evidence 与 manifest 声明的 Git-tracked 精确目标增加包含入口，并排除仓库根部未跟踪的用户 `pnpm-lock.yaml`。已跟踪锁文件和普通未跟踪源码仍可审；私密目录、凭据、密钥和秘密文件仍 fail closed，2000/2MiB/64MiB 上限不变。
 4. Claude 使用修复后的 task-local snapshot；有效 review 产生新 hard gate，必须 present 后停止等待 fresh 用户响应。
 
 ## 5. Sequencing
 
-1. Codex 固定 PR identity 并创建 shared evidence bundle。
-2. Antigravity、Grok 和 Claude 使用同一 identity 独立审查。
+1. Codex 先完成所有会改变 tracked head 的测试、台账与证据摘要修改并提交，再固定 PR identity、重建 shared evidence bundle。
+2. Antigravity 使用已接受的不可用记录保持 missing；Grok 和 Claude 在稳定 identity 上独立重审。
 3. Codex校验前三路并形成普通 CCG review/Base Routing Evidence。
 4. GPT Pro 接收相同 diff identity、测试摘要及已验证/未验证 finding 列表，做最终第二意见。
 5. Codex逐项点验；若确认阻断 finding 且用户授权，先添加失败回归，再做最小根因修复。

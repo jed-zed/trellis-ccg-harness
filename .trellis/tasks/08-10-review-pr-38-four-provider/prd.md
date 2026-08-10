@@ -7,8 +7,8 @@
 ## Confirmed Facts
 
 - 审查仓库为 `jed-zed/trellis-ccg-harness`，PR 为 `#38`。
-- 审查基线固定为 `origin/main@66da1493327b4905c4c2180f7056d8f30e8796b8`，PR head 固定为 `7f8531a6ab6f76618eaba9f24e9c984f32a186a5`。
-- 该 diff 当前包含 140 个文件、14352 行新增、2181 行删除，覆盖 external Chrome adapter、RootWait、CCG bridge、Harness 来源同步、规范与测试。
+- 审查基线固定为 `origin/main@66da1493327b4905c4c2180f7056d8f30e8796b8`；稳定化前的重绑 head 为 `34de65d8fe10499f431a04a6f13b0a8cb0bcdf1a`。
+- 稳定化前 diff 包含 151 个文件、14929 行新增、2203 行删除，SHA-256 为 `de04a736647e7cc1266d7b27f70495ecc962f4074c08398c5d3fbbcf82cc7477`；该 identity 仅保留为历史台账。最终稳定 head 由包含本任务修订的提交建立，并在提交后重建 ignored shared evidence bundle。
 - 用户已明确授权本次四个 Provider 调用，并授权创建本审查任务。
 - `pnpm-lock.yaml` 是用户未跟踪文件，不属于 PR，也不得进入 Provider 输入或任务提交。
 
@@ -21,7 +21,7 @@
 
 ### R2. Four independent providers
 
-- Antigravity 使用受管 CCG wrapper，要求完成的模型报告。
+- Antigravity 使用受管 CCG wrapper。完成的模型报告计为有效审查；若 Provider 不可达，用户已接受由退出码、失败原因、实际默认模型及原始日志 SHA-256 组成的完整不可用记录闭合该路，但最终报告必须明确标注该 Provider 缺失，且该记录不等同于有效审查结论。
 - Grok 只做本地代码审查，绑定明确的 workspace-relative 目标文件并要求有效 `CCG_GROK_REVIEW_JSON`；本任务不依赖当前外部事实，不启用 Grok external-intelligence route。
 - Claude 只通过已授权的 Trellis task-local product-manager 快照运行，限制为 Read/Glob/Grep、无写入、无终端、无子代理、无 fallback。
 - GPT Pro 只通过安装的 `chatgpt-pro-sidebar`、RootWait 与 exact import 合同运行；只接受 `completed`、URL/thread/target/hash/ack 全部通过的证据。
@@ -39,6 +39,7 @@
 ### R5. Failure and merge recommendation
 
 - 四路中任一路缺少有效证据时，联合审查状态必须为 `incomplete`，不得给出“建议合并”。
+- Antigravity 的完整不可用记录只闭合“已如实处置该路”，不把 missing 提升为成功，也不解除上述 `incomplete` 约束。
 - Critical/High 或未闭合 Major finding 存在时，不建议合并；仅在用户明确授权后，才可修复已由 Codex 复现的根因。
 
 ### R6. Controlled remediation
@@ -50,15 +51,15 @@
 
 ## Acceptance Criteria
 
-- [ ] AC1：同一 base/head、diff 哈希、文件清单和测试摘要被四路证据引用。
-- [ ] AC2：Antigravity 有完成报告，Grok 有有效最终 JSON envelope，Claude 有有效 task-local product-manager 投影，GPT Pro 有 completed import 与响应哈希。
+- [ ] AC1：所有有效审查证据引用同一 base/head、diff 哈希、文件清单和测试摘要；不可用记录写明其尝试绑定并保持 missing，不冒充有效审查。
+- [ ] AC2：Antigravity 有完成报告，或有用户已接受的完整不可用记录并在最终报告标注 missing；Grok 有有效最终 JSON envelope，Claude 有有效 task-local product-manager 投影，GPT Pro 有 completed import 与响应哈希。
 - [ ] AC3：Codex 对所有发现完成 file:line/合同点验，并分为 Critical、Major、Minor、False Positive、Required Tests。
 - [ ] AC4：最终报告明确四路状态、共同发现、分歧、剩余风险及合并建议；任一路无效时不给合并建议。
-- [ ] AC5：`status` 对已发送观察不再因隐藏模式控件失败；generic readiness 仍以 `ready=false` 暴露非 Pro，`send` 的最终点击前严格 Pro 校验不放宽。
-- [ ] AC6：post-click observation loop 只使用注入的 `UtcNowProvider` 判断 180/7200 秒截止，并有失败转绿回归。
-- [ ] AC7：MCP1 快照包含规则能显式纳入受限 diff、manifest、test summary 与 `.agents/skills/chatgpt-pro-sidebar/**`；缺失项 fail closed，Claude 复审看到这些证据。
+- [x] AC5：`status` 对已发送观察不再因隐藏模式控件失败；generic readiness 仍以 `ready=false` 暴露非 Pro，`send` 的最终点击前严格 Pro 校验不放宽。
+- [x] AC6：post-click observation loop 只使用注入的 `UtcNowProvider` 判断 180/7200 秒截止，并有失败转绿回归。
+- [x] AC7：MCP1 快照包含规则能显式纳入受限 diff、manifest、test summary 与 `.agents/skills/chatgpt-pro-sidebar/**`；缺失项 fail closed，且根部未跟踪 `pnpm-lock.yaml` 默认排除。安装版复验为 155/155 必需项、0 缺失、`rootPnpmLockIncluded=false`。
 - [ ] AC8：父任务 AC11 live E2E 和 M2 复审按原验收合同推进；Claude 新硬门槛仍需 `pm present` 后的 fresh 用户响应。
-- [ ] AC9：PR 始终保持 Draft；用户 `pnpm-lock.yaml` 未改变；没有未授权提交或推送。
+- [x] AC9：PR 始终保持 Draft；用户 `pnpm-lock.yaml` 未改变；所有提交、推送、来源更新和安装均在用户授权范围内。
 
 ## Out of Scope
 
