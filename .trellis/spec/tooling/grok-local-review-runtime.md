@@ -25,15 +25,18 @@ snapshot-only review session; its absence preserves ordinary Grok behavior.
 - Before provider launch, the wrapper opens each target, verifies the opened
   file is the same regular file that was validated, rejects non-UTF-8 input,
   and embeds only those bytes in an owner-only temporary prompt file.
-- Grok runs from that temporary directory in a fresh session. Its filesystem
-  read/search tools, web, terminal, writes, MCP calls, memory, planning,
-  subagents, and auto-update are unavailable. On supported Unix platforms,
-  Grok's native `strict` sandbox is an additional layer; Windows safety does
-  not depend on that unsupported sandbox.
+- Grok runs from that temporary directory in a fresh session with its native
+  Provider permissions. The wrapper passes only the prompt snapshot and uses
+  the temporary directory as the default working directory; this is data
+  minimization, not an OS sandbox, so native absolute-path and network
+  capabilities remain unchanged. Provider tool use does not grant workspace or
+  Trellis authority. Review mode passes `--no-auto-update` solely to prevent
+  runtime mutation; it does not change tool permission policy.
 - The system prompt is replaced with the snapshot-review contract, and the
   provider receives the prompt through `--prompt-file` rather than argv.
-- Any provider tool call fails validation. A successful terminal response is
-  plain review prose; the wrapper appends exactly one final scope envelope:
+- Provider tool events are accepted and safely summarized. A successful
+  terminal response is plain review prose; the wrapper appends exactly one final
+  scope envelope:
 
 ```text
 CCG_GROK_REVIEW_JSON:{"schemaVersion":1,"reviewedFiles":["path"],"findings":[]}
@@ -55,17 +58,16 @@ CCG_GROK_REVIEW_JSON:{"schemaVersion":1,"reviewedFiles":["path"],"findings":[]}
 | Review mode attempts to resume an existing session | Fail before provider launch |
 | Provider/process failure | Preserve a non-zero provider error |
 | Missing/error terminal stop reason | Fail even if prose exists |
-| Any reported provider tool call | Fail |
+| Provider reports a native tool call | Accept the event without exposing raw tool inputs or outputs |
 | Successful terminal prose after snapshot preparation | Append the canonical envelope and succeed |
 | Pure local review has no official-domain list | Continue without external-intelligence routing |
 
 ## 5. Good / Base / Bad Cases
 
-- Good: two bound UTF-8 files are embedded in the isolated prompt, no provider
-  tool runs, and both paths appear in the wrapper envelope.
+- Good: two bound UTF-8 files are embedded in the isolated prompt, native tool
+  events may occur, and both paths appear in the wrapper envelope.
 - Base: no review-target flag; ordinary Grok semantics remain unchanged.
-- Bad: a review tries to resume a prior session or emits any tool call; the
-  wrapper returns non-zero.
+- Bad: a review tries to resume a prior session; the wrapper returns non-zero.
 - Bad: the orchestrator runs external fact verification solely because local
   review has no official-domain list.
 
@@ -74,10 +76,10 @@ CCG_GROK_REVIEW_JSON:{"schemaVersion":1,"reviewedFiles":["path"],"findings":[]}
 - Parse repeated target flags and reject invalid paths before provider launch.
 - Assert the prompt contains target content but not an unbound neighboring
   file, and reject non-UTF-8 input.
-- Assert review arguments expose no filesystem tools, use `--prompt-file`,
-  disable MCP/web/memory/subagents/auto-update, and never resume.
-- Cover a successful tool-less terminal response, any tool-call rejection,
-  error stop reason, isolated CWD, and the wrapper-generated envelope.
+- Assert review arguments preserve native permissions, suppress auto-update,
+  use `--prompt-file`, and never resume.
+- Cover a successful terminal response, accepted tool events, error stop
+  reason, isolated CWD, and the wrapper-generated envelope.
 - Assert every ordinary review surface skips Grok external intelligence and the
   domain gate for a pure local review.
 - Run the complete Go test/build gates and affected CCG distribution tests.
@@ -87,9 +89,9 @@ CCG_GROK_REVIEW_JSON:{"schemaVersion":1,"reviewedFiles":["path"],"findings":[]}
 Wrong: give Grok `read_file`/`grep` access to the full worktree and reject
 out-of-scope reads only after their contents were already disclosed.
 
-Correct: CCG snapshots only the bound files before launch, removes provider
-filesystem tools, and appends the matching scope envelope after a successful
-tool-less terminal response.
+Correct: CCG snapshots only the bound files before launch, uses the temporary
+directory as Grok's default working directory, preserves native Provider tools,
+and appends the matching scope envelope after a successful terminal response.
 
 Wrong: require the model to reproduce a byte-exact final JSON line.
 
