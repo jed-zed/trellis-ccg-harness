@@ -83,7 +83,7 @@ func TestGrokBuildArgs_ReviewModeKeepsSnapshotAndNativePermissions(t *testing.T)
 			t.Fatalf("review args missing %q %q: %v", pair[0], pair[1], args)
 		}
 	}
-	for _, flag := range []string{"--always-approve", "--verbatim"} {
+	for _, flag := range []string{"--always-approve", "--verbatim", "--no-auto-update"} {
 		if !hasArg(args, flag) {
 			t.Fatalf("review args missing %q: %v", flag, args)
 		}

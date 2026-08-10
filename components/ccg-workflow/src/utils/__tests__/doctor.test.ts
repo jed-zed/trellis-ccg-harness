@@ -353,8 +353,10 @@ describe('Codex-only doctor', () => {
 
     const result = await doctor({ platform: 'codex' })
     const ownership = result.checks.find(check => check.label === 'Codex ownership')
+    const productManager = result.checks.find(check => check.label === 'Product manager route')
 
     expect(result.failures.map(failure => failure.label)).toEqual(['Codex wrapper'])
+    expect(productManager?.detail).toContain('snapshot-bound adapter and native provider runtime available')
     expect(ownership?.detail).toContain('mutable CCG config differs from the installed template')
   })
 

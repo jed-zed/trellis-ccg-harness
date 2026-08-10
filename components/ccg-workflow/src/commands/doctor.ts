@@ -408,7 +408,7 @@ async function doctorCodex(): Promise<DoctorResult> {
         !productManagerImplemented
           ? '; adapter unavailable, no fallback'
           : productManagerRuntime
-            ? '; read-only adapter and runtime available'
+            ? '; snapshot-bound adapter and native provider runtime available'
             : '; selected runtime unavailable, no fallback'
       }`
       : 'No unified product-manager route',

@@ -2,6 +2,11 @@
 
 **Status:** Approved design, corrected by the Windows runtime contract probe
 
+> **Permission update (2026-08-10):** The empty-MCP and blanket tool-denial
+> profile below is superseded. Current ACP sessions omit `mcpServers`, select
+> the CLI's native permission option, and keep the snapshot, evidence, and
+> Codex-only workspace-writer boundaries. See the current runtime and tests.
+
 **Date:** 2026-07-20
 
 **Primary owner:** Codex orchestrator
