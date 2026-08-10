@@ -124,7 +124,7 @@ Step 4/4: 性能模式（standard|lite）+ Impeccable 可选安装
 - `ccg grok login` 使用专用本地根目录启动官方 Grok CLI 浏览器 OAuth；凭据不写入仓库或 evidence bundle。
 - `ccg doctor --grok` 只做本地版本、ACP、模型、登录与保留检查；只有 `--grok-live` 才允许实际 Web/X 模型调用。
 - CI 的 live workflow 只能手动触发，并把 `XAI_API_KEY` 限定在 live 步骤；常规 CI 不需要 Grok 凭据。
-- 情报层固定空 MCP、取消权限请求、禁用 terminal 命令并禁止 provider fallback；这些约束与 generic `--backend grok` 路由相互独立。
+- 情报层继承 Grok 原生权限与 MCP 配置，同时保留隔离快照、证据校验和禁止 provider fallback；这些约束与 generic `--backend grok` 路由相互独立。
 
 ---
 
@@ -168,7 +168,7 @@ v1.7.83 将原 1878 行单文件拆分为 5 个聚焦模块，各自边界清晰
 #### Binary 管理（`src/utils/installer.ts:61`）
 
 ```typescript
-const EXPECTED_BINARY_VERSION = '5.12.9'  // 必须与 codeagent-wrapper/main.go 中 version 常量保持一致
+const EXPECTED_BINARY_VERSION = '5.12.10'  // 必须与 codeagent-wrapper/main.go 中 version 常量保持一致
 
 // 唯一可执行来源：个人仓库 preset Release
 const BINARY_SOURCES = [

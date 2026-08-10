@@ -317,7 +317,7 @@ describe('Grok intelligence ACP transport', () => {
     expect(() => selectAcpPermissionOption([{ optionId: 'reject', kind: 'reject_once' }])).toThrow(/allow option/i)
   })
 
-  it('keeps client-hosted capabilities bounded and approves provider-native tools', async () => {
+  it('keeps client-hosted capabilities bounded and lets Grok load its native MCP configuration', async () => {
     let spawnedEnvironment: Record<string, string> | undefined
     const result = await makeClient('success', {
       spawnProcess: (...spawnArgs: Parameters<typeof spawn>) => {
@@ -329,7 +329,7 @@ describe('Grok intelligence ACP transport', () => {
       fs: { readTextFile: false, writeTextFile: false },
       terminal: false,
     })
-    expect(result.sessionResult.observedSession).toEqual({ cwd: await realpath(cwd), mcpServers: [] })
+    expect(result.sessionResult.observedSession).toEqual({ cwd: await realpath(cwd) })
     expect(result.promptResult.permissionResponse).toEqual({ outcome: { outcome: 'selected', optionId: 'always' } })
     expect(result.authMethod).toBe('cached_token')
     expect(result.promptResult.receivedArgs).toEqual(buildGrokAcpArgs({ maxTurns: 6 }))

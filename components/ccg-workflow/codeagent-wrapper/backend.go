@@ -198,6 +198,7 @@ func buildGrokArgs(cfg *Config, targetArg string) []string {
 	args := []string{"--always-approve", "--output-format", "streaming-json"}
 	if len(cfg.GrokReviewTargets) > 0 {
 		args = append(args,
+			"--no-auto-update",
 			"--system-prompt-override", grokReviewSystemPrompt,
 			"--verbatim",
 		)

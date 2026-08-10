@@ -115,9 +115,8 @@ def locked_file(path: Path, timeout_seconds: float = 30.0):
         handle.close()
 
 
-def write_json_atomic(path: Path, value: dict[str, Any]) -> None:
+def write_bytes_atomic(path: Path, payload: bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    payload = (json.dumps(value, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
     temporary = path.with_name(
         f".{path.name}.{os.getpid()}.{threading.get_ident()}.{secrets.token_hex(8)}.tmp"
     )
@@ -136,6 +135,11 @@ def write_json_atomic(path: Path, value: dict[str, Any]) -> None:
                 time.sleep(0.02)
     finally:
         temporary.unlink(missing_ok=True)
+
+
+def write_json_atomic(path: Path, value: dict[str, Any]) -> None:
+    payload = (json.dumps(value, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
+    write_bytes_atomic(path, payload)
 
 
 def is_chatgpt_conversation_url(value: str) -> bool:
@@ -2568,7 +2572,7 @@ def _persist_response(
         if existing_bytes and existing_bytes != response_bytes:
             raise ValueError("GPT Pro response is already saved with different content.")
         if not existing_bytes:
-            session.response_file.write_bytes(response_bytes)
+            write_bytes_atomic(session.response_file, response_bytes)
         round_status = status["rounds"][session.round_name]
         round_status["response_saved"] = True
         round_status["response_chars"] = len(response_text)

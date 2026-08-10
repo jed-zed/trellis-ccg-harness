@@ -36,10 +36,16 @@ call the raw Gemini CLI.
 For local Grok review, bind an exact `CCG_REVIEW_TARGETS` list and pass each
 regular workspace-relative file through `--grok-review-target`. The wrapper
 must embed only those files in a fresh Provider session. Require a
-zero exit and wrapper-generated, validated `CCG_GROK_REVIEW_JSON` envelope. For local Antigravity
-review, bind the concrete files in the prompt and invoke `ccg wrapper --backend
-antigravity --antigravity-review`; require a completed model report. Neither
-local path uses the external-intelligence route or an official-domain gate.
+zero exit and wrapper-generated, validated `CCG_GROK_REVIEW_JSON` envelope. For
+local Antigravity or Claude review, bind the same concrete files and invoke the
+bundled `invoke_provider_review.py` helper with one `--target` per file. It runs
+the Provider with native permissions and the disposable snapshot as its working
+directory; it does not pass the canonical worktree. This bounds the default
+input and working directory but is not an OS sandbox, so native absolute-path
+and network capabilities remain unchanged. These local paths do not use the
+external-intelligence route or an official-domain gate. Grok review also passes
+`--no-auto-update`; that flag prevents runtime mutation without changing tool
+permissions.
 
 Claude may be explicitly selected for `frontend`, `backend`, or
 `product-manager`. It is not eligible for `search`; defaults and no-fallback

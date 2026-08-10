@@ -468,7 +468,7 @@ func TestGrokBuildArgs_ReadOnlyMarkerPreservesNativePermissions(t *testing.T) {
 	if !hasArg(args, "--always-approve") {
 		t.Fatalf("args missing native approval: %v", args)
 	}
-	for _, forbidden := range []string{"--tools", "--disallowed-tools", "--disable-web-search", "--no-memory", "--no-plan", "--no-subagents", "--permission-mode", "--deny", "--max-turns", "--system-prompt-override", "--prompt-file"} {
+	for _, forbidden := range []string{"--tools", "--disallowed-tools", "--disable-web-search", "--no-memory", "--no-plan", "--no-subagents", "--permission-mode", "--deny", "--max-turns", "--system-prompt-override", "--prompt-file", "--no-auto-update"} {
 		if hasArg(args, forbidden) {
 			t.Fatalf("args must not contain permission overlay %q: %v", forbidden, args)
 		}

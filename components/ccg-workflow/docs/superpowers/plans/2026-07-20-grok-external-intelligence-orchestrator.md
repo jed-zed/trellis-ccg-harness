@@ -2,6 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **Superseded permission steps (2026-08-10):** This is a historical execution
+> record. Do not treat its empty-MCP, cancelled-permission, or forced tool-denial
+> steps as current requirements. Current ACP sessions omit `mcpServers`, select
+> native permissions, and retain the snapshot/evidence/Codex-writer boundaries.
+
 **Goal:** 将官方 Grok Build CLI 落地为 CCG 的外部情报与事实核验层，以真实 Web/X 工具事件建立可审计证据，接入 GPT Pro 与全部 CCG 工作流，并在用户明确同意后由主编排器自动判断是否搜索。
 
 **Architecture:** 保留现有通用 `codeagent-wrapper --backend grok` 兼容路径，但 intelligence profile 不再经过 one-shot wrapper。真实 Windows 探针证明 `grok -p` 会错误启动已禁用的 Claude MCP，故情报层改用零第三方依赖的 Node.js ESM ACP client 启动 `grok agent stdio`：复用专用私有 `GROK_HOME` 中的官方浏览器登录态，使用 exact env、无文件系统/终端客户端能力、`mcpServers: []`、权限请求全拒绝和进程限制。runtime 同时负责路由、只读聚焦快照、真实 ACP 事件归一化、运行时 source registry、证据校验、缓存、canonical task evidence 和报告。required gate 首版只使用契约探针验证过的单 agent 模型；deep multi-agent 仅作 advisory，并明确 leader-only 可见性。

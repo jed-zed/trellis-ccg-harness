@@ -16,6 +16,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   files while still rejecting missing targets and private files before a
   Provider starts.
 
+## [3.4.10] - 2026-08-10
+
+### Fixed
+
+- **Provider review snapshots** — Copy bound review files from a verified open
+  handle, reject identity/content drift, and cap snapshots at 2000 files,
+  2 MiB per file, and 64 MiB total.
+- **Grok review auto-update** — Pass `--no-auto-update` only for bound local
+  Grok reviews while preserving the upstream `--always-approve` permission
+  behavior and ordinary Grok invocation arguments.
+
+### Changed
+
+- **codeagent-wrapper 5.12.10** — Publish the reviewer-only auto-update guard
+  with reproducible six-platform binary digests.
+
 ## [3.4.9] - 2026-08-09
 
 ### Changed

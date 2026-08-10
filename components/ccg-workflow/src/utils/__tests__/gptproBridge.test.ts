@@ -372,6 +372,49 @@ describe('GPT Pro sidebar bridge', () => {
     runPython(PYTHON!, ['-m', 'py_compile', PLUGIN_BRIDGE])
   })
 
+  maybeIt.each([BRIDGE, PLUGIN_BRIDGE])('keeps response files intact when atomic replacement fails (%s)', (bridge) => {
+    const root = join(TMP_ROOT, `atomic-response-${bridge === BRIDGE ? 'template' : 'plugin'}`)
+    fs.ensureDirSync(root)
+    const script = [
+      'import importlib.util, pathlib, sys',
+      'bridge = pathlib.Path(sys.argv[1])',
+      'root = pathlib.Path(sys.argv[2])',
+      'target = root / "response.md"',
+      'target.write_bytes(b"old-response")',
+      'spec = importlib.util.spec_from_file_location("gptpro_bridge_atomic_test", bridge)',
+      'mod = importlib.util.module_from_spec(spec)',
+      'sys.modules[spec.name] = mod',
+      'spec.loader.exec_module(mod)',
+      'real_replace = mod.os.replace',
+      'def fail_replace(source, destination):',
+      '    raise OSError("injected replace failure")',
+      'mod.os.replace = fail_replace',
+      'try:',
+      '    try:',
+      '        mod.write_bytes_atomic(target, b"new-response")',
+      '    except OSError as error:',
+      '        assert str(error) == "injected replace failure"',
+      '    else:',
+      '        raise AssertionError("atomic replacement failure was not propagated")',
+      'finally:',
+      '    mod.os.replace = real_replace',
+      'assert target.read_bytes() == b"old-response"',
+      'assert not list(root.glob(".response.md.*.tmp"))',
+      'mod.write_bytes_atomic(target, b"new-response")',
+      'assert target.read_bytes() == b"new-response"',
+      'print("ok")',
+    ].join('\n')
+    expect(runPython(PYTHON!, ['-c', script, bridge, root], root).trim()).toBe('ok')
+  })
+
+  it('routes response persistence through the atomic helper in both bridge copies', () => {
+    for (const bridge of [BRIDGE, PLUGIN_BRIDGE]) {
+      const source = readFileSync(bridge, 'utf-8')
+      expect(source).toContain('write_bytes_atomic(session.response_file, response_bytes)')
+      expect(source).not.toContain('session.response_file.write_bytes(response_bytes)')
+    }
+  })
+
   maybeIt('creates 20 sessions concurrently without directory collisions', () => {
     const root = join(TMP_ROOT, 'concurrent-session-create')
     fs.ensureDirSync(root)

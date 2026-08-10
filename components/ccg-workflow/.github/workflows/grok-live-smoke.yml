@@ -89,10 +89,6 @@ jobs:
           if ($result.live.claimCount -lt 1 -or $result.live.qualifyingClaimCount -lt 1) {
             throw 'Grok live doctor did not produce a qualifying claim envelope.'
           }
-          if (-not $result.mcpServersEmpty -or $result.mcpToolCount -ne 0) {
-            throw 'Grok live doctor observed an unexpected MCP surface.'
-          }
-
       - name: Prove incident to final-verify inheritance on the checked-out head
         shell: pwsh
         env:

@@ -408,7 +408,7 @@ async function doctorCodex(): Promise<DoctorResult> {
         !productManagerImplemented
           ? '; adapter unavailable, no fallback'
           : productManagerRuntime
-            ? '; read-only adapter and runtime available'
+            ? '; snapshot-bound adapter and native provider runtime available'
             : '; selected runtime unavailable, no fallback'
       }`
       : 'No unified product-manager route',
@@ -629,7 +629,7 @@ export async function doctor(options: DoctorOptions = {}): Promise<DoctorResult>
       label: options.grokLive ? 'Grok live Web/X' : 'Grok local ACP',
       status: result?.ok === true ? OK : FAIL,
       detail: result?.ok === true
-        ? `${result.version}; auth=${result.authMethod}; mcp=${String(result.mcpToolCount)}; paidPrompt=${String(result.paidModelPromptSent)}`
+        ? `${result.version}; auth=${result.authMethod}; paidPrompt=${String(result.paidModelPromptSent)}`
         : formatGrokDoctorFailure(execution.stderr),
     })
     if (result?.retention) {
