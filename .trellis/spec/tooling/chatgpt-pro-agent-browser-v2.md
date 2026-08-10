@@ -193,6 +193,12 @@ provider. It controls a user-approved external Chrome tab through
   mode/workdir/task/evidence/thread bindings, and holds the session lock across
   current-round read, next-round selection, artifact creation, and atomic
   status update. Concurrent valid follow-ups therefore receive distinct rounds.
+- Response persistence writes UTF-8 bytes to a unique temporary file in the
+  response directory, flushes and `fsync`s it, then uses `os.replace` to publish
+  `response.md`. Failure removes the temporary file without truncating an
+  existing response; replaying the same completed evidence remains idempotent,
+  while different response bytes still fail closed. Tests must inject write and
+  replace failures against both distributed bridge copies.
 
 ## New chat and focus
 

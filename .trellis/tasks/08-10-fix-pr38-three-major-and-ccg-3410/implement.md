@@ -1,6 +1,6 @@
 # 执行计划：PR38 三项 Major 修复与 CCG 3.4.10 对齐
 
-> 当前状态仅为 planning。收到本规划的后续 fresh 明确批准后，才运行 `task.py start` 或修改产品代码。
+> M1 与 FINAL 已获 fresh 验收；CCG source 已发布，PR #38 的发布身份与 CI 正在重签，归档前保持 task `in_progress`。
 
 ## M1: CCG 3.4.10 alignment and three Major fixes
 
@@ -50,8 +50,15 @@
 - [x] Full Harness：`pnpm harness:test`、`pnpm doctor`、`pnpm harness:conflicts -- --ci`、`pnpm verify:sources`、`git diff --check`。
 - [x] 重算 PR base/head/diff/checks、source commit/tree、Harness manifest、installed version；生成 M1 四份 evidence 摘要与 AC1-AC10 台账。
 - [x] 独立复审三项修复；Critical/High/Major 未闭合则停在 M1，不给合并建议。
-- [ ] 触发 Product Manager `MILESTONE_REVIEW` checkpoint `M1`；若有效，执行 `pm present`，完整呈现 advice 并停止等待 Boss fresh response。
-- [ ] 只有后续 fresh `accept` 才把 M1 标记完成；PR #38 仍保持 Draft。
+- [x] 触发 Product Manager `MILESTONE_REVIEW` checkpoint `M1`；若有效，执行 `pm present`，完整呈现 advice 并停止等待 Boss fresh response。
+- [x] 只有后续 fresh `accept` 才把 M1 标记完成；PR #38 仍保持 Draft。
+
+### Post-acceptance publication
+
+- [x] 按 Boss 授权推送个人 CCG source `28a428ce`，并用默认远端模式重跑 doctor/verify:sources，精确命中 commit/tree。
+- [x] 合入最新 `origin/main`，保留个人 CCG provenance，重跑 CCG/Harness 全门禁并记录 runner 超时与稳定重跑。
+- [ ] 推送 PR #38 新 head，等待该 head 的 required checks 全绿并重签 base/head/diff。
+- [ ] 在当前发布 identity 下完成最终 Provider gate 后，才把 PR #38 从 Draft 改为 Ready；不执行 merge。
 
 ## Focused validation commands
 

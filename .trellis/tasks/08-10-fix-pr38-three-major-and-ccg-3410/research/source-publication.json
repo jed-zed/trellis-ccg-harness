@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "capturedAtUtc": "2026-08-10T22:39:46.3386830Z",
+  "repository": "https://github.com/jed-zed/ccg-gptpro-worflow.git",
+  "remote": "gptpro",
+  "branch": "codex/gptpro-url-first-recovery-source-migrated",
+  "commit": "28a428cedbe218cc217d4207f04532c8ac785337",
+  "gitTree": "f935be940641bb0eeb7864602547c6ccc68f6f97",
+  "packageVersion": "3.4.10",
+  "pluginVersion": "3.4.10+codex.1",
+  "remotePublished": true,
+  "remoteRefVerified": true,
+  "defaultDoctorPassed": true,
+  "verifySourcesPassed": true
+}

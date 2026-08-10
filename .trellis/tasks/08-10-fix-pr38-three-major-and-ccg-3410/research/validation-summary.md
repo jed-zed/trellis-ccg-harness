@@ -62,3 +62,23 @@ Pester was downloaded only to the task-local ignored evidence directory after fr
 - AC8: implementation commit/tree and current remote state are signed above; the M1 Provider invocation separately binds the tracked evidence projection and full current snapshot. Any later product-code or source-tree change invalidates these digests.
 - AC9: pending — M1 Product Manager review, presentation, and fresh Boss response.
 - AC10: satisfied so far — PR remains Draft; no push, publish, Ready, merge, or global install.
+
+## Post-acceptance publication revalidation
+
+Captured at: `2026-08-10T22:39:46.3386830Z`
+
+- Published personal CCG source commit `28a428cedbe218cc217d4207f04532c8ac785337` to `gptpro/codex/gptpro-url-first-recovery-source-migrated`; remote lookup returns the exact commit and the source worktree remains clean.
+- Default remote-fetch `pnpm run doctor` passed with 18 adapter checks, 0 blocking, and 0 warnings. `pnpm run verify:sources` passed against CCG tree `f935be940641bb0eeb7864602547c6ccc68f6f97`.
+- Merged current `origin/main` into the PR candidate. The only new semantic main-side file was the already-aligned Grok local-review permission specification; the personal CCG manifest identity remained unchanged.
+- The ordinary parallel CCG test run completed 619 assertions but exited nonzero after two 20-second test timeouts and a Vitest worker `onTaskUpdate` timeout. The two affected files passed 35/35 with one worker; the complete stable one-worker suite then passed 621 tests with 3 skipped and exit code 0.
+- CCG lint, typecheck, build, Harness conflicts, doctor, source verification, and both staged/unstaged `git diff --check` passed.
+- The first Harness full run was terminated only by the command host's 240-second ceiling. The unbounded rerun passed 452 tests with 3 skipped and 0 failures in 648.6 seconds.
+
+New raw logs:
+
+| File | Bytes | SHA-256 |
+|---|---:|---|
+| `C:/Users/29933/.fastctx/jobs/j-52f8og/output.log` | 17582 | `b8cacff7f8f79b92afd0163c8430f77a7bf53c9b495733aee8f7bfa404b60bfb` |
+| `C:/Users/29933/.fastctx/jobs/j-2ivux7/output.log` | 41002 | `b876bde568a2b1c2f63dfe2103ffd54f7e33a4ea8cde191e2dc16b7ae8dd6e65` |
+
+The prior M1/FINAL Provider advice remains historical evidence for implementation commit `349cdc4`. Publishing a new PR head changes the identity bound by AC8, so PR #38 remains Draft until the new head, CI, and final Provider gate are revalidated.

@@ -12,11 +12,11 @@
   "assignee": "codex",
   "createdAt": "2026-08-10",
   "completedAt": null,
-  "branch": null,
+  "branch": "codex/gptpro-url-first-recovery-migrated",
   "base_branch": "main",
-  "worktree_path": null,
-  "commit": null,
-  "pr_url": null,
+  "worktree_path": "G:/CodexWorktrees/gptpro-three-major-m1-harness",
+  "commit": "349cdc4c19fd4b09d6231ea16343b1b8d8d7a38f",
+  "pr_url": "https://github.com/jed-zed/trellis-ccg-harness/pull/38",
   "subtasks": [],
   "children": [],
   "parent": null,
@@ -30,6 +30,6 @@
     "components/ccg-workflow/templates/engine/tools/gptpro/gptpro_bridge.py",
     "components/ccg-workflow/src/utils/__tests__/gptproBridge.test.ts"
   ],
-  "notes": "Planning only. Do not start implementation until the final plan receives a fresh explicit approval.",
+  "notes": "M1 and FINAL were accepted. CCG source 28a428ce is published; PR #38 remains Draft while the new head, CI, and identity-bound final gate are revalidated before Ready.",
   "meta": {}
 }
