@@ -76,9 +76,9 @@ state under `.ccg/` and `.codex/ccg/` is evidence only and must remain ignored.
 
 - Codex is the sole workspace writer and uses `codex.dispatch_mode: inline`.
 - Gemini is a bounded read-only helper.
-- Claude may be the explicitly selected product-manager provider. It is
-  non-persistent, sees only a bounded task-local snapshot, may use only file
-  read/search primitives, and never owns workspace or lifecycle writes.
+- Claude may be the explicitly selected product-manager provider. It sees only
+  a bounded task-local snapshot and inherits its native permission mode there;
+  tool use grants no canonical workspace or lifecycle authority.
 - GPT Pro is automated read-only evidence owned by the installed CCG bridge;
   browser work stays inside the `chatgpt-pro-sidebar` Skill over
   `agent-browser-cli-v2`, and continuation stays local through
@@ -109,8 +109,8 @@ state under `.ccg/` and `.codex/ccg/` is evidence only and must remain ignored.
 ## Conflict Severity
 
 - **Blocking:** source/version drift, tracked runtime state, unsafe task
-  authority, non-inline dispatch, writable or tool-enabled Claude execution, provider credential
-  overlap, or command namespace collision.
+  authority, non-inline dispatch, canonical workspace-write authority outside
+  Codex, provider credential overlap, or command namespace collision.
 - **Warning:** missing local setup, optional provider outage, or unguarded
   duplicate Trellis prompt-state hooks.
 - **Info:** intentionally inert generated assets or nested component CI.

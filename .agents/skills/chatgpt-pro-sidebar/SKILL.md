@@ -98,7 +98,8 @@ transport.
    homepage.
 4. For a complete round, call watcher `run-root` once. It invokes one adapter
    logical `send` request, including its one permitted proved-not-submitted
-   retry, immediately starts the local RootWait watcher when ordinary post-send
+   retry, after acquiring one of the existing per-task/global capacity slots.
+   It immediately starts the local RootWait watcher when ordinary post-send
    observation is needed, and does not return to Codex until terminal evidence
    exists in the same still-running root turn. It never registers a Stop Hook.
    Do not split new rounds into separate `send`, `start`, and `wait-root` model
@@ -107,9 +108,10 @@ transport.
 5. For multiple independent rounds, call `run-batch-root` once with a local
    schema-v1 manifest. It starts at most three local child rounds for the exact
    Codex thread, never exceeds six global slots, and waits without model
-   polling. Extra items do not touch a page before a slot is acquired. The
-   atomic `batch-result.json` preserves partial success and per-item slot/run
-   durations.
+   polling. Each child validates and reuses the parent's claim instead of
+   acquiring a second slot. Extra items do not touch a page before a slot is
+   acquired. The atomic `batch-result.json` preserves partial success and
+   per-item slot/run durations.
 6. Re-read `watch-event.json`, `state.json`, `evidence.json`, and `response.md`.
    Validate thread/watcher identity, target binding, URL, hashes, baseline, and
    `automaticResendAllowed=false`. Import is allowed only when state, event, and

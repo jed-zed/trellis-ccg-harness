@@ -33,9 +33,11 @@ integration boundary, not a third framework.
   gates. Run it from the installed CLI/plugin version recorded in
   `harness.sources.json`; never execute `components/ccg-workflow/` as the
   integration runtime.
-- Codex is the only workspace writer and uses Trellis inline mode. Gemini is a
-  bounded read-only helper. Claude may act only as the explicitly selected,
-  tool-less product-manager Provider. GPT Pro uses the approved
+- Codex is the only workspace writer and uses Trellis inline mode. Registered
+  Providers may supply bounded evidence with their native permissions and a
+  disposable snapshot as the default input and working directory. Claude may
+  be selected for frontend, backend, or the
+  snapshot-bound product-manager role, but not search. GPT Pro uses the approved
   `chatgpt-pro-sidebar` Skill for automated side-browser handoff and remains
   read-only evidence.
 - Grok is optional and disabled by default. Its absence must not block ordinary

@@ -18,6 +18,7 @@ param(
     [string]$TabId,
     [string]$SessionKey,
     [int]$SlotId,
+    [string]$CapacityClaimId,
 
     [int]$PollSeconds = 5,
     [int]$StableStopPolls = 2,
@@ -2201,6 +2202,48 @@ function Get-CapacitySlots {
     return [ordered]@{ ok = $true; command = 'slots'; slots = @($items) }
 }
 
+function Get-ValidatedCapacityHandoff {
+    param(
+        [Parameter(Mandatory = $true)][ValidateRange(1, 6)][int]$Id,
+        [Parameter(Mandatory = $true)][string]$ClaimId,
+        [Parameter(Mandatory = $true)][string]$ThreadId,
+        [Parameter(Mandatory = $true)][string]$EvidenceDirectory
+    )
+
+    $mutex = Enter-CapacityMutex
+    try {
+        $claim = Read-WatchJson -Path (Get-CapacitySlotPath -Id $Id) -Required
+        $claimEvidence = [System.IO.Path]::GetFullPath([string](Get-WatchProperty $claim 'evidenceDirectory' ''))
+        $expectedEvidence = [System.IO.Path]::GetFullPath($EvidenceDirectory)
+        if (
+            [string](Get-WatchProperty $claim 'claimId' '') -ne $ClaimId -or
+            -not [string]::Equals(
+                [string](Get-WatchProperty $claim 'codexThreadId' ''),
+                $ThreadId,
+                [System.StringComparison]::OrdinalIgnoreCase
+            ) -or
+            -not [string]::Equals($claimEvidence, $expectedEvidence, [System.StringComparison]::OrdinalIgnoreCase) -or
+            [string](Get-WatchProperty $claim 'phase' '') -ne 'run-starting' -or
+            -not [bool](Get-WatchProperty $claim 'submissionAttempted' $false)
+        ) {
+            throw 'Capacity claim handoff does not match this RootWait round.'
+        }
+        return $claim
+    }
+    catch {
+        if ($_.Exception.Data.Contains('Category')) { throw }
+        $exception = [System.InvalidOperationException]::new(
+            'Capacity claim handoff does not match this RootWait round.',
+            $_.Exception
+        )
+        $exception.Data['Category'] = 'ConcurrencySlotRecoveryRequired'
+        throw $exception
+    }
+    finally {
+        Exit-CapacityMutex -Mutex $mutex
+    }
+}
+
 function Resolve-BatchContainedPath {
     param(
         [Parameter(Mandatory = $true)][string]$Path,
@@ -2343,7 +2386,9 @@ function New-BatchRoundArgumentList {
         [Parameter(Mandatory = $true)]$Round,
         [Parameter(Mandatory = $true)][string]$ThreadId,
         [Parameter(Mandatory = $true)][int]$RoundTimeoutSeconds,
-        [Parameter(Mandatory = $true)][string]$RoundDeadlineAtUtc
+        [Parameter(Mandatory = $true)][string]$RoundDeadlineAtUtc,
+        [Parameter(Mandatory = $true)][ValidateRange(1, 6)][int]$CapacitySlotId,
+        [Parameter(Mandatory = $true)][string]$CapacityClaimId
     )
 
     foreach ($path in @($Script:WatcherScriptPath, $Round.PromptPath, $Round.EvidenceDirectory)) {
@@ -2356,7 +2401,9 @@ function New-BatchRoundArgumentList {
         '-PromptPath', $Round.PromptPath,
         '-IdempotencyKey', [string]$Round.IdempotencyKey,
         '-TimeoutSeconds', [string]$RoundTimeoutSeconds,
-        '-ResponseDeadlineAtUtc', $RoundDeadlineAtUtc
+        '-ResponseDeadlineAtUtc', $RoundDeadlineAtUtc,
+        '-SlotId', [string]$CapacitySlotId,
+        '-CapacityClaimId', $CapacityClaimId
     )
     $target = $Round.TargetBinding
     if ($null -ne $target) {
@@ -2377,13 +2424,21 @@ function Start-BatchRoundProcess {
         [Parameter(Mandatory = $true)][string]$ThreadId,
         [Parameter(Mandatory = $true)][int]$RoundTimeoutSeconds,
         [Parameter(Mandatory = $true)][string]$RoundDeadlineAtUtc,
-        [Parameter(Mandatory = $true)][string]$RuntimeDirectory
+        [Parameter(Mandatory = $true)][string]$RuntimeDirectory,
+        [Parameter(Mandatory = $true)][ValidateRange(1, 6)][int]$CapacitySlotId,
+        [Parameter(Mandatory = $true)][string]$CapacityClaimId
     )
 
     $stdout = Join-Path $RuntimeDirectory ($Round.RoundId + '.stdout.log')
     $stderr = Join-Path $RuntimeDirectory ($Round.RoundId + '.stderr.log')
     $process = Start-Process -FilePath 'powershell.exe' `
-        -ArgumentList (New-BatchRoundArgumentList -Round $Round -ThreadId $ThreadId -RoundTimeoutSeconds $RoundTimeoutSeconds -RoundDeadlineAtUtc $RoundDeadlineAtUtc) `
+        -ArgumentList (New-BatchRoundArgumentList `
+            -Round $Round `
+            -ThreadId $ThreadId `
+            -RoundTimeoutSeconds $RoundTimeoutSeconds `
+            -RoundDeadlineAtUtc $RoundDeadlineAtUtc `
+            -CapacitySlotId $CapacitySlotId `
+            -CapacityClaimId $CapacityClaimId) `
         -WindowStyle Hidden `
         -RedirectStandardOutput $stdout `
         -RedirectStandardError $stderr `
@@ -2574,7 +2629,9 @@ function Invoke-RootWaitBatch {
                     -ThreadId $manifest.CodexThreadId `
                     -RoundTimeoutSeconds $remaining `
                     -RoundDeadlineAtUtc $deadline.ToUniversalTime().ToString('o') `
-                    -RuntimeDirectory $runtime
+                    -RuntimeDirectory $runtime `
+                    -CapacitySlotId $slot.slotId `
+                    -CapacityClaimId $slot.claimId
             }
             catch {
                 $null = Set-CapacitySlotClaim -Id $slot.slotId -ClaimId $slot.claimId -Changes ([ordered]@{
@@ -2877,6 +2934,131 @@ function Invoke-RootWaitRound {
     }
 }
 
+function Invoke-CapacityBoundRootWaitRound {
+    param(
+        [Parameter(Mandatory = $true)][string]$EvidenceDirectory,
+        [Parameter(Mandatory = $true)][string]$ThreadId,
+        [Parameter(Mandatory = $true)][string]$PromptFile,
+        [Parameter(Mandatory = $true)][string]$IdempotencyKeyValue,
+        [AllowEmptyString()][string]$BrowserIdValue = '',
+        [AllowEmptyString()][string]$ProfileValue = '',
+        [AllowEmptyString()][string]$TabIdValue = '',
+        [AllowEmptyString()][string]$SessionKeyValue = '',
+        [AllowEmptyString()][string]$ResponseDeadlineAtUtcValue = '',
+        [switch]$RequireFreshConversation,
+        [int]$CapacitySlotId = 0,
+        [AllowEmptyString()][string]$CapacityClaimId = '',
+        [scriptblock]$NowAction = { [datetime]::UtcNow }
+    )
+
+    if ($TimeoutSeconds -lt 1 -or $TimeoutSeconds -gt 7200) {
+        throw 'TimeoutSeconds must be between 1 and 7200 for run-root.'
+    }
+    if (-not (Test-WatchThreadId -Value $ThreadId)) {
+        throw 'CodexThreadId must be an exact UUID for run-root.'
+    }
+    if ([string]::IsNullOrWhiteSpace($PromptFile) -or -not [System.IO.File]::Exists($PromptFile)) {
+        throw 'PromptPath must be an existing file for run-root.'
+    }
+    try {
+        $promptText = [System.IO.File]::ReadAllText($PromptFile, $Script:Utf8Strict)
+    }
+    catch [System.Text.DecoderFallbackException] {
+        throw 'PromptPath must contain valid UTF-8 for run-root.'
+    }
+    if ([string]::IsNullOrWhiteSpace($promptText) -or $promptText.Length -gt 24000) {
+        throw 'PromptPath must contain between 1 and 24000 characters for run-root.'
+    }
+    if ($IdempotencyKeyValue -notmatch '^[A-Za-z0-9._:-]{1,128}$') {
+        throw 'IdempotencyKey must contain between 1 and 128 allowed characters for run-root.'
+    }
+    $targetParts = @($BrowserIdValue, $ProfileValue, $TabIdValue, $SessionKeyValue)
+    $targetPartCount = @($targetParts | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }).Count
+    if ($targetPartCount -ne 0 -and $targetPartCount -ne 4) {
+        throw 'BrowserId, Profile, TabId, and SessionKey must be supplied together for run-root.'
+    }
+    foreach ($targetPart in $targetParts) {
+        if (-not [string]::IsNullOrWhiteSpace($targetPart) -and ($targetPart.Length -gt 512 -or $targetPart -match '[\r\n]')) {
+            throw 'RootWait target identities must be bounded and contain no CR/LF.'
+        }
+    }
+    $roundArguments = @{
+        EvidenceDirectory = $EvidenceDirectory
+        ThreadId = $ThreadId
+        PromptFile = $PromptFile
+        IdempotencyKeyValue = $IdempotencyKeyValue
+        BrowserIdValue = $BrowserIdValue
+        ProfileValue = $ProfileValue
+        TabIdValue = $TabIdValue
+        SessionKeyValue = $SessionKeyValue
+        ResponseDeadlineAtUtcValue = $ResponseDeadlineAtUtcValue
+        RequireFreshConversation = [bool]$RequireFreshConversation
+        NowAction = $NowAction
+    }
+
+    $handoffSupplied = $CapacitySlotId -ne 0 -or -not [string]::IsNullOrWhiteSpace($CapacityClaimId)
+    if ($handoffSupplied) {
+        if ($CapacitySlotId -lt 1 -or $CapacitySlotId -gt $Script:CapacitySlotCount -or
+            [string]::IsNullOrWhiteSpace($CapacityClaimId)) {
+            throw 'SlotId and CapacityClaimId must be supplied together for a child run-root.'
+        }
+        $null = Get-ValidatedCapacityHandoff `
+            -Id $CapacitySlotId `
+            -ClaimId $CapacityClaimId `
+            -ThreadId $ThreadId `
+            -EvidenceDirectory $EvidenceDirectory
+        return Invoke-RootWaitRound @roundArguments
+    }
+
+    $slot = Acquire-CapacitySlot `
+        -ThreadId $ThreadId `
+        -RoundId $IdempotencyKeyValue `
+        -EvidenceDirectory $EvidenceDirectory
+    if (-not $slot.acquired) {
+        $exception = [System.InvalidOperationException]::new(
+            'No GPT Pro capacity slot is available for this RootWait round.'
+        )
+        $exception.Data['Category'] = [string]$slot.category
+        throw $exception
+    }
+
+    $roundStarted = $false
+    try {
+        $null = Set-CapacitySlotClaim -Id $slot.slotId -ClaimId $slot.claimId -Changes ([ordered]@{
+            phase = 'run-starting'; submissionAttempted = $true
+        })
+        $roundStarted = $true
+        $result = Invoke-RootWaitRound @roundArguments
+    }
+    catch {
+        $roundFailure = $_.Exception
+        if (-not $roundStarted) {
+            try {
+                $null = Set-CapacitySlotClaim -Id $slot.slotId -ClaimId $slot.claimId -Changes ([ordered]@{
+                    phase = 'pre-click-unsent'; submissionAttempted = $false
+                })
+            }
+            catch { }
+        }
+        try {
+            $null = Release-CapacitySlot `
+                -Id $slot.slotId `
+                -ExpectedClaimId $slot.claimId `
+                -OwnerCompletionObserved
+        }
+        catch {
+            throw
+        }
+        throw $roundFailure
+    }
+
+    $null = Release-CapacitySlot `
+        -Id $slot.slotId `
+        -ExpectedClaimId $slot.claimId `
+        -OwnerCompletionObserved
+    return $result
+}
+
 function Invoke-WatchMain {
     if (@('run-root', 'run-batch-root', 'slots', 'release-slot', 'start', 'worker', 'status', 'wait-root', 'acknowledge', 'acknowledge-monitor', 'acknowledge-root') -notcontains $Command) {
         throw 'Command must be run-root, run-batch-root, slots, release-slot, start, worker, status, wait-root, acknowledge, acknowledge-monitor, or acknowledge-root.'
@@ -2905,7 +3087,7 @@ function Invoke-WatchMain {
             if ($NoWake -or $AgentMonitor -or $KeepLauncherAlive) {
                 throw 'run-root owns the RootWait lifecycle; NoWake, AgentMonitor, and KeepLauncherAlive are invalid.'
             }
-            return Invoke-RootWaitRound `
+            return Invoke-CapacityBoundRootWaitRound `
                 -EvidenceDirectory $directory `
                 -ThreadId $CodexThreadId `
                 -PromptFile $PromptPath `
@@ -2915,7 +3097,9 @@ function Invoke-WatchMain {
                 -TabIdValue $TabId `
                 -SessionKeyValue $SessionKey `
                 -ResponseDeadlineAtUtcValue $ResponseDeadlineAtUtc `
-                -RequireFreshConversation:$FreshConversation
+                -RequireFreshConversation:$FreshConversation `
+                -CapacitySlotId $SlotId `
+                -CapacityClaimId $CapacityClaimId
         }
         'start' {
             $directory = Resolve-WatchEvidenceDirectory -Path $EvidenceDir

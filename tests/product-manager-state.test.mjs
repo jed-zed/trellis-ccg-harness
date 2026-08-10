@@ -564,7 +564,7 @@ test("review application rechecks current artifact input before projecting state
   }
 });
 
-test("review application accepts Claude as a registered read-only provider identity", () => {
+test("review application accepts Claude as a registered provider identity", () => {
   const value = fixture();
   try {
     syncProductManagerPlan(value.taskDir);

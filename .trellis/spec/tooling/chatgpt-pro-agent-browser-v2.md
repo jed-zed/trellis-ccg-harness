@@ -147,6 +147,10 @@ provider. It controls a user-approved external Chrome tab through
 - The accepted and enforced product limits are three active GPT Pro rounds per
   Codex task and six active rounds per local user. Target/thread isolation and
   both capacity caps must not be widened silently.
+- A direct `run-root` acquires one slot before adapter or browser work. A batch
+  child receives the parent's exact slot and claim identity, validates the
+  thread and evidence binding, and reuses that claim without acquiring again.
+  One logical round therefore owns exactly one capacity claim.
 - Batch timeout defaults to `7200` seconds. An item that never acquires a slot
   ends as `queued-timeout` with `errorCategory=ConcurrencySlotTimeout` and
   `submissionAcknowledged=false`; it must not be represented as sent.
@@ -289,14 +293,18 @@ provider. It controls a user-approved external Chrome tab through
    optional and retains the adapter's existing proof requirements. A caller
    selecting among multiple targets must pass the complete opaque
    `BrowserId`, `ProfileId`, `TabId`, and `SessionKey` tuple; partial tuples
-   fail before adapter invocation.
+   fail before adapter invocation. `SlotId` plus `CapacityClaimId` is an
+   internal batch-child handoff; either both match the parent claim or the child
+   fails before adapter invocation.
 3. **Contract** — one process performs `send -> watcher start -> local wait` in
    that order for ordinary post-send observation. It returns only after a
    terminal event, leaves acknowledgement pending for independent Codex review,
    permits no caller-driven resend, and never registers a Stop Hook or invokes
-   a model watcher. The adapter's single durable proved-not-submitted retry is
-   internal to the same logical `send`; adapter terminal outcomes bypass watcher
-   launch and return through the same root task.
+   a model watcher. Direct calls acquire capacity before `send`; batch children
+   validate and reuse the parent's claim. The adapter's single durable
+   proved-not-submitted retry is internal to the same logical `send`; adapter
+   terminal outcomes bypass watcher launch and return through the same root
+   task.
 4. **Validation and errors** — a pre-send failure without waitable evidence
    launches no watcher. A process/result failure with valid post-send evidence
    continues observation without retry. Generation-active status is normalized
@@ -313,8 +321,10 @@ provider. It controls a user-approved external Chrome tab through
    post-send failure continuation, pre-send no-launch, strict generation-active
    normalization, retained baseline suffix, full-baseline-loss rejection,
    shared absolute deadline, both adapter terminal outcomes returning to the
-   original thread, safe release versus retained isolation, batch non-success,
-   terminal RootWait return, and separate matching acknowledgement.
+   original thread, direct fourth/six-plus-one capacity refusal before adapter
+   work, single-count batch claim handoff, safe release versus retained
+   isolation, batch non-success, terminal RootWait return, and separate matching
+   acknowledgement.
 7. **Wrong vs correct** — wrong: return to the model between `send`, `start`,
    and `wait-root`; correct: issue one `run-root` tool call, review its evidence,
    then invoke `acknowledge-root` exactly once.

@@ -208,8 +208,13 @@ param(
     [string]$TabId,
     [string]$SessionKey,
     [int]$TimeoutSeconds,
-    [string]$ResponseDeadlineAtUtc
+    [string]$ResponseDeadlineAtUtc,
+    [int]$SlotId,
+    [string]$CapacityClaimId
 )
+if ($SlotId -lt 1 -or [string]::IsNullOrWhiteSpace($CapacityClaimId)) {
+    throw 'The batch child did not receive its parent capacity claim.'
+}
 $outcome = '__OUTCOME__'
 $category = '__CATEGORY__'
 $promptSha = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
@@ -824,6 +829,209 @@ Describe 'Batch RootWait capacity' {
         $Script:WatcherScriptPath = $script:originalWatcherScriptPath
     }
 
+    It 'blocks direct run-root at the per-task and global capacity limits before adapter invocation' {
+        $prompt = Join-Path $TestDrive 'direct-capacity-prompt.md'
+        [System.IO.File]::WriteAllText($prompt, 'bounded request', $Script:Utf8NoBom)
+        Mock Invoke-RootWaitRound { throw 'adapter must not be invoked' }
+
+        $Script:CapacityRootOverride = Join-Path $TestDrive 'direct-thread-capacity'
+        foreach ($index in 1..3) {
+            $directory = Join-Path $TestDrive ("direct-thread-$index")
+            $null = New-Item -ItemType Directory -Path $directory -Force
+            (Acquire-CapacitySlot -ThreadId $script:ThreadId -RoundId "occupied-$index" -EvidenceDirectory $directory).acquired | Should -BeTrue
+        }
+        $blockedDirectory = Join-Path $TestDrive 'direct-thread-blocked'
+        $null = New-Item -ItemType Directory -Path $blockedDirectory -Force
+        $threadCategory = ''
+        try {
+            $null = Invoke-CapacityBoundRootWaitRound `
+                -EvidenceDirectory $blockedDirectory `
+                -ThreadId $script:ThreadId `
+                -PromptFile $prompt `
+                -IdempotencyKeyValue 'direct-thread-blocked'
+        }
+        catch {
+            $threadCategory = [string]$_.Exception.Data['Category']
+        }
+        $threadCategory | Should -Be 'ConcurrencySlotQueued'
+
+        $Script:CapacityRootOverride = Join-Path $TestDrive 'direct-global-capacity'
+        foreach ($thread in @([guid]::NewGuid().ToString(), [guid]::NewGuid().ToString())) {
+            foreach ($index in 1..3) {
+                $directory = Join-Path $TestDrive ("direct-global-$thread-$index")
+                $null = New-Item -ItemType Directory -Path $directory -Force
+                (Acquire-CapacitySlot -ThreadId $thread -RoundId "occupied-$index" -EvidenceDirectory $directory).acquired | Should -BeTrue
+            }
+        }
+        $globalDirectory = Join-Path $TestDrive 'direct-global-blocked'
+        $null = New-Item -ItemType Directory -Path $globalDirectory -Force
+        $globalCategory = ''
+        try {
+            $null = Invoke-CapacityBoundRootWaitRound `
+                -EvidenceDirectory $globalDirectory `
+                -ThreadId ([guid]::NewGuid().ToString()) `
+                -PromptFile $prompt `
+                -IdempotencyKeyValue 'direct-global-blocked'
+        }
+        catch {
+            $globalCategory = [string]$_.Exception.Data['Category']
+        }
+        $globalCategory | Should -Be 'ConcurrencySlotQueued'
+        Should -Invoke Invoke-RootWaitRound -Times 0 -Exactly
+    }
+
+    It 'reuses one parent capacity claim in a child run-root without acquiring again' {
+        $directory = Join-Path $TestDrive 'capacity-handoff'
+        $null = New-Item -ItemType Directory -Path $directory -Force
+        $prompt = Join-Path $TestDrive 'capacity-handoff-prompt.md'
+        [System.IO.File]::WriteAllText($prompt, 'bounded request', $Script:Utf8NoBom)
+        $claim = Acquire-CapacitySlot -ThreadId $script:ThreadId -RoundId 'handoff-round' -EvidenceDirectory $directory
+        $null = Set-CapacitySlotClaim -Id $claim.slotId -ClaimId $claim.claimId -Changes ([ordered]@{
+            phase = 'run-starting'; submissionAttempted = $true
+        })
+        Mock Acquire-CapacitySlot { throw 'child must not double-acquire capacity' }
+        Mock Invoke-RootWaitRound {
+            [ordered]@{ terminalStatus = 'completed'; terminalOutcome = '' }
+        }
+
+        $result = Invoke-CapacityBoundRootWaitRound `
+            -EvidenceDirectory $directory `
+            -ThreadId $script:ThreadId `
+            -PromptFile $prompt `
+            -IdempotencyKeyValue 'handoff-key' `
+            -CapacitySlotId $claim.slotId `
+            -CapacityClaimId $claim.claimId
+
+        $result.terminalStatus | Should -Be 'completed'
+        (Get-CapacitySlots).slots.Count | Should -Be 1
+        Should -Invoke Acquire-CapacitySlot -Times 0 -Exactly
+        Should -Invoke Invoke-RootWaitRound -Times 1 -Exactly
+    }
+
+    It 'rejects a mismatched child capacity claim before adapter invocation' {
+        $directory = Join-Path $TestDrive 'capacity-handoff-mismatch'
+        $null = New-Item -ItemType Directory -Path $directory -Force
+        $prompt = Join-Path $TestDrive 'capacity-handoff-mismatch-prompt.md'
+        [System.IO.File]::WriteAllText($prompt, 'bounded request', $Script:Utf8NoBom)
+        $claim = Acquire-CapacitySlot -ThreadId $script:ThreadId -RoundId 'handoff-mismatch' -EvidenceDirectory $directory
+        $null = Set-CapacitySlotClaim -Id $claim.slotId -ClaimId $claim.claimId -Changes ([ordered]@{
+            phase = 'run-starting'; submissionAttempted = $true
+        })
+        Mock Invoke-RootWaitRound { throw 'adapter must not be invoked' }
+        $category = ''
+
+        try {
+            $null = Invoke-CapacityBoundRootWaitRound `
+                -EvidenceDirectory $directory `
+                -ThreadId $script:ThreadId `
+                -PromptFile $prompt `
+                -IdempotencyKeyValue 'handoff-mismatch-key' `
+                -CapacitySlotId $claim.slotId `
+                -CapacityClaimId ([guid]::NewGuid().ToString())
+        }
+        catch {
+            $category = [string]$_.Exception.Data['Category']
+        }
+
+        $category | Should -Be 'ConcurrencySlotRecoveryRequired'
+        (Get-CapacitySlots).slots.Count | Should -Be 1
+        Should -Invoke Invoke-RootWaitRound -Times 0 -Exactly
+    }
+
+    It 'releases a direct run-root only after durable terminal proof' {
+        $directory = Join-Path $TestDrive 'direct-terminal-release'
+        $null = New-Item -ItemType Directory -Path $directory -Force
+        $prompt = Join-Path $TestDrive 'direct-terminal-prompt.md'
+        [System.IO.File]::WriteAllText($prompt, 'bounded request', $Script:Utf8NoBom)
+        Mock Invoke-RootWaitRound {
+            param($EvidenceDirectory, $ThreadId)
+            Write-WatchJsonAtomic -Path (Join-Path $EvidenceDirectory $Script:StateFileName) -Value ([ordered]@{
+                phase = 'terminal'; terminalStatus = 'completed'; codexThreadId = $ThreadId; watcherId = 'direct-terminal-watcher'
+            })
+            Write-WatchJsonAtomic -Path (Join-Path $EvidenceDirectory $Script:EventFileName) -Value ([ordered]@{
+                status = 'completed'; codexThreadId = $ThreadId; watcherId = 'direct-terminal-watcher'; requiresCodexReview = $true; automaticResendAllowed = $false
+            })
+            [ordered]@{ terminalStatus = 'completed'; terminalOutcome = '' }
+        }
+
+        $result = Invoke-CapacityBoundRootWaitRound `
+            -EvidenceDirectory $directory `
+            -ThreadId $script:ThreadId `
+            -PromptFile $prompt `
+            -IdempotencyKeyValue 'direct-terminal-key'
+
+        $result.terminalStatus | Should -Be 'completed'
+        (Get-CapacitySlots).slots.Count | Should -Be 0
+        Should -Invoke Invoke-RootWaitRound -Times 1 -Exactly
+    }
+
+    It 'releases a direct run-root after durable pre-click failure proof' {
+        $directory = Join-Path $TestDrive 'direct-pre-click-release'
+        $null = New-Item -ItemType Directory -Path $directory -Force
+        $prompt = Join-Path $TestDrive 'direct-pre-click-prompt.md'
+        [System.IO.File]::WriteAllText($prompt, 'bounded request', $Script:Utf8NoBom)
+        Mock Invoke-RootWaitRound {
+            param($EvidenceDirectory)
+            Write-WatchJsonAtomic -Path (Join-Path $EvidenceDirectory 'state.json') -Value ([ordered]@{
+                phase = 'pre-invoke-failed'; invokeAttempted = $false
+            })
+            throw 'adapter rejected before invocation'
+        }
+
+        {
+            Invoke-CapacityBoundRootWaitRound `
+                -EvidenceDirectory $directory `
+                -ThreadId $script:ThreadId `
+                -PromptFile $prompt `
+                -IdempotencyKeyValue 'direct-pre-click-key'
+        } | Should -Throw '*before invocation*'
+
+        (Get-CapacitySlots).slots.Count | Should -Be 0
+        Should -Invoke Invoke-RootWaitRound -Times 1 -Exactly
+    }
+
+    It 'releases direct retry-not-submitted proof but retains recovery-required isolation' {
+        $prompt = Join-Path $TestDrive 'direct-terminal-outcome-prompt.md'
+        [System.IO.File]::WriteAllText($prompt, 'bounded request', $Script:Utf8NoBom)
+
+        $retryDirectory = Join-Path $TestDrive 'direct-retry-release'
+        $null = New-Item -ItemType Directory -Path $retryDirectory -Force
+        Mock Invoke-RootWaitRound {
+            param($EvidenceDirectory)
+            $null = Set-AdapterTerminalFixture -Directory $EvidenceDirectory -Outcome 'retry-not-submitted'
+            [ordered]@{ terminalStatus = 'stopped-unverified'; terminalOutcome = 'retry-not-submitted' }
+        }
+        $retry = Invoke-CapacityBoundRootWaitRound `
+            -EvidenceDirectory $retryDirectory `
+            -ThreadId $script:ThreadId `
+            -PromptFile $prompt `
+            -IdempotencyKeyValue 'direct-retry-key'
+        $retry.terminalOutcome | Should -Be 'retry-not-submitted'
+        (Get-CapacitySlots).slots.Count | Should -Be 0
+
+        $recoveryDirectory = Join-Path $TestDrive 'direct-recovery-retained'
+        $null = New-Item -ItemType Directory -Path $recoveryDirectory -Force
+        Mock Invoke-RootWaitRound {
+            param($EvidenceDirectory)
+            $null = Set-AdapterTerminalFixture -Directory $EvidenceDirectory -Outcome 'recovery-required'
+            [ordered]@{ terminalStatus = 'stopped-unverified'; terminalOutcome = 'recovery-required' }
+        }
+        $category = ''
+        try {
+            $null = Invoke-CapacityBoundRootWaitRound `
+                -EvidenceDirectory $recoveryDirectory `
+                -ThreadId $script:ThreadId `
+                -PromptFile $prompt `
+                -IdempotencyKeyValue 'direct-recovery-key'
+        }
+        catch {
+            $category = [string]$_.Exception.Data['Category']
+        }
+
+        $category | Should -Be 'ConcurrencySlotRecoveryRequired'
+        (Get-CapacitySlots).slots.Count | Should -Be 1
+    }
+
     It 'defaults batches to 7200 seconds and rejects duplicate keys or path escape' {
         $root = Join-Path $TestDrive 'manifest-validation'
         $path = New-BatchFixture -Root $root -RoundCount 2
@@ -884,9 +1092,11 @@ Describe 'Batch RootWait capacity' {
         $script:capturedRoundTimeout = 0
         $script:capturedRoundDeadline = ''
         Mock Start-BatchRoundProcess {
-            param($Round, $ThreadId, $RoundTimeoutSeconds, $RoundDeadlineAtUtc, $RuntimeDirectory)
+            param($Round, $ThreadId, $RoundTimeoutSeconds, $RoundDeadlineAtUtc, $RuntimeDirectory, $CapacitySlotId, $CapacityClaimId)
             $script:capturedRoundTimeout = $RoundTimeoutSeconds
             $script:capturedRoundDeadline = $RoundDeadlineAtUtc
+            $script:capturedCapacitySlotId = $CapacitySlotId
+            $script:capturedCapacityClaimId = $CapacityClaimId
             $process = [pscustomobject]@{ Id = $PID; HasExited = $true }
             $process | Add-Member -MemberType ScriptMethod -Name Refresh -Value { }
             $process | Add-Member -MemberType ScriptMethod -Name Dispose -Value { }
@@ -912,6 +1122,8 @@ Describe 'Batch RootWait capacity' {
         $result.allSucceeded | Should -BeTrue
         $script:capturedRoundTimeout | Should -Be 1
         $script:capturedRoundDeadline | Should -Be '2026-08-09T00:00:30.0000000Z'
+        $script:capturedCapacitySlotId | Should -BeGreaterThan 0
+        $script:capturedCapacityClaimId | Should -Not -BeNullOrEmpty
     }
 
     It 'does not start a child after capacity acquisition reaches the batch deadline' {
@@ -1306,8 +1518,13 @@ param(
     [string]$TabId,
     [string]$SessionKey,
     [int]$TimeoutSeconds,
-    [string]$ResponseDeadlineAtUtc
+    [string]$ResponseDeadlineAtUtc,
+    [int]$SlotId,
+    [string]$CapacityClaimId
 )
+if ($SlotId -lt 1 -or [string]::IsNullOrWhiteSpace($CapacityClaimId)) {
+    throw 'The batch child did not receive its parent capacity claim.'
+}
 Start-Sleep -Milliseconds 300
 $watcherId = [guid]::NewGuid().ToString()
 $utf8 = [System.Text.UTF8Encoding]::new($false)
