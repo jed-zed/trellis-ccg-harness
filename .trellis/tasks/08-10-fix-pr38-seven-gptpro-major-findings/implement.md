@@ -40,7 +40,7 @@
 - [x] 重算用户 `pnpm-lock.yaml` SHA-256，确认未修改、未暂存。
 - [x] Codex 对七个原 finding 做最终 file:line 复审；确认共同根因闭合，两个 Minor 仍 out of scope。
 - [ ] 父联合报告位于原工作树的受保护未提交集合中；由其所有者整合 resolved/pending 状态，禁止从干净集成 worktree 覆盖。
-- [ ] 提交 Harness PR 分支但保持 Draft；真实 Chrome/Provider 重审、Ready/merge 继续由父任务和用户决定。
+- [x] 提交 Harness PR 分支但保持 Draft；真实 Chrome/Provider 重审、Ready/merge 继续由父任务和用户决定。
 
 ## Verification evidence (pre-publication checkpoint)
 
@@ -51,7 +51,7 @@
 - Lifecycle transaction `2026-08-10T17-12-07-872Z-41880b03-bf2c-406d-9497-a824c5dd52a9` materialized Source `baf3330...` / tree `f0a6282...`; post-commit `doctor`, `verify:sources`, and conflicts all bind that exact identity with zero blocking/warnings.
 - User `pnpm-lock.yaml` remains untracked and unstaged with SHA-256 `1ba6e57607589bbea6f8b679d914e91315e0f00d9da85dd79fbf3575131bd23f`.
 - Raw red/green logs are retained under ignored `.ccg-evidence/verification/`. The CCG automatic external-intelligence route was stopped when it selected a Provider-backed contract investigation, because PRD R8 forbids Provider calls in this unit-fix phase; the local scanners were run directly instead.
-- Clean integration commits: `3312f900e0ed4144a462b16e4050cca9577b4cad` (watcher/spec/task) and `edf31fe3fb91ae7ccb1759e896fdec351b8555be` (lifecycle snapshot/manifest). Lifecycle and explicit post-commit CCG tests each passed `617/3`; lifecycle Harness tests passed `452/3`.
+- Clean integration commits: `3312f900e0ed4144a462b16e4050cca9577b4cad` (watcher/spec/task), `edf31fe3fb91ae7ccb1759e896fdec351b8555be` (lifecycle snapshot/manifest), and `811fd8ec8c2d471b3f3183a97cbe7f24d473f989` (verification ledger). Remote PR head was verified at `811fd8e...`; PR #38 remains `OPEN` and Draft. Lifecycle and explicit post-commit CCG tests each passed `617/3`; lifecycle Harness tests passed `452/3`.
 - npm registry publication remains unavailable because `npm whoami` returned `ENEEDAUTH`. The commit-pinned Harness update does not depend on npm, but no npm package publication is claimed.
 - Final Codex file:line review: Major 1 → adapter `chatgpt-pro-sidebar.ps1:648-693`, watcher `chatgpt-pro-sidebar-watch.ps1:1954-2029,2730-2740`; Major 2 → bridge `gptpro_bridge.py:1705-1710`, watcher `:2245-2251`; Major 3 → bridge `:1726-1752`, watcher `:2268-2309`; Major 4 → watcher `:2394-2485,2605-2676`; Major 5 → bridge `:1845-1898,1912-2052`; Major 6 → bridge `:2255-2430,2544-2596,2780-2805`; Major 7 → bridge `:1461-1528,1606-1675`.
 
