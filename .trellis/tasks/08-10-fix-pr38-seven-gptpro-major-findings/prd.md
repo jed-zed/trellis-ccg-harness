@@ -72,7 +72,7 @@
 - [x] AC4：batch manifest/key/target/prompt/fresh policy/batch ID/round ID 任一篡改均在 response/ack/canonical evidence 写入前拒绝。
 - [x] AC5：新 V2 session 的直接 `save_response`、伪造 metadata 与 HTTP `/save-response` 均被拒绝且文件哈希不变；显式 legacy session 兼容测试通过。
 - [x] AC6：跨 task/thread/mode/workdir/evidence/session 的 follow-up 被拒绝；并发合法 follow-up 不共享 round、不覆盖 status。
-- [ ] AC7：权威源 template/plugin 回归与 parity 通过；获授权后 Harness snapshot/manifest 只通过 lifecycle 更新且 doctor/verify:sources/conflicts 全绿。
+- [x] AC7：权威源 template/plugin 回归与 parity 通过；获授权后 Harness snapshot/manifest 只通过 lifecycle 更新且 doctor/verify:sources/conflicts 全绿。
 - [x] AC8：完整 Pester、CCG lint/typecheck/test/build、Harness test、PowerShell/Node parse、`git diff --check` 与安全检查通过，且用户 `pnpm-lock.yaml` 哈希不变。
 - [ ] AC9：父联合报告更新为七个 Major 已闭合前，重新由 Codex 对最终 diff 做 file:line 复审；PR 仍保持 Draft，是否重跑 Provider/转 Ready 由后续用户决定。
 
