@@ -159,8 +159,12 @@ post-response validator remains an independent fail-closed boundary; the
 Provider must not be asked to infer or reproduce these identity fields from a
 generic shape-only schema.
 
-Provider execution occurs in a verified task-local snapshot with workspace
-writes, terminal tools, MCP tools, subagents, and provider fallback disabled.
+Provider execution occurs in a verified task-local snapshot and inherits the
+selected Provider's native permission mode. Tool use inside that disposable
+snapshot is valid; it does not grant authority over the canonical workspace or
+Trellis lifecycle. The snapshot bounds supplied input and the default working
+directory; it is not an OS sandbox and does not remove native absolute-path or
+network capabilities. Provider fallback remains disabled.
 The snapshot contains Git tracked, dirty, and unignored new files after strict
 secret/instruction/plugin/cache exclusions, and is capped at 2000 files,
 2 MiB per file, and 64 MiB total. Its manifest identity is bound before review
@@ -173,8 +177,8 @@ The Claude adapter must always pass `--model`. When
 `CCG_PRODUCT_MANAGER_CLAUDE_MODEL` is unset or empty, the argument is
 `--model opus`; an explicit environment value replaces only that model
 argument. It must not inherit the machine default or silently use `sonnet`.
-Claude may use only `Read`, `Glob`, and `Grep` inside the snapshot. Local mode
-accepts only a native non-link Claude executable. SSH mode accepts only the
+Claude uses its normal upstream permission behavior inside the snapshot. Local
+mode accepts only a native non-link Claude executable. SSH mode accepts only the
 seven allowlisted environment variables and a protocol-v2 bridge; every error
 stays on SSH and never starts local Claude.
 
@@ -230,7 +234,8 @@ second verdict, authorize fallback, or expose raw credentials.
 | Invocation lock has a live owner | Refuse the second owner |
 | Dead lock has a valid matching identity | Recover the same invocation safely |
 | `stateRevision` changed before apply/respond | Reject CAS without overwriting newer state |
-| Provider requests a tool, write, terminal, MCP, or subagent | Deny and return invalid/unavailable evidence |
+| Provider uses native tools inside the disposable snapshot | Continue; validate only the bounded result and canonical workspace invariants |
+| Provider attempts fallback or claims workspace/lifecycle authority | Deny and return invalid/unavailable evidence |
 | Provider exits, times out, or returns invalid output | Audit each bounded and redacted attempt failure; retry only the same provider |
 | Rich advice exists only in ignored raw evidence | Recover a legacy projection once, persist it on the next canonical write, and expose it through `pm status` |
 | `pm respond` is attempted before `pm present` | Refuse without clearing the gate or applying the response |
@@ -244,7 +249,7 @@ second verdict, authorize fallback, or expose raw credentials.
 
 - Good: Codex prepares a `MILESTONE_REVIEW`, explicitly authorizes the selected
   Claude provider, the
-  read-only response matches all digests, and the adapter creates one user gate
+  validated response matches all digests, and the adapter creates one user gate
   in the tracked projection.
 - Base: `pm sync-plan` creates or refreshes the projection from the existing
   Trellis plan without changing `task.json.status` or calling a provider.
@@ -279,7 +284,7 @@ Assertions must cover:
 - exact input/output schema and digest binding;
 - selected-provider authority and no fallback;
 - provider selection having zero network, credential, login, or install effect;
-- snapshot-bound read-only execution and the Provider-specific read/search allowlist;
+- snapshot-bound execution, native Provider arguments, and unchanged canonical workspace state;
 - local default, SSH environment-only opt-in, protocol-v2 probing, cleanup, and
   no transport fallback;
 - task-local tracked projection versus ignored raw evidence;
@@ -322,6 +327,6 @@ const prepared = prepareProductManagerReview(repoRoot, taskDir, {
 const projected = applyProductManagerReview(taskDir, prepared, response);
 ```
 
-Codex validates the read-only evidence, the adapter updates only the tracked
+Codex validates the snapshot-bound evidence, the adapter updates only the tracked
 review projection, and a later explicit user response authorizes any Trellis
 lifecycle transition.
