@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
 import fs from 'fs-extra'
 
@@ -421,8 +421,10 @@ describe('GPT Pro sidebar bridge', () => {
       '    "sys.modules[\'gptpro_bridge\'] = mod",',
       '    "spec.loader.exec_module(mod)",',
       '    "session = mod.load_session(pathlib.Path(sys.argv[2]))",',
-      '    "metadata = {\'transport\': \'chatgpt-pro-sidebar\', \'browserTransport\': \'agent-browser-cli-v2\', \'conversationUrl\': \'https://chatgpt.com/c/parallel-session\', \'codexThreadId\': sys.argv[4], \'submissionAcknowledged\': True, \'observationalRecovery\': False, \'sidebarEvidenceFile\': str(session.status_file), \'sidebarEvidenceSha256\': \'0\' * 64}",',
-      '    "mod.save_response(session, sys.argv[3], transport_metadata=metadata)",',
+      '    "status = session.status()",',
+      '    "status.pop(\'browser_transport_required\', None)",',
+      '    "session.write_status(status)",',
+      '    "mod.save_response(session, sys.argv[3])",',
       '])',
       'imports = [subprocess.Popen([sys.executable, "-c", importer, bridge, session_dir, f"response {index}\\n", thread_id], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace") for index, session_dir in enumerate(session_dirs)]',
       'for process in imports:',
@@ -507,6 +509,16 @@ describe('GPT Pro sidebar bridge', () => {
     })
     expect(watcherManifest.rounds).toHaveLength(2)
     expect(new Set(batch.items.map((item: any) => item.sessionDir)).size).toBe(2)
+    expect(batch.watcherManifestSha256).toBe(sha256(readFileSync(watcherManifestFile)))
+    expect(batch.items[0].batchBinding).toMatchObject({
+      schemaVersion: 1,
+      batchId: batch.batchId,
+      roundId: 'analysis-a',
+      watcherManifestSha256: batch.watcherManifestSha256,
+      idempotencyKeySha256: sha256('batch-create-import-a'),
+      targetBinding: watcherManifest.rounds[0].targetBinding,
+      freshConversation: false,
+    })
 
     const completed = batch.items[0]
     const completedPrompt = readFileSync(completed.promptPath, 'utf-8')
@@ -515,6 +527,8 @@ describe('GPT Pro sidebar bridge', () => {
       .replace(/[\r\n]+$/, '')
     writeSidebarEvidence(completed.evidenceDirectory, completedPrompt, 'Batch response A.\n', threadId)
     const completedState = fs.readJsonSync(join(completed.evidenceDirectory, 'state.json'))
+    completedState.idempotencyKeySha256 = completed.batchBinding.idempotencyKeySha256
+    fs.writeJsonSync(join(completed.evidenceDirectory, 'state.json'), completedState)
     const completedEvent = fs.readJsonSync(join(completed.evidenceDirectory, 'watch-event.json'))
     fs.writeJsonSync(batch.watcherResultFile, {
       schemaVersion: 1,
@@ -562,6 +576,62 @@ describe('GPT Pro sidebar bridge', () => {
       '--expected-codex-thread-id',
       threadId,
     ]
+    const originalBatch = fs.readJsonSync(batchFile)
+    const originalManifestBytes = readFileSync(watcherManifestFile)
+    const secondPromptBytes = readFileSync(batch.items[1].promptPath)
+    const acknowledgementPath = join(completed.evidenceDirectory, 'watch-continuation-ack.json')
+    const evidencePath = join(taskDir, 'evidence.json')
+    const captureImportTargets = () => ({
+      response: readFileSync(completed.responsePath),
+      status: readFileSync(completed.statusFile),
+      acknowledgement: fs.pathExistsSync(acknowledgementPath) ? readFileSync(acknowledgementPath) : null,
+      evidence: fs.pathExistsSync(evidencePath) ? readFileSync(evidencePath) : null,
+    })
+    const expectRejectedBeforeImport = (before: ReturnType<typeof captureImportTargets>) => {
+      expect(runPythonFailure(PYTHON!, importArgs, root)).toBeTruthy()
+      expect(captureImportTargets()).toEqual(before)
+    }
+    for (const mutate of [
+      () => {
+        const value = structuredClone(originalBatch)
+        value.items[1].batchBinding.freshConversation = true
+        fs.writeJsonSync(batchFile, value)
+      },
+      () => {
+        const value = structuredClone(originalBatch)
+        value.batchId = 'tampered-batch-id'
+        fs.writeJsonSync(batchFile, value)
+      },
+      () => {
+        const value = structuredClone(originalBatch)
+        value.items[1].roundId = 'tampered-round'
+        fs.writeJsonSync(batchFile, value)
+      },
+      () => {
+        const value = fs.readJsonSync(watcherManifestFile)
+        value.rounds[1].idempotencyKey = 'tampered-key'
+        fs.writeJsonSync(watcherManifestFile, value)
+      },
+      () => {
+        const value = fs.readJsonSync(watcherManifestFile)
+        value.rounds[1].targetBinding.tabId = 'tampered-tab'
+        fs.writeJsonSync(watcherManifestFile, value)
+      },
+      () => {
+        const value = fs.readJsonSync(watcherManifestFile)
+        value.rounds[1].freshConversation = true
+        fs.writeJsonSync(watcherManifestFile, value)
+      },
+      () => fs.writeFileSync(batch.items[1].promptPath, Buffer.concat([secondPromptBytes, Buffer.from('tampered')])),
+    ]) {
+      const before = captureImportTargets()
+      mutate()
+      expectRejectedBeforeImport(before)
+      fs.writeJsonSync(batchFile, originalBatch)
+      fs.writeFileSync(watcherManifestFile, originalManifestBytes)
+      fs.writeFileSync(batch.items[1].promptPath, secondPromptBytes)
+    }
+
     const firstImport = runPython(PYTHON!, importArgs, root)
     const secondImport = runPython(PYTHON!, importArgs, root)
     expect(firstImport).toContain('CCG_GPTPRO_BATCH_IMPORTED=1')
@@ -626,6 +696,55 @@ describe('GPT Pro sidebar bridge', () => {
     ], root)
     expect(error).toMatch(/idempotency keys must be unique/i)
   })
+
+  maybeIt('rejects unsafe batch bounds in both bridge copies before creating a bridge round', () => {
+    const root = join(TMP_ROOT, 'batch-bounds')
+    fs.ensureDirSync(root)
+    const script = [
+      'import importlib.util, json, pathlib, sys',
+      'root = pathlib.Path(sys.argv[1])',
+      'thread_id = "019fa981-725e-7f02-93a7-bb1e1b7aefd3"',
+      'for index, bridge in enumerate(sys.argv[2:]):',
+      '    spec = importlib.util.spec_from_file_location(f"gptpro_bridge_{index}", bridge)',
+      '    mod = importlib.util.module_from_spec(spec)',
+      '    sys.modules[spec.name] = mod',
+      '    spec.loader.exec_module(mod)',
+      '    request_path = root / f"request-{index}.json"',
+      '    base = {"roundId": "a", "prompt": "bounded prompt", "idempotencyKey": "bounded-key", "targetBinding": {"browserId": "b", "profileId": "p", "tabId": "1", "sessionKey": "b:p:1"}}',
+      '    requests = [',
+      '        {"timeoutSeconds": 7201, "rounds": [base]},',
+      '        {"rounds": [{**base, "idempotencyKey": "x" * 129}]},',
+      '        {"rounds": [{**base, "idempotencyKey": "invalid key"}]},',
+      '        {"rounds": [{**base, "prompt": "x" * 24001}]},',
+      '    ]',
+      '    for field in ("browserId", "profileId", "tabId", "sessionKey"):',
+      '        for bad_value in ("", "x" * 513, "bad\\nvalue"):',
+      '            requests.append({"rounds": [{**base, "targetBinding": {**base["targetBinding"], field: bad_value}}]})',
+      '    for request in requests:',
+      '        request_path.write_text(json.dumps({"schemaVersion": 1, "mode": "exc", "codexThreadId": thread_id, **request}), encoding="utf-8")',
+      '        try:',
+      '            mod.read_batch_request(request_path, expected_mode="exc", expected_codex_thread_id=thread_id)',
+      '        except ValueError:',
+      '            pass',
+      '        else:',
+      '            raise AssertionError("unsafe batch request accepted")',
+      '    valid = {"schemaVersion": 1, "mode": "exc", "codexThreadId": thread_id, "timeoutSeconds": 7200, "rounds": [{**base, "idempotencyKey": "x" * 128, "targetBinding": {**base["targetBinding"], "sessionKey": "s" * 512}}]}',
+      '    request_path.write_text(json.dumps(valid), encoding="utf-8")',
+      '    mod.read_batch_request(request_path, expected_mode="exc", expected_codex_thread_id=thread_id)',
+      '    task_dir = root / f"task-{index}"',
+      '    task_dir.mkdir()',
+      '    (task_dir / "task.json").write_text(json.dumps({"id": f"task-{index}", "status": "in_progress"}), encoding="utf-8")',
+      '    try:',
+      '        mod.create_session(mode="exc", workdir=root, prompt="x" * 23900, slug="oversized", output_root=task_dir / "gptpro", task_dir=task_dir, task_id=f"task-{index}", evidence_file=task_dir / "evidence.json", source_command="test", round_number=1, followup_session=None, followup_reason=None, gemini_policy="optional", gemini_evidence_role="frontend-prototype", project_context={}, codex_thread_id=thread_id)',
+      '    except ValueError as error:',
+      '        assert "24000" in str(error)',
+      '    else:',
+      '        raise AssertionError("oversized composed prompt accepted")',
+      '    assert not list((task_dir / "gptpro").rglob("status.json"))',
+      'print("ok")',
+    ].join('\n')
+    expect(runPython(PYTHON!, ['-c', script, root, BRIDGE, PLUGIN_BRIDGE], root).trim()).toBe('ok')
+  }, 20_000)
 
   it('keeps the Codex plugin bridge on the automated sidebar transport without Claude gates', () => {
     const pluginBridge = readFileSync(PLUGIN_BRIDGE, 'utf-8')
@@ -1466,6 +1585,8 @@ describe('GPT Pro sidebar bridge', () => {
     expect(promptText).toContain(routing.summary)
 
     const manualResponse = 'Manual GPT Pro response: 响应\n'
+    const responseFile = join(dirname(promptFile), 'response.md')
+    const statusBefore = readFileSync(statusFile)
     const saveScript = [
       'import importlib.util, pathlib, sys',
       'spec = importlib.util.spec_from_file_location("gptpro_bridge", sys.argv[1])',
@@ -1475,7 +1596,54 @@ describe('GPT Pro sidebar bridge', () => {
       'session = mod.load_session(pathlib.Path(sys.argv[2]).parent)',
       `mod.save_response(session, ${JSON.stringify(manualResponse)})`,
     ].join('; ')
-    runPython(PYTHON!, ['-c', saveScript, BRIDGE, statusFile], root)
+    expect(runPythonFailure(PYTHON!, ['-c', saveScript, BRIDGE, statusFile], root)).toMatch(/completed sidebar import/i)
+    expect(readFileSync(responseFile, 'utf-8')).toBe('')
+    expect(readFileSync(statusFile)).toEqual(statusBefore)
+
+    const forgedMetadata = {
+      transport: 'chatgpt-pro-sidebar',
+      browserTransport: 'agent-browser-cli-v2',
+      conversationUrl: 'https://chatgpt.com/c/forged-metadata',
+      codexThreadId: '019fa981-725e-7f02-93a7-bb1e1b7aefd3',
+      watcherId: 'forged-watcher',
+      submissionAcknowledged: true,
+      observationalRecovery: false,
+      automaticResendAllowed: false,
+      externalOutputIsUntrusted: true,
+      codexIsSoleWorkspaceWriter: true,
+      sidebarEvidenceFile: statusFile,
+      sidebarEvidenceSha256: '0'.repeat(64),
+    }
+    const forgedSaveScript = [
+      'import importlib.util, json, pathlib, sys',
+      'spec = importlib.util.spec_from_file_location("gptpro_bridge", sys.argv[1])',
+      'mod = importlib.util.module_from_spec(spec)',
+      'sys.modules["gptpro_bridge"] = mod',
+      'spec.loader.exec_module(mod)',
+      'session = mod.load_session(pathlib.Path(sys.argv[2]).parent)',
+      `metadata = json.loads(${JSON.stringify(JSON.stringify(forgedMetadata))})`,
+      `mod.save_response(session, ${JSON.stringify(manualResponse)}, transport_metadata=metadata)`,
+    ].join('; ')
+    expect(runPythonFailure(PYTHON!, ['-c', forgedSaveScript, BRIDGE, statusFile], root)).toMatch(
+      /only from a completed sidebar evidence import/i,
+    )
+    expect(readFileSync(responseFile, 'utf-8')).toBe('')
+    expect(readFileSync(statusFile)).toEqual(statusBefore)
+
+    const threadId = '019fa981-725e-7f02-93a7-bb1e1b7aefd3'
+    const sidebarDir = join(dirname(promptFile), 'sidebar')
+    const normalizedPrompt = promptText.replace(/\r\n/g, '\n').replace(/\r/g, '\n').replace(/[\r\n]+$/, '')
+    writeSidebarEvidence(sidebarDir, normalizedPrompt, manualResponse, threadId)
+    const imported = runPython(PYTHON!, [
+      BRIDGE,
+      '--import-session',
+      dirname(statusFile),
+      '--import-sidebar-evidence',
+      sidebarDir,
+      '--expected-codex-thread-id',
+      threadId,
+    ], root)
+    expect(imported).toContain('CCG_GPTPRO_SIDEBAR_IMPORTED=1')
 
     const updatedStatus = fs.readJsonSync(statusFile)
     const roundStatus = updatedStatus.rounds['round-1']
@@ -1607,6 +1775,116 @@ describe('GPT Pro sidebar bridge', () => {
     )
   })
 
+  maybeIt.each([BRIDGE, PLUGIN_BRIDGE])('serializes concurrent follow-ups into distinct rounds (%s)', (bridge) => {
+    const root = join(TMP_ROOT, `concurrent-followups-${bridge === BRIDGE ? 'template' : 'plugin'}`)
+    const taskDir = join(root, '.ccg', 'tasks', 'followup-task')
+    fs.ensureDirSync(taskDir)
+    fs.writeJsonSync(join(taskDir, 'task.json'), { id: 'followup-task', status: 'in_progress' })
+    const threadId = '019fa981-725e-7f02-93a7-bb1e1b7aefd3'
+    const first = runPython(PYTHON!, [
+      bridge,
+      '--mode',
+      'exc',
+      '--workdir',
+      root,
+      '--task-dir',
+      '.ccg/tasks/followup-task',
+      '--prompt',
+      'Initial round.',
+      '--gemini-policy',
+      'optional',
+      '--gemini-evidence-role',
+      'frontend-prototype',
+      '--codex-thread-id',
+      threadId,
+    ], root)
+    const sessionDir = parseOutputPath(first, 'CCG_GPTPRO_SESSION_DIR')
+    const script = [
+      'import json, pathlib, subprocess, sys',
+      'bridge, root, session_dir, thread_id = sys.argv[1:5]',
+      'commands = [[sys.executable, bridge, "--mode", "exc", "--workdir", root, "--task-dir", ".ccg/tasks/followup-task", "--prompt", f"Follow-up {index}.", "--followup-session", session_dir, "--followup-reason", "Concurrent review.", "--gemini-policy", "optional", "--gemini-evidence-role", "frontend-prototype", "--codex-thread-id", thread_id] for index in range(4)]',
+      'processes = [subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace") for command in commands]',
+      'for process in processes:',
+      '    _stdout, stderr = process.communicate(timeout=30)',
+      '    if process.returncode != 0:',
+      '        raise RuntimeError(stderr)',
+      'status = json.loads((pathlib.Path(session_dir) / "status.json").read_text(encoding="utf-8"))',
+      'print(json.dumps(status))',
+    ].join('\n')
+    const status = JSON.parse(runPython(PYTHON!, ['-c', script, bridge, root, sessionDir, threadId], root))
+    expect(status.current_round).toBe(5)
+    expect(Object.keys(status.rounds).sort()).toEqual(['round-1', 'round-2', 'round-3', 'round-4', 'round-5'])
+  }, 60_000)
+
+  maybeIt.each([BRIDGE, PLUGIN_BRIDGE])('rejects conflicting follow-up bindings before writing a round (%s)', (bridge) => {
+    const root = join(TMP_ROOT, `conflicting-followup-bindings-${bridge === BRIDGE ? 'template' : 'plugin'}`)
+    const taskDir = join(root, '.ccg', 'tasks', 'followup-task')
+    const otherTaskDir = join(root, '.ccg', 'tasks', 'other-followup-task')
+    const otherRoot = join(TMP_ROOT, `conflicting-followup-workdir-${bridge === BRIDGE ? 'template' : 'plugin'}`)
+    fs.ensureDirSync(taskDir)
+    fs.ensureDirSync(otherTaskDir)
+    fs.ensureDirSync(join(otherRoot, '.ccg', 'tasks', 'followup-task'))
+    fs.writeJsonSync(join(taskDir, 'task.json'), { id: 'followup-task', status: 'in_progress' })
+    fs.writeJsonSync(join(otherTaskDir, 'task.json'), { id: 'other-followup-task', status: 'in_progress' })
+    fs.writeJsonSync(join(otherRoot, '.ccg', 'tasks', 'followup-task', 'task.json'), { id: 'followup-task', status: 'in_progress' })
+    const threadId = '019fa981-725e-7f02-93a7-bb1e1b7aefd3'
+    const first = runPython(PYTHON!, [
+      bridge,
+      '--mode',
+      'exc',
+      '--workdir',
+      root,
+      '--task-dir',
+      '.ccg/tasks/followup-task',
+      '--prompt',
+      'Initial round.',
+      '--gemini-policy',
+      'optional',
+      '--gemini-evidence-role',
+      'frontend-prototype',
+      '--codex-thread-id',
+      threadId,
+    ], root)
+    const sessionDir = parseOutputPath(first, 'CCG_GPTPRO_SESSION_DIR')
+    const statusFile = join(sessionDir, 'status.json')
+    const statusBefore = readFileSync(statusFile)
+    const common = [
+      '--workdir',
+      root,
+      '--task-dir',
+      '.ccg/tasks/followup-task',
+      '--prompt',
+      'Conflicting follow-up.',
+      '--followup-session',
+      sessionDir,
+      '--gemini-policy',
+      'optional',
+      '--gemini-evidence-role',
+      'frontend-prototype',
+    ]
+    for (const args of [
+      ['--mode', 'review', ...common, '--codex-thread-id', threadId],
+      ['--mode', 'exc', ...common, '--codex-thread-id', '019fa981-725e-7f02-93a7-bb1e1b7aefd4'],
+      ['--mode', 'exc', ...common, '--task-id', 'other-task', '--codex-thread-id', threadId],
+      ['--mode', 'exc', ...common, '--evidence-file', '.ccg/tasks/followup-task/other-evidence.json', '--codex-thread-id', threadId],
+      ['--mode', 'exc', ...common.map(value => value === '.ccg/tasks/followup-task' ? '.ccg/tasks/other-followup-task' : value), '--codex-thread-id', threadId],
+      ['--mode', 'exc', ...common.map(value => value === root ? otherRoot : value), '--codex-thread-id', threadId],
+    ]) {
+      expect(runPythonFailure(PYTHON!, [bridge, ...args], root)).toBeTruthy()
+      expect(readFileSync(statusFile)).toEqual(statusBefore)
+      expect(fs.pathExistsSync(join(sessionDir, 'round-2'))).toBe(false)
+    }
+
+    const copiedSessionDir = join(dirname(sessionDir), `${basename(sessionDir)}-copy`)
+    fs.copySync(sessionDir, copiedSessionDir)
+    const copiedStatusBefore = readFileSync(join(copiedSessionDir, 'status.json'))
+    const copiedArgs = common.map(value => value === sessionDir ? copiedSessionDir : value)
+    expect(runPythonFailure(PYTHON!, [bridge, '--mode', 'exc', ...copiedArgs, '--codex-thread-id', threadId], root)).toBeTruthy()
+    expect(readFileSync(statusFile)).toEqual(statusBefore)
+    expect(readFileSync(join(copiedSessionDir, 'status.json'))).toEqual(copiedStatusBefore)
+    expect(fs.pathExistsSync(join(copiedSessionDir, 'round-2'))).toBe(false)
+  }, 60_000)
+
   maybeIt('rejects required Claude evidence when routing evidence lacks a valid status', () => {
     const root = join(TMP_ROOT, 'missing-claude-status')
     const taskDir = join(root, '.ccg', 'tasks', 'missing-claude-task')
@@ -1725,6 +2003,9 @@ describe('GPT Pro sidebar bridge', () => {
     expect(promptText).toContain('decide whether the current execution route should proceed')
     expect(promptText).toContain('supplement the route with')
 
+    const legacyStatus = fs.readJsonSync(statusFile)
+    delete legacyStatus.browser_transport_required
+    fs.writeJsonSync(statusFile, legacyStatus)
     const saveScript = [
       'import importlib.util, pathlib, sys',
       'spec = importlib.util.spec_from_file_location("gptpro_bridge", sys.argv[1])',
@@ -1931,6 +2212,8 @@ describe('GPT Pro sidebar bridge', () => {
       'Gemini evidence is available.',
     ], root)
     const statusFile = parseOutputPath(output, 'CCG_GPTPRO_STATUS_FILE')
+    const statusBefore = readFileSync(statusFile)
+    const responseFile = join(dirname(statusFile), 'round-1', 'response.md')
     const serverScript = [
       'import http.client, importlib.util, json, pathlib, sys',
       'spec = importlib.util.spec_from_file_location("gptpro_bridge", sys.argv[1])',
@@ -1969,6 +2252,8 @@ describe('GPT Pro sidebar bridge', () => {
       '    server.server_close()',
     ].join('\n')
     const result = runPython(PYTHON!, ['-c', serverScript, BRIDGE, statusFile], root)
-    expect(result.trim().split(/\r?\n/)).toEqual(['403', '400', '413', '200'])
+    expect(result.trim().split(/\r?\n/)).toEqual(['403', '400', '413', '400'])
+    expect(readFileSync(responseFile, 'utf-8')).toBe('')
+    expect(readFileSync(statusFile)).toEqual(statusBefore)
   }, 20_000)
 })
