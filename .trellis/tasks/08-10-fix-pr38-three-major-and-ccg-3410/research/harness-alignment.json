@@ -42,5 +42,7 @@
     "doctorWithExplicitAuthoritativeCheckout": "passed",
     "verifySourcesWithExplicitAuthoritativeCheckout": "passed",
     "remoteFetchMode": "expected-unavailable-until-authorized-push"
-  }
+  },
+  "supersededAtUtc": "2026-08-11T01:10:36Z",
+  "supersededBy": ".trellis/tasks/08-10-fix-pr38-three-major-and-ccg-3410/research/ready-candidate.json"
 }

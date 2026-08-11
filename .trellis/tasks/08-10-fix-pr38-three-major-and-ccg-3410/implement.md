@@ -57,7 +57,7 @@
 
 - [x] 按 Boss 授权推送个人 CCG source `28a428ce`，并用默认远端模式重跑 doctor/verify:sources，精确命中 commit/tree。
 - [x] 合入最新 `origin/main`，保留个人 CCG provenance，重跑 CCG/Harness 全门禁并记录 runner 超时与稳定重跑。
-- [ ] 推送 PR #38 新 head，等待该 head 的 required checks 全绿并重签 base/head/diff。
+- [x] 推送 PR #38 新 head，等待该 head 的 required checks 全绿并重签 base/head/diff。
 - [ ] 在当前发布 identity 下完成最终 Provider gate 后，才把 PR #38 从 Draft 改为 Ready；不执行 merge。
 
 ## Focused validation commands

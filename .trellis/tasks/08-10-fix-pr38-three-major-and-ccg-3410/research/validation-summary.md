@@ -82,3 +82,29 @@ New raw logs:
 | `C:/Users/29933/.fastctx/jobs/j-2ivux7/output.log` | 41002 | `b876bde568a2b1c2f63dfe2103ffd54f7e33a4ea8cde191e2dc16b7ae8dd6e65` |
 
 The prior M1/FINAL Provider advice remains historical evidence for implementation commit `349cdc4`. Publishing a new PR head changes the identity bound by AC8, so PR #38 remains Draft until the new head, CI, and final Provider gate are revalidated.
+
+## FINAL acceptance ledger for the reviewed product head
+
+Captured at: `2026-08-11T01:10:36Z`
+
+- Reviewed product/CI head: `33b00ccd98c2da6bb312b75715fc95eeed3791e6`
+- Tree: `cef8b6b17ca014542791ddc747cbd3e4a5534360`
+- PR base: `7059785bfe4790e9ecd4f91396ca9f09cce1fdf1`
+- Diff SHA-256: `9bf7c070a5d4be32737497b33ebd137c8eb0decd6f679cc58930bcd58b92c730`
+- Required checks: `10/10` successful; PR is `MERGEABLE` and `CLEAN`.
+- FINAL Product Manager review: `accepted`; fresh Boss response recorded at `stateRevision=12`.
+
+This identity covers the reviewed product and CI tree. The following task-only evidence commit will move the branch head; its exact head/tree/diff and CI are re-captured from the GitHub PR after push rather than claimed self-referentially inside that same commit.
+
+- AC1: passed — CCG `3.4.10` source `28a428ce` / tree `f935be94`; required histories remain reachable.
+- AC2: passed — supported Harness lifecycle, exact manifest/source identity, default remote doctor and `verify:sources` all green.
+- AC3: passed — direct fourth/seventh `run-root` denial occurs before adapter/browser work.
+- AC4: passed — batch claim handoff is single-count, identity-bound, proof-released, and recovery-retaining.
+- AC5: passed — both bridge copies use atomic response replacement; fault/replay and content-conflict tests passed.
+- AC6: passed — PR39 Provider permission contract is aligned without weakening canonical authority, no-fallback, or hard gates.
+- AC7: passed — focused/full CCG and Harness gates, parse, conflicts, doctor, source verification and diff checks are green on the recorded runs.
+- AC8: passed for the reviewed product head above; the task-only evidence head must be re-signed after push.
+- AC9: passed — M1 and FINAL advice were presented and received fresh Boss acceptance; FINAL acceptance is recorded at state revision 12.
+- AC10: passed so far — only authorized source/PR pushes occurred; PR remains Draft, with no merge or global install.
+
+Accepted verification limit: the Product Manager snapshot excludes `.agents/` and the plugin copy, so AC3/AC4 implementation review relies on the explicit contract plus `304/304` Pester and `ROOTWAIT_CAPACITY_SMOKE_OK` evidence. Boss accepted FINAL with this limitation disclosed; live ChatGPT E2E remains separately authorized and out of scope.
