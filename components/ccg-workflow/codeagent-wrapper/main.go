@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	version               = "5.12.10"
+	version               = "5.12.11"
 	defaultWorkdir        = "."
 	defaultTimeout        = 7200 // seconds (2 hours)
 	defaultCoverageTarget = 90.0
@@ -125,6 +125,7 @@ func main() {
 // run is the main logic, returns exit code for testability
 func run() (exitCode int) {
 	name := currentWrapperName()
+	retainGrokFailureLog := false
 	// Handle --version and --help first (no logger needed)
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
@@ -160,14 +161,23 @@ func run() (exitCode int) {
 		if err := closeLogger(); err != nil {
 			fmt.Fprintf(os.Stderr, "ERROR: failed to close logger: %v\n", err)
 		}
-		// On failure, extract and display recent errors before removing log
+		// On failure, extract and display recent errors before removing log.
+		// CODEAGENT_RETAIN_LOG_ON_FAILURE is an explicit diagnostic escape hatch;
+		// successful runs and the default failure path keep the existing cleanup.
 		if logger != nil {
 			if exitCode != 0 {
-				if errors := logger.ExtractRecentErrors(10); len(errors) > 0 {
+				errors := logger.ExtractRecentErrors(10)
+				if len(errors) > 0 {
 					fmt.Fprintln(os.Stderr, "\n=== Recent Errors ===")
 					for _, entry := range errors {
 						fmt.Fprintln(os.Stderr, entry)
 					}
+				}
+				if retainGrokFailureLog {
+					fmt.Fprintf(os.Stderr, "Log file: %s (retained)\n", logger.Path())
+					return
+				}
+				if len(errors) > 0 {
 					fmt.Fprintf(os.Stderr, "Log file: %s (deleted)\n", logger.Path())
 				}
 			}
@@ -374,6 +384,7 @@ func run() (exitCode int) {
 		return 1
 	}
 	cfg.Backend = backend.Name()
+	retainGrokFailureLog = cfg.Backend == "grok" && envFlagEnabled("CODEAGENT_RETAIN_LOG_ON_FAILURE")
 	cmdInjected := codexCommand != defaultCodexCommand
 	argsInjected := buildCodexArgsFn != nil && reflect.ValueOf(buildCodexArgsFn).Pointer() != reflect.ValueOf(defaultBuildArgsFn).Pointer()
 
@@ -632,9 +643,11 @@ Environment Variables:
     CODEX_TIMEOUT              Timeout in seconds (default: 7200)
     CODEX_REQUIRE_APPROVAL     Require manual approval for file operations (default: false)
     CODEX_DISABLE_SKIP_GIT_CHECK  Disable skip-git-repo-check flag (default: false)
-    CODEAGENT_ASCII_MODE       Use ASCII symbols instead of Unicode (PASS/WARN/FAIL)
-    CODEAGENT_LITE_MODE        Enable lite mode (true/false)
-    GEMINI_MODEL               Default Gemini model
+	    CODEAGENT_ASCII_MODE       Use ASCII symbols instead of Unicode (PASS/WARN/FAIL)
+	    CODEAGENT_LITE_MODE        Enable lite mode (true/false)
+	    CODEAGENT_RETAIN_LOG_ON_FAILURE
+	                                Retain the complete wrapper log after a failed Grok diagnostic run
+	    GEMINI_MODEL               Default Gemini model
     GROK_MODEL                 Default Grok model
 
 Exit Codes:

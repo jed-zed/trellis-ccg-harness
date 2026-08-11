@@ -3,7 +3,7 @@
 > [根目录](../CLAUDE.md) > **codeagent-wrapper**
 
 **Last Updated**: 2026-08-10
-**Binary Version**: v5.12.10
+**Binary Version**: v5.12.11
 **Go Version**: 1.21+（`go.mod:1`）
 
 ---
@@ -73,6 +73,7 @@ Claude 后端不追加 `--model`，避免触发 Claude CLI 的模型 flag 兼容
 | `CODEAGENT_LITE_MODE` | 精简模式 | false |
 | `CODEAGENT_POST_MESSAGE_DELAY` | agent_message 后等待秒数（0-60） | 5s |
 | `CODEAGENT_MAX_PARALLEL_WORKERS` | 并行 worker 上限（0=不限） | 0 |
+| `CODEAGENT_RETAIN_LOG_ON_FAILURE` | 仅 Grok 诊断调用在非零退出时保留完整 wrapper 日志 | false |
 | `GEMINI_MODEL` | Gemini 型号（低优先级，CLI 参数覆盖） | 空 |
 | `GROK_MODEL` | Grok 型号（低优先级，CLI 参数覆盖） | 空 |
 
@@ -278,8 +279,8 @@ bash build-all.sh
 
 | 文件 | 位置 | 当前值 |
 |------|------|--------|
-| `codeagent-wrapper/main.go` | `version = "5.12.10"` （`main.go:17`） | `5.12.10` |
-| `src/utils/installer.ts` | `EXPECTED_BINARY_VERSION = '5.12.10'` | `5.12.10` |
+| `codeagent-wrapper/main.go` | `version = "5.12.11"` （`main.go:17`） | `5.12.11` |
+| `src/utils/installer.ts` | `EXPECTED_BINARY_VERSION = '5.12.11'` | `5.12.11` |
 
 两边不一致的后果：用户运行 `npx ccg-workflow update` 时无法触发 binary 重新下载，继续使用旧版 binary。
 

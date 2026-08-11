@@ -114,7 +114,7 @@ def main(argv: list[str] | None = None) -> int:
         snapshot, stats = build_snapshot(workdir, targets, Path(temp))
         command = [ccg, "wrapper", "--backend", args.backend, "--progress"]
         if args.backend == "antigravity":
-            command.append("--antigravity-review")
+            command.extend(("--antigravity-review", "--skip-permissions"))
         command.extend(["-", str(snapshot)])
         print(f"CCG_REVIEW_SNAPSHOT_FILES={stats['files']}", file=sys.stderr, flush=True)
         print(f"CCG_REVIEW_SNAPSHOT_BYTES={stats['bytes']}", file=sys.stderr, flush=True)

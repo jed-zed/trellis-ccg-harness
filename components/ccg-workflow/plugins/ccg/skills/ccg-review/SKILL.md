@@ -48,7 +48,9 @@ review files and invoke `../ccg-executor/scripts/invoke_provider_review.py`
 with `--backend <provider> --workdir "<workdir>"` plus one `--target <file>` per
 bound file, passing the prompt through stdin. The helper copies only those
 files into a disposable snapshot and runs the provider there with its native
-permission mode. The snapshot bounds the default input and working directory;
+permission mode. For unattended Antigravity snapshot review only, the helper
+passes `--skip-permissions`; ordinary Antigravity frontend/backend/resume calls
+remain conditional. The snapshot bounds the default input and working directory;
 it is not an OS sandbox and does not override native absolute-path or network
 capabilities. Require a completed model report before claiming review evidence;
 otherwise report it as missing.

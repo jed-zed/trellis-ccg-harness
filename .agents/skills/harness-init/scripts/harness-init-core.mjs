@@ -6511,7 +6511,7 @@ function parseCliArgs(argv) {
     throw new Error(`${command} requires --repository <directory>.`);
   }
   if (
-    ["revise-project-skills", "skill-migration-apply"].includes(command) &&
+    command === "revise-project-skills" &&
     result.selectedSkills.length === 0
   ) {
     throw new Error(`${command} requires --skills <names>.`);

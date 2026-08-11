@@ -297,6 +297,7 @@ Set in `~/.claude/settings.json` under `"env"`:
 |----------|---------|-------------|
 | `CODEX_TIMEOUT` | `7200` | Wrapper timeout (seconds) |
 | `CODEAGENT_POST_MESSAGE_DELAY` | `5` | Post-completion delay |
+| `CODEAGENT_RETAIN_LOG_ON_FAILURE` | unset | Set `1` for one Grok diagnostic run to retain the complete wrapper log after failure |
 | `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` | unset | Set `1` for parallel Agent Teams |
 | `XAI_API_KEY` | unset | Explicit API-key auth for approved headless/CI Grok intelligence runs |
 
@@ -383,4 +384,4 @@ MIT
 
 ---
 
-v3.4.10 | [Issues](https://github.com/jed-zed/ccg-gptpro-worflow/issues) | [Contributing](./CONTRIBUTING.md)
+v3.4.12 | [Issues](https://github.com/jed-zed/ccg-gptpro-worflow/issues) | [Contributing](./CONTRIBUTING.md)

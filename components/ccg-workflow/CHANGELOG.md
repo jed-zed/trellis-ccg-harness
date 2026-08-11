@@ -9,12 +9,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.4.12] - 2026-08-10
+
+### Added
+
+- **GPT Pro URL-first recovery** — Bind each automated sidebar round to its
+  exact browser, tab, session, conversation URL, and Codex task identity; keep
+  concurrent batches isolated and reject uncertain or mismatched evidence
+  without automatic resend.
+
 ### Fixed
 
+- **Atomic GPT Pro persistence** — Keep bridge state, response, and evidence
+  updates exact-once and recoverable across RootWait, follow-up, and batch
+  completion paths.
 - **Bounded product-manager review snapshots** — Include the current Trellis
   review manifest, diff, file list, test summary, and its exact tracked target
   files while still rejecting missing targets and private files before a
   Provider starts.
+
+### Changed
+
+- **Integrated personal release** — Converge the accepted GPT Pro URL-first
+  source with the Grok failure-log and Antigravity snapshot-review fixes from
+  3.4.11. The existing `codeagent-wrapper` 5.12.11 binary and six-platform
+  digests are unchanged.
+
+## [3.4.11] - 2026-08-10
+
+### Fixed
+
+- **Grok review failure evidence** — Add an explicit Grok-only diagnostic mode
+  that preserves the complete wrapper log after a non-zero exit, reports its
+  exact path, and leaves default failure and success cleanup unchanged.
+- **Antigravity snapshot review permissions** — Make unattended disposable-
+  snapshot Antigravity review pass the existing `--skip-permissions` flag
+  through to `agy --dangerously-skip-permissions` without changing ordinary
+  frontend, backend, or resume calls.
+
+### Changed
+
+- **codeagent-wrapper 5.12.11** — Publish opt-in Grok failure-log retention and
+  the snapshot-review Antigravity permission propagation with reproducible
+  six-platform binary digests.
 
 ## [3.4.10] - 2026-08-10
 

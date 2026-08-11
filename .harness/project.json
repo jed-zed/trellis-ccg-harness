@@ -33,7 +33,8 @@
       ".harness/project.json",
       ".harness/project.schema.json",
       ".harness/third-party-installations.json",
-      ".harness/third-party-sources.json"
+      ".harness/third-party-sources.json",
+      ".harness/project-skills.json"
     ],
     "ignoredRuntimePaths": [
       ".ccg",

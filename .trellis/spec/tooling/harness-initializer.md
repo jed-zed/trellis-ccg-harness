@@ -6,7 +6,7 @@ This contract applies when changing project-contract validation, first-time
 installation into `.harness/`, ready-project Skill revision, managed
 `AGENTS.md` projection, ownership metadata, transaction recovery, the
 `approved` to `ready` transition, or the approval-gated global addon discovery
-and installation workflow.
+and installation workflow, including Skill-platform migration.
 
 The implementation is
 `.agents/skills/harness-init/scripts/harness-init-core.mjs`; the root
@@ -21,6 +21,11 @@ node scripts/harness-init.mjs apply --contract <json-path> --repo-root <path>
 node scripts/harness-init.mjs mark-ready --repo-root <path>
 node scripts/harness-init.mjs revise-project-skills --repo-root <path> \
   --home-dir <profile-home> --skills <names> [--replace-existing] --approved
+node scripts/harness-init.mjs skill-migration-plan --repo-root <path> \
+  --home-dir <profile-home> --repository <catalog-path> [--skills <names>]
+node scripts/harness-init.mjs skill-migration-apply --repo-root <path> \
+  --home-dir <profile-home> --repository <catalog-path> \
+  [--skills <names>] --inventory-sha256 <sha256> --approved
 node scripts/harness-init.mjs addons --status --home-dir <path> --repo-root <path>
 node scripts/harness-init.mjs addons --plan-only \
   --third-party-global-skills <ids-or-none> \
@@ -94,6 +99,12 @@ and recovery tests; ordinary callers use only `repoRoot`.
   new tree, and atomically updates the copied Skill, project contract, Project
   Skill manifest, and ownership digests. A failure restores the previous
   complete projection.
+- Skill-platform migration may approve an empty project-Skill selection by
+  omitting `--skills`. Its approved apply replaces the existing owned project
+  Skill revision transactionally; no second replacement flag is required.
+- Migration rollback removes or restores only platform targets recorded as
+  added or replaced by that transaction. A failure before platform activation
+  must preserve every pre-existing platform Skill byte-for-byte.
 - The contract, schema, policy, block, and ownership files are transaction
   inputs. The ready contract and ownership manifest are atomic transaction
   targets.
@@ -170,6 +181,8 @@ and recovery tests; ordinary callers use only `repoRoot`.
 | A managed Skill path uses Windows separators | Normalize separators before ownership comparison |
 | Replacement is requested without `--replace-existing` | Refuse without mutation |
 | Replacement fails after any target is claimed or published | Restore the previous Skill, contract, manifest, and ownership |
+| Skill migration omits `--skills` | Apply the approved empty project-Skill selection |
+| Skill migration fails before any platform target is changed | Preserve every existing platform Skill and restore project/profile state |
 | `addons --status` receives a selection or approval flag | Refuse as a mixed read/write request |
 | Non-interactive addon planning omits a selection group | Refuse the ambiguous selection set |
 | Non-interactive addon apply omits either digest or final approval | Refuse before mutation |
@@ -227,6 +240,8 @@ Errors propagate to `scripts/harness-init.mjs`, which writes one
   owned revision, and rolls back the whole projection on failure.
 - ready-project Skill revision removes deselected catalog paths from both the
   project contract and ownership while retaining third-party paths and ledgers.
+- Skill-platform migration accepts an empty approved project selection and a
+  forced pre-platform failure leaves every untouched platform Skill intact.
 - root Harness contract tests recompute approved project Skill tree hashes and
   verify their LF attributes and recorded target paths.
 - conflict tests reject exact and parent/child cross-ledger overlaps and accept
@@ -277,3 +292,8 @@ the two targets, and preserves the approved state on failure.
 For latest-channel execution, pass each installer a cloned manifest and keep
 resolved identities only in the installer transaction and ownership record;
 never write them back into `.harness/third-party-sources.json`.
+
+For migration rollback, derive the rollback set from the transaction's
+`replacedPlatform` and `addedPlatform` records. Iterating the complete inventory
+is wrong because an unchanged target can have the same digest as the new source
+without ever having been touched by the failed transaction.

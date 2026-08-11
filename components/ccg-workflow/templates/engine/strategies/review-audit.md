@@ -12,8 +12,9 @@ For local Grok review, bind every regular workspace-relative file with
 `--grok-review-target`. The wrapper embeds only those files in a fresh,
 Provider session and appends the validated `CCG_GROK_REVIEW_JSON`
 scope envelope. For local Antigravity review, bind the concrete files in the prompt
-and invoke `ccg wrapper --backend antigravity --antigravity-review`; require a
-completed model report. Neither local path uses the external-intelligence
+and invoke `ccg wrapper --backend antigravity --antigravity-review --skip-permissions`;
+require a completed model report. Ordinary Antigravity calls remain conditional.
+Neither local path uses the external-intelligence
 route or an official-domain gate.
 
 > 适用于代码审查需求，双模型交叉验证，结果分级输出。
