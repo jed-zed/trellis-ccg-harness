@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "capturedAtUtc": "2026-08-10T21:35:55.0745285Z",
+  "manifest": {
+    "version": "3.4.10",
+    "commit": "28a428cedbe218cc217d4207f04532c8ac785337",
+    "gitTree": "f935be940641bb0eeb7864602547c6ccc68f6f97",
+    "sourceMode": "tracked-tree-from-explicit-personal-commit"
+  },
+  "installedRuntime": {
+    "cliVersion": "3.4.10",
+    "pluginVersion": "3.4.10+codex.1",
+    "pluginManifest": "C:/Users/29933/.codex/plugins/cache/ccg-gptpro-worflow/ccg/3.4.10+codex.1/.codex-plugin/plugin.json"
+  },
+  "localCommits": {
+    "snapshotAlignment": "8a0a115",
+    "permissionProjection": "bb0c5d1",
+    "majorFixImplementation": "349cdc4c19fd4b09d6231ea16343b1b8d8d7a38f"
+  },
+  "localImplementationTree": "db3bd3570a3ba52ec738bf8b3b48e9f39152b724",
+  "githubPullRequest": {
+    "number": 38,
+    "url": "https://github.com/jed-zed/trellis-ccg-harness/pull/38",
+    "state": "OPEN",
+    "draft": true,
+    "base": "66da1493327b4905c4c2180f7056d8f30e8796b8",
+    "publishedHead": "8bc75450e7d6b4a155876daaf50ed7b735eca5f8",
+    "checksTotal": 10,
+    "checksSuccessful": 10,
+    "checksNonSuccessful": 0
+  },
+  "implementationCandidate": {
+    "head": "349cdc4c19fd4b09d6231ea16343b1b8d8d7a38f",
+    "tree": "db3bd3570a3ba52ec738bf8b3b48e9f39152b724",
+    "diffSha256FromPullRequestBase": "2522ca14916ab9650af6a53a4e945f855291864d9262f3829edac1a3cb5ad2f0",
+    "changedFiles": 197,
+    "insertions": 17704,
+    "deletions": 2777,
+    "published": false
+  },
+  "provenanceVerification": {
+    "doctorWithExplicitAuthoritativeCheckout": "passed",
+    "verifySourcesWithExplicitAuthoritativeCheckout": "passed",
+    "remoteFetchMode": "expected-unavailable-until-authorized-push"
+  },
+  "supersededAtUtc": "2026-08-11T01:10:36Z",
+  "supersededBy": ".trellis/tasks/08-10-fix-pr38-three-major-and-ccg-3410/research/ready-candidate.json"
+}

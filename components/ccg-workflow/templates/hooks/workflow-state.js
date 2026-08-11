@@ -39,7 +39,7 @@ try {
   lines.push(`Next: ${task.nextAction || 'Continue current phase'}`);
 
   if (isExternalWait) {
-    lines.push('External wait: the GPT Pro sidebar watcher will continue this task through the Stop Hook.');
+    lines.push('External wait: keep the root turn active until GPT Pro run-root returns terminal evidence.');
   }
 
   if (loop) {

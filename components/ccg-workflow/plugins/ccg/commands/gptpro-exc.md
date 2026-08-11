@@ -47,8 +47,8 @@ Gemini behavior still follows ordinary `/ccg:execute` routing:
 
 Hard boundaries:
 
-- Do not automate ChatGPT login, DOM reading, cookies, or tokens. Only the installed
-  `chatgpt-pro-sidebar` Skill may submit prompts and capture bounded UIA output.
+- Do not automate ChatGPT login, cookies, tokens, or arbitrary DOM. Only the installed
+  `chatgpt-pro-sidebar` Skill may use the fixed bounded DOM contract and `agent-browser-cli-v2`.
 - Do not paste the full generated prompt into the chat unless the user explicitly asks.
 - Do not continue implementation based on GPT Pro until the sidebar watcher reaches a terminal state
   and the bridge successfully imports a non-empty GPT Pro response.
@@ -150,16 +150,18 @@ After bridge creation, update the active task only when native CCG owns lifecycl
 {
   "status": "in_progress",
   "gate": "gptpro_sidebar_running",
-  "nextAction": "The sidebar watcher is registered; continue in this task when the Stop Hook fires."
+  "nextAction": "The atomic RootWait round is active; continue after run-root returns completed evidence."
 }
 ```
 
 For a Trellis task, do not write those CCG gate fields into `task.json`; preserve Trellis lifecycle
 state and use bridge `status.json` plus the sidebar watcher evidence for the wait state.
 
-Use the installed `chatgpt-pro-sidebar` Skill to create a fresh conversation, submit `prompt.md`,
-start the detached watcher, and then stop the current turn. Never ask the user to copy the prompt or
-response.
+Use the installed `chatgpt-pro-sidebar` Skill to create a fresh conversation, then invoke watcher
+`run-root` once so prompt submission, watcher start, and local wait stay in the current root turn.
+For explicitly independent parallel route slices, use the shared bridge batch create -> `run-batch-root`
+-> batch import contract with the fixed `3` per-task / `6` global cap.
+Never ask the user to copy the prompt or response.
 
 Continue only after:
 
@@ -169,8 +171,8 @@ Continue only after:
 - `response_sha256` is present for the saved round;
 - `<evidence-root>/evidence.json` contains the GPT Pro item.
 
-## Round Budget
+## Round Guidance
 
-Default one GPT Pro question. A second round should normally become `/ccg:gptpro-review`
-after Codex applies changes. Use round 2 only for blocker re-check, applied diff review, or another
-high-risk follow-up.
+Default one GPT Pro question. Sequential follow-ups have no fixed bridge limit and should normally
+become `/ccg:gptpro-review` after Codex applies changes. Use follow-up rounds only for blocker
+re-check, applied diff review, or another high-risk follow-up.

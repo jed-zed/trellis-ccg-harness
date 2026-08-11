@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 1,
+  "milestone": "M2",
+  "purpose": "Task-local source re-attestation for the M2 product-manager review.",
+  "capturedFromGitHead": "08b145289d4e8ed76027a06c6fbf1d88cbd39f3a",
+  "sources": [
+    {
+      "path": ".agents/skills/chatgpt-pro-sidebar/scripts/chatgpt-pro-sidebar.ps1",
+      "sha256": "94ccb5aa5843acb884e77a70d3e22f3574158cfaa439351d19d3060a3b30c94a",
+      "facts": [
+        {
+          "lines": "549-790",
+          "fact": "The adapter binds one exact Codex thread to a durable target claim and derives UI serialization from the complete browser/profile/tab/session identity."
+        },
+        {
+          "lines": "3334-3900",
+          "fact": "Send and wait state preserve the thread, target, idempotency, URL, and no-resend boundary used by every batch child."
+        }
+      ]
+    },
+    {
+      "path": ".agents/skills/chatgpt-pro-sidebar/scripts/chatgpt-pro-sidebar-watch.ps1",
+      "sha256": "36c297392d8535da8a6c843a053fa7ae681b53e060d5ab770b623b60525480ab",
+      "facts": [
+        {
+          "lines": "1699-1987",
+          "fact": "Six CreateNew capacity claims are serialized by a short mutex; per-thread three and global six limits are enforced before launching a child, and release requires durable pre-click-unsent or terminal proof."
+        },
+        {
+          "lines": "1988-2390",
+          "fact": "Batch manifests are contained, identity-bound, and unique; run-batch-root queues locally, launches existing run-root children, preserves partial results, and emits atomic terminal batch evidence without model polling."
+        }
+      ]
+    },
+    {
+      "path": "components/ccg-workflow/plugins/ccg/skills/ccg-gptpro-bridge/scripts/gptpro_bridge.py",
+      "sha256": "3e40a6fb1dea6bb081de3061478904384b6347cc4b1c3a88fe936b37e7939cc8",
+      "facts": [
+        {
+          "lines": "72-131,1279-1335",
+          "fact": "Cross-process stdlib locks, atomic JSON replacement, and atomic session directory allocation replace check-then-create and direct status writes."
+        },
+        {
+          "lines": "1647-1871",
+          "fact": "Batch creation produces independent session/round/evidence directories; batch import validates exact thread, result mapping, terminal state, target, URL, hashes, watcher, and acknowledgement while preserving partial failures."
+        },
+        {
+          "lines": "2202-2330",
+          "fact": "Task evidence and response persistence use locked atomic read-modify-write with task/thread/session/round deduplication and conflicting-response rejection."
+        }
+      ]
+    }
+  ]
+}

@@ -454,27 +454,22 @@ Describe 'Codex Stop Hook helper' {
     }
 }
 
-Describe 'Codex Stop Hook installation guidance' {
-    It 'derives the trusted Hook command from the selected Skill installation' {
+Describe 'RootWait-only installation guidance' {
+    It 'does not advertise Stop Hook installation for the V2 transport' {
         $skillDocument = Get-Content -Raw -LiteralPath (Join-Path (Split-Path -Parent $PSScriptRoot) 'SKILL.md')
 
         $skillDocument | Should -Not -Match 'C:/Users/29933'
-        $skillDocument | Should -Match '\$resolvedStopHook = \(Resolve-Path -LiteralPath \$stopHook\)'
-        $skillDocument | Should -Match '\$pythonCandidates = @\('
-        $skillDocument | Should -Match '\[pscustomobject\]@\{ Name = ''py''; Prefix = @\(''-3''\) \}'
-        $skillDocument | Should -Match '\[pscustomobject\]@\{ Name = ''python''; Prefix = @\(\) \}'
-        $skillDocument | Should -Match '\[pscustomobject\]@\{ Name = ''python3''; Prefix = @\(\) \}'
-        $skillDocument | Should -Match '\$stopHookCommand = \('
-        $skillDocument | Should -Match '@\(''-X'', ''utf8''\)'
-        $skillDocument | Should -Match 'Python 3\.9\+ is required'
-        $skillDocument | Should -Match 'actual installed directory containing this `SKILL\.md`'
+        $skillDocument | Should -Not -Match '\$resolvedStopHook|\$stopHookCommand'
+        $skillDocument | Should -Match 'never registers a Stop Hook'
+        $skillDocument | Should -Match 'pure local RootWait watcher'
     }
 
     It 'requires direct delegations to acknowledge every reviewed terminal result' {
         $skillDocument = Get-Content -Raw -LiteralPath (Join-Path (Split-Path -Parent $PSScriptRoot) 'SKILL.md')
 
-        $skillDocument | Should -Match 'any direct-delegation terminal result, including `completed`'
-        $skillDocument | Should -Match 'run watcher `acknowledge`'
-        $skillDocument | Should -Match 'If no CCG importer ran, this acknowledgement is still required'
+        $skillDocument | Should -Match 'Call `acknowledge-root` only after that independent Codex review'
+        $skillDocument | Should -Match 'If a CCG\s+importer owns acknowledgement, let it use its existing import contract'
+        $skillDocument | Should -Match 'wait-root'
+        $skillDocument | Should -Match 'same still-running root turn'
     }
 }

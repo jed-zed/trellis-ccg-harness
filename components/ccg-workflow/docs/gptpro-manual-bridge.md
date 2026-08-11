@@ -3,7 +3,7 @@
 The filename is retained for link compatibility. The bridge is no longer a normal manual
 copy/paste handoff. `/ccg:gptpro-plan`, `/ccg:gptpro-review`, and `/ccg:gptpro-exc` use the installed
 `chatgpt-pro-sidebar` Skill to communicate with the user's already logged-in ChatGPT Pro session in
-the Codex Desktop side panel.
+an approved external Chrome tab through `agent-browser-cli-v2`.
 
 Ordinary CCG routing runs first. ChatGPT Pro is appended as untrusted, read-only task evidence;
 Codex remains the sole workspace writer and final verification owner.
@@ -63,11 +63,12 @@ gate fields into Trellis `task.json`.
 ## Automated Contract
 
 1. Create the CCG bridge session and its bounded `prompt.md`.
-2. Use only the installed `chatgpt-pro-sidebar` Skill for side-panel status, new conversation,
-   prompt submission, response capture, and detached monitoring.
-3. Register the watcher with the exact current `CODEX_THREAD_ID`; model-driven polling is forbidden.
-4. The official Stop Hook continues the same Codex Desktop task after completion or interruption.
-5. Import only a completed watcher result:
+2. Use only the installed `chatgpt-pro-sidebar` Skill for browser status, new conversation,
+   prompt submission, response capture, and local monitoring.
+3. Invoke watcher `run-root` once with the prompt, empty evidence directory, unique idempotency key,
+   and exact current `CODEX_THREAD_ID`. It sends once, starts the watcher immediately, and keeps the
+   same root turn blocked until terminal evidence; model-driven polling and Stop Hook are forbidden.
+4. Import only a completed watcher result:
 
 ```text
 python gptpro_bridge.py \
@@ -76,12 +77,12 @@ python gptpro_bridge.py \
   --expected-codex-thread-id <CODEX_THREAD_ID>
 ```
 
-6. Continue only when `CCG_GPTPRO_SIDEBAR_IMPORTED=1`.
+5. Continue only when `CCG_GPTPRO_SIDEBAR_IMPORTED=1`.
 
 The importer validates:
 
 - the current bridge round and exact prompt hash;
-- live Windows UIA evidence and a completed watcher;
+- live `agent-browser-cli-v2` evidence and a completed watcher;
 - the exact ChatGPT conversation URL;
 - response, URL, and evidence SHA-256 values;
 - the exact Codex task ID;
@@ -95,18 +96,19 @@ already imported round.
 ## Multiple Conversations
 
 Independent complex workstreams use separate CCG sessions and ChatGPT Pro conversations. If multiple
-existing Codex Desktop windows are available, bind one conversation per selected `windowRuntimeId`,
-submit each prompt through serialized UIA operations, and let the generations and detached watchers
-run concurrently. With one window, queue conversations sequentially.
+connected external Chrome tabs are available, bind each conversation to its exact
+browser/profile/tab/session/URL identity. A single root task waits on one active RootWait at a time;
+use separate Codex tasks for concurrent workstreams or queue them sequentially.
 
-The Stop Hook stores one registration per watcher and fans all terminal registrations from the same
-pass into one same-task continuation. Pending registrations remain for later continuation turns.
+The watcher performs local polling without invoking a model turn. The same root turn stays blocked
+inside `run-root` until terminal evidence is available; no Hook or model watcher resumes the task.
 
 ## Boundaries
 
 - Login, account selection, CAPTCHA, password, passkey, MFA, recovery, billing, and entitlement are
   always manual user actions.
-- No DOM scraping, browser-internal API, external browser, cookies, tokens, or profile data.
+- No arbitrary DOM, browser-internal API, cookies, tokens, or profile secrets. Only the installed
+  Skill's fixed structural DOM contract may run through `agent-browser-cli-v2`.
 - No automatic resend after an uncertain submission.
 - GPT Pro never writes workspace files, runs Git, or owns delivery.
 - Fixture tests do not prove a live ChatGPT Pro interaction.

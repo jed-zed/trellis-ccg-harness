@@ -121,6 +121,21 @@ Published source PR #28 at 091773a and Harness PR #30 at b30a6b8, replaced provi
 [OK] **Completed**
 
 
+## Session 6: GPT Pro multi-window cross-task RootWait
+
+**Date**: 2026-08-08
+**Task**: GPT Pro multi-window cross-task RootWait
+**Branch**: `codex/gptpro-agent-browser-rootwait-v2`
+
+### Summary
+
+Implemented and accepted per-task 3/global 6 GPT Pro RootWait concurrency with exact browser isolation, durable evidence, published CCG provenance, live 3+3 E2E, and archived the completed Trellis task.
+
+### Main Changes
+
+- Published CCG source 79b7f819 and synchronized the pinned 13-file Harness snapshot.
+- Added cross-task batch RootWait capacity, exact target recovery, durable no-resend evidence, specifications, and regression coverage.
+- Recorded accepted M3 Product Manager state, rollback contract, runtime telemetry, and source attestations.
 ## Session 6: Publish route target and timeout fixes
 
 **Date**: 2026-08-07
@@ -141,6 +156,14 @@ Published the two approved CCG fixes, synchronized the verified source snapshot 
 
 | Hash | Message |
 |------|---------|
+| `87a335b` | (see git log) |
+| `1297a5e` | (see git log) |
+| `e1c69e4` | (see git log) |
+
+### Testing
+
+- [OK] Pester 160+75=235 passed; Harness 452 passed/3 skipped; authoritative and snapshot CCG each 600 passed/3 skipped.
+- [OK] doctor, verify:sources, conflicts, quality/security gates, and live two-task 3+3 E2E passed.
 | `de45565f4f32a87f9460cd352c988017641a6e66` | (see git log) |
 | `43792199526a5b0f1cc6ea7d45957ead76c5924c` | (see git log) |
 
@@ -155,6 +178,7 @@ Published the two approved CCG fixes, synchronized the verified source snapshot 
 
 ### Next Steps
 
+- Open and merge the Harness and CCG pull requests after review.
 - Merge Harness PR #32 after required checks pass.
 
 

@@ -210,14 +210,29 @@ describe('product-manager command', () => {
     const taskDir = join(root, '.trellis', 'tasks', 'pm')
     try {
       await mkdir(taskDir, { recursive: true })
+      const reviewDir = join(taskDir, '.ccg-evidence', 'review')
+      const adapterDir = join(root, '.agents', 'skills', 'chatgpt-pro-sidebar', 'scripts')
+      await mkdir(reviewDir, { recursive: true })
+      await mkdir(adapterDir, { recursive: true })
       await writeFile(join(taskDir, 'task.json'), '{"id":"pm"}\n')
       await writeFile(join(root, '.gitignore'), '.ccg-evidence/\nignored.txt\n')
       await writeFile(join(root, 'tracked.txt'), 'before\n')
+      await writeFile(join(adapterDir, 'adapter.ps1'), '# bounded adapter\n')
+      await writeFile(join(reviewDir, 'pr-38.diff'), 'diff --git a/a b/a\n')
+      await writeFile(join(reviewDir, 'review-files.txt'), '.agents/skills/chatgpt-pro-sidebar/scripts/adapter.ps1\n')
+      await writeFile(join(reviewDir, 'test-summary.md'), '# Tests\n')
+      await writeFile(join(reviewDir, 'review-manifest.json'), JSON.stringify({
+        schemaVersion: 1,
+        diffFile: 'pr-38.diff',
+        fileListFile: 'review-files.txt',
+        trackedReviewFiles: ['.agents/skills/chatgpt-pro-sidebar/scripts/adapter.ps1'],
+      }))
       await writeFile(join(root, '.env'), 'SECRET=excluded\n')
       execFileSync('git', ['init'], { cwd: root, shell: false, stdio: 'ignore' })
       execFileSync('git', ['add', '.'], { cwd: root, shell: false, stdio: 'ignore' })
       await writeFile(join(root, 'tracked.txt'), 'after\n')
       await writeFile(join(root, 'untracked.txt'), 'visible\n')
+      await writeFile(join(root, 'pnpm-lock.yaml'), 'user-owned: true\n')
       await writeFile(join(root, 'ignored.txt'), 'excluded\n')
       await mkdir(join(taskDir, '.ccg-evidence'), { recursive: true })
       await writeFile(join(taskDir, '.ccg-evidence', 'previous.txt'), 'must not recurse\n')
@@ -234,12 +249,18 @@ describe('product-manager command', () => {
       const prepared = await snapshotProductManager({ workdir: root, taskDir })
       const manifest = JSON.parse(await readFile(prepared.manifest_path, 'utf8'))
       expect(manifest.files.map((file: { path: string }) => file.path)).toEqual(expect.arrayContaining([
+        '.agents/skills/chatgpt-pro-sidebar/scripts/adapter.ps1',
         '.gitignore',
+        '.trellis/tasks/pm/.ccg-evidence/review/pr-38.diff',
+        '.trellis/tasks/pm/.ccg-evidence/review/review-files.txt',
+        '.trellis/tasks/pm/.ccg-evidence/review/review-manifest.json',
+        '.trellis/tasks/pm/.ccg-evidence/review/test-summary.md',
         '.trellis/tasks/pm/task.json',
         'tracked.txt',
         'untracked.txt',
       ]))
       expect(manifest.files.map((file: { path: string }) => file.path)).not.toContain('.env')
+      expect(manifest.files.map((file: { path: string }) => file.path)).not.toContain('pnpm-lock.yaml')
       expect(manifest.files.map((file: { path: string }) => file.path)).not.toContain('ignored.txt')
       expect(manifest.files.map((file: { path: string }) => file.path)).not.toContain('.trellis/tasks/pm/.ccg-evidence/previous.txt')
       expect(manifest.files.map((file: { path: string }) => file.path)).not.toContain('linked-repository/untracked-secret.txt')
@@ -250,6 +271,64 @@ describe('product-manager command', () => {
         taskDir,
         expected: prepared.workspace_snapshot,
       })).resolves.toBe(prepared.snapshot_root)
+    }
+    finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('fails closed when a task-bound review snapshot target is missing', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'ccg-pm-snapshot-missing-'))
+    const taskDir = join(root, '.trellis', 'tasks', 'pm')
+    try {
+      const reviewDir = join(taskDir, '.ccg-evidence', 'review')
+      await mkdir(reviewDir, { recursive: true })
+      await writeFile(join(taskDir, 'task.json'), '{"id":"pm"}\n')
+      await writeFile(join(root, '.gitignore'), '.ccg-evidence/\n')
+      await writeFile(join(reviewDir, 'review-manifest.json'), JSON.stringify({
+        schemaVersion: 1,
+        diffFile: 'missing.diff',
+        fileListFile: 'review-files.txt',
+        trackedReviewFiles: ['.agents/skills/chatgpt-pro-sidebar/scripts/missing.ps1'],
+      }))
+      await writeFile(join(reviewDir, 'review-files.txt'), 'missing.ps1\n')
+      await writeFile(join(reviewDir, 'test-summary.md'), '# Tests\n')
+      execFileSync('git', ['init'], { cwd: root, shell: false, stdio: 'ignore' })
+      execFileSync('git', ['add', '.'], { cwd: root, shell: false, stdio: 'ignore' })
+
+      await expect(snapshotProductManager({ workdir: root, taskDir }))
+        .rejects
+        .toThrow(/required review snapshot paths are missing.*missing\.diff.*missing\.ps1/i)
+    }
+    finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('refuses a private file even when the review manifest names it', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'ccg-pm-snapshot-private-'))
+    const taskDir = join(root, '.trellis', 'tasks', 'pm')
+    try {
+      const reviewDir = join(taskDir, '.ccg-evidence', 'review')
+      await mkdir(reviewDir, { recursive: true })
+      await writeFile(join(taskDir, 'task.json'), '{"id":"pm"}\n')
+      await writeFile(join(root, '.gitignore'), '.ccg-evidence/\n')
+      await writeFile(join(root, '.env'), 'SECRET=must-not-leave\n')
+      await writeFile(join(reviewDir, 'pr-38.diff'), 'diff --git a/a b/a\n')
+      await writeFile(join(reviewDir, 'review-files.txt'), '.env\n')
+      await writeFile(join(reviewDir, 'test-summary.md'), '# Tests\n')
+      await writeFile(join(reviewDir, 'review-manifest.json'), JSON.stringify({
+        schemaVersion: 1,
+        diffFile: 'pr-38.diff',
+        fileListFile: 'review-files.txt',
+        trackedReviewFiles: ['.env'],
+      }))
+      execFileSync('git', ['init'], { cwd: root, shell: false, stdio: 'ignore' })
+      execFileSync('git', ['add', '.'], { cwd: root, shell: false, stdio: 'ignore' })
+
+      await expect(snapshotProductManager({ workdir: root, taskDir }))
+        .rejects
+        .toThrow(/environment secret file/i)
     }
     finally {
       await rm(root, { recursive: true, force: true })

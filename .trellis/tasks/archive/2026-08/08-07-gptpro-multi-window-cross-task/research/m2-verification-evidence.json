@@ -1,0 +1,132 @@
+{
+  "schemaVersion": 1,
+  "milestone": "M2",
+  "verifiedOn": "2026-08-07",
+  "gitHead": "08b145289d4e8ed76027a06c6fbf1d88cbd39f3a",
+  "trackedDiffSha256": "4e44a39d33a84c23eb652a513ad04b1bb47c82a36de48b66846d587123eb1c33",
+  "checks": [
+    {
+      "name": "PowerShell AST parse",
+      "status": "passed",
+      "scope": "adapter and watcher"
+    },
+    {
+      "name": "sidebar Pester",
+      "status": "passed",
+      "testsPassed": 231,
+      "testsFailed": 0
+    },
+    {
+      "name": "authoritative CCG full suite",
+      "status": "passed",
+      "testsPassed": 600,
+      "testsSkipped": 3,
+      "testsFailed": 0
+    },
+    {
+      "name": "Harness CCG snapshot full suite",
+      "status": "passed",
+      "testsPassed": 600,
+      "testsSkipped": 3,
+      "testsFailed": 0
+    },
+    {
+      "name": "Harness full suite",
+      "status": "passed",
+      "testsPassed": 452,
+      "testsSkipped": 3,
+      "testsFailed": 0,
+      "durationMilliseconds": 617155.6236
+    },
+    {
+      "name": "concurrent persistence acceptance",
+      "status": "passed",
+      "facts": [
+        "20 concurrent CCG sessions had no directory collisions",
+        "10 concurrent task evidence imports preserved valid JSON and all items",
+        "the isolated 10-process import test and the full snapshot suite both passed"
+      ]
+    },
+    {
+      "name": "batch capacity and recovery acceptance",
+      "status": "passed",
+      "facts": [
+        "per-thread concurrency is capped at 3 and global concurrency at 6",
+        "queued timeout launches no child and records ConcurrencySlotTimeout",
+        "safe dead-owner claims release only with durable proof",
+        "unproved sent or send-uncertain claims remain isolated as ConcurrencySlotRecoveryRequired",
+        "four fake children completed with maximum observed concurrency 3",
+        "partial batch import, duplicate idempotency rejection, no-resend, slot listing, and diagnostic release are covered"
+      ]
+    },
+    {
+      "name": "CCG source-to-snapshot parity",
+      "status": "passed",
+      "filesCompared": 13,
+      "byteIdentical": true
+    },
+    {
+      "name": "CCG change analyzer",
+      "status": "passed_with_scope_note",
+      "note": "The generic component DESIGN.md warning is covered by the task design, active tooling spec, command docs, and Skill docs updated by this task."
+    },
+    {
+      "name": "CCG quality scanner",
+      "status": "passed_with_scope_note",
+      "note": "The scanner does not parse PowerShell; AST, 231 Pester tests, manual review, and Provider review cover it. Python warnings are complexity and line-length findings, with no scanner error."
+    },
+    {
+      "name": "CCG security scanner",
+      "status": "passed_with_verified_false_positive",
+      "criticalOrHighFindingsIntroduced": 0,
+      "note": "Watcher passed. The sole generic High points to the pre-existing local --import-session path entrypoint. It accepts an intentionally user-selected session root and has no fixed base to traverse out of; the call is unchanged by M2."
+    },
+    {
+      "name": "CCG module scanner",
+      "status": "not_applicable",
+      "note": "No module was created. The generic scanner requires README.md and DESIGN.md and does not recognize the existing SKILL.md/scripts/tests layout."
+    },
+    {
+      "name": "diff and syntax hygiene",
+      "status": "passed",
+      "facts": [
+        "git diff --check passed in authoritative source and Harness",
+        "Python py_compile passed for plugin and template bridge copies",
+        "no generated pnpm-lock.yaml or Pester XML remains"
+      ]
+    },
+    {
+      "name": "Windows diagnostic-pipe transient",
+      "status": "resolved_without_code_change",
+      "note": "One concurrent all-suite run hit a strict UTF-8 stderr decode error in a test harness pipe. The exact 10-process test then passed in isolation and again in the full 600-test snapshot suite, so no product or test change was justified."
+    }
+  ],
+  "providerEvidence": [
+    {
+      "provider": "grok",
+      "phase": "M2 local diff review",
+      "status": "unavailable",
+      "attempts": 2,
+      "evidence": ".ccg/tasks/08-07-gptpro-multi-window-cross-task/grok-m2-review-attempts.txt",
+      "evidenceSha256": "3218d92bdc9124796a244d3776f72aa0ef2a7e443bdadfc24f65697c10909fc9",
+      "error": "The tool-less profile could not initialize because GrokBuild:search_replace required a Read tool. No Grok model review completed."
+    },
+    {
+      "provider": "antigravity",
+      "phase": "M2 local diff review",
+      "status": "completed",
+      "model": "claude-opus-4-6-thinking",
+      "evidence": ".ccg/tasks/08-07-gptpro-multi-window-cross-task/antigravity-m2-review.txt",
+      "evidenceSha256": "41b1ea275ee379c2638f74759cfa543c91f46b9067e05040f019080342790a30",
+      "verdict": "No blocking correctness or security findings."
+    }
+  ],
+  "sourceSha256": {
+    "adapter": "94ccb5aa5843acb884e77a70d3e22f3574158cfaa439351d19d3060a3b30c94a",
+    "watcher": "36c297392d8535da8a6c843a053fa7ae681b53e060d5ab770b623b60525480ab",
+    "ccgBridge": "3e40a6fb1dea6bb081de3061478904384b6347cc4b1c3a88fe936b37e7939cc8",
+    "adapterTests": "d1dea7d1b659cbbaba55b10083fc1de5ecfc96acc0f66a92a2ad5e83021e6ec5",
+    "watcherTests": "3fc2df88cb8d3d235f8e5065e21c668e9c5b21767a97f325043c964d14bfdf9f",
+    "toolingSpec": "070c9a26fedee023b1fc0f1901ab9d0fea72f29aabe861c35dceffe051be82ae"
+  }
+}

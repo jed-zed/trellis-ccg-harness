@@ -22,6 +22,15 @@ const DENIED_BASENAMES = new Set([
   'marketplace.json',
 ])
 
+const PRIVATE_SEGMENTS = new Set([
+  '.git', '.hg', '.svn', '.ssh', '.aws', '.azure', '.gnupg', '.kube',
+  'node_modules', 'vendor', '.cache', '.next', '.nuxt', '.turbo', 'dist', 'build', 'coverage',
+])
+
+const PRIVATE_BASENAMES = new Set([
+  'auth.json', 'credentials.json', '.ccgignore', '.envrc', '.mcp.json', '.npmrc', '.pypirc', '.netrc', 'known_hosts',
+])
+
 function normalizeRelativePath(input) {
   if (typeof input !== 'string' || input.length === 0 || /[\0\r\n]/.test(input) || isAbsolute(input))
     throw new Error('Snapshot paths must be non-empty relative paths')
@@ -43,15 +52,20 @@ function normalizeAllowedCcgPlanPaths(paths = []) {
   }))
 }
 
-function exclusionReason(relativePath, allowedCcgPlanPaths) {
+function normalizeAllowedSnapshotPaths(paths = []) {
+  if (!Array.isArray(paths))
+    throw new Error('allowedSnapshotPaths must be an array')
+  return new Set(paths.map(input => normalizeRelativePath(input).toLowerCase()))
+}
+
+function exclusionReason(relativePath, allowedCcgPlanPaths, allowedSnapshotPaths) {
   const normalized = relativePath.toLowerCase()
   const parts = normalized.split('/')
   const basename = parts.at(-1)
-  const allowedCcgPlan = allowedCcgPlanPaths.has(normalized)
-  if (parts.some(part => DENIED_SEGMENTS.has(part) && !(allowedCcgPlan && part === '.codex')))
-    return 'dependency, VCS, cache, instruction, hook, skill, or plugin directory'
-  if (DENIED_BASENAMES.has(basename))
-    return 'secret or model instruction file'
+  if (parts.some(part => PRIVATE_SEGMENTS.has(part)))
+    return 'private, dependency, VCS, cache, or build directory'
+  if (PRIVATE_BASENAMES.has(basename))
+    return 'secret or private configuration file'
   if (basename === '.env' || basename.startsWith('.env.'))
     return 'environment secret file'
   if (/\.(?:key|pem|p12|pfx|crt|cer|der|jks|keystore)$/i.test(basename))
@@ -60,6 +74,13 @@ function exclusionReason(relativePath, allowedCcgPlanPaths) {
     return 'credential or private identity file'
   if (/(?:^|[._-])(?:credential|credentials|secret|secrets|token|tokens|auth)(?:[._-]|$)/i.test(basename))
     return 'credential or secret file'
+  if (allowedSnapshotPaths.has(normalized))
+    return null
+  const allowedCcgPlan = allowedCcgPlanPaths.has(normalized)
+  if (parts.some(part => DENIED_SEGMENTS.has(part) && !(allowedCcgPlan && part === '.codex')))
+    return 'dependency, VCS, cache, instruction, hook, skill, or plugin directory'
+  if (DENIED_BASENAMES.has(basename))
+    return 'secret or model instruction file'
   if (/^(?:plugin|mcp)(?:[._-].*)?\.(?:json|ya?ml|toml)$/i.test(basename))
     return 'plugin or MCP manifest'
   return null
@@ -135,13 +156,14 @@ function normalizeLimits(limits = {}) {
   return result
 }
 
-async function collectSelectedFiles(repoRoot, selectedPaths, ignoreRules, allowedCcgPlanPaths, skipExcludedSelectedPaths) {
+async function collectSelectedFiles(repoRoot, selectedPaths, ignoreRules, allowedCcgPlanPaths, allowedSnapshotPaths, skipExcludedSelectedPaths) {
   const files = new Map()
   const visit = async (relativePath, explicitlySelected) => {
-    const reason = exclusionReason(relativePath, allowedCcgPlanPaths)
-    const ignored = ignoreRules.some(rule => rule.test(relativePath))
+    const allowedSnapshot = allowedSnapshotPaths.has(relativePath.toLowerCase())
+    const reason = exclusionReason(relativePath, allowedCcgPlanPaths, allowedSnapshotPaths)
+    const ignored = !allowedSnapshot && ignoreRules.some(rule => rule.test(relativePath))
     if (reason || ignored) {
-      if (explicitlySelected && !skipExcludedSelectedPaths)
+      if (allowedSnapshot || (explicitlySelected && !skipExcludedSelectedPaths))
         throw new Error(`Snapshot path is excluded${ignored ? ' by .ccgignore' : ''}: ${relativePath} (${reason || 'ignored'})`)
       return
     }
@@ -188,6 +210,7 @@ export async function createFocusedSnapshot({
   dirtyDiffs,
   limits,
   allowedCcgPlanPaths,
+  allowedSnapshotPaths,
   allowEmpty = false,
   allowDestinationInsideSource = false,
   skipExcludedSelectedPaths = false,
@@ -214,12 +237,14 @@ export async function createFocusedSnapshot({
 
   const effectiveLimits = normalizeLimits(limits)
   const allowedPlans = normalizeAllowedCcgPlanPaths(allowedCcgPlanPaths)
+  const allowedSnapshots = normalizeAllowedSnapshotPaths(allowedSnapshotPaths)
   const ignoreRules = await loadIgnoreRules(sourceRoot)
   const files = await collectSelectedFiles(
     sourceRoot,
     selectedPaths,
     ignoreRules,
     allowedPlans,
+    allowedSnapshots,
     skipExcludedSelectedPaths,
   )
   if (files.size > effectiveLimits.maxFiles)

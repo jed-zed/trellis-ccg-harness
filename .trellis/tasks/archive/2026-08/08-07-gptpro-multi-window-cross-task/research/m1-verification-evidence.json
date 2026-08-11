@@ -1,0 +1,99 @@
+{
+  "schemaVersion": 1,
+  "milestone": "M1",
+  "verifiedOn": "2026-08-07",
+  "gitHead": "08b145289d4e8ed76027a06c6fbf1d88cbd39f3a",
+  "trackedDiffSha256": "e9f5c02b3fd5101edfb7da36d6f10ae4056e7bfd39ff6013663fc4d42ae7b990",
+  "checks": [
+    {
+      "name": "PowerShell AST parse",
+      "status": "passed",
+      "scope": "adapter, watcher, and both Pester files"
+    },
+    {
+      "name": "adapter Pester",
+      "status": "passed",
+      "testsPassed": 159,
+      "testsFailed": 0
+    },
+    {
+      "name": "watcher Pester",
+      "status": "passed",
+      "testsPassed": 67,
+      "testsFailed": 0
+    },
+    {
+      "name": "three-target mutex acceptance",
+      "status": "passed",
+      "distinctBindings": 3,
+      "distinctMutexes": 3,
+      "allAcquired": 3
+    },
+    {
+      "name": "M1 isolation smoke",
+      "status": "passed",
+      "facts": [
+        "different target mutexes coexist",
+        "same target mutex is rejected",
+        "incomplete binding is rejected",
+        "same-round claim recovers",
+        "foreign-thread claim is rejected",
+        "foreign-thread state is rejected"
+      ]
+    },
+    {
+      "name": "Harness conflicts",
+      "status": "passed",
+      "blocking": 0,
+      "warnings": 0,
+      "passed": 19
+    },
+    {
+      "name": "CCG change analyzer",
+      "status": "passed"
+    },
+    {
+      "name": "CCG security scanner",
+      "status": "passed",
+      "criticalOrHighFindings": 0
+    },
+    {
+      "name": "CCG quality scanner",
+      "status": "passed_with_scope_note",
+      "note": "The scanner does not parse PowerShell; its four warnings are pre-existing findings in unchanged JavaScript and Python files. PowerShell quality is covered by AST, Pester, manual diff review, and Provider review."
+    }
+  ],
+  "providerEvidence": [
+    {
+      "provider": "grok",
+      "phase": "external-intelligence intake",
+      "status": "completed",
+      "evidence": ".codex/ccg/intelligence/20260807232732-0f9f113361e2/evidence.json",
+      "evidenceSha256": "7e016e5afa969240b81cd50a59fc1422c2e49e09b05566d52e7a8bfd40ed10d3",
+      "verificationOutcome": "unresolved",
+      "authority": "leads_only"
+    },
+    {
+      "provider": "grok",
+      "phase": "M1 local diff review",
+      "status": "unavailable",
+      "attempts": 2,
+      "error": "Grok CLI session initialization failed because GrokBuild:search_replace required a Read tool that the tool-less review profile intentionally did not expose."
+    },
+    {
+      "provider": "antigravity",
+      "phase": "M1 local diff review",
+      "status": "completed",
+      "transport": "direct local CLI with the wrapper-equivalent sandbox, plan, no-slash, and bounded-worktree flags plus a 30-minute print timeout",
+      "verdict": "no blocking findings"
+    }
+  ],
+  "sourceSha256": {
+    "adapter": "94ccb5aa5843acb884e77a70d3e22f3574158cfaa439351d19d3060a3b30c94a",
+    "watcher": "cd4b023de5ce3027ac3681ceb96fdc357cc59e5c85875a662257f3ed3abf3a09",
+    "ccgBridge": "8451595cb130b83c36f75edc939a643a106d543b1a12144167fbc7ab15d97840",
+    "adapterTests": "d1dea7d1b659cbbaba55b10083fc1de5ecfc96acc0f66a92a2ad5e83021e6ec5",
+    "watcherTests": "01da2d9e62da83318a07b00259df9b4e810ab6bc1fc25d2f29fd7156be381998",
+    "toolingSpec": "1913fea328b519d83195c8be462fb97f2850c30757e44567e0d349379a1c238c"
+  }
+}

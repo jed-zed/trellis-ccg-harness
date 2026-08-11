@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
-"""ChatGPT Pro sidebar bridge for Codex-native CCG workflows.
+"""ChatGPT Pro browser bridge for Codex-native CCG workflows.
 
 This helper creates local prompt/response artifacts and imports bounded output
 produced by the separately installed ``chatgpt-pro-sidebar`` Skill. The Skill
-uses Windows UI Automation against the user's already logged-in Codex Desktop
-side panel; this helper never handles authentication, browser internals, or
+uses agent-browser-cli against a user-approved external Chrome tab; this helper
+never handles authentication, browser credentials, or
 workspace writes from ChatGPT Pro.
 """
 
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 import hashlib
 import html
 import json
@@ -30,10 +31,13 @@ from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 PROVIDER = "chatgpt-pro-sidebar"
+ACTIVE_BROWSER_TRANSPORT = "agent-browser-cli-v2"
+HISTORICAL_BROWSER_TRANSPORT = "windows-uia"
 LEGACY_PROVIDERS = {"chatgpt-pro-manual", PROVIDER}
 MANUAL_QUESTIONS_EXPECTED = 1
-MANUAL_QUESTIONS_MAX = 2
 MAX_RESPONSE_BYTES = 2 * 1024 * 1024
+MAX_BATCH_TIMEOUT_SECONDS = 7200
+MAX_COMPOSED_PROMPT_CHARS = 24000
 _SCRIPT_DIRECTORY = Path(__file__).resolve().parent
 TEMPLATE_DIR = (
     _SCRIPT_DIRECTORY / "templates"
@@ -43,7 +47,7 @@ TEMPLATE_DIR = (
 ENDPOINTS = ("GET /", "GET /state", "POST /save-response", "POST /mark-copied")
 BOUNDARIES = (
     "Do not automate ChatGPT web login",
-    "Do not read ChatGPT web DOM",
+    "Use only the installed Skill's fixed bounded ChatGPT DOM extractor",
     "Use only the installed chatgpt-pro-sidebar Skill for UI transport",
 )
 GEMINI_POLICIES = ("required", "optional", "none")
@@ -53,6 +57,7 @@ EXTERNAL_INTELLIGENCE_ROLE = "external-intelligence"
 CLAUDE_EVIDENCE_STATUSES = ("automatic", "manual_handoff", "skipped_by_user", "blocked")
 CLAUDE_EVIDENCE_REQUIRED_STATUSES = {"automatic", "manual_handoff"}
 CONTROL_CHAR_PATTERN = re.compile(r"[\x00-\x1f\x7f]")
+IDEMPOTENCY_KEY_PATTERN = re.compile(r"[A-Za-z0-9._:-]{1,128}")
 WINDOWS_DRIVE_PATTERN = re.compile(r"^[A-Za-z]:[\\/]")
 SCP_LIKE_REMOTE_PATTERN = re.compile(r"^(?:([^@/:\\]+)@)?([A-Za-z0-9.-]+):(.+)$")
 LOCAL_PREVIEW_HOSTS = {"127.0.0.1", "localhost", "::1"}
@@ -60,10 +65,81 @@ TASK_ROOTS = ((".ccg", "tasks"), (".trellis", "tasks"))
 CHATGPT_CONVERSATION_PATH_PATTERN = re.compile(
     r"/(?:g/[A-Za-z0-9_-]{1,128}/)?c/[A-Za-z0-9_-]{8,128}"
 )
+CODEX_THREAD_ID_PATTERN = re.compile(r"[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}")
 
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+@contextmanager
+def locked_file(path: Path, timeout_seconds: float = 30.0):
+    """Hold one cross-process byte lock; the lock file itself is durable."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    handle = path.open("a+b")
+    handle.seek(0, os.SEEK_END)
+    if handle.tell() == 0:
+        handle.write(b"\0")
+        handle.flush()
+    deadline = time.monotonic() + timeout_seconds
+    acquired = False
+    try:
+        while not acquired:
+            try:
+                handle.seek(0)
+                if os.name == "nt":
+                    import msvcrt
+
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+                else:
+                    import fcntl
+
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                acquired = True
+            except OSError:
+                if time.monotonic() >= deadline:
+                    raise TimeoutError(f"Timed out acquiring bridge lock: {path}") from None
+                time.sleep(0.05)
+        yield
+    finally:
+        if acquired:
+            handle.seek(0)
+            if os.name == "nt":
+                import msvcrt
+
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        handle.close()
+
+
+def write_bytes_atomic(path: Path, payload: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(
+        f".{path.name}.{os.getpid()}.{threading.get_ident()}.{secrets.token_hex(8)}.tmp"
+    )
+    try:
+        with temporary.open("xb") as output:
+            output.write(payload)
+            output.flush()
+            os.fsync(output.fileno())
+        for attempt in range(50):
+            try:
+                os.replace(temporary, path)
+                break
+            except PermissionError:
+                if os.name != "nt" or attempt == 49:
+                    raise
+                time.sleep(0.02)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def write_json_atomic(path: Path, value: dict[str, Any]) -> None:
+    payload = (json.dumps(value, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
+    write_bytes_atomic(path, payload)
 
 
 def is_chatgpt_conversation_url(value: str) -> bool:
@@ -1186,7 +1262,7 @@ def compose_prompt(
     project_context: dict[str, Any],
 ) -> str:
     sections = [read_template("base")]
-    if round_number == 2:
+    if round_number > 1:
         sections.append(read_template("followup"))
         if followup_reason:
             sections.append(f"## Follow-up Reason\n\n{followup_reason.strip()}")
@@ -1294,10 +1370,13 @@ def ensure_unique_session_dir(output_root: Path, mode: str, slug: str) -> Path:
     base = output_root / f"{stamp}-{mode}-{slug}"
     candidate = base
     counter = 2
-    while candidate.exists():
-        candidate = output_root / f"{base.name}-{counter}"
-        counter += 1
-    return candidate
+    while True:
+        try:
+            candidate.mkdir()
+            return candidate
+        except FileExistsError:
+            candidate = output_root / f"{base.name}-{counter}"
+            counter += 1
 
 
 class BridgeSession:
@@ -1318,13 +1397,15 @@ class BridgeSession:
         self.prompt_file = prompt_file
         self.response_file = response_file
         self.status_file = status_file
+        self.lock_file = session_dir / ".gptpro-session.lock"
 
     def status(self) -> dict[str, Any]:
         return json.loads(self.status_file.read_text(encoding="utf-8"))
 
     def write_status(self, status: dict[str, Any]) -> None:
-        status["updated_at"] = utc_now()
-        self.status_file.write_text(json.dumps(status, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        with locked_file(self.lock_file):
+            status["updated_at"] = utc_now()
+            write_json_atomic(self.status_file, status)
 
     def state(self) -> dict[str, Any]:
         status = self.status()
@@ -1340,9 +1421,8 @@ class BridgeSession:
             "prompt": self.prompt_file.read_text(encoding="utf-8"),
             "response_saved": bool(status["rounds"][self.round_name]["response_saved"]),
             "manual_questions_expected": MANUAL_QUESTIONS_EXPECTED,
-            "manual_questions_max": MANUAL_QUESTIONS_MAX,
-            "web_automation": False,
-            "dom_extraction": False,
+            "web_automation": True,
+            "dom_extraction": True,
             "manual_copy_required": False,
             "sidebar_transport_required": True,
         }
@@ -1372,13 +1452,45 @@ def create_session(
     external_intelligence: dict[str, Any] | None = None,
     require_external_intelligence: bool = False,
     project_context: dict[str, Any] | None = None,
+    codex_thread_id: str = "",
+    _followup_lock_held: bool = False,
 ) -> BridgeSession:
-    if round_number > MANUAL_QUESTIONS_MAX:
-        raise ValueError("Maximum manual questions: 2. Decompose the task or return to Codex-native CCG workflows.")
     if round_number < 1:
-        raise ValueError("Round must be 1 or 2.")
-    if round_number == 2 and not followup_session:
-        raise ValueError("Round 2 requires --followup-session. Create round 1 first.")
+        raise ValueError("Round must be a positive integer.")
+    if round_number > 1 and not followup_session:
+        raise ValueError("Rounds after round 1 require --followup-session.")
+    codex_thread_id = codex_thread_id.strip().lower()
+    if codex_thread_id and CODEX_THREAD_ID_PATTERN.fullmatch(codex_thread_id) is None:
+        raise ValueError("--codex-thread-id must be one exact UUID.")
+    if followup_session and not _followup_lock_held:
+        canonical_session_dir = resolve_existing_session_dir(followup_session)
+        with locked_file(canonical_session_dir / ".gptpro-session.lock"):
+            return create_session(
+                mode=mode,
+                workdir=workdir,
+                prompt=prompt,
+                slug=slug,
+                output_root=output_root,
+                task_dir=task_dir,
+                task_id=task_id,
+                evidence_file=evidence_file,
+                source_command=source_command,
+                round_number=round_number,
+                followup_session=canonical_session_dir,
+                followup_reason=followup_reason,
+                gemini_gate=gemini_gate,
+                gemini_evidence=gemini_evidence,
+                gemini_policy=gemini_policy,
+                gemini_evidence_role=gemini_evidence_role,
+                routing_evidence=routing_evidence,
+                require_routing_evidence=require_routing_evidence,
+                require_claude_evidence=require_claude_evidence,
+                external_intelligence=external_intelligence,
+                require_external_intelligence=require_external_intelligence,
+                project_context=project_context,
+                codex_thread_id=codex_thread_id,
+                _followup_lock_held=True,
+            )
 
     workdir_path = Path(workdir).resolve()
     task_dir_path = Path(task_dir).resolve() if task_dir else None
@@ -1392,14 +1504,32 @@ def create_session(
         gemini_evidence = gemini_gate
 
     if followup_session:
-        session_dir = Path(followup_session).resolve()
-        if not session_dir.exists():
-            raise ValueError(f"Follow-up session not found: {session_dir}")
-        round_number = 2
-        status_file = session_dir / "status.json"
-        if not status_file.exists():
-            raise ValueError(f"Follow-up status file not found: {status_file}")
-        status = json.loads(status_file.read_text(encoding="utf-8"))
+        session = load_session(followup_session)
+        session_dir = session.session_dir
+        status_file = session.status_file
+        status = session.status()
+        recorded_task_dir, recorded_evidence_file = resolve_session_status_binding(
+            session_dir, session.workdir, status
+        )
+        if mode != session.mode:
+            raise ValueError("Follow-up mode does not match the recorded session binding.")
+        if workdir_path != session.workdir:
+            raise ValueError("Follow-up workdir does not match the recorded session binding.")
+        if task_dir_path != recorded_task_dir:
+            raise ValueError("Follow-up task directory does not match the recorded session binding.")
+        if evidence_file_path != recorded_evidence_file:
+            raise ValueError("Follow-up evidence file does not match the recorded session binding.")
+        caller_task_id = task_id or (task_dir_path.name if task_dir_path else "")
+        if caller_task_id != str(status.get("task_id") or ""):
+            raise ValueError("Follow-up task ID does not match the recorded session binding.")
+        next_round = int(status.get("current_round") or 1) + 1
+        if round_number not in (1, next_round):
+            raise ValueError(f"The next follow-up round for this session is {next_round}.")
+        round_number = next_round
+        inherited_thread_id = str(status.get("codex_thread_id") or "").lower()
+        if codex_thread_id and inherited_thread_id and codex_thread_id != inherited_thread_id:
+            raise ValueError("Follow-up session belongs to another Codex task.")
+        codex_thread_id = codex_thread_id or inherited_thread_id
         slug_value = str(status.get("slug") or slugify(session_dir.name))
         created_at = str(status.get("created_at") or utc_now())
         if gemini_evidence is None:
@@ -1420,8 +1550,8 @@ def create_session(
             external_intelligence["inherited_from_round"] = 1
     else:
         slug_value = slugify(slug or prompt[:60])
-        session_dir = ensure_unique_session_dir(output_root_path, mode, slug_value).resolve()
-        status_file = session_dir / "status.json"
+        session_dir = None
+        status_file = None
         status = {}
         created_at = utc_now()
 
@@ -1462,29 +1592,33 @@ def create_session(
     if require_external_intelligence and not external_intelligence:
         raise ValueError("Required Grok external intelligence must validate before GPT Pro bridge session creation.")
 
-    round_name = f"round-{round_number}"
-    round_dir = session_dir / round_name
-    round_dir.mkdir(parents=True, exist_ok=True)
-    prompt_file = round_dir / "prompt.md"
-    response_file = round_dir / "response.md"
     prompt_gate = dict(gemini_evidence)
     prompt_gate["response_file"] = display_gate_response_file(prompt_gate, workdir_path)
     prompt_routing_evidence = dict(routing_evidence)
     for key in ("evidence_file", "summary_file"):
         prompt_routing_evidence[key] = display_file_value(str(prompt_routing_evidence.get(key) or ""), workdir_path)
-    prompt_file.write_text(
-        compose_prompt(
-            mode,
-            prompt,
-            round_number,
-            followup_reason,
-            prompt_gate,
-            prompt_routing_evidence,
-            external_intelligence,
-            project_context,
-        ),
-        encoding="utf-8",
+    composed_prompt = compose_prompt(
+        mode,
+        prompt,
+        round_number,
+        followup_reason,
+        prompt_gate,
+        prompt_routing_evidence,
+        external_intelligence,
+        project_context,
     )
+    if not composed_prompt.strip() or len(composed_prompt) > MAX_COMPOSED_PROMPT_CHARS:
+        raise ValueError(f"Final GPT Pro composed prompt must contain between 1 and {MAX_COMPOSED_PROMPT_CHARS} characters.")
+    if session_dir is None:
+        session_dir = ensure_unique_session_dir(output_root_path, mode, slug_value).resolve()
+        status_file = session_dir / "status.json"
+
+    round_name = f"round-{round_number}"
+    round_dir = session_dir / round_name
+    round_dir.mkdir(parents=True, exist_ok=True)
+    prompt_file = round_dir / "prompt.md"
+    response_file = round_dir / "response.md"
+    prompt_file.write_text(composed_prompt, encoding="utf-8")
     if not response_file.exists():
         response_file.write_text("", encoding="utf-8")
 
@@ -1505,22 +1639,23 @@ def create_session(
         "session_dir": display_path(session_dir, workdir_path),
         "current_round": round_number,
         "manual_questions_expected": MANUAL_QUESTIONS_EXPECTED,
-        "manual_questions_max": MANUAL_QUESTIONS_MAX,
         "followup_allowed": True,
         "followup_reason": followup_reason,
         "rounds": rounds,
         "workdir": str(workdir_path),
         "manual_copy_required": False,
         "sidebar_transport_required": True,
+        "browser_transport_required": ACTIVE_BROWSER_TRANSPORT,
         "preview_token": str(status.get("preview_token") or secrets.token_urlsafe(32)),
-        "web_automation": False,
-        "dom_extraction": False,
+        "web_automation": True,
+        "dom_extraction": True,
         "cookie_storage": False,
         "auto_submit": True,
         "auto_output_read": True,
         "prompt_copied": bool(status.get("prompt_copied", False)),
         "project_context": project_context,
         "task_id": task_id or (task_dir_path.name if task_dir_path else ""),
+        "codex_thread_id": codex_thread_id,
         "task_dir": display_path(task_dir_path, workdir_path) if task_dir_path else "",
         "evidence_file": display_path(evidence_file_path, workdir_path) if evidence_file_path else "",
         "source_command": source_command,
@@ -1540,16 +1675,420 @@ def create_session(
             **gemini_evidence,
             "response_file": display_gate_response_file(gemini_evidence, workdir_path),
         }
-    status_file.write_text(json.dumps(new_status, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    write_json_atomic(status_file, new_status)
     return BridgeSession(mode, workdir_path, session_dir, round_name, prompt_file, response_file, status_file)
 
 
-def load_session(session_dir: Path) -> BridgeSession:
-    session_dir = resolve_existing_session_dir(session_dir)
+def read_batch_request(
+    path_value: str | Path,
+    *,
+    expected_mode: str,
+    expected_codex_thread_id: str,
+) -> dict[str, Any]:
+    try:
+        path = Path(path_value).expanduser().resolve(strict=True)
+    except OSError as error:
+        raise ValueError("--create-batch-manifest must reference an existing JSON file.") from error
+    if not path.is_file() or path.stat().st_size > 2 * 1024 * 1024:
+        raise ValueError("GPT Pro batch request must be a JSON file no larger than 2 MiB.")
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ValueError("GPT Pro batch request is invalid JSON.") from error
+    if not isinstance(payload, dict) or payload.get("schemaVersion") != 1:
+        raise ValueError("GPT Pro batch request schemaVersion must be 1.")
+    request_mode = str(payload.get("mode") or expected_mode)
+    if request_mode != expected_mode:
+        raise ValueError("GPT Pro batch request mode does not match --mode.")
+    thread_id = str(payload.get("codexThreadId") or expected_codex_thread_id).strip().lower()
+    expected_thread = expected_codex_thread_id.strip().lower()
+    if CODEX_THREAD_ID_PATTERN.fullmatch(thread_id) is None:
+        raise ValueError("GPT Pro batch request requires one exact Codex thread UUID.")
+    if expected_thread and expected_thread != thread_id:
+        raise ValueError("GPT Pro batch request belongs to another Codex task.")
+    max_concurrency = payload.get("maxConcurrency", 3)
+    timeout_seconds = payload.get("timeoutSeconds", 7200)
+    if not isinstance(max_concurrency, int) or isinstance(max_concurrency, bool) or not 1 <= max_concurrency <= 3:
+        raise ValueError("GPT Pro batch maxConcurrency must be between 1 and 3.")
+    if not isinstance(timeout_seconds, int) or isinstance(timeout_seconds, bool) or not 30 <= timeout_seconds <= MAX_BATCH_TIMEOUT_SECONDS:
+        raise ValueError(f"GPT Pro batch timeoutSeconds must be between 30 and {MAX_BATCH_TIMEOUT_SECONDS}.")
+    raw_rounds = payload.get("rounds")
+    if not isinstance(raw_rounds, list) or not 1 <= len(raw_rounds) <= 32:
+        raise ValueError("GPT Pro batch rounds must contain between 1 and 32 items.")
+
+    seen_rounds: set[str] = set()
+    seen_keys: set[str] = set()
+    seen_targets: set[tuple[str, str, str, str]] = set()
+    rounds: list[dict[str, Any]] = []
+    for raw_round in raw_rounds:
+        if not isinstance(raw_round, dict):
+            raise ValueError("Every GPT Pro batch round must be an object.")
+        round_id = str(raw_round.get("roundId") or "")
+        if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", round_id) is None or round_id in seen_rounds:
+            raise ValueError("GPT Pro batch roundId values must be unique bounded identifiers.")
+        seen_rounds.add(round_id)
+        prompt = raw_round.get("prompt")
+        if not isinstance(prompt, str) or not prompt.strip() or len(prompt) > MAX_COMPOSED_PROMPT_CHARS:
+            raise ValueError(f"Every GPT Pro batch round requires a non-empty prompt no larger than {MAX_COMPOSED_PROMPT_CHARS} characters.")
+        idempotency_key = raw_round.get("idempotencyKey")
+        if (
+            not isinstance(idempotency_key, str)
+            or IDEMPOTENCY_KEY_PATTERN.fullmatch(idempotency_key) is None
+            or idempotency_key in seen_keys
+        ):
+            raise ValueError("GPT Pro batch idempotency keys must be unique and match ^[A-Za-z0-9._:-]{1,128}$.")
+        seen_keys.add(idempotency_key)
+        target = raw_round.get("targetBinding")
+        normalized_target: dict[str, str] | None = None
+        if target is not None:
+            if not isinstance(target, dict):
+                raise ValueError("GPT Pro batch targetBinding must be an object.")
+            normalized_target = {}
+            for field in ("browserId", "profileId", "tabId", "sessionKey"):
+                value = target.get(field)
+                if (
+                    not isinstance(value, str)
+                    or not value.strip()
+                    or len(value) > 512
+                    or CONTROL_CHAR_PATTERN.search(value)
+                ):
+                    raise ValueError(f"GPT Pro batch targetBinding has an invalid {field}.")
+                normalized_target[field] = value
+            target_key = tuple(normalized_target[field] for field in ("browserId", "profileId", "tabId", "sessionKey"))
+            if target_key in seen_targets:
+                raise ValueError("GPT Pro batch targetBinding values must be unique.")
+            seen_targets.add(target_key)
+        if len(raw_rounds) > 1 and normalized_target is None:
+            raise ValueError("Multi-round GPT Pro batches require one complete targetBinding per round.")
+        fresh_conversation = raw_round.get("freshConversation", False)
+        if not isinstance(fresh_conversation, bool):
+            raise ValueError("GPT Pro batch freshConversation must be boolean.")
+        rounds.append(
+            {
+                "round_id": round_id,
+                "prompt": prompt,
+                "idempotency_key": idempotency_key,
+                "target_binding": normalized_target,
+                "fresh_conversation": fresh_conversation,
+            }
+        )
+    return {
+        "path": path,
+        "mode": request_mode,
+        "codex_thread_id": thread_id,
+        "max_concurrency": max_concurrency,
+        "timeout_seconds": timeout_seconds,
+        "slug": slugify(str(payload.get("slug") or path.stem)),
+        "rounds": rounds,
+    }
+
+
+def create_batch_sessions(
+    *,
+    request: dict[str, Any],
+    workdir: Path,
+    output_root: Path,
+    task_dir: Path | None,
+    task_id: str,
+    evidence_file: Path | None,
+    source_command: str,
+    gemini_evidence: dict[str, Any] | None,
+    gemini_policy: str,
+    gemini_evidence_role: str,
+    routing_evidence: dict[str, Any] | None,
+    require_routing_evidence: bool,
+    require_claude_evidence: bool,
+    external_intelligence: dict[str, Any] | None,
+    require_external_intelligence: bool,
+    project_context: dict[str, Any],
+) -> dict[str, Any]:
+    output_root.mkdir(parents=True, exist_ok=True)
+    batch_dir = ensure_unique_session_dir(output_root, "batch", str(request["slug"])).resolve()
+    batch_id = secrets.token_hex(16)
+    watcher_rounds: list[dict[str, Any]] = []
+    created_rounds: list[tuple[BridgeSession, dict[str, Any], Path]] = []
+    items: list[dict[str, Any]] = []
+    for batch_round in request["rounds"]:
+        session = create_session(
+            mode=str(request["mode"]),
+            workdir=workdir,
+            prompt=str(batch_round["prompt"]),
+            slug=f"{request['slug']}-{batch_round['round_id']}",
+            output_root=batch_dir,
+            task_dir=task_dir,
+            task_id=task_id,
+            evidence_file=evidence_file,
+            source_command=source_command,
+            round_number=1,
+            followup_session=None,
+            followup_reason=None,
+            gemini_evidence=gemini_evidence,
+            gemini_policy=gemini_policy,
+            gemini_evidence_role=gemini_evidence_role,
+            routing_evidence=routing_evidence,
+            require_routing_evidence=require_routing_evidence,
+            require_claude_evidence=require_claude_evidence,
+            external_intelligence=external_intelligence,
+            require_external_intelligence=require_external_intelligence,
+            project_context=project_context,
+            codex_thread_id=str(request["codex_thread_id"]),
+        )
+        sidebar_dir = session.prompt_file.parent / "sidebar"
+        sidebar_dir.mkdir()
+        watcher_round = {
+            "roundId": batch_round["round_id"],
+            "promptPath": str(session.prompt_file),
+            "evidenceDirectory": str(sidebar_dir),
+            "idempotencyKey": batch_round["idempotency_key"],
+            "freshConversation": batch_round["fresh_conversation"],
+        }
+        if batch_round["target_binding"] is not None:
+            watcher_round["targetBinding"] = batch_round["target_binding"]
+        watcher_rounds.append(watcher_round)
+        created_rounds.append((session, batch_round, sidebar_dir))
+    watcher_manifest_path = batch_dir / "batch-manifest.json"
+    watcher_result_path = batch_dir / "batch-result.json"
+    batch_file = batch_dir / "ccg-batch.json"
+    write_json_atomic(
+        watcher_manifest_path,
+        {
+            "schemaVersion": 1,
+            "codexThreadId": request["codex_thread_id"],
+            "maxConcurrency": request["max_concurrency"],
+            "timeoutSeconds": request["timeout_seconds"],
+            "rounds": watcher_rounds,
+        },
+    )
+    watcher_manifest_sha256 = sha256_path(watcher_manifest_path)
+    for session, batch_round, sidebar_dir in created_rounds:
+        batch_binding = {
+            "schemaVersion": 1,
+            "batchId": batch_id,
+            "roundId": batch_round["round_id"],
+            "watcherManifestSha256": watcher_manifest_sha256,
+            "idempotencyKeySha256": hashlib.sha256(batch_round["idempotency_key"].encode("utf-8")).hexdigest(),
+            "promptSha256": sha256_sidebar_prompt_path(session.prompt_file),
+            "targetBinding": batch_round["target_binding"],
+            "freshConversation": batch_round["fresh_conversation"],
+        }
+        status = session.status()
+        status["batch"] = batch_binding
+        session.write_status(status)
+        items.append(
+            {
+                "roundId": batch_round["round_id"],
+                "sessionDir": str(session.session_dir),
+                "statusFile": str(session.status_file),
+                "promptPath": str(session.prompt_file),
+                "responsePath": str(session.response_file),
+                "evidenceDirectory": str(sidebar_dir),
+                "idempotencyKeySha256": batch_binding["idempotencyKeySha256"],
+                "batchBinding": batch_binding,
+            }
+        )
+    batch = {
+        "schemaVersion": 1,
+        "batchId": batch_id,
+        "mode": request["mode"],
+        "codexThreadId": request["codex_thread_id"],
+        "createdAtUtc": utc_now(),
+        "batchDirectory": str(batch_dir),
+        "watcherManifestFile": str(watcher_manifest_path),
+        "watcherManifestSha256": watcher_manifest_sha256,
+        "watcherResultFile": str(watcher_result_path),
+        "importResultFile": str(batch_dir / "ccg-batch-import.json"),
+        "items": items,
+    }
+    write_json_atomic(batch_file, batch)
+    batch["batchFile"] = str(batch_file)
+    return batch
+
+
+def resolve_batch_file(path_value: str | Path) -> Path:
+    candidate = Path(path_value).expanduser().resolve()
+    if candidate.is_dir():
+        candidate = candidate / "ccg-batch.json"
+    if candidate.name != "ccg-batch.json" or not candidate.is_file():
+        raise ValueError("--import-batch-result must reference one ccg-batch.json file or its directory.")
+    return candidate
+
+
+def import_batch_result(path_value: str | Path, expected_codex_thread_id: str) -> dict[str, Any]:
+    expected_thread = expected_codex_thread_id.strip().lower()
+    if CODEX_THREAD_ID_PATTERN.fullmatch(expected_thread) is None:
+        raise ValueError("--expected-codex-thread-id is required for batch result import.")
+    batch_file = resolve_batch_file(path_value)
+    batch_root = batch_file.parent.resolve()
+    batch = read_sidebar_json(batch_file, "batch mapping")
+    if batch.get("schemaVersion") != 1 or str(batch.get("codexThreadId") or "").lower() != expected_thread:
+        raise ValueError("GPT Pro batch mapping belongs to another Codex task or schema.")
+    watcher_manifest_path = Path(str(batch.get("watcherManifestFile") or "")).resolve()
+    watcher_result_path = Path(str(batch.get("watcherResultFile") or "")).resolve()
+    if watcher_manifest_path != batch_root / "batch-manifest.json" or watcher_result_path != batch_root / "batch-result.json":
+        raise ValueError("GPT Pro batch mapping references unexpected watcher files.")
+    watcher_manifest_sha256 = sha256_path(watcher_manifest_path)
+    if batch.get("watcherManifestSha256") != watcher_manifest_sha256:
+        raise ValueError("GPT Pro batch watcher manifest hash does not match its durable mapping.")
+    watcher_manifest = read_sidebar_json(watcher_manifest_path, "batch watcher manifest")
+    watcher_result = read_sidebar_json(watcher_result_path, "batch watcher result")
+    if (
+        watcher_manifest.get("schemaVersion") != 1
+        or watcher_result.get("schemaVersion") != 1
+        or str(watcher_manifest.get("codexThreadId") or "").lower() != expected_thread
+        or str(watcher_result.get("codexThreadId") or "").lower() != expected_thread
+        or watcher_result.get("status") != "terminal"
+    ):
+        raise ValueError("GPT Pro batch watcher identity or terminal state is invalid.")
+    mapping_items = batch.get("items")
+    manifest_items = watcher_manifest.get("rounds")
+    result_items = watcher_result.get("items")
+    if not all(isinstance(value, list) for value in (mapping_items, manifest_items, result_items)):
+        raise ValueError("GPT Pro batch item collections are invalid.")
+    mapping_by_round = {str(item.get("roundId") or ""): item for item in mapping_items if isinstance(item, dict)}
+    manifest_by_round = {str(item.get("roundId") or ""): item for item in manifest_items if isinstance(item, dict)}
+    result_by_round = {str(item.get("roundId") or ""): item for item in result_items if isinstance(item, dict)}
+    expected_rounds = set(mapping_by_round)
+    if (
+        not expected_rounds
+        or len(mapping_by_round) != len(mapping_items)
+        or len(manifest_by_round) != len(manifest_items)
+        or len(result_by_round) != len(result_items)
+        or set(manifest_by_round) != expected_rounds
+        or set(result_by_round) != expected_rounds
+    ):
+        raise ValueError("GPT Pro batch round identities are missing, duplicated, or mismatched.")
+
+    batch_id = str(batch.get("batchId") or "")
+    validated_items: list[tuple[BridgeSession, Path, dict[str, Any], bool]] = []
+    for round_id in sorted(expected_rounds):
+        mapping = mapping_by_round[round_id]
+        watcher_round = manifest_by_round[round_id]
+        result = result_by_round[round_id]
+        session_dir = Path(str(mapping.get("sessionDir") or "")).resolve()
+        if session_dir.parent != batch_root:
+            raise ValueError("GPT Pro batch session escaped its batch directory.")
+        session = load_session(session_dir)
+        manifest_key = watcher_round.get("idempotencyKey")
+        manifest_target = watcher_round.get("targetBinding")
+        fresh_conversation = watcher_round.get("freshConversation")
+        if not isinstance(manifest_key, str) or IDEMPOTENCY_KEY_PATTERN.fullmatch(manifest_key) is None:
+            raise ValueError("GPT Pro batch manifest idempotency key is invalid.")
+        if not isinstance(fresh_conversation, bool):
+            raise ValueError("GPT Pro batch manifest freshConversation is invalid.")
+        normalized_target: dict[str, str] | None = None
+        if manifest_target is not None:
+            if not isinstance(manifest_target, dict):
+                raise ValueError("GPT Pro batch manifest target binding is invalid.")
+            normalized_target = {}
+            for field in ("browserId", "profileId", "tabId", "sessionKey"):
+                value = manifest_target.get(field)
+                if not isinstance(value, str) or not value.strip() or len(value) > 512 or any(char in value for char in "\r\n"):
+                    raise ValueError("GPT Pro batch manifest target binding is invalid.")
+                normalized_target[field] = value
+        if (
+            Path(str(mapping.get("statusFile") or "")).resolve() != session.status_file
+            or Path(str(mapping.get("promptPath") or "")).resolve() != session.prompt_file
+            or Path(str(mapping.get("responsePath") or "")).resolve() != session.response_file
+            or Path(str(watcher_round.get("promptPath") or "")).resolve() != session.prompt_file
+        ):
+            raise ValueError("GPT Pro batch session artifact binding mismatch.")
+        expected_binding = {
+            "schemaVersion": 1,
+            "batchId": batch_id,
+            "roundId": round_id,
+            "watcherManifestSha256": watcher_manifest_sha256,
+            "idempotencyKeySha256": hashlib.sha256(manifest_key.encode("utf-8")).hexdigest(),
+            "promptSha256": sha256_sidebar_prompt_path(session.prompt_file),
+            "targetBinding": normalized_target,
+            "freshConversation": fresh_conversation,
+        }
+        if (
+            mapping.get("batchBinding") != expected_binding
+            or session.status().get("batch") != expected_binding
+            or mapping.get("idempotencyKeySha256") != expected_binding["idempotencyKeySha256"]
+        ):
+            raise ValueError("GPT Pro batch intent binding does not match manifest, mapping, and session status.")
+        evidence_dir = Path(str(mapping.get("evidenceDirectory") or "")).resolve()
+        expected_evidence_dir = (session.prompt_file.parent / "sidebar").resolve()
+        if (
+            evidence_dir != expected_evidence_dir
+            or Path(str(watcher_round.get("evidenceDirectory") or "")).resolve() != evidence_dir
+            or Path(str(result.get("evidenceDirectory") or "")).resolve() != evidence_dir
+        ):
+            raise ValueError("GPT Pro batch evidence directory binding mismatch.")
+        terminal_status = str(result.get("terminalStatus") or "")
+        status = str(result.get("status") or "")
+        item_summary: dict[str, Any] = {
+            "roundId": round_id,
+            "sessionDir": str(session_dir),
+            "evidenceDirectory": str(evidence_dir),
+            "terminalStatus": terminal_status,
+            "status": status,
+            "imported": False,
+        }
+        if terminal_status == "completed" and status == "completed":
+            state = read_sidebar_json(evidence_dir / "state.json", "batch state")
+            event = read_sidebar_json(evidence_dir / "watch-event.json", "batch watch event")
+            exact_fields = {
+                "promptSha256": state.get("promptSha256"),
+                "responseSha256": state.get("responseSha256"),
+                "evidenceSha256": state.get("evidenceSha256"),
+                "conversationUrl": state.get("conversationUrlBound"),
+                "watcherId": event.get("watcherId"),
+            }
+            if any(not value or result.get(key) != value for key, value in exact_fields.items()):
+                raise ValueError("GPT Pro batch result hashes, URL, or watcher binding mismatch.")
+            if (
+                state.get("promptSha256") != expected_binding["promptSha256"]
+                or state.get("idempotencyKeySha256") != expected_binding["idempotencyKeySha256"]
+            ):
+                raise ValueError("GPT Pro batch adapter state does not match the original prompt or idempotency key.")
+            result_target = result.get("targetBinding") or {}
+            state_target = state.get("targetBinding") or {}
+            if any(result_target.get(key) != state_target.get(key) for key in ("browserId", "profileId", "tabId", "sessionKey")):
+                raise ValueError("GPT Pro batch result target binding mismatch.")
+            if normalized_target is not None and not fresh_conversation and any(
+                state_target.get(key) != normalized_target[key] for key in ("browserId", "profileId", "tabId", "sessionKey")
+            ):
+                raise ValueError("GPT Pro batch adapter target does not match the original target binding.")
+            if result.get("submissionAcknowledged") is not True:
+                raise ValueError("GPT Pro completed batch result lacks submission acknowledgement.")
+        validated_items.append((session, evidence_dir, item_summary, terminal_status == "completed" and status == "completed"))
+
+    imported_items: list[dict[str, Any]] = []
+    for session, evidence_dir, item_summary, should_import in validated_items:
+        if should_import:
+            imported = import_sidebar_evidence(session, evidence_dir, expected_thread)
+            item_summary.update(
+                {
+                    "imported": True,
+                    "conversationUrl": imported["conversationUrl"],
+                    "watcherId": imported["watcherId"],
+                    "sidebarEvidenceSha256": imported["sidebarEvidenceSha256"],
+                }
+            )
+        imported_items.append(item_summary)
+    summary = {
+        "schemaVersion": 1,
+        "batchId": batch.get("batchId"),
+        "codexThreadId": expected_thread,
+        "importedAtUtc": utc_now(),
+        "allImported": all(item["imported"] for item in imported_items),
+        "items": imported_items,
+    }
+    import_path = batch_root / "ccg-batch-import.json"
+    write_json_atomic(import_path, summary)
+    summary["importResultFile"] = str(import_path)
+    return summary
+
+
+def load_session(session_value: str | Path) -> BridgeSession:
+    session_dir = resolve_existing_session_dir(session_value)
     status_file = session_dir / "status.json"
     status = json.loads(status_file.read_text(encoding="utf-8"))
     round_name = f"round-{status.get('current_round', 1)}"
-    workdir = Path(str(status.get("workdir") or session_dir)).resolve()
+    workdir = resolve_workdir(str(status.get("workdir") or session_dir))
+    resolve_session_status_binding(session_dir, workdir, status)
     return BridgeSession(
         str(status.get("mode", "plan")),
         workdir,
@@ -1562,11 +2101,18 @@ def load_session(session_dir: Path) -> BridgeSession:
 
 
 def resolve_existing_session_dir(session_value: str | Path) -> Path:
-    session_dir = Path(str(session_value)).expanduser().resolve()
+    try:
+        session_dir = Path(str(session_value)).expanduser().resolve(strict=True)
+    except OSError as error:
+        raise ValueError(f"Session directory not found: {session_value}") from error
+    if not session_dir.is_dir():
+        raise ValueError(f"Session path must be a directory: {session_dir}")
     status_file = session_dir / "status.json"
-    if not status_file.exists():
+    if not status_file.is_file():
         raise ValueError(f"Session status file not found: {status_file}")
     status = json.loads(status_file.read_text(encoding="utf-8"))
+    if not isinstance(status, dict):
+        raise ValueError("Session status must be a JSON object.")
     if status.get("provider") not in LEGACY_PROVIDERS:
         raise ValueError("Session is not a supported GPT Pro bridge session.")
     return session_dir
@@ -1579,6 +2125,32 @@ def resolve_status_path(workdir: Path, value: str) -> Path | None:
     if not candidate.is_absolute():
         candidate = workdir / candidate
     return candidate.resolve()
+
+
+def resolve_session_status_binding(
+    session_dir: Path,
+    workdir: Path,
+    status: dict[str, Any],
+) -> tuple[Path | None, Path | None]:
+    try:
+        session_dir.resolve().relative_to(workdir.resolve())
+    except ValueError:
+        raise ValueError("GPT Pro bridge session must stay inside its recorded workdir.") from None
+    recorded_session_dir = resolve_status_path(workdir, str(status.get("session_dir") or ""))
+    if recorded_session_dir is not None and recorded_session_dir != session_dir.resolve():
+        raise ValueError("GPT Pro bridge session directory does not match its recorded binding.")
+
+    task_value = str(status.get("task_dir") or "")
+    evidence_value = str(status.get("evidence_file") or "")
+    if not task_value:
+        if evidence_value:
+            raise ValueError("Canonical evidence file requires a recorded task directory.")
+        return None, None
+    task_dir = resolve_task_dir(workdir, task_value, str(status.get("task_id") or ""))
+    evidence_file = resolve_status_path(workdir, evidence_value)
+    if evidence_file is not None:
+        ensure_within_dir(evidence_file, task_dir, "Canonical evidence file")
+    return task_dir, evidence_file
 
 
 def relative_artifact_path(path_value: Path, base_dir: Path) -> str:
@@ -1659,12 +2231,38 @@ def write_sidebar_import_ack(
     return ack_path
 
 
+def validate_agent_browser_target_binding(
+    value: Any,
+    *,
+    label: str,
+    conversation_url: str,
+) -> dict[str, str]:
+    if not isinstance(value, dict):
+        raise ValueError(f"ChatGPT Pro browser {label} is missing.")
+    normalized: dict[str, str] = {}
+    for key in ("browserId", "profileId", "tabId", "sessionKey"):
+        item = value.get(key)
+        if not isinstance(item, str) or not item.strip() or len(item) > 512 or any(char in item for char in "\r\n"):
+            raise ValueError(f"ChatGPT Pro browser {label} has an invalid {key}.")
+        normalized[key] = item
+    profile_label = value.get("profileLabel") or ""
+    if not isinstance(profile_label, str) or len(profile_label) > 512 or any(char in profile_label for char in "\r\n"):
+        raise ValueError(f"ChatGPT Pro browser {label} has an invalid profileLabel.")
+    normalized["profileLabel"] = profile_label
+    if value.get("origin") != "https://chatgpt.com" or value.get("url") != conversation_url:
+        raise ValueError(f"ChatGPT Pro browser {label} does not match the exact conversation URL.")
+    normalized["origin"] = "https://chatgpt.com"
+    normalized["url"] = conversation_url
+    return normalized
+
+
 def import_sidebar_evidence(
     session: BridgeSession,
     evidence_directory: str | Path,
     expected_codex_thread_id: str,
 ) -> dict[str, Any]:
-    if not expected_codex_thread_id.strip():
+    expected_codex_thread_id = expected_codex_thread_id.strip().lower()
+    if CODEX_THREAD_ID_PATTERN.fullmatch(expected_codex_thread_id) is None:
         raise ValueError("--expected-codex-thread-id is required for sidebar evidence import.")
     try:
         evidence_dir = Path(evidence_directory).expanduser().resolve(strict=True)
@@ -1691,16 +2289,31 @@ def import_sidebar_evidence(
     ):
         if value != "chatgpt-pro-sidebar":
             raise ValueError(f"Invalid ChatGPT Pro sidebar {label}.")
-    for label, value in (
-        ("state transport", state.get("transport")),
-        ("manifest transport", sidebar_evidence.get("transport")),
-    ):
-        if value != "windows-uia":
-            raise ValueError(f"Invalid ChatGPT Pro sidebar {label}.")
+    state_transport = state.get("transport")
+    manifest_transport = sidebar_evidence.get("transport")
+    if state_transport != manifest_transport or state_transport not in {
+        ACTIVE_BROWSER_TRANSPORT,
+        HISTORICAL_BROWSER_TRANSPORT,
+    }:
+        raise ValueError("Invalid or mismatched ChatGPT Pro browser transport.")
+    session_status = session.status()
+    session_thread_id = str(session_status.get("codex_thread_id") or "").lower()
+    if session_thread_id and session_thread_id != expected_codex_thread_id:
+        raise ValueError("ChatGPT Pro bridge session belongs to another Codex task.")
+    required_transport = session_status.get("browser_transport_required")
+    if required_transport is not None and required_transport != ACTIVE_BROWSER_TRANSPORT:
+        raise ValueError("Invalid required ChatGPT Pro browser transport in session status.")
+    if required_transport and state_transport != required_transport:
+        raise ValueError("ChatGPT Pro browser transport does not match this session.")
+    if required_transport is None and state_transport != HISTORICAL_BROWSER_TRANSPORT:
+        raise ValueError("Legacy GPT Pro sessions only accept completed historical windows-uia evidence.")
     if state.get("live") is not True or sidebar_evidence.get("live") is not True:
         raise ValueError("ChatGPT Pro sidebar import requires live evidence.")
     if state.get("phase") != "completed" or event.get("status") != "completed":
         raise ValueError("ChatGPT Pro sidebar watcher has not completed successfully.")
+    for label, payload in (("state", state), ("watch event", event)):
+        if "terminalOutcome" in payload and payload.get("terminalOutcome") != "completed":
+            raise ValueError(f"ChatGPT Pro sidebar {label} terminalOutcome must be completed.")
     if event.get("requiresCodexReview") is not True:
         raise ValueError("ChatGPT Pro sidebar watch event must require Codex review.")
     if (
@@ -1717,7 +2330,7 @@ def import_sidebar_evidence(
         raise ValueError("ChatGPT Pro sidebar authority boundary is missing.")
 
     event_thread_id = str(event.get("codexThreadId") or "").lower()
-    if event_thread_id != expected_codex_thread_id.strip().lower():
+    if event_thread_id != expected_codex_thread_id:
         raise ValueError("ChatGPT Pro sidebar evidence belongs to another Codex task.")
     event_directory = Path(str(event.get("evidenceDirectory") or "")).expanduser().resolve()
     if event_directory != evidence_dir:
@@ -1775,6 +2388,24 @@ def import_sidebar_evidence(
         or event.get("conversationUrl") != conversation_url
     ):
         raise ValueError("ChatGPT Pro sidebar conversation binding mismatch.")
+    if state_transport == ACTIVE_BROWSER_TRANSPORT:
+        if event.get("transport") != ACTIVE_BROWSER_TRANSPORT:
+            raise ValueError("ChatGPT Pro browser watch event transport mismatch.")
+        bindings = (
+            validate_agent_browser_target_binding(
+                state.get("targetBinding"), label="state target binding", conversation_url=conversation_url
+            ),
+            validate_agent_browser_target_binding(
+                (sidebar_evidence.get("extractor") or {}).get("targetBinding"),
+                label="manifest target binding",
+                conversation_url=conversation_url,
+            ),
+            validate_agent_browser_target_binding(
+                event.get("targetBinding"), label="watch target binding", conversation_url=conversation_url
+            ),
+        )
+        if bindings[0] != bindings[1] or bindings[0] != bindings[2]:
+            raise ValueError("ChatGPT Pro browser target bindings do not match.")
     acknowledged = submission_entry.get("acknowledged") is True
     observational_recovery = submission_entry.get("observationalRecovery") is True
     if not acknowledged and not observational_recovery:
@@ -1785,6 +2416,7 @@ def import_sidebar_evidence(
 
     transport_metadata = {
         "transport": "chatgpt-pro-sidebar",
+        "browserTransport": state_transport,
         "sidebarEvidenceDirectory": display_path(evidence_dir, session.workdir),
         "sidebarEvidenceFile": display_path(evidence_path, session.workdir),
         "sidebarEvidenceSha256": evidence_sha256,
@@ -1799,7 +2431,7 @@ def import_sidebar_evidence(
         "externalOutputIsUntrusted": True,
         "codexIsSoleWorkspaceWriter": True,
     }
-    save_response(session, response_text, transport_metadata=transport_metadata)
+    _persist_response(session, response_text, transport_metadata=transport_metadata)
     acknowledgement_path = write_sidebar_import_ack(
         evidence_dir,
         codex_thread_id=event_thread_id,
@@ -1821,18 +2453,13 @@ def append_gptpro_evidence(
     response_text: str,
     transport_metadata: dict[str, Any] | None = None,
 ) -> None:
-    evidence_file = resolve_status_path(session.workdir, str(status.get("evidence_file") or ""))
-    task_dir = resolve_status_path(session.workdir, str(status.get("task_dir") or ""))
+    task_dir, evidence_file = resolve_session_status_binding(session.session_dir, session.workdir, status)
     if evidence_file is None or task_dir is None:
         return
-    evidence_file.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        evidence = json.loads(evidence_file.read_text(encoding="utf-8"))
-    except (FileNotFoundError, json.JSONDecodeError):
-        evidence = {"schemaVersion": 1, "items": []}
-    items = list(evidence.get("items") or [])
     response_bytes = response_text.encode("utf-8")
     session_id = session.session_dir.name
+    task_id = str(status.get("task_id") or task_dir.name)
+    codex_thread_id = str((transport_metadata or {}).get("codexThreadId") or status.get("codex_thread_id") or "").lower()
     item_id = f"gptpro-{status.get('mode', session.mode)}-{session_id}-{session.round_name}"
     item = {
         "id": item_id,
@@ -1850,6 +2477,8 @@ def append_gptpro_evidence(
             else f"Legacy manual GPT Pro {session.mode} response saved for {session.round_name}."
         ),
         "sessionId": session_id,
+        "taskId": task_id,
+        "codexThreadId": codex_thread_id,
         "round": int(status.get("current_round", 1)),
         "createdAt": utc_now(),
     }
@@ -1870,8 +2499,9 @@ def append_gptpro_evidence(
         item.update(
             {
                 "transport": transport_metadata["transport"],
+                "browserTransport": transport_metadata["browserTransport"],
                 "conversationUrl": transport_metadata["conversationUrl"],
-                "codexThreadId": transport_metadata["codexThreadId"],
+                "codexThreadId": codex_thread_id,
                 "submissionAcknowledged": transport_metadata["submissionAcknowledged"],
                 "observationalRecovery": transport_metadata["observationalRecovery"],
                 "automaticResendAllowed": False,
@@ -1888,23 +2518,34 @@ def append_gptpro_evidence(
                 "sidebarEvidenceSha256": transport_metadata["sidebarEvidenceSha256"],
             }
         )
-    dedupe_key = (item["provider"], item["sessionId"], item["round"])
-    items = [
-        existing
-        for existing in items
-        if (existing.get("provider"), existing.get("sessionId"), existing.get("round")) != dedupe_key
-    ]
-    items.append(item)
-    items.sort(key=lambda entry: (
-        str(entry.get("provider", "")), str(entry.get("role", "")), str(entry.get("id", "")),
-    ))
-    evidence_file.write_text(
-        json.dumps({"schemaVersion": 1, "items": items}, indent=2, ensure_ascii=False) + "\n",
-        encoding="utf-8",
-    )
+    dedupe_key = (item["provider"], item["taskId"], item["codexThreadId"], item["sessionId"], item["round"])
+    with locked_file(evidence_file.with_name(f".{evidence_file.name}.lock")):
+        try:
+            evidence = json.loads(evidence_file.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            evidence = {"schemaVersion": 1, "items": []}
+        except json.JSONDecodeError as error:
+            raise ValueError(f"Canonical evidence file is malformed: {evidence_file}") from error
+        items = list(evidence.get("items") or [])
+        items = [
+            existing
+            for existing in items
+            if (
+                existing.get("provider"),
+                existing.get("taskId", task_id),
+                str(existing.get("codexThreadId") or "").lower(),
+                existing.get("sessionId"),
+                existing.get("round"),
+            ) != dedupe_key
+        ]
+        items.append(item)
+        items.sort(key=lambda entry: (
+            str(entry.get("provider", "")), str(entry.get("role", "")), str(entry.get("id", "")),
+        ))
+        write_json_atomic(evidence_file, {"schemaVersion": 1, "items": items})
 
 
-def save_response(
+def _persist_response(
     session: BridgeSession,
     response_text: str,
     *,
@@ -1915,25 +2556,48 @@ def save_response(
     response_bytes = response_text.encode("utf-8")
     if len(response_bytes) > MAX_RESPONSE_BYTES:
         raise ValueError("GPT Pro response exceeds the bridge limit.")
-    existing_bytes = session.response_file.read_bytes() if session.response_file.exists() else b""
-    if existing_bytes and existing_bytes != response_bytes:
-        raise ValueError("GPT Pro response is already saved with different content.")
-    if not existing_bytes:
-        session.response_file.write_bytes(response_bytes)
-    status = session.status()
-    round_status = status["rounds"][session.round_name]
-    round_status["response_saved"] = True
-    round_status["response_chars"] = len(response_text)
-    round_status["response_bytes"] = len(response_bytes)
-    round_status["response_sha256"] = hashlib.sha256(response_bytes).hexdigest()
-    if transport_metadata:
-        round_status["transport"] = transport_metadata["transport"]
-        round_status["sidebar_evidence"] = transport_metadata
-        status["manual_copy_required"] = False
-        status["sidebar_transport_required"] = True
-        status["sidebar_response_imported"] = True
-    append_gptpro_evidence(session, status, response_text, transport_metadata)
-    session.write_status(status)
+    with locked_file(session.lock_file):
+        status = session.status()
+        required_transport = status.get("browser_transport_required")
+        if required_transport is not None:
+            if required_transport != ACTIVE_BROWSER_TRANSPORT:
+                raise ValueError("GPT Pro session has an invalid required browser transport.")
+            if (
+                not isinstance(transport_metadata, dict)
+                or transport_metadata.get("transport") != PROVIDER
+                or transport_metadata.get("browserTransport") != required_transport
+            ):
+                raise ValueError("V2 GPT Pro responses require a completed sidebar import with verified transport metadata.")
+        existing_bytes = session.response_file.read_bytes() if session.response_file.exists() else b""
+        if existing_bytes and existing_bytes != response_bytes:
+            raise ValueError("GPT Pro response is already saved with different content.")
+        if not existing_bytes:
+            write_bytes_atomic(session.response_file, response_bytes)
+        round_status = status["rounds"][session.round_name]
+        round_status["response_saved"] = True
+        round_status["response_chars"] = len(response_text)
+        round_status["response_bytes"] = len(response_bytes)
+        round_status["response_sha256"] = hashlib.sha256(response_bytes).hexdigest()
+        if transport_metadata:
+            round_status["transport"] = transport_metadata["transport"]
+            round_status["sidebar_evidence"] = transport_metadata
+            status["manual_copy_required"] = False
+            status["sidebar_transport_required"] = True
+            status["sidebar_response_imported"] = True
+        append_gptpro_evidence(session, status, response_text, transport_metadata)
+        status["updated_at"] = utc_now()
+        write_json_atomic(session.status_file, status)
+
+
+def save_response(
+    session: BridgeSession,
+    response_text: str,
+    *,
+    transport_metadata: dict[str, Any] | None = None,
+) -> None:
+    if transport_metadata is not None:
+        raise ValueError("Transport metadata is accepted only from a completed sidebar evidence import.")
+    _persist_response(session, response_text)
 
 
 def mark_copied(session: BridgeSession) -> None:
@@ -2036,7 +2700,7 @@ def render_page(session: BridgeSession) -> bytes:
       <dt>Round</dt><dd>{state["round"]}</dd>
       <dt>Prompt file</dt><dd>{html.escape(str(state["prompt_file"]))}</dd>
       <dt>Response file</dt><dd>{html.escape(str(state["response_file"]))}</dd>
-      <dt>Manual questions</dt><dd>{MANUAL_QUESTIONS_EXPECTED} expected, {MANUAL_QUESTIONS_MAX} maximum</dd>
+      <dt>Manual questions</dt><dd>{MANUAL_QUESTIONS_EXPECTED} expected per independent task; sequential follow-ups allowed</dd>
     </dl>
   </section>
 </main>
@@ -2194,7 +2858,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--serve-session", help=argparse.SUPPRESS)
     parser.add_argument("--import-session", default="")
     parser.add_argument("--import-sidebar-evidence", default="")
+    parser.add_argument("--create-batch-manifest", default="")
+    parser.add_argument("--import-batch-result", default="")
     parser.add_argument("--expected-codex-thread-id", default="")
+    parser.add_argument("--codex-thread-id", default="")
     parser.add_argument("--preview-port", type=int, default=0, help=argparse.SUPPRESS)
     parser.add_argument("--serve-timeout-seconds", type=int, default=14400, help=argparse.SUPPRESS)
     return parser.parse_args(argv)
@@ -2219,7 +2886,6 @@ def print_outputs(session: BridgeSession, preview_url: str) -> None:
     print("CCG_GPTPRO_WEB_AUTOMATION=0", flush=True)
     print("CCG_GPTPRO_DOM_EXTRACTION=0", flush=True)
     print(f"CCG_GPTPRO_MANUAL_QUESTIONS_EXPECTED={MANUAL_QUESTIONS_EXPECTED}", flush=True)
-    print(f"CCG_GPTPRO_MANUAL_QUESTIONS_MAX={MANUAL_QUESTIONS_MAX}", flush=True)
 
 
 def print_prompt(session: BridgeSession) -> None:
@@ -2305,7 +2971,7 @@ def main(argv: list[str] | None = None) -> int:
             print("--import-session is required with --import-sidebar-evidence", file=sys.stderr)
             return 2
         try:
-            session = load_session(Path(args.import_session))
+            session = load_session(args.import_session)
             imported = import_sidebar_evidence(
                 session,
                 args.import_sidebar_evidence,
@@ -2322,26 +2988,33 @@ def main(argv: list[str] | None = None) -> int:
             flush=True,
         )
         return 0
+    if args.import_batch_result:
+        if args.import_session or args.import_sidebar_evidence or args.create_batch_manifest:
+            print("--import-batch-result cannot be combined with other import or batch creation options", file=sys.stderr)
+            return 2
+        try:
+            imported_batch = import_batch_result(args.import_batch_result, args.expected_codex_thread_id)
+        except Exception as error:
+            print(str(error), file=sys.stderr)
+            return 2
+        print("CCG_GPTPRO_BATCH_IMPORTED=1", flush=True)
+        print(f"CCG_GPTPRO_BATCH_ALL_IMPORTED={int(imported_batch['allImported'])}", flush=True)
+        print(f"CCG_GPTPRO_BATCH_IMPORT_FILE={imported_batch['importResultFile']}", flush=True)
+        return 0
     if args.import_session:
         print("--import-sidebar-evidence is required with --import-session", file=sys.stderr)
         return 2
     if not args.mode:
         print("--mode is required unless --serve-session is used", file=sys.stderr)
         return 2
-    if args.round > MANUAL_QUESTIONS_MAX:
-        print(
-            "Maximum manual questions: 2. Decompose the task or return to Codex-native CCG workflows.",
-            file=sys.stderr,
-        )
-        return 2
     if args.round < 1:
-        print("Round must be 1 or 2.", file=sys.stderr)
+        print("Round must be a positive integer.", file=sys.stderr)
         return 2
-    if args.round == 2 and not args.followup_session:
-        print("Round 2 requires --followup-session. Create round 1 first.", file=sys.stderr)
+    if args.round > 1 and not args.followup_session:
+        print("Rounds after round 1 require --followup-session.", file=sys.stderr)
         return 2
     try:
-        raw_prompt = read_prompt(args.prompt, args.prompt_file)
+        raw_prompt = "" if args.create_batch_manifest else read_prompt(args.prompt, args.prompt_file)
         workdir_path = resolve_workdir(args.workdir)
         task_dir = resolve_task_dir(workdir_path, args.task_dir, args.task_id)
         evidence_file = default_evidence_file(task_dir, args.evidence_file)
@@ -2389,6 +3062,36 @@ def main(argv: list[str] | None = None) -> int:
                 expected_depth=args.expected_intelligence_depth,
             )
         project_context = detect_project_context(args.workdir, args.repo_url)
+        if args.create_batch_manifest:
+            request = read_batch_request(
+                args.create_batch_manifest,
+                expected_mode=args.mode,
+                expected_codex_thread_id=args.codex_thread_id,
+            )
+            batch = create_batch_sessions(
+                request=request,
+                workdir=workdir_path,
+                output_root=output_root,
+                task_dir=task_dir,
+                task_id=args.task_id,
+                evidence_file=evidence_file,
+                source_command=args.source_command,
+                gemini_evidence=gemini_evidence,
+                gemini_policy=gemini_policy,
+                gemini_evidence_role=gemini_evidence_role,
+                routing_evidence=routing_evidence,
+                require_routing_evidence=args.require_routing_evidence,
+                require_claude_evidence=args.require_claude_evidence,
+                external_intelligence=external_intelligence,
+                require_external_intelligence=args.require_external_intelligence,
+                project_context=project_context,
+            )
+            print(f"CCG_GPTPRO_BATCH_DIR={batch['batchDirectory']}", flush=True)
+            print(f"CCG_GPTPRO_BATCH_FILE={batch['batchFile']}", flush=True)
+            print(f"CCG_GPTPRO_BATCH_MANIFEST={batch['watcherManifestFile']}", flush=True)
+            print(f"CCG_GPTPRO_BATCH_RESULT={batch['watcherResultFile']}", flush=True)
+            print(f"CCG_GPTPRO_BATCH_ROUNDS={len(batch['items'])}", flush=True)
+            return 0
         session = create_session(
             mode=args.mode,
             workdir=workdir_path,
@@ -2411,6 +3114,7 @@ def main(argv: list[str] | None = None) -> int:
             external_intelligence=external_intelligence,
             require_external_intelligence=args.require_external_intelligence,
             project_context=project_context,
+            codex_thread_id=args.codex_thread_id,
         )
     except Exception as error:
         print(str(error), file=sys.stderr)

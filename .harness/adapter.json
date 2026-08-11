@@ -116,7 +116,19 @@
       "manualOnly": false,
       "protocol": "chatgpt-pro-sidebar",
       "skill": "chatgpt-pro-sidebar",
-      "continuation": "codex-stop-hook"
+      "transport": "agent-browser-cli-v2",
+      "continuation": "codex-root-wait",
+      "commands": {
+        "singleRound": "run-root",
+        "batch": "run-batch-root",
+        "slots": "slots",
+        "diagnosticRelease": "release-slot"
+      },
+      "batch": {
+        "defaultTimeoutSeconds": 7200,
+        "perThreadConcurrency": 3,
+        "globalConcurrency": 6
+      }
     }
   },
   "conflicts": {
