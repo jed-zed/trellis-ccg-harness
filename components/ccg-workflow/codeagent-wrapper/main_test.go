@@ -398,6 +398,7 @@ type fakeStdoutEvent struct {
 
 type fakeCmdConfig struct {
 	StdoutPlan          []fakeStdoutEvent
+	Stderr              string
 	WaitDelay           time.Duration
 	WaitErr             error
 	StartErr            error
@@ -423,7 +424,8 @@ type fakeCmd struct {
 	stdinWriter *bufferWriteCloser
 	stdinClaim  bool
 
-	stderr io.Writer
+	stderr     io.Writer
+	stderrData string
 
 	env map[string]string
 	dir string
@@ -454,6 +456,7 @@ func newFakeCmd(cfg fakeCmdConfig) *fakeCmd {
 		stdout:         newCtxAwareReader(r),
 		stdoutWriter:   w,
 		stdoutPlan:     append([]fakeStdoutEvent(nil), cfg.StdoutPlan...),
+		stderrData:     cfg.Stderr,
 		stdinWriter:    newBufferWriteCloser(),
 		waitDelay:      cfg.WaitDelay,
 		waitErr:        cfg.WaitErr,
@@ -504,6 +507,9 @@ func (f *fakeCmd) Start() error {
 			close(f.waitDone)
 		})
 		return f.startErr
+	}
+	if f.stderr != nil && f.stderrData != "" {
+		_, _ = io.WriteString(f.stderr, f.stderrData)
 	}
 
 	go f.runStdoutScript()
@@ -3513,7 +3519,7 @@ func TestVersionFlag(t *testing.T) {
 		}
 	})
 
-	want := "codeagent-wrapper version 5.12.10\n"
+	want := "codeagent-wrapper version 5.12.11\n"
 
 	if output != want {
 		t.Fatalf("output = %q, want %q", output, want)
@@ -3529,7 +3535,7 @@ func TestVersionShortFlag(t *testing.T) {
 		}
 	})
 
-	want := "codeagent-wrapper version 5.12.10\n"
+	want := "codeagent-wrapper version 5.12.11\n"
 
 	if output != want {
 		t.Fatalf("output = %q, want %q", output, want)
@@ -3545,7 +3551,7 @@ func TestVersionLegacyAlias(t *testing.T) {
 		}
 	})
 
-	want := "codex-wrapper version 5.12.10\n"
+	want := "codex-wrapper version 5.12.11\n"
 
 	if output != want {
 		t.Fatalf("output = %q, want %q", output, want)
@@ -4087,6 +4093,121 @@ func TestRun_CommandFails(t *testing.T) {
 	defer restore()
 	if code := run(); code == 0 {
 		t.Errorf("expected non-zero")
+	}
+}
+
+func TestRun_RetainsCompleteFailureLogWhenRequested(t *testing.T) {
+	defer resetTestHooks()
+	tempDir := t.TempDir()
+	setTestTempDir(t, tempDir)
+	t.Setenv("CODEAGENT_RETAIN_LOG_ON_FAILURE", "1")
+
+	oldArgs := os.Args
+	oldLiteMode := liteMode
+	defer func() {
+		os.Args = oldArgs
+		liteMode = oldLiteMode
+	}()
+	liteMode = true
+	os.Args = []string{"codeagent-wrapper", "--backend", "grok", "task"}
+	stdinReader = strings.NewReader("")
+	isTerminalFn = func() bool { return true }
+
+	backendStderr := "STDERR-BEGIN\n" + strings.Repeat("x", 5*1024) +
+		"\nSTDERR-MIDDLE\n" + strings.Repeat("y", 5*1024) + "\nSTDERR-END\n"
+	fake := newFakeCmd(fakeCmdConfig{
+		Stderr:  backendStderr,
+		WaitErr: errors.New("backend failed"),
+	})
+	newCommandRunner = func(context.Context, string, ...string) commandRunner { return fake }
+	restoreBackend := withBackend("fake-grok", func(*Config, string) []string { return nil })
+	defer restoreBackend()
+	stdout := captureStdoutPipe()
+
+	stderrPath := filepath.Join(tempDir, "wrapper-stderr.txt")
+	stderrFile, err := os.Create(stderrPath)
+	if err != nil {
+		t.Fatalf("create stderr capture: %v", err)
+	}
+	oldStderr := os.Stderr
+	os.Stderr = stderrFile
+	exitCode := run()
+	restoreStdoutPipe(stdout)
+	os.Stderr = oldStderr
+	if err := stderrFile.Close(); err != nil {
+		t.Fatalf("close stderr capture: %v", err)
+	}
+
+	if exitCode == 0 {
+		t.Fatalf("run() exit = 0, want failure")
+	}
+	if strings.Contains(stdout.String(), grokReviewMarker) {
+		t.Fatalf("failed Grok review fabricated %s", grokReviewMarker)
+	}
+	logPath := filepath.Join(tempDir, fmt.Sprintf("codeagent-wrapper-%d.log", os.Getpid()))
+	t.Cleanup(func() { _ = os.Remove(logPath) })
+	logData, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read retained log: %v", err)
+	}
+	for _, marker := range []string{"STDERR-BEGIN", "STDERR-MIDDLE", "STDERR-END"} {
+		if !bytes.Contains(logData, []byte(marker)) {
+			t.Fatalf("retained log missing %q", marker)
+		}
+	}
+	stderrData, err := os.ReadFile(stderrPath)
+	if err != nil {
+		t.Fatalf("read stderr capture: %v", err)
+	}
+	wantPath := fmt.Sprintf("Log file: %s (retained)", logPath)
+	if !bytes.Contains(stderrData, []byte(wantPath)) {
+		t.Fatalf("stderr missing retained log path %q", wantPath)
+	}
+}
+
+func TestRun_LogRetentionIsOptInAndFailureOnly(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		retain     string
+		backend    string
+		exitCode   int
+		wantExists bool
+	}{
+		{name: "default Grok failure cleanup", retain: "0", backend: "grok", exitCode: 1},
+		{name: "successful Grok diagnostic cleanup", retain: "1", backend: "grok", exitCode: 0},
+		{name: "non-Grok failure ignores diagnostic retention", retain: "1", backend: "codex", exitCode: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			defer resetTestHooks()
+			tempDir := t.TempDir()
+			setTestTempDir(t, tempDir)
+			t.Setenv("CODEAGENT_RETAIN_LOG_ON_FAILURE", tc.retain)
+
+			oldArgs := os.Args
+			oldLiteMode := liteMode
+			defer func() {
+				os.Args = oldArgs
+				liteMode = oldLiteMode
+			}()
+			liteMode = true
+			os.Args = []string{"codeagent-wrapper", "--backend", tc.backend, "task"}
+			stdinReader = strings.NewReader("")
+			isTerminalFn = func() bool { return true }
+			runTaskFn = func(TaskSpec, bool, int) TaskResult {
+				logInfo("diagnostic cleanup marker")
+				return TaskResult{ExitCode: tc.exitCode, Message: "ok"}
+			}
+
+			if got := run(); got != tc.exitCode {
+				t.Fatalf("run() exit = %d, want %d", got, tc.exitCode)
+			}
+			logPath := filepath.Join(tempDir, fmt.Sprintf("codeagent-wrapper-%d.log", os.Getpid()))
+			_, err := os.Stat(logPath)
+			exists := err == nil
+			if exists != tc.wantExists {
+				t.Fatalf("log exists = %v, want %v (err=%v)", exists, tc.wantExists, err)
+			}
+		})
 	}
 }
 

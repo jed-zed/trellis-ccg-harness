@@ -61,6 +61,10 @@ class ProviderReviewSnapshotTest(unittest.TestCase):
                         "--antigravity-review" in observed["command"],
                         backend == "antigravity",
                     )
+                    self.assertEqual(
+                        "--skip-permissions" in observed["command"],
+                        backend == "antigravity",
+                    )
                     self.assertEqual(observed["prompt"], "review the bound file")
                     self.assertFalse(Path(observed["cwd"]).exists())
 

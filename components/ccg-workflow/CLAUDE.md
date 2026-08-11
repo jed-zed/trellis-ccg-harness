@@ -2,15 +2,23 @@
 
 > [根目录](../CLAUDE.md) > **skills-v2**
 
-**Last Updated**: 2026-08-10 (v3.4.10)
+**Last Updated**: 2026-08-10 (v3.4.12)
 
-> 本文档已同步 v3.4.10 的审查快照完整性/上限与 Grok 审查自动更新抑制；较早章节仍保留历史架构背景，完整历史见 [CHANGELOG.md](./CHANGELOG.md)。
+> 本文档已同步 v3.4.12 的 GPT Pro URL-first 恢复与原子持久化，并保留 v3.4.11 的 Grok 失败日志和 AGY 快照审查修复；较早章节仍保留历史架构背景，完整历史见 [CHANGELOG.md](./CHANGELOG.md)。
 
 ---
 
 ## 变更记录 (Changelog)
 
 > 完整变更历史请查看 [CHANGELOG.md](./CHANGELOG.md)
+
+### 2026-08-10 (v3.4.12)
+
+- GPT Pro 自动侧栏桥接绑定精确会话 URL 和 Codex task identity，并对
+  RootWait、follow-up 与并发 batch 结果执行 exact-once 原子持久化；
+- Grok 本地审查可显式保留非零退出时的完整 wrapper 日志，默认清理行为不变；
+- 无人值守的一次性快照 AGY 审查默认传递 `--skip-permissions`，普通 AGY
+  frontend/backend/resume 调用保持不变；wrapper 固定到 v5.12.11。
 
 ### 2026-08-10 (v3.4.10)
 
@@ -365,7 +373,7 @@
 |--------|------|------|
 | TypeScript CLI 源码 | [src/CLAUDE.md](./src/CLAUDE.md) | CLI 主入口、命令实现、安装器、i18n、工具链 |
 | 模板文件 | [templates/CLAUDE.md](./templates/CLAUDE.md) | 斜杠命令、提示词、子智能体、技能、规则模板 |
-| codeagent-wrapper | [codeagent-wrapper/CLAUDE.md](./codeagent-wrapper/CLAUDE.md) | Go 二进制包装器，多模型调用桥接，v5.12.10 |
+| codeagent-wrapper | [codeagent-wrapper/CLAUDE.md](./codeagent-wrapper/CLAUDE.md) | Go 二进制包装器，多模型调用桥接，v5.12.11 |
 
 ---
 
@@ -397,7 +405,7 @@ npx ccg-workflow menu
 ### codeagent-wrapper 入口
 
 - **主入口**：`codeagent-wrapper/main.go`
-- **当前版本**：v5.12.10
+- **当前版本**：v5.12.11
 - **调用语法**：
   ```bash
   codeagent-wrapper --backend <codex|gemini|claude> - [工作目录] <<'EOF'
@@ -709,7 +717,7 @@ graph TD
     Init --> Agents["~/.claude/agents/ccg/<br/>7 个子智能体"]
     Init --> Skills["~/.claude/skills/ccg/<br/>100+ 技能文件"]
     Init --> Prompts["~/.claude/.ccg/prompts/<br/>36 个专家提示词"]
-    Init --> Binary["~/.claude/bin/<br/>codeagent-wrapper v5.12.10"]
+    Init --> Binary["~/.claude/bin/<br/>codeagent-wrapper v5.12.11"]
     Init --> MCP["~/.claude.json<br/>MCP 配置（可选）"]
 
     User2["Claude Code 用户"] --> SlashCmd["/ccg:workflow<br/>/ccg:frontend<br/>..."]
