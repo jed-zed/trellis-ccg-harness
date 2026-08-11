@@ -692,6 +692,65 @@ test("Skill platform migration exposes read-only planning and transactional life
   assert.equal(typeof rollbackSkillPlatformMigration, "function");
 });
 
+test("failed platform migration preserves Skills it never replaced", async () => {
+  const value = fixture();
+  const gitEnv = {
+    ...process.env,
+    GIT_AUTHOR_NAME: "Harness Tests",
+    GIT_AUTHOR_EMAIL: "harness-tests@example.invalid",
+    GIT_COMMITTER_NAME: "Harness Tests",
+    GIT_COMMITTER_EMAIL: "harness-tests@example.invalid",
+  };
+  try {
+    populateSkillPlatformFixture(value, gitEnv);
+    await initializeReadyFixtureProject(value);
+    await saveSkillRepositoryProfile({
+      approved: true,
+      globalEssentialSkills: [...GLOBAL_PLATFORM_SKILLS],
+      homeDir: value.homeDir,
+      repositoryPath: value.skillRepository,
+    });
+    const inventory = await planSkillPlatformMigration({
+      repoRoot: value.repoRoot,
+      homeDir: value.homeDir,
+      repositoryPath: value.skillRepository,
+      projectSkills: [],
+    });
+    const existing = new Map(
+      inventory.platform
+        .filter((entry) => entry.targetTreeSha256 !== null)
+        .map((entry) => [
+          entry.name,
+          readFileSync(path.join(entry.targetPath, "SKILL.md")),
+        ]),
+    );
+
+    await assert.rejects(
+      applySkillPlatformMigration({
+        approved: true,
+        expectedInventorySha256: inventory.inventorySha256,
+        repoRoot: value.repoRoot,
+        homeDir: value.homeDir,
+        repositoryPath: value.skillRepository,
+        projectSkills: [],
+        gitEnv,
+        faultInjector: async (phase) => {
+          if (phase === "profile-installed") throw new Error("forced pre-platform failure");
+        },
+      }),
+      /forced pre-platform failure/,
+    );
+    for (const [name, bytes] of existing) {
+      assert.deepEqual(
+        readFileSync(path.join(value.homeDir, ".agents", "skills", name, "SKILL.md")),
+        bytes,
+      );
+    }
+  } finally {
+    value.cleanup();
+  }
+});
+
 function initializeCatalog(repository, gitEnv) {
   writeSkill(repository, "quality/test-first", "test-first", "Use when adding focused tests.");
   writeSkill(

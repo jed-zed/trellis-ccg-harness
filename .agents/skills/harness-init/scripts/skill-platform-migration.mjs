@@ -1506,6 +1506,7 @@ export async function applySkillPlatformMigration({
       selectedSkills: projectSkills,
       globalEssentialSkills: GLOBAL_PLATFORM_SKILLS,
       repositoryIdentity: repository,
+      replaceExisting: true,
       now,
       faultInjector: faultInjector
         ? async (phase) => faultInjector(`project:${phase}`)
@@ -1702,7 +1703,12 @@ export async function applySkillPlatformMigration({
   } catch (error) {
     let rollbackError = null;
     try {
+      const changedPlatform = new Set([
+        ...replacedPlatform.map((item) => item.entry.name),
+        ...addedPlatform.map((entry) => entry.name),
+      ]);
       for (const entry of [...inventory.platform].reverse()) {
+        if (!changedPlatform.has(entry.name)) continue;
         const target = entry.targetPath;
         if (await pathExists(target)) {
           const current = await snapshotTree(target);
