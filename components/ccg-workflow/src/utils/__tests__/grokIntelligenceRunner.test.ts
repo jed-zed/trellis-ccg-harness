@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 // @ts-expect-error Runtime template modules intentionally ship as plain ESM.
-import { buildExactGrokEnvironment, FORCED_GROK_ENV } from '../../../templates/engine/tools/grok-intelligence/lib/exact-env.mjs'
+import { buildExactGrokEnvironment } from '../../../templates/engine/tools/grok-intelligence/lib/exact-env.mjs'
 // @ts-expect-error Runtime template modules intentionally ship as plain ESM.
 import { createPrivateRunRoots, removePrivateRunRoot, securePrivateDirectory } from '../../../templates/engine/tools/grok-intelligence/lib/private-temp.mjs'
 // @ts-expect-error Runtime template modules intentionally ship as plain ESM.
@@ -287,8 +287,8 @@ describe('private roots and diagnostics', () => {
       },
     })
     expect(calls.map(call => call.args.slice(-2).join(' '))).toEqual([
-      '--no-auto-update version',
-      '--no-auto-update models',
+      'version',
+      'models',
       'inspect --json',
     ])
     expect(calls.every(call => call.env === env)).toBe(true)
@@ -388,6 +388,19 @@ describe('isolated Grok runner lifecycle', () => {
     expect(await runGrokIntelligence(baseOptions({ requirement: 'preferred', runAcp: rateLimited }))).toMatchObject({ exitCode: 0, status: 'invocation_failed' })
   })
 
+  it('returns a complete response as received_unverified when a search update has no recognized start', async () => {
+    const notifications = searchNotifications()
+      .filter((message: any) => message.params?.update?.sessionUpdate !== 'tool_call')
+    const result = await runGrokIntelligence(baseOptions({
+      runAcp: async () => ({ notifications }),
+    }))
+    expect(result).toMatchObject({ exitCode: 0, status: 'received_unverified' })
+    expect(result.evidence.normalized.finalText).toContain('Evidence collected.')
+    expect(result.evidence.normalized.unknownEvents).toHaveLength(1)
+    expect(result.evidence.registry.sources).toEqual([])
+    expect(result.evidence.validation.qualifying_claims).toEqual([])
+  })
+
   it('orders diagnostics before ACP, sends an exact env, and returns validated evidence', async () => {
     const order: string[] = []
     let seenAcpOptions: any
@@ -396,7 +409,7 @@ describe('isolated Grok runner lifecycle', () => {
       runDiagnostics: async ({ env }: any) => {
         order.push('diagnostics')
         expect(env.USER_SECRET).toBeUndefined()
-        expect(env).toMatchObject(FORCED_GROK_ENV)
+        expect(env.GROK_DISABLE_AUTOUPDATER).toBeUndefined()
         return {}
       },
       runAcp: async (options: any) => {

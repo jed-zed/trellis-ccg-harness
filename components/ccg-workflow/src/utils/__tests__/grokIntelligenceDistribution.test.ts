@@ -559,6 +559,7 @@ describe('Grok intelligence distribution', () => {
       })
       expect(result.diagnostics).toMatchObject({ version: 'grok 0.2.106' })
       expect(runProcess).toHaveBeenCalledTimes(4)
+      expect(runProcess.mock.calls.every(([, args]) => !args.includes('--no-auto-update'))).toBe(true)
       expect(await fs.readFile(realLog, 'utf8')).toBe('baseline\n')
       expect(await fs.readdir(paths.tempParent)).toEqual([])
     }

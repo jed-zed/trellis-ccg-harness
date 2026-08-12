@@ -63,12 +63,17 @@ jobs:
           cleanup_credential_artifacts = true
           '@ | Set-Content -LiteralPath (Join-Path $ccgDir 'config.toml') -Encoding utf8
 
+      - name: Run the prompt-free real Grok ACP handshake
+        shell: pwsh
+        env:
+          XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
+        run: pnpm exec tsx src/cli.ts doctor --grok
+
       - name: Run the explicit paid Web and X smoke
         shell: pwsh
         env:
           XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
         run: |
-          pnpm exec tsx src/cli.ts doctor --grok
           $raw = node templates/engine/tools/grok-intelligence/manage.mjs doctor --live --json
           $result = $raw | ConvertFrom-Json
           if (-not $result.ok -or -not $result.paidModelPromptSent) {

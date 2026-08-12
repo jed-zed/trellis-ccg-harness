@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.4.13] - 2026-08-12
+
+### Changed
+
+- **Grok CLI updates** — Keep native auto-update behavior for Grok diagnostics,
+  external-intelligence ACP sessions, and bound local review instead of freezing
+  each machine at its previously installed CLI version.
+- **Grok result receipts** — Preserve complete terminal responses as
+  `received_unverified` when a search update has no recognized start event;
+  retain the update as diagnostics without promoting its sources.
+
 ## [3.4.12] - 2026-08-10
 
 ### Added

@@ -406,7 +406,7 @@ Evidence expires immediately when the plan, diff, lockfile, dependency target, e
 5. complete an ACP handshake and empty-MCP session preflight without sending a model prompt;
 6. report full, degraded, or unavailable capability status with a concrete remediation.
 
-`/ccg:doctor --grok-live` is the separate, explicit, bounded paid Web/X smoke and source-event validation. Automated runs use `--no-auto-update`. Missing installation produces official platform guidance. Browser OAuth is the local default; API-key authentication is accepted only when explicitly configured.
+`/ccg:doctor --grok-live` is the separate, explicit, bounded paid Web/X smoke and source-event validation. Automated runs keep the installed CLI's native auto-update behavior. Missing installation produces official platform guidance. Browser OAuth is the local default; API-key authentication is accepted only when explicitly configured.
 
 ## 16. Security and Privacy
 

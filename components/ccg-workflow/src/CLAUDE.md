@@ -2,11 +2,15 @@
 
 > [根目录](../CLAUDE.md) > **src**
 
-**Last Updated**: 2026-08-10 (v3.4.12)
+**Last Updated**: 2026-08-12 (v3.4.13)
 
 ---
 
 ## 变更记录
+
+### 2026-08-12 (v3.4.13)
+- Grok 未关联的搜索更新保留为 `received_unverified`，由 Codex 判断是否采用，不再中断结果接收。
+- Grok diagnostics、ACP 和本地审查恢复 CLI 原生自动更新行为；wrapper 固定到 v5.12.12。
 
 ### 2026-08-10 (v3.4.12)
 - 安装器固定 codeagent-wrapper v5.12.11 及其六平台摘要。
@@ -173,7 +177,7 @@ v1.7.83 将原 1878 行单文件拆分为 5 个聚焦模块，各自边界清晰
 #### Binary 管理（`src/utils/installer.ts:61`）
 
 ```typescript
-const EXPECTED_BINARY_VERSION = '5.12.11'  // 必须与 codeagent-wrapper/main.go 中 version 常量保持一致
+const EXPECTED_BINARY_VERSION = '5.12.12'  // 必须与 codeagent-wrapper/main.go 中 version 常量保持一致
 
 // 唯一可执行来源：个人仓库 preset Release
 const BINARY_SOURCES = [

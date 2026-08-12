@@ -1,6 +1,6 @@
 {
   "name": "ccg",
-  "version": "3.4.12+codex.1",
+  "version": "3.4.13+codex.1",
   "description": "Codex-native CCG workflow with unified role-to-provider routing, bounded provider evidence, an optional snapshot-bound product-manager Provider with local or explicit SSH transport, opt-in external intelligence, spec, team, and quality gates. Codex remains the final implementation and verification owner.",
   "author": {
     "name": "jed-zed",

@@ -9,7 +9,7 @@ import { GROK_INTELLIGENCE_SYSTEM_PROMPT, buildGrokAcpArgs, createExclusiveCaptu
 // @ts-expect-error Runtime template modules intentionally ship as plain ESM.
 import * as grokAcp from '../../../templates/engine/tools/grok-intelligence/lib/acp-client.mjs'
 // @ts-expect-error Runtime template modules intentionally ship as plain ESM.
-import { FORCED_GROK_ENV, INTELLIGENCE_ENV_ALLOWLIST, buildExactGrokEnvironment } from '../../../templates/engine/tools/grok-intelligence/lib/exact-env.mjs'
+import { INTELLIGENCE_ENV_ALLOWLIST, buildExactGrokEnvironment } from '../../../templates/engine/tools/grok-intelligence/lib/exact-env.mjs'
 // @ts-expect-error Runtime template modules intentionally ship as plain ESM.
 import { signalProcessTree } from '../../../templates/engine/tools/grok-intelligence/lib/process-tree.mjs'
 
@@ -246,6 +246,7 @@ describe('Grok intelligence ACP transport', () => {
     expect(args.slice(-4)).toEqual(['agent', '--model', 'grok-4.5', 'stdio'])
     expect(args).not.toContain('-p')
     expect(args).toContain('--always-approve')
+    expect(args).not.toContain('--no-auto-update')
     expect(args).toContain('--verbatim')
     expect(args).toContain('--system-prompt-override')
     expect(args).toContain(GROK_INTELLIGENCE_SYSTEM_PROMPT)
@@ -296,8 +297,16 @@ describe('Grok intelligence ACP transport', () => {
     expect(env.HTTPS_PROXY).toBe('https://proxy.invalid')
     expect(env.XAI_API_KEY).toBeUndefined()
     expect(Object.keys(env).every(key => INTELLIGENCE_ENV_ALLOWLIST.includes(key))).toBe(true)
-    expect(Object.entries(FORCED_GROK_ENV).every(([key, value]) => env[key] === value)).toBe(true)
+    expect(env.GROK_DISABLE_AUTOUPDATER).toBeUndefined()
     expect(JSON.stringify(env)).not.toMatch(/GITHUB|OPENAI|ANTHROPIC|GEMINI|DATABASE|NPM_TOKEN|CCG_PRIVATE/)
+
+    const explicitlyDisabled = buildExactGrokEnvironment({
+      sourceEnv: { GROK_DISABLE_AUTOUPDATER: '1' },
+      neutralHome,
+      grokHome,
+      platform: process.platform,
+    })
+    expect(explicitlyDisabled.GROK_DISABLE_AUTOUPDATER).toBe('1')
   })
 
   it('selects cached browser auth first and API-key auth only when explicit', () => {
@@ -329,7 +338,7 @@ describe('Grok intelligence ACP transport', () => {
       fs: { readTextFile: false, writeTextFile: false },
       terminal: false,
     })
-    expect(result.sessionResult.observedSession).toEqual({ cwd: await realpath(cwd) })
+    expect(result.sessionResult.observedSession).toEqual({ cwd: await realpath(cwd), mcpServers: [] })
     expect(result.promptResult.permissionResponse).toEqual({ outcome: { outcome: 'selected', optionId: 'always' } })
     expect(result.authMethod).toBe('cached_token')
     expect(result.promptResult.receivedArgs).toEqual(buildGrokAcpArgs({ maxTurns: 6 }))

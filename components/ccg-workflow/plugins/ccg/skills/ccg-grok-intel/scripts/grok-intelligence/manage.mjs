@@ -198,7 +198,7 @@ export async function runIsolatedGrokDiagnostics({
       apiKey: authentication?.authMode === 'api_key' ? authentication.apiKey : undefined,
     })
     const action = () => withCredentialHomeVolatileSnapshot(roots.grokHome, async () => {
-      const help = await runProcess(command, [...prefixArgs, '--no-auto-update', '--help'], {
+      const help = await runProcess(command, [...prefixArgs, '--help'], {
         cwd: roots.neutralHome,
         env,
       })

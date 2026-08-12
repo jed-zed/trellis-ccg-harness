@@ -316,6 +316,8 @@ describe('Codex plugin release parity', () => {
     expect(live).toContain('environment: grok-live-smoke')
     expect(live).toContain('secrets.XAI_API_KEY')
     expect(live).toContain('@xai-official/grok')
+    expect(live).toContain('- name: Run the prompt-free real Grok ACP handshake')
+    expect(live.indexOf('pnpm exec tsx src/cli.ts doctor --grok')).toBeLessThan(live.indexOf('manage.mjs doctor --live --json'))
     expect(live).toContain('manage.mjs doctor --live --json')
     expect(live).toContain('--trigger final_diff_verify')
     expect(live.match(/--official-domain x\.ai/g)).toHaveLength(2)

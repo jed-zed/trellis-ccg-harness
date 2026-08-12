@@ -45,9 +45,8 @@ while ordinary Antigravity calls remain conditional. The helper does not pass
 the canonical worktree. This bounds the default input and working directory but
 is not an OS sandbox, so native absolute-path and network capabilities remain
 unchanged. These local paths do not use the external-intelligence route or an
-official-domain gate. Grok review also passes
-`--no-auto-update`; that flag prevents runtime mutation without changing tool
-permissions.
+official-domain gate. Grok review keeps the installed CLI's native auto-update
+behavior.
 
 Claude may be explicitly selected for `frontend`, `backend`, or
 `product-manager`. It is not eligible for `search`; defaults and no-fallback

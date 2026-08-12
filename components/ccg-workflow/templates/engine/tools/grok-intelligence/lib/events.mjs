@@ -173,8 +173,10 @@ export function normalizeAcpEvents(messages, { requireComplete = true, requireSe
       case 'tool_call_update': {
         const callId = requireNonEmptyString(update.toolCallId, 'tool_call_update.toolCallId')
         const startedCall = startedCalls.get(callId)
-        if (!startedCall)
-          throw new Error(`Uncorrelated search tool_call_update: ${callId}`)
+        if (!startedCall) {
+          unknownEvents.push(message)
+          break
+        }
         const result = normalizeSearchResult(update, startedCall)
         if (completedCalls.has(callId)) {
           if (JSON.stringify(completedCalls.get(callId)) !== JSON.stringify(result))
