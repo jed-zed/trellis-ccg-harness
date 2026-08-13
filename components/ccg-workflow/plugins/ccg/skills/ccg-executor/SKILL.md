@@ -9,7 +9,7 @@ Before ordinary work, run the shared route once from the controller:
 
 `ccg route --workflow execute --phase intake --task-file ".ccg/tasks/<task-id>/intelligence-request.md" --state-file ".ccg/tasks/<task-id>/intelligence-route.json"`
 
-Append existing --plan, --diff, --target, and repeatable --dependency paths whenever those artifacts are available. Add `--semantic-mode contract|incident --semantic-reason "<Codex judgment>"` only for an explicit semantic decision. The runtime honors disabled config, persists the decision reason, and must be re-run after plan, dependency, target, diff, or phase digest changes. Stop ordinary work on exit code `2`, `3`, or `4`.
+Append existing --plan, --diff, --target, and repeatable --dependency paths whenever those artifacts are available. Add `--semantic-mode contract|incident --semantic-reason "<Codex judgment>"` only for an explicit semantic decision. The runtime honors disabled config, persists the decision reason, and must be re-run after plan, dependency, target, diff, or phase digest changes. Stop ordinary work on exit code `2`, `3`, or `4` only for an explicit required semantic route; advisory search failures do not block ordinary work.
 
 # CCG Executor
 
@@ -75,10 +75,11 @@ providers. Frontend is not permanently Gemini and backend is not permanently
 Codex. An explicit provider request for the current task wins without changing
 the saved defaults.
 
-Whenever `frontend` or `backend` is used, resolve one logical `search`
-operation for the same phase. Keep one stable operation/evidence identity,
-allow at most two total attempts against the same configured Provider, and
-record `attemptCount`. Then evaluate the mapped product-manager candidate and
+Whenever `frontend` or `backend` is used, evaluate whether one logical
+`search` operation would materially help the same phase. If invoked, keep one
+stable operation/evidence identity, allow at most two total attempts against
+the same configured Provider, and record `attemptCount`; failure is advisory
+and does not block an otherwise valid local result. Then evaluate the mapped product-manager candidate and
 record `searchStatus` and `productManagerStatus`; stop at
 `authorization_required` until the user explicitly authorizes that Provider
 call.
@@ -127,23 +128,23 @@ Codex-native trigger rules:
   planning, drafts, and review.
 - Frontend/UI tasks use the configured `frontend` provider for analysis,
   planning, prototypes, and review.
-- Frontend or backend work automatically starts the logical `search` operation
-  defined by the Companion Role Contract as required companion evidence,
-  including review of gathered evidence.
+- Frontend or backend work may start the logical `search` operation defined by
+  the Companion Role Contract as advisory evidence when current external facts
+  would materially help, including review of any gathered evidence.
 - At the next eligible checkpoint, evaluate the mapped `product-manager`
   candidate and pause for explicit per-call authorization before invocation.
 - Cross-cutting tasks split by role without changing the saved role mappings.
-- If a required external provider fails after at most two total attempts, stop
-  and report the missing evidence instead of silently substituting another
-  provider.
+- If an explicitly required semantic route fails after at most two total
+  attempts, stop and report the missing evidence instead of silently
+  substituting another provider. Advisory search failure remains non-blocking.
 
 When Gemini is selected, use:
 
 ```powershell
-python "<path-to-this-skill>\scripts\invoke_gemini_preview.py" --workdir "<repo-abs-path>" --model gemini-3.1-pro-preview --prompt-template review --prompt-file "<prompt-file>"
+python "<path-to-this-skill>\scripts\invoke_gemini_preview.py" --workdir "<repo-abs-path>" --prompt-template review --prompt-file "<prompt-file>"
 ```
 
-Resolve `<path-to-this-skill>` from this `SKILL.md` directory. This helper creates a disposable snapshot of the workspace by default, starts a localhost browser preview, streams Gemini `stream-json` output into the page, and writes the raw output under `~/.codex/ccg/logs/`.
+Resolve `<path-to-this-skill>` from this `SKILL.md` directory. This helper creates a disposable snapshot of the workspace by default, starts a localhost browser preview, streams Gemini `stream-json` output into the page, records the actual model reported by Gemini, and writes the raw output under `~/.codex/ccg/logs/`. Omit `--model` to follow the Gemini CLI default; pass it only for an explicit pin.
 
 `/ccg:gemini-preview` is a convenience command for manual tests and one-off helper prompts. It does not change the rule above: when `/ccg:plan`, `/ccg:execute`, or `/ccg:review` decides to use Gemini internally, launch this same preview helper directly and let it open the browser.
 

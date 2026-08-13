@@ -12,7 +12,7 @@ Classify the review before any external route:
 
 `ccg route --workflow review --phase final-verify --task-file ".ccg/tasks/<task-id>/intelligence-request.md" --state-file ".ccg/tasks/<task-id>/intelligence-route.json"`
 
-For that external-fact path, append `--trigger final_diff_verify`, repeated `--official-domain <domain>`, and the actual `--diff` plus any `--plan`, `--target`, and `--dependency` files. The domain must be chosen before Grok runs; never promote a domain merely because Grok returned it. Add `--semantic-mode contract|incident --semantic-reason "<Codex judgment>"` only for an explicit semantic decision. Stop ordinary work on exit code `2`, `3`, or `4`.
+For that external-fact path, append `--trigger final_diff_verify`, repeated `--official-domain <domain>`, and the actual `--diff` plus any `--plan`, `--target`, and `--dependency` files. The domain must be chosen before Grok runs; never promote a domain merely because Grok returned it. Add `--semantic-mode contract|incident --semantic-reason "<Codex judgment>"` only for an explicit semantic decision. Stop ordinary work on exit code `2`, `3`, or `4` only for an explicit required semantic route; advisory search failures do not block ordinary work.
 
 # CCG Review
 
@@ -20,16 +20,16 @@ Load and follow `skills/ccg-executor/SKILL.md`.
 
 Review the current diff or the implementation associated with the supplied
 plan/task. Read `../../rules/ccg-role-routing.md`, follow its **Companion Role
-Contract**, classify changed areas as frontend, backend, search, or a
-combination, then resolve the required top-level providers. Review is a phase
+Contract**, classify changed areas as frontend, backend, and any materially
+useful search slice, then resolve the required top-level providers. Review is a phase
 inside each role. Have Codex verify every finding before reporting it.
 
 When a selected provider is Gemini, run the bundled
 `../ccg-executor/scripts/invoke_gemini_preview.py` foreground command in a
 tool-managed background job with `--prompt-template review`; monitor it until
 completion and do not pass `--detach` or call the raw Gemini CLI. For another
-provider, pass the prompt through stdin and do not add `--lite`. If required
-external review evidence is missing, say so and do not claim it occurred.
+provider, pass the prompt through stdin and do not add `--lite`. If advisory
+search evidence is missing, say so and continue without claiming it occurred.
 
 When a selected provider is Grok, treat ordinary code review as local-only;
 do not run the external-intelligence route. Build the prompt from the bundled

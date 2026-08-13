@@ -107,8 +107,6 @@ export function parseIntelligenceToml(content) {
     if (config[key] != null && (typeof config[key] !== 'string' || /[\u0000-\u001f\u007f]/.test(config[key])))
       throw new Error(`intelligence.${key} must be a single-line string`)
   }
-  if (config.default_model != null && !config.default_model.trim())
-    throw new Error('intelligence.default_model must not be empty')
   if (config.deep_research_enabled === true && (typeof config.deep_research_model !== 'string' || !config.deep_research_model.trim()))
     throw new Error('intelligence.deep_research_model is required when deep research is enabled')
   const ranges = {
@@ -391,8 +389,8 @@ export async function runManualCommand(action, options, runtime = {}) {
   const depth = options.depth || 'normal'
   if (!['normal', 'deep'].includes(depth)) throw new Error(`Unsupported depth: ${depth}`)
   if (depth === 'deep' && config.deep_research_enabled !== true) throw new Error('Deep research is disabled in CCG configuration')
-  const selectedModel = String(depth === 'deep' ? config.deep_research_model : (config.default_model || 'grok-4.5')).trim()
-  if (!selectedModel) throw new Error(`No Grok model is configured for ${depth} research`)
+  const selectedModel = String(depth === 'deep' ? config.deep_research_model : (config.default_model || '')).trim()
+  if (depth === 'deep' && !selectedModel) throw new Error('No Grok model is configured for deep research')
   if (action === 'verify' && !options.diff)
     throw new Error('--diff is required for verify; pass an actual bounded diff file')
   const officialDomains = normalizeOfficialDomains(options.officialDomains)
@@ -406,7 +404,9 @@ export async function runManualCommand(action, options, runtime = {}) {
     .map(item => item.path)
   const files = await chooseSnapshotFiles(repoRoot, [...(options.files || []), ...bindings.map(item => item.path)])
   const paths = runtime.paths || getDefaultGrokIntelligencePaths()
-  const requirement = 'required'
+  const requirement = options.requirement || 'required'
+  if (!['required', 'preferred'].includes(requirement))
+    throw new Error('Intelligence requirement must be required or preferred')
   const task = bindings.length > 0
     ? `${options.task.trim()}\n\nBound input digests:\n${bindings.map(item => `${item.kind}:${item.path}:${item.sha256}`).join('\n')}`
     : options.task.trim()
@@ -435,7 +435,7 @@ export async function runManualCommand(action, options, runtime = {}) {
   const diagnostics = diagnosticProbe.diagnostics || diagnosticProbe
   if (typeof diagnostics.version !== 'string' || !diagnostics.version.trim())
     throw new Error('Grok diagnostics did not return a versioned contract')
-  if (!Array.isArray(diagnostics.models) || !diagnostics.models.includes(selectedModel))
+  if (selectedModel && (!Array.isArray(diagnostics.models) || !diagnostics.models.includes(selectedModel)))
     throw new Error(`Configured Grok model is not available in the local CLI inventory: ${selectedModel}`)
   const gitState = await (runtime.gitState || defaultGitState)(repoRoot, files)
   if (typeof gitState?.head !== 'string' || !gitState.head || typeof gitState?.dirtyDigest !== 'string' || !gitState.dirtyDigest)
@@ -447,11 +447,12 @@ export async function runManualCommand(action, options, runtime = {}) {
     searchPolicy: {
       action,
       depth,
+      requirement,
       require_web_search: config.require_web_search !== false,
       x_search_policy: config.x_search_policy || 'preferred',
       effective_x_policy: effectiveXPolicy,
     },
-    model: selectedModel,
+    model: selectedModel || 'cli-default',
     gitHead: gitState.head,
     dirtyDigest: gitState.dirtyDigest,
     planDigest: bindings.find(item => item.kind === 'plan')?.sha256 || 'none',
@@ -497,7 +498,7 @@ export async function runManualCommand(action, options, runtime = {}) {
       grokHome: paths.grokHome,
       sourceEnv,
       apiKey,
-      model: selectedModel,
+      ...(selectedModel ? { model: selectedModel } : {}),
       officialDomains,
       command: runtime.command,
       prefixArgs: runtime.prefixArgs,
@@ -505,14 +506,12 @@ export async function runManualCommand(action, options, runtime = {}) {
     })
     if (result.exitCode !== 0 || !['verified', 'received_unverified'].includes(result.status))
       return { ...result, requirement, mode, depth, bindings, cache: cacheState }
-    if (result.evidence?.model?.actual != null && result.evidence.model.actual !== selectedModel)
+    const modelProvenance = result.evidence?.model
+    if (typeof modelProvenance?.actual !== 'string' || !modelProvenance.actual.trim())
+      throw new Error('Grok runner did not report the actual ACP session model')
+    if (selectedModel && modelProvenance.actual !== selectedModel)
       throw new Error('Grok runner model provenance does not match the selected model')
-    const modelProvenance = result.evidence?.model || {
-      requested: selectedModel,
-      actual: selectedModel,
-      provenance: 'runtime-provided model binding',
-      usage_models: [],
-    }
+    const actualModel = modelProvenance.actual.trim()
 
     const createdAt = (runtime.clock ? runtime.clock() : new Date()).toISOString()
     const evidenceId = `${createdAt.replace(/[-:.TZ]/g, '').slice(0, 14)}-${createHash('sha256').update(`${task}\n${createdAt}`).digest('hex').slice(0, 12)}`
@@ -562,7 +561,7 @@ export async function runManualCommand(action, options, runtime = {}) {
       rawEvents: result.raw?.notifications || [],
       secrets: [apiKey],
       clock: () => new Date(createdAt),
-      model: selectedModel,
+      model: actualModel,
       retentionDays: config.retention_days || 7,
       maxBytes: config.max_bundle_bytes || 16 * 1024 * 1024,
       provenance: {
@@ -600,7 +599,7 @@ export async function runManualCommand(action, options, runtime = {}) {
     const commandResult = {
       exitCode: 0, status: receiptStatus, requirement, action, investigation_mode: mode, mode, depth,
       package_status: packageStatus, verification_outcome: verificationOutcome,
-      effective_x_policy: effectiveXPolicy, model: selectedModel, bindings,
+      effective_x_policy: effectiveXPolicy, model: actualModel, bindings,
       webSearches: countSearches(result, 'web_search'), xSearches: countSearches(result, 'x_search'),
       evidencePath: bundle.artifactRelativePath, evidenceSha256: bundle.artifactSha256,
       manifestPath: bundle.manifestRelativePath, manifestSha256: bundle.manifestSha256,

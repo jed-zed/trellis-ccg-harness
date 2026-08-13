@@ -81,8 +81,8 @@ fields into Trellis `task.json`.
    `searchStatus: invoked|failed|not_applicable`, `productManagerStatus:
    authorization_required|authorized|declined|disabled|unavailable|completed|not_applicable`, ordinary
    execute conclusion so far, and any skipped/failed model steps. The ordinary
-   Companion Role Contract makes search required for frontend/backend, where
-   `not_applicable` is forbidden; a
+   Companion Role Contract makes search advisory for frontend/backend, so
+   `not_applicable` is allowed; a
    product-manager call still needs explicit per-call authorization.
 5. Decide whether ordinary routing produced Gemini frontend/full-stack evidence:
    - backend/tooling-only: use `--gemini-policy optional --gemini-evidence-role frontend-prototype`

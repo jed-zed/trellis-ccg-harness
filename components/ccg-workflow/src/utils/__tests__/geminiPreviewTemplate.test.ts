@@ -275,13 +275,13 @@ describe('Codex Gemini preview template', () => {
         '  {"type":"tool_use","tool_name":"read_file","tool_id":"tool-1","parameters":{"path":"secret.txt"}},',
         '  {"type":"tool_result","tool_id":"tool-1","status":"success","output":"secret output"},',
         '  {"type":"error","severity":"warning","message":"secret warning detail"},',
-        '  {"type":"result","status":"success","response":"Hello"},',
+        '  {"type":"result","status":"success","response":"Hello","stats":{"models":{"gemini-runtime-model":{"tokens":1}}}},',
         ']',
         'pipe = io.StringIO("".join(json.dumps(event) + "\\n" for event in events))',
         'output = io.StringIO()',
         'module.stream_output(pipe, output)',
         'snapshot = module.STATE.snapshot()',
-        'sys.stdout.write(json.dumps({"content": snapshot["content"], "response": snapshot["response"], "result_seen": snapshot["result_seen"], "result_status": snapshot["result_status"]}))',
+        'sys.stdout.write(json.dumps({"content": snapshot["content"], "response": snapshot["response"], "result_seen": snapshot["result_seen"], "result_status": snapshot["result_status"], "actual_models": snapshot["actual_models"], "model": snapshot["model"]}))',
       ].join('\n'),
     ))
     expect(state.content).toContain('Hel')
@@ -295,14 +295,35 @@ describe('Codex Gemini preview template', () => {
     expect(state.response).toBe('Hello')
     expect(state.result_seen).toBe(true)
     expect(state.result_status).toBe('success')
+    expect(state.actual_models).toEqual(['gemini-runtime-model'])
+    expect(state.model).toBe('gemini-runtime-model')
   })
 
   it('fails closed without a successful Gemini terminal result', () => {
     const exitCodes = JSON.parse(runPython(
       helperPath,
-      'import json; sys.stdout.write(json.dumps([module.validated_gemini_exit_code(0, False, ""), module.validated_gemini_exit_code(0, True, "error"), module.validated_gemini_exit_code(0, True, "success"), module.validated_gemini_exit_code(7, True, "success")]))',
+      'import json; sys.stdout.write(json.dumps([module.validated_gemini_exit_code(0, False, ""), module.validated_gemini_exit_code(0, True, "error"), module.validated_gemini_exit_code(0, True, "success"), module.validated_gemini_exit_code(7, True, "success"), module.validated_gemini_exit_code(0, True, "success", "gemini-pinned", ["gemini-other"]), module.validated_gemini_exit_code(0, True, "success", "gemini-pinned", ["gemini-pinned"])]))',
     ))
-    expect(exitCodes).toEqual([1, 1, 0, 7])
+    expect(exitCodes).toEqual([1, 1, 0, 7, 1, 0])
+  })
+
+  it('omits the Gemini model flag unless a model is explicitly pinned', () => {
+    const commands = JSON.parse(runPython(
+      helperPath,
+      [
+        'import json',
+        'from pathlib import Path',
+        'from types import SimpleNamespace',
+        'module.resolve_gemini_invocation = lambda: ["gemini"]',
+        'base = {"approval_mode":"plan"}',
+        'default_cmd = module.build_command(SimpleNamespace(model="", **base), Path("."))',
+        'pinned_cmd = module.build_command(SimpleNamespace(model="gemini-pinned", **base), Path("."))',
+        'sys.stdout.write(json.dumps([default_cmd, pinned_cmd]))',
+      ].join('\n'),
+    ))
+    expect(commands[0]).not.toContain('-m')
+    expect(commands[1]).toContain('-m')
+    expect(commands[1]).toContain('gemini-pinned')
   })
 
   it('keeps the raw-log and response-file contracts outside the page template', () => {

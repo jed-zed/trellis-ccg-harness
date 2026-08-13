@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
+  assertConfiguredProductManagerModel,
   createProductManagerProviderPrompt,
   invokeValidatedProductManagerProvider,
   productManagerStatus,
@@ -415,6 +416,24 @@ describe('product-manager command', () => {
       result: 'ignored presentation text',
       structured_output: structured,
     }), 'claude')).toEqual(structured)
+  })
+
+  it('records the actual Gemini model reported by transport statistics', () => {
+    const output = { provider_identity: { provider: 'gemini', model: 'cli-default', cli_version: 'unknown' } }
+    expect(unwrapProviderOutput(JSON.stringify({
+      response: JSON.stringify(output),
+      stats: { models: { 'gemini-runtime-model': { tokens: 1 } } },
+    }), 'gemini')).toEqual({
+      provider_identity: { provider: 'gemini', model: 'gemini-runtime-model', cli_version: 'unknown' },
+    })
+  })
+
+  it('strictly validates an explicitly configured provider model', () => {
+    const output = { provider_identity: { provider: 'codex', model: 'actual-model' } }
+    expect(() => assertConfiguredProductManagerModel('codex', '', output)).not.toThrow()
+    expect(() => assertConfiguredProductManagerModel('codex', 'configured-model', output))
+      .toThrow('codex product-manager response model does not match the configured model')
+    expect(() => assertConfiguredProductManagerModel('codex', 'actual-model', output)).not.toThrow()
   })
 
   it('reuses the completed result for the same invocation key without another provider call', async () => {

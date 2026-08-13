@@ -78,9 +78,10 @@ Pass it with:
 --routing-evidence-file <routing-evidence-file> --routing-summary-file <routing-summary-file> --require-routing-evidence
 ```
 
-Search is required whenever ordinary routing used frontend or backend. A
-product-manager candidate may stop at `authorization_required`; GPT Pro must
-not convert that state into authorization or fabricated Provider evidence.
+Search is advisory when ordinary routing used frontend or backend; `failed` or
+`not_applicable` must not block an otherwise valid local result. A product-manager
+candidate may stop at `authorization_required`; GPT Pro must not convert that
+state into authorization or fabricated Provider evidence.
 Gemini remains optional and is included only when ordinary role routing actually used it. If present,
 pass its real non-empty response and concise summary. Never invent provider evidence. Preserve the
 existing required/waived Grok external-intelligence flags and provenance.

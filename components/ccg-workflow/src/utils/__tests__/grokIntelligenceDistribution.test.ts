@@ -180,6 +180,7 @@ describe('Grok intelligence distribution', () => {
             exitCode: 0,
             status: 'verified',
             evidence: {
+              model: { requested: null, actual: 'grok-4.6', provenance: 'test ACP session model', usage_models: [] },
               normalized: { searches: [
                 { tool: 'web_search', status: 'completed' },
                 { tool: 'x_search', status: 'completed' },
@@ -196,9 +197,10 @@ describe('Grok intelligence distribution', () => {
       expect(result.bindings.map((binding: any) => binding.kind)).toEqual(['plan', 'diff', 'dependency'])
       expect(await fs.pathExists(join(root, result.manifestPath))).toBe(true)
       expect(result.manifestSha256).toMatch(/^[a-f0-9]{64}$/)
-      expect(runnerOptions.model).toBe('grok-4.5')
+      expect(runnerOptions).not.toHaveProperty('model')
       expect(runnerOptions.allowedCcgPlanPaths).toEqual(['.codex/ccg/plans/plan.md'])
-      expect(await fs.readJson(join(root, result.manifestPath))).toMatchObject({ model: 'grok-4.5' })
+      expect(result.model).toBe('grok-4.6')
+      expect(await fs.readJson(join(root, result.manifestPath))).toMatchObject({ model: 'grok-4.6' })
       expect((await fs.readJson(join(root, result.manifestPath))).prompt_sha256).toBe(
         createHash('sha256').update('ccg-grok-intelligence-prompt-v11-advisory-verification').digest('hex'),
       )
@@ -228,6 +230,7 @@ describe('Grok intelligence distribution', () => {
         exitCode: 0,
         status: 'received_unverified',
         evidence: {
+          model: { requested: null, actual: 'grok-4.6', provenance: 'test ACP session model', usage_models: [] },
           normalized: { searches: [] },
           registry: { sources: [], searches: [] },
           claims: [],
@@ -279,6 +282,7 @@ describe('Grok intelligence distribution', () => {
           exitCode: 0,
           status: 'received_unverified',
           evidence: {
+            model: { requested: null, actual: 'grok-4.6', provenance: 'test ACP session model', usage_models: [] },
             normalized: { searches: [{ tool: 'web_search', status: 'completed' }] },
             registry: { sources: [] },
             claims: [{ id: 'unresolved', claim: 'No applicable fact.', status: 'unresolved', source_ids: [] }],
@@ -354,7 +358,7 @@ describe('Grok intelligence distribution', () => {
           return {
             exitCode: 0,
             status: 'received_unverified',
-            evidence: { normalized: { searches: [{ tool: 'web_search', status: 'completed' }] }, registry: { sources: [] }, claims: [{ id: 'u', claim: 'Unresolved', status: 'unresolved', source_ids: [] }] },
+            evidence: { model: { requested: 'grok-4.5-deep', actual: 'grok-4.5-deep', provenance: 'test ACP session model', usage_models: [] }, normalized: { searches: [{ tool: 'web_search', status: 'completed' }] }, registry: { sources: [] }, claims: [{ id: 'u', claim: 'Unresolved', status: 'unresolved', source_ids: [] }] },
             raw: { notifications: [] },
           }
         },
@@ -398,6 +402,7 @@ describe('Grok intelligence distribution', () => {
             exitCode: 0,
             status: 'verified',
             evidence: {
+              model: { requested: 'grok-4.5-deep', actual: 'grok-4.5-deep', provenance: 'test ACP session model', usage_models: [] },
               normalized: { searches: [{ tool: 'web_search', status: 'completed' }, { tool: 'x_search', status: 'completed' }] },
               registry: { sources: [{ id: 'source-1', canonical_url: 'https://docs.x.ai/build/cli/reference', source_tier: 'A' }] },
               claims: [{ id: 'verified', claim: 'Applicable mitigation.', status: 'verified', source_ids: ['source-1'], applies_to: ['change.diff'] }],
@@ -462,6 +467,7 @@ describe('Grok intelligence distribution', () => {
         exitCode: 0,
         status: 'verified',
         evidence: {
+          model: { requested: 'grok-4.5', actual: 'grok-4.5', provenance: 'test ACP session model', usage_models: [] },
           normalized: { searches: [{ tool: 'web_search', status: 'completed' }] },
           registry: { sources: [{ id: sourceId, tool: 'web_search', observed_tool: 'web_search', canonical_url: sourceUrl, source_tier: 'A', independence_key: 'x.ai' }] },
           claims: [{ id: 'verified', claim: 'Applicable contract.', status: 'verified', severity: 'info', source_ids: [sourceId], applies_to: ['change.diff'] }],
@@ -559,6 +565,7 @@ describe('Grok intelligence distribution', () => {
       })
       expect(result.diagnostics).toMatchObject({ version: 'grok 0.2.106' })
       expect(runProcess).toHaveBeenCalledTimes(4)
+      expect(runProcess.mock.calls.every(([, args]) => !args.includes('--no-auto-update'))).toBe(true)
       expect(await fs.readFile(realLog, 'utf8')).toBe('baseline\n')
       expect(await fs.readdir(paths.tempParent)).toEqual([])
     }
@@ -697,7 +704,7 @@ describe('Grok intelligence distribution', () => {
                 verification_outcome: 'verified',
                 qualifying_claims: ['claim-1'],
               },
-              model: { requested: 'grok-4.5', actual: 'grok-4.5' },
+              model: { requested: null, actual: 'grok-4.6' },
             },
           }
         },
@@ -710,14 +717,15 @@ describe('Grok intelligence distribution', () => {
         officialDomains: ['x.ai'],
         officialXAccounts: ['xai'],
       })
+      expect(runnerOptions.config).not.toHaveProperty('default_model')
       expect(result.live).toMatchObject({
         action: 'verify',
         investigationMode: 'incident',
         depth: 'normal',
         packageStatus: 'valid',
         verificationOutcome: 'verified',
-        requestedModel: 'grok-4.5',
-        actualModel: 'grok-4.5',
+        requestedModel: null,
+        actualModel: 'grok-4.6',
         claimCount: 1,
         qualifyingClaimCount: 1,
         webSearches: 1,

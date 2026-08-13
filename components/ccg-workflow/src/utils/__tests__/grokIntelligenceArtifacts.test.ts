@@ -1,8 +1,9 @@
 import { createHash } from 'node:crypto'
-import { chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 // @ts-expect-error Runtime template modules intentionally ship as plain ESM.
 import { cleanupIntelligenceArtifacts, exportIntelligenceBundle, writeIntelligenceBundle } from '../../../templates/engine/tools/grok-intelligence/lib/artifacts.mjs'
 // @ts-expect-error Runtime template modules intentionally ship as plain ESM.
@@ -369,9 +370,68 @@ describe('versioned Grok evidence cache', () => {
       markLocked()
     }))
     await locked
+    expect((await lstat(join(cacheRoot, '.locks', `${key}.lock`))).isDirectory()).toBe(true)
     await expect(withCacheLock({ cacheRoot, key }, async () => 'second')).rejects.toThrow(/lock|busy/i)
     release()
     await held
+  })
+
+  it('reclaims a cache lock whose owner process has exited', async () => {
+    const key = createCacheFingerprint(fingerprintInput()).key
+    const lockPath = join(cacheRoot, '.locks', `${key}.lock`)
+    await mkdir(lockPath, { recursive: true })
+    await writeFile(join(lockPath, 'owner.json'), `${JSON.stringify({
+      created_at: NOW,
+      pid: 2147483647,
+    })}\n`)
+
+    await expect(withCacheLock({ cacheRoot, key }, async () => 'recovered')).resolves.toBe('recovered')
+    await expect(stat(lockPath)).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('does not reclaim a live lock that replaces the observed dead owner', async () => {
+    const key = createCacheFingerprint(fingerprintInput()).key
+    const lockRoot = join(cacheRoot, '.locks')
+    const lockPath = join(lockRoot, `${key}.lock`)
+    const deadPid = 2147483647
+    const replacement = {
+      owner: 'replacement-live-owner',
+      created_at: NOW,
+      pid: 2147483646,
+    }
+    await mkdir(lockPath, { recursive: true })
+    await writeFile(join(lockPath, 'owner.json'), `${JSON.stringify({ owner: 'observed-dead-owner', created_at: NOW, pid: deadPid })}\n`)
+
+    const originalKill = process.kill.bind(process)
+    let contender: Promise<string> | undefined
+    let contenderRan = false
+    const kill = vi.spyOn(process, 'kill').mockImplementation((pid, signal) => {
+      if (pid === deadPid) {
+        rmSync(lockPath, { recursive: true, force: true })
+        mkdirSync(lockPath)
+        writeFileSync(join(lockPath, 'owner.json'), `${JSON.stringify(replacement)}\n`)
+        contender = withCacheLock({ cacheRoot, key }, async () => {
+          contenderRan = true
+          return 'must-not-run'
+        })
+        throw Object.assign(new Error('process is not alive'), { code: 'ESRCH' })
+      }
+      if (pid === replacement.pid)
+        return true
+      return originalKill(pid, signal)
+    })
+    try {
+      await expect(withCacheLock({ cacheRoot, key }, async () => 'must-not-run')).rejects.toThrow(/busy/i)
+      expect(contender).toBeDefined()
+      await expect(contender!).rejects.toThrow(/busy/i)
+    }
+    finally {
+      kill.mockRestore()
+    }
+
+    expect(contenderRan).toBe(false)
+    await expect(readFile(join(lockPath, 'owner.json'), 'utf8')).resolves.toBe(`${JSON.stringify(replacement)}\n`)
+    expect(await readdir(lockPath)).toEqual(['owner.json'])
   })
 
   it('uses atomic entry creation and validates time, quality, TTL, and force refresh', async () => {

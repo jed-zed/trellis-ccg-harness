@@ -9,7 +9,7 @@ Before ordinary work, run the shared route once from the controller:
 
 `ccg route --workflow analyze --phase intake --task-file ".ccg/tasks/<task-id>/intelligence-request.md" --state-file ".ccg/tasks/<task-id>/intelligence-route.json"`
 
-Append existing --plan, --diff, --target, and repeatable --dependency paths whenever those artifacts are available. Add `--semantic-mode contract|incident --semantic-reason "<Codex judgment>"` only for an explicit semantic decision. The runtime honors disabled config, persists the decision reason, and must be re-run after plan, dependency, target, diff, or phase digest changes. Stop ordinary work on exit code `2`, `3`, or `4`.
+Append existing --plan, --diff, --target, and repeatable --dependency paths whenever those artifacts are available. Add `--semantic-mode contract|incident --semantic-reason "<Codex judgment>"` only for an explicit semantic decision. The runtime honors disabled config, persists the decision reason, and must be re-run after plan, dependency, target, diff, or phase digest changes. Stop ordinary work on exit code `2`, `3`, or `4` only for an explicit required semantic route; advisory search failures do not block ordinary work.
 
 # CCG Analyze
 
@@ -21,8 +21,8 @@ Load and follow `skills/ccg-executor/SKILL.md` for context search and reporting 
 - Inspect relevant files, docs, git status, and project rules.
 - Do not edit files, commit, install dependencies, or run destructive commands.
 - Read `../../rules/ccg-role-routing.md`, follow its **Companion Role
-  Contract**, classify the request as frontend, backend, search, or a
-  combination, then resolve the required top-level roles.
+  Contract**, classify the request as frontend, backend, and any materially
+  useful search slice, then resolve the required top-level roles.
 - Ask each applicable role provider for its read-only analysis. If it is
   Gemini, run the bundled `../ccg-executor/scripts/invoke_gemini_preview.py`
   foreground command in a tool-managed background job with `--prompt-template

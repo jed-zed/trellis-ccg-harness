@@ -313,12 +313,12 @@ describe('GEMINI_MODEL_FLAG line-aware substitution', () => {
     expect(result).not.toContain('{{GEMINI_MODEL_FLAG}}')
   })
 
-  it('uses default gemini-3.1-pro-preview when geminiModel not specified', () => {
+  it('omits the Gemini model flag when geminiModel is not specified', () => {
     const input = '--backend gemini {{GEMINI_MODEL_FLAG}}- "/w"'
     const result = injectConfigVariables(input, {
       routing: { frontend: { primary: 'gemini' }, backend: { primary: 'codex' } },
     })
-    expect(result).toContain('--gemini-model gemini-3.1-pro-preview')
+    expect(result).not.toContain('--gemini-model')
   })
 
   it('respects custom gemini model name', () => {
@@ -479,7 +479,7 @@ describe('GROK_MODEL_FLAG line-aware substitution', () => {
     expect(result).not.toContain('{{GROK_MODEL_FLAG}}')
   })
 
-  it('counts the default search route for partial legacy routing', () => {
+  it('omits the Grok model flag for a default search route without a model pin', () => {
     const input = '--backend $MODEL {{GROK_MODEL_FLAG}}- "/w"'
     const result = injectConfigVariables(input, {
       routing: {
@@ -487,7 +487,7 @@ describe('GROK_MODEL_FLAG line-aware substitution', () => {
         backend: { primary: 'codex' },
       },
     })
-    expect(result).toContain('--grok-model grok-4.5')
+    expect(result).not.toContain('--grok-model')
   })
 
   it('gemini and grok flags coexist on $MODEL lines when both configured', () => {

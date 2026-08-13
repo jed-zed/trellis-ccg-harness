@@ -198,7 +198,7 @@ export async function runIsolatedGrokDiagnostics({
       apiKey: authentication?.authMode === 'api_key' ? authentication.apiKey : undefined,
     })
     const action = () => withCredentialHomeVolatileSnapshot(roots.grokHome, async () => {
-      const help = await runProcess(command, [...prefixArgs, '--no-auto-update', '--help'], {
+      const help = await runProcess(command, [...prefixArgs, '--help'], {
         cwd: roots.neutralHome,
         env,
       })
@@ -331,7 +331,6 @@ async function liveDoctor(options = {}) {
       config: {
         enabled: true,
         auth_mode: authentication.authMode,
-        default_model: 'grok-4.5',
         require_web_search: true,
         x_search_policy: 'required',
         max_retries: 0,

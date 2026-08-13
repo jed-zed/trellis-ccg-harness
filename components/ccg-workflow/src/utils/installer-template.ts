@@ -128,11 +128,11 @@ export function injectConfigVariables(content: string, config: {
   //     `--backend claude`, etc.) — strip the flag on that line.
   //   - If the line uses a conditional expression (`--backend <codex|gemini>`)
   //     or hard-codes gemini — keep the flag (AI picks at runtime).
-  const geminiModel = routing.geminiModel || 'gemini-3.1-pro-preview'
+  const geminiModel = routing.geminiModel?.trim() || ''
   const usesGemini = providerUsageRoutes
     .some(route => route.primary === 'gemini' || route.models.includes('gemini'))
 
-  if (!usesGemini) {
+  if (!usesGemini || !geminiModel) {
     // No configured role uses Gemini — no flag needed anywhere.
     processed = processed.replace(/\{\{GEMINI_MODEL_FLAG\}\}/g, '')
   }
@@ -159,11 +159,11 @@ export function injectConfigVariables(content: string, config: {
   // Grok model flag — same line-aware substitution as GEMINI_MODEL_FLAG:
   // strip the flag on lines that hard-code a non-grok backend, keep it on
   // conditional / grok / runtime-variable ($MODEL) lines.
-  const grokModel = routing.grokModel || 'grok-4.5'
+  const grokModel = routing.grokModel?.trim() || ''
   const usesGrok = providerUsageRoutes
     .some(route => route.primary === 'grok' || route.models.includes('grok'))
 
-  if (!usesGrok) {
+  if (!usesGrok || !grokModel) {
     processed = processed.replace(/\{\{GROK_MODEL_FLAG\}\}/g, '')
   }
   else {

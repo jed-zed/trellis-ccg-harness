@@ -748,12 +748,11 @@ Test-BridgeFile "ccg\grok-intel.md" (Join-Path $bridgeCommandDir "grok-intel.md"
 Test-BridgeFile "ccg\grok-verify.md" (Join-Path $bridgeCommandDir "grok-verify.md")
 
 if ([string]::IsNullOrWhiteSpace($GeminiModel)) {
-  if ([string]::IsNullOrWhiteSpace($env:GEMINI_MODEL)) {
-    $GeminiModel = "gemini-3.1-pro-preview"
-  } else {
+  if (-not [string]::IsNullOrWhiteSpace($env:GEMINI_MODEL)) {
     $GeminiModel = $env:GEMINI_MODEL
   }
 }
+$geminiModelLabel = if ([string]::IsNullOrWhiteSpace($GeminiModel)) { "CLI default" } else { $GeminiModel }
 
 $geminiCommand = $null
 foreach ($name in @("gemini.cmd", "gemini.exe", "gemini")) {
@@ -768,27 +767,29 @@ if ($geminiCommand) {
   Add-Check "Gemini CLI found" "PASS" $geminiCommand.Source
   if ($CheckGeminiModel) {
     $modelArgs = @(
-      "--model", $GeminiModel,
       "--skip-trust",
       "--approval-mode", "plan",
       "--output-format", "stream-json",
       "-p", "Return exactly CCG_DOCTOR_MODEL_OK."
     )
+    if (-not [string]::IsNullOrWhiteSpace($GeminiModel)) {
+      $modelArgs = @("--model", $GeminiModel) + $modelArgs
+    }
     $modelCheck = Invoke-CapturedCommand $geminiCommand.Source $modelArgs
     if ($modelCheck.ok -and $modelCheck.output -match "CCG_DOCTOR_MODEL_OK") {
-      Add-Check "Gemini model available: $GeminiModel" "PASS" (Limit-Text $modelCheck.output)
+      Add-Check "Gemini model available: $geminiModelLabel" "PASS" (Limit-Text $modelCheck.output)
     } else {
       $detail = Limit-Text $modelCheck.output
       if ($modelCheck.ok -and $modelCheck.output -notmatch "CCG_DOCTOR_MODEL_OK") {
         $detail = "Gemini CLI exited 0 but did not return CCG_DOCTOR_MODEL_OK. Output: $detail"
       }
-      Add-Check "Gemini model available: $GeminiModel" "WARN" $detail "Check Gemini account permissions, model name, region, or use GEMINI_MODEL/--model override."
+      Add-Check "Gemini model available: $geminiModelLabel" "WARN" $detail "Check Gemini account permissions, model name, region, or use GEMINI_MODEL/--model override."
     }
   }
 } else {
   Add-Check "Gemini CLI found" "WARN" "gemini CLI was not found in PATH." "Install or configure Gemini CLI before using /ccg:gemini-preview or Gemini-assisted /ccg:plan."
   if ($CheckGeminiModel) {
-    Add-Check "Gemini model available: $GeminiModel" "SKIP" "Gemini CLI is unavailable." "Install or configure Gemini CLI before checking model availability."
+    Add-Check "Gemini model available: $geminiModelLabel" "SKIP" "Gemini CLI is unavailable." "Install or configure Gemini CLI before checking model availability."
   }
 }
 

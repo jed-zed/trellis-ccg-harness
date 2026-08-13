@@ -34,5 +34,5 @@ Do not bypass the GPT Pro sidebar evidence import. GPT Pro is automated read-onl
 GPT Pro routes inherit the matching ordinary command first: plan -> ordinary `/ccg:plan`, review ->
 ordinary `/ccg:review`, exc -> ordinary `/ccg:execute` preflight/routing evidence before manual GPT
 Pro second opinion. Every route inherits the shared **Companion Role Contract**,
-including required search evidence and the product-manager authorization gate.
+including advisory search evidence and the product-manager authorization gate.
 Do not replace routed Codex, Gemini, or helper evidence.

@@ -28,7 +28,7 @@ external reviewer for hidden bugs, security risks, compatibility risks, edge cas
 ordinary model false positives or missed findings.
 
 The ordinary review stage follows the **Companion Role Contract**: frontend or
-backend makes search required and evaluates the product-manager authorization
+backend evaluates advisory search and the product-manager authorization
 gate. This named command then adds GPT Pro without changing saved roles.
 
 GPT Pro is not a `codeagent-wrapper` backend and must not be routed through `model-router.md` as an

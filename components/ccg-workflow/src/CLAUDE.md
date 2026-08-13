@@ -2,11 +2,20 @@
 
 > [根目录](../CLAUDE.md) > **src**
 
-**Last Updated**: 2026-08-10 (v3.4.12)
+**Last Updated**: 2026-08-13 (v3.4.14)
 
 ---
 
 ## 变更记录
+
+### 2026-08-13 (v3.4.14)
+- 未配置 Gemini/Grok 模型时省略模型参数，记录 Provider 实际返回身份，并保留产品经理 Claude `opus`。
+- frontend/backend 伴随搜索改为建议项；Grok 缓存锁回收绑定唯一 owner 且不提前空出规范锁路径。
+- wrapper 无 Go 变更，继续固定 v5.12.12。
+
+### 2026-08-12 (v3.4.13)
+- Grok 未关联的搜索更新保留为 `received_unverified`，由 Codex 判断是否采用，不再中断结果接收。
+- Grok diagnostics、ACP 和本地审查恢复 CLI 原生自动更新行为；wrapper 固定到 v5.12.12。
 
 ### 2026-08-10 (v3.4.12)
 - 安装器固定 codeagent-wrapper v5.12.11 及其六平台摘要。
@@ -173,7 +182,7 @@ v1.7.83 将原 1878 行单文件拆分为 5 个聚焦模块，各自边界清晰
 #### Binary 管理（`src/utils/installer.ts:61`）
 
 ```typescript
-const EXPECTED_BINARY_VERSION = '5.12.11'  // 必须与 codeagent-wrapper/main.go 中 version 常量保持一致
+const EXPECTED_BINARY_VERSION = '5.12.12'  // 必须与 codeagent-wrapper/main.go 中 version 常量保持一致
 
 // 唯一可执行来源：个人仓库 preset Release
 const BINARY_SOURCES = [

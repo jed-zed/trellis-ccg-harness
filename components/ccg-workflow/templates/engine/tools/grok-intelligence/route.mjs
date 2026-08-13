@@ -225,12 +225,14 @@ async function validateSuccessfulBundle(repoRoot, routeDecision, result, { confi
     throw new Error('Automatic route evidence is outside its freshness window')
   const configuredModel = routeDecision.depth === 'deep'
     ? config.deep_research_model
-    : (config.default_model || 'grok-4.5')
+    : config.default_model
   const expectedModel = String(configuredModel || '').trim()
-  if (!expectedModel)
-    throw new Error(`Automatic route has no configured ${routeDecision.depth || 'normal'} model`)
-  if (typeof result.model !== 'string' || !result.model || result.model !== expectedModel || manifestJson.model !== result.model)
+  if (routeDecision.depth === 'deep' && !expectedModel)
+    throw new Error('Automatic route has no configured deep model')
+  if (typeof result.model !== 'string' || !result.model || manifestJson.model !== result.model)
     throw new Error('Automatic route manifest does not bind the executed Grok model')
+  if (expectedModel && result.model !== expectedModel)
+    throw new Error('Automatic route executed Grok model does not match the configured model')
   const expectedFiles = ['evidence.json', 'raw-stream.jsonl', 'report.md']
   if (JSON.stringify(Object.keys(manifestJson.files || {}).sort()) !== JSON.stringify(expectedFiles))
     throw new Error('Automatic route manifest must bind the canonical evidence, report, and raw stream files')
@@ -411,8 +413,8 @@ function inheritedRequirement(input, previous) {
 function classifyFinalVerification(input, task, previous) {
   const inherited = inheritedRequirement(input, previous)
   const reEvaluated = INCIDENT_PATTERN.test(task) && CURRENT_PATTERN.test(task)
-    ? 'required'
-    : (CONTRACT_PATTERN.test(task) ? 'required' : null)
+    ? 'preferred'
+    : (CONTRACT_PATTERN.test(task) && CURRENT_PATTERN.test(task) ? 'preferred' : null)
   const requirement = inherited && inherited !== 'disabled' ? inherited : reEvaluated
   if (!requirement)
     return skippedDecision('Final verification found no inherited or re-evaluated external-intelligence requirement.', 'final_verify_not_required')
@@ -443,24 +445,24 @@ function classifySemanticRoute(input) {
 function classifyHardTrigger(task, depth = 'normal') {
   if (INCIDENT_PATTERN.test(task) && CURRENT_PATTERN.test(task)) {
     return {
-      requirement: 'required',
+      requirement: 'preferred',
       action: 'intel',
       investigation_mode: 'incident',
       mode: 'incident',
       depth,
       trigger: 'current_incident',
-      reason: 'A current external incident requires source-backed service and release evidence.',
+      reason: 'A current external incident may benefit from source-backed service and release evidence.',
     }
   }
-  if (CONTRACT_PATTERN.test(task)) {
+  if (CONTRACT_PATTERN.test(task) && CURRENT_PATTERN.test(task)) {
     return {
-      requirement: 'required',
+      requirement: 'preferred',
       action: 'intel',
       investigation_mode: 'contract',
       mode: 'contract',
       depth,
       trigger: 'dependency_api_contract',
-      reason: 'A dependency or external API contract requires current source-backed evidence.',
+      reason: 'A dependency or external API contract may benefit from current source-backed evidence.',
     }
   }
   return skippedDecision('No initial automatic external-intelligence trigger matched this task class.', 'no_initial_trigger')
@@ -526,6 +528,7 @@ function commandOptions(input, decision, config) {
     dependencies: [...(input.dependencies || [])],
     officialDomains: [...(input.officialDomains || [])],
     forceRefresh: input.forceRefresh === true,
+    requirement: decision.requirement,
     config,
   }
 }
@@ -569,7 +572,7 @@ function routeInputDigest(input, decision, bindings, config = {}) {
     bindings,
     official_domains: [...new Set((input.officialDomains || []).map(value => String(value).trim().toLowerCase()))].sort(),
     execution_profile: {
-      model: String(config.default_model || 'grok-4.5').trim(),
+      model: String(decision.depth === 'deep' ? config.deep_research_model : (config.default_model || '')).trim() || 'cli-default',
       artifact_root: String(config.artifact_root || '.codex/ccg/intelligence').trim(),
       auth_mode: String(config.auth_mode || ''),
       provider: String(config.provider || ''),
@@ -668,10 +671,13 @@ async function canonicalizeRunnerResult(input, context, result) {
 async function completeInvokedRoute(input, context, invocation, runtime) {
   const published = await canonicalizeRunnerResult(input, context, invocation.result)
   const result = published.result
-  const exitCode = Number.isInteger(result?.exitCode) ? result.exitCode : 4
+  const providerExitCode = Number.isInteger(result?.exitCode) ? result.exitCode : 4
+  const received = providerExitCode === 0 && ['verified', 'received_unverified'].includes(result?.status)
+  const advisoryFailure = context.decision.requirement === 'preferred' && !received
+  const exitCode = advisoryFailure ? 0 : providerExitCode
   const finalDecision = {
     ...context.decision,
-    status: exitCode === 0 && ['verified', 'received_unverified'].includes(result?.status) ? result.status : 'blocked',
+    status: received ? result.status : advisoryFailure ? 'advisory_failed' : 'blocked',
   }
   const finalState = makeState({
     input,
@@ -681,6 +687,7 @@ async function completeInvokedRoute(input, context, invocation, runtime) {
     execution: {
       status: String(result?.status || 'configuration_required'),
       exit_code: exitCode,
+      ...(advisoryFailure ? { provider_exit_code: providerExitCode } : {}),
       invoked: true,
       action: invocation.action,
       argv: invocation.argv,

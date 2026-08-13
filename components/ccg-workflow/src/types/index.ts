@@ -63,8 +63,8 @@ export interface RoleRouting {
 // 模型路由配置。角色是配置层概念，Provider 执行器不获得额外权限。
 export interface ModelRouting extends Record<RoutingRole, RoleRouting> {
   mode: CollaborationMode
-  geminiModel?: string // Gemini 具体型号（默认 gemini-3.1-pro-preview）
-  grokModel?: string // Grok 具体型号（默认 grok-4.5，代码任务可选 grok-composer-2.5-fast）
+  geminiModel?: string // Gemini 具体型号；留空时使用 Gemini CLI 默认值
+  grokModel?: string // Grok 具体型号；留空时使用 Grok CLI 默认值
 }
 
 // CCG 配置

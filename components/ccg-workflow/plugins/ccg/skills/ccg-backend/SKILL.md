@@ -9,7 +9,7 @@ Before ordinary work, run the shared route once from the controller:
 
 `ccg route --workflow backend --phase intake --task-file ".ccg/tasks/<task-id>/intelligence-request.md" --state-file ".ccg/tasks/<task-id>/intelligence-route.json"`
 
-Append existing --plan, --diff, --target, and repeatable --dependency paths whenever those artifacts are available. Add `--semantic-mode contract|incident --semantic-reason "<Codex judgment>"` only for an explicit semantic decision. The runtime honors disabled config, persists the decision reason, and must be re-run after plan, dependency, target, diff, or phase digest changes. Stop ordinary work on exit code `2`, `3`, or `4`.
+Append existing --plan, --diff, --target, and repeatable --dependency paths whenever those artifacts are available. Add `--semantic-mode contract|incident --semantic-reason "<Codex judgment>"` only for an explicit semantic decision. The runtime honors disabled config, persists the decision reason, and must be re-run after plan, dependency, target, diff, or phase digest changes. Stop ordinary work on exit code `2`, `3`, or `4` only for an explicit required semantic route; advisory search failures do not block ordinary work.
 
 # CCG Backend
 
@@ -21,9 +21,9 @@ Use this as the Codex-native equivalent of the original CCG `/ccg:backend` comma
 
 - Treat the user argument as backend-heavy work: APIs, services, data flow, storage, jobs, migrations, auth, validation, or backend architecture.
 - Read `../../rules/ccg-role-routing.md`, follow its **Companion Role Contract**,
-  then resolve `backend` and its required `search` companion before assigning
-  backend drafting or analysis; evaluate the mapped product-manager gate at the
-  next eligible checkpoint.
+  then resolve `backend` and any materially useful advisory `search` evidence
+  before assigning backend drafting or analysis; evaluate the mapped
+  product-manager gate at the next eligible checkpoint.
 - Use the configured backend provider for implementation drafts, design
   alternatives, risky edge cases, concurrency, data integrity, or tests. If it
   is Gemini, run the bundled

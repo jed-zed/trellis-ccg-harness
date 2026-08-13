@@ -88,6 +88,18 @@ describe('product-manager output validation', () => {
     })
   })
 
+  it('leaves model identity open only when the Provider CLI selects its default', () => {
+    const output = validOutput()
+    const schema = createBoundProductManagerOutputJsonSchema({
+      ...expected,
+      invocation_key: output.invocation_key,
+    }, {
+      provider: 'codex',
+      cli_version: '1.0.0',
+    }) as any
+    expect(schema.properties.provider_identity.properties.model).toEqual({ type: 'string', minLength: 1 })
+  })
+
   it('accepts only an input digest derived from the complete canonical input', () => {
     const base = {
       contract_version: PRODUCT_MANAGER_CONTRACT_VERSION,

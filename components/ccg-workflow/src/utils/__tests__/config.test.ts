@@ -129,6 +129,7 @@ describe('normalizeIntelligenceConfig', () => {
       auth_mode: 'browser_oauth',
       legacy_search_provider: 'grok-search-mcp',
       allow_provider_fallback: false,
+      default_model: '',
       cleanup_credential_artifacts: true,
       require_web_search: true,
       x_search_policy: 'preferred',

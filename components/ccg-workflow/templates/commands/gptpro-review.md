@@ -68,8 +68,8 @@ fields into Trellis `task.json`.
    `searchStatus: invoked|failed|not_applicable`, `productManagerStatus:
    authorization_required|authorized|declined|disabled|unavailable|completed|not_applicable`, the
    ordinary reviewer conclusion, and any skipped/failed model steps. The ordinary
-   Companion Role Contract makes search required for frontend/backend, where
-   `not_applicable` is forbidden; a
+   Companion Role Contract makes search advisory for frontend/backend, so
+   `not_applicable` is allowed; a
    product-manager call still needs explicit per-call authorization.
 5. Validate required Gemini review/gate evidence from `<evidence-root>/evidence.json`.
    Legacy `task.json.gemini_evidence` or `task.json.gemini_gate` may be normalized for read

@@ -161,9 +161,9 @@ export async function runGrokDiagnostics({
   runProcess = runBoundedProcess,
 } = {}) {
   const commands = [
-    ['version', ['--no-auto-update', 'version']],
-    ['models', ['--no-auto-update', 'models']],
-    ['inspect', ['--no-auto-update', 'inspect', '--json']],
+    ['version', ['version']],
+    ['models', ['models']],
+    ['inspect', ['inspect', '--json']],
   ]
   const output = {}
   for (const [name, args] of commands) {

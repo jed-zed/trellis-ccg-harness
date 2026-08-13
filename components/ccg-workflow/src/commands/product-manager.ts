@@ -273,7 +273,7 @@ function readProviderCliVersion(executable: string): string {
 
 export function createProductManagerProviderPrompt(input: unknown, identity?: {
   provider: ProductManagerProvider
-  model: string
+  model?: string
   cliVersion: string
 }, schema: Record<string, unknown> = PRODUCT_MANAGER_OUTPUT_JSON_SCHEMA): string {
   return [
@@ -282,11 +282,13 @@ export function createProductManagerProviderPrompt(input: unknown, identity?: {
     'Return exactly one JSON object matching the supplied contract.',
     'Do not include markdown, hidden reasoning, credentials, or commentary.',
     identity
-      ? `Set provider_identity exactly to ${JSON.stringify({
-        provider: identity.provider,
-        model: identity.model,
-        cli_version: identity.cliVersion,
-      })}.`
+      ? identity.model
+        ? `Set provider_identity exactly to ${JSON.stringify({
+          provider: identity.provider,
+          model: identity.model,
+          cli_version: identity.cliVersion,
+        })}.`
+        : `Set provider_identity.provider to ${JSON.stringify(identity.provider)}, provider_identity.cli_version to ${JSON.stringify(identity.cliVersion)}, and provider_identity.model to the actual model used for this response.`
       : null,
     `Output JSON Schema:\n${JSON.stringify(schema)}`,
     JSON.stringify(redactProductManagerValue(input)),
@@ -297,8 +299,17 @@ export function unwrapProviderOutput(raw: string, provider: ProductManagerProvid
   if (!raw.trim())
     throw new Error('product-manager provider returned empty output')
   const parsed = JSON.parse(raw)
-  if (provider === 'gemini' && parsed && typeof parsed === 'object' && typeof parsed.response === 'string')
-    return JSON.parse(parsed.response)
+  if (provider === 'gemini' && parsed && typeof parsed === 'object' && typeof parsed.response === 'string') {
+    const output = JSON.parse(parsed.response)
+    const models = parsed.stats && typeof parsed.stats === 'object' && parsed.stats.models && typeof parsed.stats.models === 'object'
+      ? Object.keys(parsed.stats.models).map(value => value.trim()).filter(Boolean)
+      : []
+    if (models.length > 1)
+      throw new Error('Gemini product-manager response reported multiple actual models')
+    if (models.length === 1 && output?.provider_identity && typeof output.provider_identity === 'object')
+      output.provider_identity.model = models[0]
+    return output
+  }
   if (provider === 'claude' && parsed && typeof parsed === 'object') {
     if (parsed.structured_output && typeof parsed.structured_output === 'object')
       return parsed.structured_output
@@ -308,6 +319,17 @@ export function unwrapProviderOutput(raw: string, provider: ProductManagerProvid
       return parsed.result
   }
   return parsed
+}
+
+export function assertConfiguredProductManagerModel(
+  provider: ProductManagerProvider,
+  configuredModel: string,
+  output: unknown,
+) {
+  if (!configuredModel) return
+  const actualModel = (output as ProductManagerOutput)?.provider_identity?.model
+  if (actualModel !== configuredModel)
+    throw new Error(`${provider} product-manager response model does not match the configured model`)
 }
 
 function unavailableOutput(options: {
@@ -344,9 +366,9 @@ function unavailableOutput(options: {
     provider_identity: {
       provider: options.provider,
       model: options.provider === 'codex'
-        ? process.env.CCG_PRODUCT_MANAGER_CODEX_MODEL || 'gpt-5.6-sol'
+        ? process.env.CCG_PRODUCT_MANAGER_CODEX_MODEL?.trim() || 'cli-default'
         : options.provider === 'gemini'
-          ? process.env.CCG_PRODUCT_MANAGER_GEMINI_MODEL || 'gemini-3.1-pro-preview'
+          ? process.env.CCG_PRODUCT_MANAGER_GEMINI_MODEL?.trim() || 'cli-default'
           : resolveClaudeProductManagerModel(),
       cli_version: 'unavailable',
     },
@@ -400,7 +422,7 @@ async function invokeProvider(options: {
   const invocationKey = createInvocationKey(options.input)
   const bindContract = (identity: {
     provider: ProductManagerProvider
-    model: string
+    model?: string
     cliVersion: string
   }) => {
     const schema = createBoundProductManagerOutputJsonSchema({
@@ -423,7 +445,7 @@ async function invokeProvider(options: {
       if (!candidate)
         throw new Error('Codex product-manager executable is unavailable')
       const executable = validateTrustedRegularFile(candidate, 'Codex product-manager executable')
-      const model = process.env.CCG_PRODUCT_MANAGER_CODEX_MODEL || 'gpt-5.6-sol'
+      const model = process.env.CCG_PRODUCT_MANAGER_CODEX_MODEL?.trim() || ''
       const contract = bindContract({
         provider: 'codex',
         model,
@@ -446,7 +468,9 @@ async function invokeProvider(options: {
         timeoutMs: options.config.timeout_ms,
         maxOutputBytes: options.config.max_output_bytes,
       })
-      return unwrapProviderOutput(raw, options.provider)
+      const output = unwrapProviderOutput(raw, options.provider)
+      assertConfiguredProductManagerModel('codex', model, output)
+      return output
     }
     if (options.provider === 'claude') {
       const model = resolveClaudeProductManagerModel()
@@ -496,7 +520,7 @@ async function invokeProvider(options: {
     const entrypoint = resolveGeminiEntrypoint()
     if (!entrypoint)
       throw new Error('Gemini product-manager Node entrypoint is unavailable')
-    const model = process.env.CCG_PRODUCT_MANAGER_GEMINI_MODEL || 'gemini-3.1-pro-preview'
+    const model = process.env.CCG_PRODUCT_MANAGER_GEMINI_MODEL?.trim() || ''
     const contract = bindContract({
       provider: 'gemini',
       model,
@@ -512,7 +536,9 @@ async function invokeProvider(options: {
       timeoutMs: options.config.timeout_ms,
       maxOutputBytes: options.config.max_output_bytes,
     })
-    return unwrapProviderOutput(raw, options.provider)
+    const output = unwrapProviderOutput(raw, options.provider)
+    assertConfiguredProductManagerModel('gemini', model, output)
+    return output
   }
   finally {
     await rm(controlRoot, { recursive: true, force: true })

@@ -225,7 +225,7 @@ export const PRODUCT_MANAGER_OUTPUT_JSON_SCHEMA = {
 
 export function createBoundProductManagerOutputJsonSchema(
   expected: InvocationIdentity & { invocation_key: string },
-  providerIdentity: ProductManagerOutput['provider_identity'],
+  providerIdentity: Omit<ProductManagerOutput['provider_identity'], 'model'> & { model?: string },
 ): Record<string, unknown> {
   return {
     ...PRODUCT_MANAGER_OUTPUT_JSON_SCHEMA,
@@ -243,7 +243,9 @@ export function createBoundProductManagerOutputJsonSchema(
         ...PRODUCT_MANAGER_OUTPUT_JSON_SCHEMA.properties.provider_identity,
         properties: {
           provider: { const: providerIdentity.provider },
-          model: { const: providerIdentity.model },
+          model: providerIdentity.model
+            ? { const: providerIdentity.model }
+            : PRODUCT_MANAGER_OUTPUT_JSON_SCHEMA.properties.provider_identity.properties.model,
           cli_version: { const: providerIdentity.cli_version },
         },
       },

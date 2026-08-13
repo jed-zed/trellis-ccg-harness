@@ -4,9 +4,9 @@ Date: 2026-07-21
 
 > This is a historical probe record. The empty-MCP and tool-denial profile
 > below describes the evidence captured on that date; it is not the current
-> Provider-permission contract. Current ACP sessions omit `mcpServers`, accept
-> the Provider's native permission option, and retain the client-side
-> no-filesystem-write/no-terminal capability boundary.
+> Provider-permission contract. The current client request contract sends
+> `mcpServers: []`, accepts the Provider's native permission option, and retains
+> the client-side no-filesystem-write/no-terminal capability boundary.
 
 Platform: Windows 11, PowerShell 7
 
@@ -26,6 +26,20 @@ The intelligence workflow must use Grok's official ACP transport, not the one-sh
 - The Web probe exposed stable, correlatable `tool_call` and `tool_call_update` events with source URLs.
 - The X-domain probe exposed the same event contract but returned `sources: []`; its ungrounded final X URL is a required negative case and must be rejected.
 - The legacy `grok -p` probe attempted to start the user's `exa` and `grok-search` MCP servers even though `inspect` marked Claude MCP compatibility disabled. It is unsafe for the intelligence profile.
+
+## Current compatibility recheck
+
+On 2026-08-12, the patched source checkout completed one authorized,
+prompt-free `ccg doctor --grok` handshake against
+`grok 0.2.118 (1e1687c1cf)`. The client sent
+`session/new { cwd, mcpServers: [] }`; the Grok ACP check reported
+`auth=cached_token` and `paidPrompt=false`, with no `session/new Invalid params`
+failure. No automatic retry or `--grok-live` model call was run.
+
+The overall doctor command still exited non-zero because its broader legacy
+Claude installation checks reported unrelated missing config, commands, hooks,
+wrapper, skills, rules, and policy configuration. Those findings do not change
+the successful Grok ACP handshake result.
 
 This verifies the event **Contract Gate** for ACP. It does not by itself pass the later **Safety Gate**: the implementation must still enforce exact environment construction, process limits, deny rules, snapshot boundaries, cleanup and fail-closed validation.
 
