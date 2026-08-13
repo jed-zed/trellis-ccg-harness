@@ -10,7 +10,7 @@ For a pure local code review, do not run or invoke Grok external-intelligence an
 
 `ccg route --workflow spec-review --phase final-verify --task-file ".ccg/tasks/<task-id>/intelligence-request.md" --state-file ".ccg/tasks/<task-id>/intelligence-route.json"`
 
-For that external-fact path, add repeated `--official-domain <domain>` chosen before Grok runs, and bind the proposal, target, plan, and diff. Stop ordinary work on exit code `2`, `3`, or `4`.
+For that external-fact path, add repeated `--official-domain <domain>` chosen before Grok runs, and bind the proposal, target, plan, and diff. Stop ordinary work on exit code `2`, `3`, or `4` only for an explicit required semantic route; advisory search failures do not block ordinary work.
 
 # CCG Spec Review
 

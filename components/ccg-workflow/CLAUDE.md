@@ -2,15 +2,26 @@
 
 > [根目录](../CLAUDE.md) > **skills-v2**
 
-**Last Updated**: 2026-08-10 (v3.4.12)
+**Last Updated**: 2026-08-13 (v3.4.14)
 
-> 本文档已同步 v3.4.12 的 GPT Pro URL-first 恢复与原子持久化，并保留 v3.4.11 的 Grok 失败日志和 AGY 快照审查修复；较早章节仍保留历史架构背景，完整历史见 [CHANGELOG.md](./CHANGELOG.md)。
+> 本文档已同步 v3.4.14 的 Provider 原生模型默认、非阻塞伴随搜索与 Grok 缓存锁恢复，并保留 GPT Pro URL-first 恢复、Grok 宽容结果接收和原生自动更新；较早章节仍保留历史架构背景，完整历史见 [CHANGELOG.md](./CHANGELOG.md)。
 
 ---
 
 ## 变更记录 (Changelog)
 
 > 完整变更历史请查看 [CHANGELOG.md](./CHANGELOG.md)
+
+### 2026-08-13 (v3.4.14)
+
+- 未配置 Gemini/Grok 模型时不再传固定模型参数，保留 Provider 实际返回的模型身份；产品经理 Claude 继续固定 `opus`。
+- frontend/backend 伴随搜索改为建议项，只有显式语义证据请求仍可阻塞。
+- Grok 缓存死锁回收绑定唯一 owner，并保持 live replacement 与第三竞争者互斥；wrapper 保持 v5.12.12。
+
+### 2026-08-12 (v3.4.13)
+
+- Grok 搜索更新缺失已知 start 事件时保留完整终端结果为 `received_unverified`，交由 Codex 判断是否采用；未知来源不进入 canonical evidence。
+- Grok diagnostics、ACP 和绑定审查不再强制 `--no-auto-update` 或 `GROK_DISABLE_AUTOUPDATER=1`；wrapper 固定到 v5.12.12。
 
 ### 2026-08-10 (v3.4.12)
 
@@ -373,7 +384,7 @@
 |--------|------|------|
 | TypeScript CLI 源码 | [src/CLAUDE.md](./src/CLAUDE.md) | CLI 主入口、命令实现、安装器、i18n、工具链 |
 | 模板文件 | [templates/CLAUDE.md](./templates/CLAUDE.md) | 斜杠命令、提示词、子智能体、技能、规则模板 |
-| codeagent-wrapper | [codeagent-wrapper/CLAUDE.md](./codeagent-wrapper/CLAUDE.md) | Go 二进制包装器，多模型调用桥接，v5.12.11 |
+| codeagent-wrapper | [codeagent-wrapper/CLAUDE.md](./codeagent-wrapper/CLAUDE.md) | Go 二进制包装器，多模型调用桥接，v5.12.12 |
 
 ---
 
@@ -405,7 +416,7 @@ npx ccg-workflow menu
 ### codeagent-wrapper 入口
 
 - **主入口**：`codeagent-wrapper/main.go`
-- **当前版本**：v5.12.11
+- **当前版本**：v5.12.12
 - **调用语法**：
   ```bash
   codeagent-wrapper --backend <codex|gemini|claude> - [工作目录] <<'EOF'
@@ -502,8 +513,8 @@ npx ccg-workflow menu
 | 语言 | 中文 | ✗ | 所有模板为中文 |
 | 前端模型 | Antigravity | ✓ (v2.1.0+) | init Step 2/4 / 菜单 6，可选 gemini/codex/grok |
 | 后端模型 | Codex | ✓ (v2.1.0+) | init Step 2/4 / 菜单 6，可选 gemini/antigravity/grok |
-| Gemini 型号 | gemini-3.1-pro-preview | ✓ (v2.1.0+) | 选 gemini 时可配 |
-| Grok 型号 | grok-4.5 | ✓ (v3.2.0+) | 选 grok 时可配，代码任务可选 grok-composer-2.5-fast |
+| Gemini 型号 | CLI 默认 | ✓ (v2.1.0+) | 选 gemini 时可显式固定 |
+| Grok 型号 | CLI 默认 | ✓ (v3.2.0+) | 选 grok 时可显式固定 |
 | 协作模式 | smart | ✗ | 最佳实践 |
 | 命令数量 | 17 core + 18 legacy | ✓ | core 默认安装；legacy 可选；Codex 插件提供 44 个入口 |
 
@@ -717,7 +728,7 @@ graph TD
     Init --> Agents["~/.claude/agents/ccg/<br/>7 个子智能体"]
     Init --> Skills["~/.claude/skills/ccg/<br/>100+ 技能文件"]
     Init --> Prompts["~/.claude/.ccg/prompts/<br/>36 个专家提示词"]
-    Init --> Binary["~/.claude/bin/<br/>codeagent-wrapper v5.12.11"]
+    Init --> Binary["~/.claude/bin/<br/>codeagent-wrapper v5.12.12"]
     Init --> MCP["~/.claude.json<br/>MCP 配置（可选）"]
 
     User2["Claude Code 用户"] --> SlashCmd["/ccg:workflow<br/>/ccg:frontend<br/>..."]

@@ -62,7 +62,7 @@ describe('Grok ACP event normalization', () => {
       .toThrow(/unobserved source|URL/i)
   })
 
-  it('rejects malformed, truncated, and uncorrelated required streams', async () => {
+  it('rejects malformed and truncated streams while preserving uncorrelated updates as diagnostics', async () => {
     expect(() => parseAcpJsonl('{not-json\n')).toThrow(/line 1|malformed/i)
 
     const webMessages = parseAcpJsonl(await readFixture('acp-web-success.jsonl'))
@@ -80,7 +80,9 @@ describe('Grok ACP event normalization', () => {
         },
       },
     }]
-    expect(() => normalizeAcpEvents(uncorrelated, { requireComplete: false })).toThrow(/uncorrelated/i)
+    const normalized = normalizeAcpEvents(uncorrelated, { requireComplete: false })
+    expect(normalized.searches).toEqual([])
+    expect(normalized.unknownEvents).toEqual(uncorrelated)
   })
 
   it('uses a correlated prompt response as completion when the optional xAI turn event is absent', async () => {

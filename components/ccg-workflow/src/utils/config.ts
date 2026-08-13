@@ -66,7 +66,7 @@ const DEFAULT_INTELLIGENCE_CONFIG: IntelligenceConfig = {
   auth_mode: 'browser_oauth',
   legacy_search_provider: 'grok-search-mcp',
   allow_provider_fallback: false,
-  default_model: 'grok-4.5',
+  default_model: '',
   deep_research_model: '',
   deep_research_enabled: false,
   live_checks_on_init: false,
@@ -207,7 +207,7 @@ export function normalizeIntelligenceConfig(
 
   return {
     ...DEFAULT_INTELLIGENCE_CONFIG,
-    default_model: stringField('default_model', DEFAULT_INTELLIGENCE_CONFIG.default_model),
+    default_model: stringField('default_model', DEFAULT_INTELLIGENCE_CONFIG.default_model, true),
     deep_research_model: deepResearchModel,
     deep_research_enabled: deepResearchEnabled,
     live_checks_on_init: booleanField('live_checks_on_init', DEFAULT_INTELLIGENCE_CONFIG.live_checks_on_init),

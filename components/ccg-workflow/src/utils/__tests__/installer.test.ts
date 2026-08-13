@@ -183,7 +183,7 @@ describe('Codex plugin unified role-routing parity', () => {
     expect(reviewCommand).not.toContain('ccg routing get review --json')
     expect(reviewCommand).toContain('Codex verifies findings')
     expect(reviewSkill).not.toContain('ccg routing get review --json')
-    expect(reviewSkill).toContain('frontend, backend, search')
+    expect(reviewSkill).toMatch(/frontend, backend, and any materially\s+useful search slice/)
     expect(reviewSkill).toContain('Codex verify every finding')
   })
 

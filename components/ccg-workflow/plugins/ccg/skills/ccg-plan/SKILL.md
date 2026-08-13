@@ -9,14 +9,14 @@ Before ordinary work, run the shared route once from the controller:
 
 `ccg route --workflow plan --phase intake --task-file ".ccg/tasks/<task-id>/intelligence-request.md" --state-file ".ccg/tasks/<task-id>/intelligence-route.json"`
 
-Append existing --plan, --diff, --target, and repeatable --dependency paths whenever those artifacts are available. Add `--semantic-mode contract|incident --semantic-reason "<Codex judgment>"` only for an explicit semantic decision. The runtime honors disabled config, persists the decision reason, and must be re-run after plan, dependency, target, diff, or phase digest changes. Stop ordinary work on exit code `2`, `3`, or `4`.
+Append existing --plan, --diff, --target, and repeatable --dependency paths whenever those artifacts are available. Add `--semantic-mode contract|incident --semantic-reason "<Codex judgment>"` only for an explicit semantic decision. The runtime honors disabled config, persists the decision reason, and must be re-run after plan, dependency, target, diff, or phase digest changes. Stop ordinary work on exit code `2`, `3`, or `4` only for an explicit required semantic route; advisory search failures do not block ordinary work.
 
 # CCG Plan
 
 Create decision-complete CCG plans for later `/ccg:execute`. Codex gathers
 context and writes the final plan under `.codex/ccg/plans/`. Planning is an
 internal phase of the applicable frontend, backend, and search roles. The
-shared **Companion Role Contract** makes search required whenever frontend or
+shared **Companion Role Contract** makes search advisory whenever frontend or
 backend participates and evaluates the product-manager authorization gate;
 configured providers supply bounded analysis when a real plan is created or
 revised.
@@ -51,17 +51,17 @@ Internal prompts to tools or providers may use English when that improves retrie
 ## Role-provider planning evidence gate
 
 For any real plan creation or plan revision, classify the task into frontend,
-backend, and search slices first. Resolve every required top-level role; using
-frontend or backend makes search required companion evidence and automatically
-evaluates the mapped product-manager authorization gate.
+backend, and any materially useful search slice first. Resolve every required
+top-level role; frontend or backend makes search advisory companion evidence
+and automatically evaluates the mapped product-manager authorization gate.
 Before writing or presenting a final plan:
 
 - when a selected role provider is `codex`, Codex may perform that role's
   planning analysis directly;
 - when an external role provider is selected, capture and read its non-empty
   response before writing the plan;
-- when a selected role provider is `gemini`, use the bundled preview helper with
-  `gemini-3.1-pro-preview` by default and record its preview URL and response
+- when a selected role provider is `gemini`, use the bundled preview helper
+  without `--model` unless the user configured an explicit pin, and record its preview URL and response
   file;
 - include Codex analysis, applicable role-provider analysis, and the final
   synthesis.
@@ -102,7 +102,7 @@ This gate does not apply to empty-input usage/help responses.
    - Classify the task as frontend, backend, search, or a combination and
      resolve those roles.
    - If a selected role uses `codex`, perform that role's analysis directly.
-   - If a selected role uses `gemini`, run the bundled helper from `../ccg-executor/scripts/invoke_gemini_preview.py` as a foreground command inside a tool-managed background job with `--approval-mode plan --prompt-template plan`, default model `gemini-3.1-pro-preview`, and no `--direct-workdir`. Do not pass `--detach`; monitor the background job until the helper exits and then read its non-empty response file.
+   - If a selected role uses `gemini`, run the bundled helper from `../ccg-executor/scripts/invoke_gemini_preview.py` as a foreground command inside a tool-managed background job with `--approval-mode plan --prompt-template plan` and no `--direct-workdir`. Omit `--model` unless explicitly configured. Do not pass `--detach`; monitor the background job until the helper exits and then read its non-empty response file.
    - For another external provider, run `ccg wrapper --backend <provider> --progress - "<workdir>"` for bounded analysis of that role's slice. Pass the prompt through stdin and do not add `--lite`.
    - Include the enhanced requirement, context evidence, and a request for concise analysis: alternative approaches, edge cases, UI/UX concerns when relevant, tests, risks, and recommended plan steps.
    - Make at most two total attempts for a failed external provider call, using
@@ -133,9 +133,9 @@ Use this Chinese Markdown structure:
 **生成者**：Codex CCG Planner
 **任务类型**：后端 / 前端 / 全栈 / 文档 / 重构
 **计划路径**：`.codex/ccg/plans/<file>.md`
-**职责 Providers**：`frontend=<provider>`、`backend=<provider>`、`search=<provider>`（frontend/backend 出现时 search 必填）
+**职责 Providers**：`frontend=<provider>`、`backend=<provider>`、`search=<provider|not_applicable>`
 **外部证据**：`<role=response-file-or-inline-codex>`
-**伴随状态**：`searchStatus=<invoked|failed|not_applicable>`（frontend/backend 出现时不得为 `not_applicable`）、`productManagerStatus=<authorization_required|authorized|declined|disabled|unavailable|completed|not_applicable>`
+**伴随状态**：`searchStatus=<invoked|failed|not_applicable>`（建议证据失败不阻塞本地结果）、`productManagerStatus=<authorization_required|authorized|declined|disabled|unavailable|completed|not_applicable>`
 **产品经理证据**：<未调用 / 已调用；证据标识>
 
 ## 1. 增强需求

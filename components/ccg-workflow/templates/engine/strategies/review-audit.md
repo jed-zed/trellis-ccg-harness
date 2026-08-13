@@ -6,7 +6,7 @@ For a pure local code review, use the diff, source, tests, CI, and local Provide
 
 `ccg route --workflow review --phase final-verify --task-file ".ccg/tasks/<task-id>/intelligence-request.md" --state-file ".ccg/tasks/<task-id>/intelligence-route.json"`
 
-For that external-fact path append `--trigger final_diff_verify`, repeated `--official-domain <domain>`, and the actual `--diff` plus any `--plan`, `--target`, and `--dependency` files. Choose the domain before Grok runs; never promote a returned domain. Stop ordinary work on exit code `2`, `3`, or `4`.
+For that external-fact path append `--trigger final_diff_verify`, repeated `--official-domain <domain>`, and the actual `--diff` plus any `--plan`, `--target`, and `--dependency` files. Choose the domain before Grok runs; never promote a returned domain. Stop ordinary work on exit code `2`, `3`, or `4` only for an explicit required semantic route; advisory search failures do not block ordinary work.
 
 For local Grok review, bind every regular workspace-relative file with
 `--grok-review-target`. The wrapper embeds only those files in a fresh,

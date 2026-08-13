@@ -57,6 +57,8 @@ class State:
         self.preview_session_id = f"gemini-preview-{int(time.time() * 1000)}"
         self.backend = "gemini"
         self.model = ""
+        self.requested_model = ""
+        self.actual_models: list[str] = []
         self.prompt_preview = ""
         self.session_id = ""
         self.content = ""
@@ -199,6 +201,8 @@ class State:
             return {
                 "backend": self.backend,
                 "model": self.model,
+                "requested_model": self.requested_model,
+                "actual_models": list(self.actual_models),
                 "prompt_preview": self.prompt_preview,
                 "preview_session_id": self.preview_session_id,
                 "session_id": self.session_id,
@@ -277,7 +281,7 @@ SNAPSHOT_EXCLUDE_SUMMARY = (
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run Gemini with browser preview")
-    parser.add_argument("--model", default=os.environ.get("GEMINI_MODEL", "gemini-3.1-pro-preview"))
+    parser.add_argument("--model", default=os.environ.get("GEMINI_MODEL", ""))
     parser.add_argument("--workdir", default=os.getcwd())
     parser.add_argument("--prompt", default="")
     parser.add_argument("--prompt-file", default="")
@@ -446,8 +450,6 @@ def detach(args: argparse.Namespace, prompt: str, output_path: Path) -> int:
         str(Path(__file__).resolve()),
         "--workdir",
         str(workdir_path),
-        "--model",
-        args.model,
         "--prompt-file",
         str(prompt_file),
         "--output-file",
@@ -470,6 +472,8 @@ def detach(args: argparse.Namespace, prompt: str, output_path: Path) -> int:
         str(preview_port),
         "--no-browser",
     ]
+    if args.model:
+        child_args.extend(["--model", args.model])
     if args.files_from:
         child_args.extend(["--files-from", str(resolve_cli_file(args.files_from))])
     if args.respect_gitignore:
@@ -757,14 +761,14 @@ def start_server(open_browser: bool, port: int = 0) -> tuple[ThreadingHTTPServer
 
 def build_command(args: argparse.Namespace, gemini_workdir: Path) -> list[str]:
     cmd = resolve_gemini_invocation() + [
-        "-m",
-        args.model,
         "--approval-mode",
         args.approval_mode,
         "--output-format",
         "stream-json",
         "--skip-trust",
     ]
+    if args.model:
+        cmd.extend(["-m", args.model])
     workdir = str(gemini_workdir.resolve())
     if workdir:
         cmd.extend(["--include-directories", workdir])
@@ -848,12 +852,29 @@ def safe_status_label(value: object, fallback: str) -> str:
     return (text[:120] if text else fallback)
 
 
-def validated_gemini_exit_code(process_code: int, result_seen: bool, result_status: str) -> int:
+def validated_gemini_exit_code(
+    process_code: int,
+    result_seen: bool,
+    result_status: str,
+    requested_model: str = "",
+    actual_models: list[str] | None = None,
+) -> int:
     if process_code != 0:
         return process_code
     if not result_seen or result_status.lower() not in {"success", "complete"}:
         return 1
+    if requested_model and (actual_models or []) != [requested_model]:
+        return 1
     return 0
+
+
+def extract_result_models(event: object) -> list[str]:
+    if not isinstance(event, dict) or not isinstance(event.get("stats"), dict):
+        return []
+    models = event["stats"].get("models")
+    if not isinstance(models, dict):
+        return []
+    return sorted({str(model).strip() for model in models if str(model).strip()})
 
 
 def stream_output(pipe, output_file, is_stderr: bool = False) -> None:
@@ -911,6 +932,7 @@ def stream_output(pipe, output_file, is_stderr: bool = False) -> None:
 
         if event_type == "result":
             status = str(event.get("status", "")).lower()
+            actual_models = extract_result_models(event)
             final_response = extract_event_text(event)
             if final_response:
                 if not assistant_text:
@@ -930,6 +952,14 @@ def stream_output(pipe, output_file, is_stderr: bool = False) -> None:
                 result_seen=True,
                 result_status=status,
                 status=status or "error",
+                actual_models=actual_models,
+                model=(
+                    actual_models[0]
+                    if len(actual_models) == 1
+                    else ",".join(actual_models)
+                    if actual_models
+                    else STATE.requested_model or "cli-default"
+                ),
             )
             STATE.add_event(f"Gemini result status: {status or 'missing'}")
             continue
@@ -1323,8 +1353,9 @@ def run_gemini(args: argparse.Namespace, prompt: str, output_path: Path, gemini_
     cmd = build_command(args, gemini_workdir)
     env = os.environ.copy()
     env.setdefault("GOOGLE_CLOUD_LOCATION", "global")
-    STATE.update(model=args.model, status="starting")
-    STATE.add_event(f"Launching Gemini model {args.model}")
+    requested_model = args.model or "cli-default"
+    STATE.update(model=requested_model, requested_model=args.model, status="starting")
+    STATE.add_event(f"Launching Gemini model {requested_model}")
 
     with output_path.open("w", encoding="utf-8", errors="replace") as out:
         out.write(f"$ {' '.join(cmd)}\n\n")
@@ -1371,6 +1402,8 @@ def run_gemini(args: argparse.Namespace, prompt: str, output_path: Path, gemini_
             int(code),
             bool(snapshot.get("result_seen")),
             str(snapshot.get("result_status", "")),
+            args.model,
+            list(snapshot.get("actual_models", [])),
         )
         if validated_code != int(code):
             STATE.add_event("Gemini stream missing a successful terminal result")
@@ -1380,9 +1413,10 @@ def run_gemini(args: argparse.Namespace, prompt: str, output_path: Path, gemini_
 def main() -> int:
     configure_utf8_stdio()
     args = parse_args()
+    args.model = args.model.strip()
     raw_prompt = get_prompt(args)
     prompt_preview = raw_prompt[:1200] + ("..." if len(raw_prompt) > 1200 else "")
-    STATE.update(model=args.model, prompt_preview=prompt_preview)
+    STATE.update(model=args.model or "cli-default", requested_model=args.model, prompt_preview=prompt_preview)
     auto_close = 0 if args.no_auto_close_browser else max(0, args.auto_close_browser_seconds)
     STATE.update(auto_close_browser_seconds=auto_close)
 
@@ -1416,6 +1450,7 @@ def main() -> int:
         close_event = "Preview will auto-close after completion" if auto_close > 0 else "Preview auto-close disabled"
         STATE.add_event(close_event)
         print(f"CCG_GEMINI_RESPONSE_FILE={response_path}", flush=True)
+        print(f"CCG_GEMINI_ACTUAL_MODELS={json.dumps(STATE.snapshot().get('actual_models', []))}", flush=True)
         print(f"CCG_GEMINI_EXIT_CODE={code}", flush=True)
         print("CCG_GEMINI_RESPONSE_BEGIN", flush=True)
         print(response, flush=True)

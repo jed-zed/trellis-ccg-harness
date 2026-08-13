@@ -52,10 +52,10 @@ function observedModelProvenance(notifications, requested) {
   if (sessionModels.size !== 1)
     throw new Error(`ACP model provenance must expose exactly one session model, observed ${sessionModels.size}`)
   const actual = [...sessionModels][0]
-  if (actual !== requested)
+  if (requested && actual !== requested)
     throw new Error(`ACP session model ${actual} does not match requested model ${requested}`)
   return {
-    requested,
+    requested: requested || null,
     actual,
     provenance: 'ACP session/update user_message_chunk _meta.modelId',
     usage_models: [...usageModels].sort(),
@@ -165,9 +165,11 @@ export async function runGrokIntelligence(options) {
       xSearchPolicy: options.config.x_search_policy || 'preferred',
       officialDomains: options.officialDomains || [],
     })
-    const selectedModel = String(options.model || options.config.default_model || 'grok-4.5').trim()
-    if (!selectedModel || /[\u0000-\u001f\u007f]/.test(selectedModel))
+    const selectedModel = String(options.model ?? options.config.default_model ?? '').trim()
+    if (/[\u0000-\u001f\u007f]/.test(selectedModel))
       throw new Error('Selected Grok model is invalid')
+    if (options.depth === 'deep' && !selectedModel)
+      throw new Error('Deep research requires an explicitly configured Grok model')
     const maxRetries = Math.min(2, Math.max(0, Number.isInteger(options.config.max_retries) ? options.config.max_retries : 2))
     let lastError
     while (attempts <= maxRetries) {
@@ -192,7 +194,7 @@ export async function runGrokIntelligence(options) {
           rawEventsMaxEvents: options.rawEventsMaxEvents ?? 20000,
           timeoutMs: options.timeoutMs ?? 10 * 60 * 1000,
           maxTurns: options.maxTurns ?? 6,
-          model: selectedModel,
+          ...(selectedModel ? { model: selectedModel } : {}),
           authMode: options.config.auth_mode,
           apiKey: options.config.auth_mode === 'api_key' ? options.apiKey : undefined,
           sourceEnv: options.sourceEnv || {},

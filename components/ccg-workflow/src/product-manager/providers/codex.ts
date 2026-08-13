@@ -2,7 +2,7 @@ import type { ProviderExecution } from '../provider-registry'
 import { validateProviderExecution } from '../provider-registry'
 
 export function createCodexProductManagerExecution(executable: string, options: {
-  model: string
+  model?: string
   workspace: string
   schemaFile: string
 }): ProviderExecution {
@@ -14,8 +14,7 @@ export function createCodexProductManagerExecution(executable: string, options: 
       '--skip-git-repo-check',
       '--output-schema',
       options.schemaFile,
-      '--model',
-      options.model,
+      ...(options.model ? ['--model', options.model] : []),
       '--cd',
       options.workspace,
       '-',

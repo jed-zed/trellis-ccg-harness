@@ -24,16 +24,11 @@ export const INTELLIGENCE_ENV_ALLOWLIST = Object.freeze([
   'GROK_DISABLE_AUTOUPDATER',
 ])
 
-export const FORCED_GROK_ENV = Object.freeze({
-  GROK_DISABLE_AUTOUPDATER: '1',
-})
-
 const OVERRIDDEN_NAMES = new Set([
   'HOME',
   'USERPROFILE',
   'GROK_HOME',
   'XAI_API_KEY',
-  ...Object.keys(FORCED_GROK_ENV),
 ])
 
 function readEnvironmentValue(sourceEnv, name, platform) {
@@ -75,7 +70,6 @@ export function buildExactGrokEnvironment({
   environment.HOME = safeNeutralHome
   environment.USERPROFILE = safeNeutralHome
   environment.GROK_HOME = safeGrokHome
-  Object.assign(environment, FORCED_GROK_ENV)
 
   if (apiKey != null) {
     if (typeof apiKey !== 'string' || apiKey.trim().length === 0 || /[\r\n\0]/.test(apiKey))

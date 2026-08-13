@@ -269,7 +269,7 @@ and `pi`; search supports `codex` and `grok`; product-manager supports `codex`,
 Claude/Antigravity/Grok/Pi runs; the direct command also accepts ordinary Codex
 and Gemini wrapper backends but never changes role routing. It
 leaves the browser Web UI enabled unless `--lite` is explicit. Frontend or
-backend work also adds required search evidence and evaluates the
+backend work evaluates advisory search evidence and the
 product-manager authorization gate at the next applicable checkpoint; every
 Provider call still requires explicit per-call approval. Codex remains the final
 real-workspace writer and verifier.
@@ -384,4 +384,4 @@ MIT
 
 ---
 
-v3.4.12 | [Issues](https://github.com/jed-zed/ccg-gptpro-worflow/issues) | [Contributing](./CONTRIBUTING.md)
+v3.4.14 | [Issues](https://github.com/jed-zed/ccg-gptpro-worflow/issues) | [Contributing](./CONTRIBUTING.md)

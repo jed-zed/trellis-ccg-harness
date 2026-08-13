@@ -492,18 +492,17 @@ async function configModelRouting(): Promise<void> {
     default: currentProvider,
   }])
 
-  let geminiModel = config.routing.geminiModel || 'gemini-3.1-pro-preview'
+  let geminiModel = config.routing.geminiModel || ''
   if (selectedProvider === 'gemini') {
     const { selectedGeminiModel } = await inquirer.prompt([{
       type: 'list',
       name: 'selectedGeminiModel',
       message: i18n.t('init:model.selectGeminiModel'),
       choices: [
-        { name: `gemini-3.1-pro-preview ${ansis.green(`(${i18n.t('init:model.recommended')})`)}`, value: 'gemini-3.1-pro-preview' },
-        { name: 'gemini-2.5-flash', value: 'gemini-2.5-flash' },
+        { name: `Gemini CLI default ${ansis.green(`(${i18n.t('init:model.recommended')})`)}`, value: '' },
         { name: `${i18n.t('init:model.custom')}`, value: 'custom' },
       ],
-      default: geminiModel,
+      default: geminiModel ? 'custom' : '',
     }])
 
     if (selectedGeminiModel === 'custom') {
@@ -511,6 +510,7 @@ async function configModelRouting(): Promise<void> {
         type: 'input',
         name: 'customModel',
         message: i18n.t('init:model.enterCustomModel'),
+        default: geminiModel,
         validate: (v: string) => v.trim() !== '' || i18n.t('init:model.enterCustomModel'),
       }])
       geminiModel = customModel.trim()
@@ -520,18 +520,17 @@ async function configModelRouting(): Promise<void> {
     }
   }
 
-  let grokModel = config.routing.grokModel || 'grok-4.5'
+  let grokModel = config.routing.grokModel || ''
   if (selectedProvider === 'grok') {
     const { selectedGrokModel } = await inquirer.prompt([{
       type: 'list',
       name: 'selectedGrokModel',
       message: i18n.t('init:model.selectGrokModel'),
       choices: [
-        { name: `grok-4.5 ${ansis.green(`(${i18n.t('init:model.recommended')})`)}`, value: 'grok-4.5' },
-        { name: 'grok-composer-2.5-fast', value: 'grok-composer-2.5-fast' },
+        { name: `Grok CLI default ${ansis.green(`(${i18n.t('init:model.recommended')})`)}`, value: '' },
         { name: `${i18n.t('init:model.custom')}`, value: 'custom' },
       ],
-      default: grokModel,
+      default: grokModel ? 'custom' : '',
     }])
 
     if (selectedGrokModel === 'custom') {
@@ -539,6 +538,7 @@ async function configModelRouting(): Promise<void> {
         type: 'input',
         name: 'customModel',
         message: i18n.t('init:model.enterCustomModel'),
+        default: grokModel,
         validate: (v: string) => v.trim() !== '' || i18n.t('init:model.enterCustomModel'),
       }])
       grokModel = customModel.trim()
@@ -550,8 +550,8 @@ async function configModelRouting(): Promise<void> {
 
   if (
     selectedProvider === currentProvider
-    && geminiModel === (config.routing.geminiModel || 'gemini-3.1-pro-preview')
-    && grokModel === (config.routing.grokModel || 'grok-4.5')
+    && geminiModel === (config.routing.geminiModel || '')
+    && grokModel === (config.routing.grokModel || '')
   ) {
     console.log(ansis.gray(`  ${i18n.t('common:configNotModified')}`))
     return

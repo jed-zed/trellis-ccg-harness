@@ -87,7 +87,7 @@ The router runs before every supported workflow and returns an auditable decisio
 ```json
 {
   "enabled": true,
-  "requirement": "required",
+  "requirement": "preferred",
   "mode": "contract",
   "trigger": "dependency_upgrade",
   "reason": "The change depends on current SDK behavior and deprecation status",
@@ -96,7 +96,7 @@ The router runs before every supported workflow and returns an auditable decisio
 }
 ```
 
-The router combines deterministic hard-trigger rules with Codex semantic judgment for ambiguous cases. An enabled or skipped decision must always include a reason.
+The router combines deterministic advisory trigger rules with Codex semantic judgment for explicit required cases. An enabled or skipped decision must always include a reason.
 
 ### 6.2 Grok Intelligence Runner
 
@@ -201,7 +201,7 @@ transport = "acp"
 auth_mode = "browser_oauth"
 legacy_search_provider = "grok-search-mcp"
 allow_provider_fallback = false
-default_model = "grok-4.5"
+default_model = ""
 deep_research_model = ""
 deep_research_enabled = false
 live_checks_on_init = false
@@ -216,6 +216,8 @@ x_search_policy = "preferred"
 ```
 
 Old configurations and non-interactive installs without `--intelligence` remain disabled. Interactive init presents a disclosure covering the focused task/snapshot sent, Web/X use, cost, artifacts, browser login, private credential home, and fail-closed behavior. `--no-intelligence` explicitly opts out. Init performs no login and no paid live smoke.
+
+An empty normal `default_model` omits `--model` and follows the Grok CLI's current default. ACP must still report exactly one actual session model, which is recorded in evidence and manifests. A non-empty configured model is passed explicitly and must exactly match that actual model. Enabled deep research remains explicitly model-bound.
 
 `x_search_policy` is `required`, `preferred`, or `disabled`. Incident mode may elevate `preferred` to required; landscape leaves it preferred; `disabled` is never elevated. X-only evidence can never create a blocker because X is a discovery radar, not independent final authority.
 
@@ -406,7 +408,7 @@ Evidence expires immediately when the plan, diff, lockfile, dependency target, e
 5. complete an ACP handshake and empty-MCP session preflight without sending a model prompt;
 6. report full, degraded, or unavailable capability status with a concrete remediation.
 
-`/ccg:doctor --grok-live` is the separate, explicit, bounded paid Web/X smoke and source-event validation. Automated runs use `--no-auto-update`. Missing installation produces official platform guidance. Browser OAuth is the local default; API-key authentication is accepted only when explicitly configured.
+`/ccg:doctor --grok-live` is the separate, explicit, bounded paid Web/X smoke and source-event validation. Automated runs keep the installed CLI's native auto-update behavior. Missing installation produces official platform guidance. Browser OAuth is the local default; API-key authentication is accepted only when explicitly configured.
 
 ## 16. Security and Privacy
 

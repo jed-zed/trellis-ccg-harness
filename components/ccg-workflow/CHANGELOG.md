@@ -9,6 +9,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.4.14] - 2026-08-13
+
+### Fixed
+
+- **Grok cache-lock recovery** — Reclaim confirmed dead owners without vacating
+  the canonical lock path, and preserve live replacements while third contenders
+  remain excluded.
+
+### Changed
+
+- **Provider-native model defaults** — Omit Gemini and Grok model arguments when
+  unconfigured, retain actual Provider identity when available, and keep the
+  intentional product-manager Claude `opus` pin.
+- **Advisory companion search** — Frontend/backend work no longer blocks on
+  optional external search; explicitly required semantic evidence remains
+  fail-closed.
+
+## [3.4.13] - 2026-08-12
+
+### Changed
+
+- **Grok CLI updates** — Keep native auto-update behavior for Grok diagnostics,
+  external-intelligence ACP sessions, and bound local review instead of freezing
+  each machine at its previously installed CLI version.
+- **Grok result receipts** — Preserve complete terminal responses as
+  `received_unverified` when a search update has no recognized start event;
+  retain the update as diagnostics without promoting its sources.
+
 ## [3.4.12] - 2026-08-10
 
 ### Added

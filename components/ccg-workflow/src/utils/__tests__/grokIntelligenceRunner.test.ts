@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 // @ts-expect-error Runtime template modules intentionally ship as plain ESM.
-import { buildExactGrokEnvironment, FORCED_GROK_ENV } from '../../../templates/engine/tools/grok-intelligence/lib/exact-env.mjs'
+import { buildExactGrokEnvironment } from '../../../templates/engine/tools/grok-intelligence/lib/exact-env.mjs'
 // @ts-expect-error Runtime template modules intentionally ship as plain ESM.
 import { createPrivateRunRoots, removePrivateRunRoot, securePrivateDirectory } from '../../../templates/engine/tools/grok-intelligence/lib/private-temp.mjs'
 // @ts-expect-error Runtime template modules intentionally ship as plain ESM.
@@ -15,11 +15,11 @@ import { pathsShareIdentity } from '../../../templates/engine/tools/grok-intelli
 // @ts-expect-error Runtime template modules intentionally ship as plain ESM.
 import { runGrokIntelligence } from '../../../templates/engine/tools/grok-intelligence/runner.mjs'
 
-function searchNotifications(url = 'https://docs.x.ai/build/cli/reference', finalText?: string) {
+function searchNotifications(url = 'https://docs.x.ai/build/cli/reference', finalText?: string, model = 'grok-4.5') {
   return [
     {
       method: 'session/update',
-      params: { update: { sessionUpdate: 'user_message_chunk', content: { text: 'Verify.' }, _meta: { modelId: 'grok-4.5' } } },
+      params: { update: { sessionUpdate: 'user_message_chunk', content: { text: 'Verify.' }, _meta: { modelId: model } } },
     },
     {
       method: 'session/update',
@@ -35,7 +35,7 @@ function searchNotifications(url = 'https://docs.x.ai/build/cli/reference', fina
     },
     {
       method: 'session/update',
-      params: { update: { sessionUpdate: 'turn_completed', stop_reason: 'end_turn', usage: { modelUsage: { 'grok-4.5-build': { modelCalls: 1 } } } } },
+      params: { update: { sessionUpdate: 'turn_completed', stop_reason: 'end_turn', usage: { modelUsage: { [`${model}-build`]: { modelCalls: 1 } } } } },
     },
   ]
 }
@@ -287,8 +287,8 @@ describe('private roots and diagnostics', () => {
       },
     })
     expect(calls.map(call => call.args.slice(-2).join(' '))).toEqual([
-      '--no-auto-update version',
-      '--no-auto-update models',
+      'version',
+      'models',
       'inspect --json',
     ])
     expect(calls.every(call => call.env === env)).toBe(true)
@@ -388,6 +388,19 @@ describe('isolated Grok runner lifecycle', () => {
     expect(await runGrokIntelligence(baseOptions({ requirement: 'preferred', runAcp: rateLimited }))).toMatchObject({ exitCode: 0, status: 'invocation_failed' })
   })
 
+  it('returns a complete response as received_unverified when a search update has no recognized start', async () => {
+    const notifications = searchNotifications()
+      .filter((message: any) => message.params?.update?.sessionUpdate !== 'tool_call')
+    const result = await runGrokIntelligence(baseOptions({
+      runAcp: async () => ({ notifications }),
+    }))
+    expect(result).toMatchObject({ exitCode: 0, status: 'received_unverified' })
+    expect(result.evidence.normalized.finalText).toContain('Evidence collected.')
+    expect(result.evidence.normalized.unknownEvents).toHaveLength(1)
+    expect(result.evidence.registry.sources).toEqual([])
+    expect(result.evidence.validation.qualifying_claims).toEqual([])
+  })
+
   it('orders diagnostics before ACP, sends an exact env, and returns validated evidence', async () => {
     const order: string[] = []
     let seenAcpOptions: any
@@ -396,7 +409,7 @@ describe('isolated Grok runner lifecycle', () => {
       runDiagnostics: async ({ env }: any) => {
         order.push('diagnostics')
         expect(env.USER_SECRET).toBeUndefined()
-        expect(env).toMatchObject(FORCED_GROK_ENV)
+        expect(env.GROK_DISABLE_AUTOUPDATER).toBeUndefined()
         return {}
       },
       runAcp: async (options: any) => {
@@ -412,9 +425,10 @@ describe('isolated Grok runner lifecycle', () => {
     expect(seenAcpOptions.prompt).toContain('only when it is useful')
     expect(seenAcpOptions.prompt).toContain('Predeclared official domains: docs.x.ai')
     expect(seenAcpOptions.prompt).toContain('provider-native tools')
+    expect(seenAcpOptions).not.toHaveProperty('model')
     expect(result).toMatchObject({ exitCode: 0, status: 'verified' })
     expect(result.evidence.model).toEqual({
-      requested: 'grok-4.5',
+      requested: null,
       actual: 'grok-4.5',
       provenance: 'ACP session/update user_message_chunk _meta.modelId',
       usage_models: ['grok-4.5-build'],
@@ -424,6 +438,21 @@ describe('isolated Grok runner lifecycle', () => {
     expect(result.evidence.registry.sources[0].canonical_url).toBe('https://docs.x.ai/build/cli/reference')
     expect(JSON.stringify(result.raw)).not.toContain('USER_SECRET')
     await expect(stat(result.runRoot)).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('strictly rejects an ACP model mismatch only when a model was explicitly configured', async () => {
+    const result = await runGrokIntelligence(baseOptions({
+      config: {
+        ...baseOptions().config,
+        default_model: 'grok-4.5',
+      },
+      runAcp: async () => ({ notifications: searchNotifications(undefined, undefined, 'grok-4.6') }),
+    }))
+    expect(result).toMatchObject({
+      exitCode: 2,
+      status: 'invocation_failed',
+      reason: 'ACP session model grok-4.6 does not match requested model grok-4.5',
+    })
   })
 
   it('keeps a required verify response when its claims remain unresolved', async () => {

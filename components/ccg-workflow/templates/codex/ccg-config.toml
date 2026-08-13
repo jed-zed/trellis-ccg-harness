@@ -1,5 +1,5 @@
 [general]
-version = "3.4.12"
+version = "3.4.14"
 language = "zh-CN"
 
 [routing]
@@ -33,7 +33,7 @@ transport = "acp"
 auth_mode = "browser_oauth"
 legacy_search_provider = "grok-search-mcp"
 allow_provider_fallback = false
-default_model = "grok-4.5"
+default_model = ""
 deep_research_model = ""
 deep_research_enabled = false
 live_checks_on_init = false

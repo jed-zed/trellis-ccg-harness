@@ -327,7 +327,7 @@
 | `{{FRONTEND_MODELS}}` | `["gemini"]` | 前端模型列表（JSON 数组） |
 | `{{BACKEND_MODELS}}` | `["codex"]` | 后端模型列表（JSON 数组） |
 | `{{REVIEW_MODELS}}` | `["codex","gemini"]` | 审查模型列表（JSON 数组） |
-| `{{GEMINI_MODEL_FLAG}}` | `--gemini-model gemini-3.1-pro-preview ` | 使用 gemini 时传给 wrapper，否则为空字符串（v2.1.14 修复：安装时替换，不留到运行时） |
+| `{{GEMINI_MODEL_FLAG}}` | `--gemini-model <configured-model> ` | 使用 gemini 且显式配置型号时传给 wrapper，否则为空字符串 |
 | `{{LITE_MODE_FLAG}}` | `""` | 轻量模式时为 `--lite `，影响 codeagent-wrapper 行为 |
 | `{{MCP_SEARCH_TOOL}}` | `mcp__ace-tool__search_context` | MCP provider 注册表驱动，支持 ace-tool/contextweaver/fast-context/skip |
 

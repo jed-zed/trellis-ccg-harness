@@ -9,7 +9,7 @@ Before ordinary work, run the shared route once from the controller:
 
 `ccg route --workflow spec-research --phase spec-intake --task-file ".ccg/tasks/<task-id>/intelligence-request.md" --state-file ".ccg/tasks/<task-id>/intelligence-route.json"`
 
-Bind the proposal as --dependency, the selected artifact as --target, and any available plan/diff so Spec evidence is invalidated by real artifact changes. Add `--semantic-mode contract|incident --semantic-reason "<Codex judgment>"` only for an explicit semantic decision. The runtime honors disabled config, persists the decision reason, and must be re-run after plan, dependency, target, diff, or phase digest changes. Stop ordinary work on exit code `2`, `3`, or `4`.
+Bind the proposal as --dependency, the selected artifact as --target, and any available plan/diff so Spec evidence is invalidated by real artifact changes. Add `--semantic-mode contract|incident --semantic-reason "<Codex judgment>"` only for an explicit semantic decision. The runtime honors disabled config, persists the decision reason, and must be re-run after plan, dependency, target, diff, or phase digest changes. Stop ordinary work on exit code `2`, `3`, or `4` only for an explicit required semantic route; advisory search failures do not block ordinary work.
 
 # CCG Spec Research
 
@@ -29,5 +29,5 @@ Turn fuzzy requirements into research and constraints under `.codex/ccg/specs/<n
 - If validation fails, report the blocking sections in Chinese instead of pretending the spec is ready.
 
 Follow the shared **Companion Role Contract** for the read-only second view:
-frontend or backend makes search required and evaluates the mapped
+frontend or backend evaluates advisory search and the mapped
 product-manager gate. Codex writes the final Chinese constraints.

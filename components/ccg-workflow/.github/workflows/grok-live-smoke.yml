@@ -56,19 +56,24 @@ jobs:
           allow_provider_fallback = false
           require_web_search = true
           x_search_policy = "required"
-          default_model = "grok-4.5"
+          default_model = ""
           retention_days = 7
           exported_retention_days = 30
           max_bundle_bytes = 16777216
           cleanup_credential_artifacts = true
           '@ | Set-Content -LiteralPath (Join-Path $ccgDir 'config.toml') -Encoding utf8
 
+      - name: Run the prompt-free real Grok ACP handshake
+        shell: pwsh
+        env:
+          XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
+        run: pnpm exec tsx src/cli.ts doctor --grok
+
       - name: Run the explicit paid Web and X smoke
         shell: pwsh
         env:
           XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
         run: |
-          pnpm exec tsx src/cli.ts doctor --grok
           $raw = node templates/engine/tools/grok-intelligence/manage.mjs doctor --live --json
           $result = $raw | ConvertFrom-Json
           if (-not $result.ok -or -not $result.paidModelPromptSent) {
@@ -83,8 +88,8 @@ jobs:
           if ($result.live.packageStatus -ne 'valid' -or $result.live.verificationOutcome -notin @('verified', 'partially_verified')) {
             throw 'Grok live doctor did not produce a valid, qualifying verification outcome.'
           }
-          if ([string]::IsNullOrWhiteSpace($result.live.actualModel) -or $result.live.actualModel -ne $result.live.requestedModel) {
-            throw 'Grok live doctor did not prove the requested model was the actual ACP session model.'
+          if ([string]::IsNullOrWhiteSpace($result.live.actualModel) -or (-not [string]::IsNullOrWhiteSpace($result.live.requestedModel) -and $result.live.actualModel -ne $result.live.requestedModel)) {
+            throw 'Grok live doctor did not report the actual ACP session model or honor an explicit model request.'
           }
           if ($result.live.claimCount -lt 1 -or $result.live.qualifyingClaimCount -lt 1) {
             throw 'Grok live doctor did not produce a qualifying claim envelope.'
@@ -133,8 +138,8 @@ jobs:
           if ($manifest.search_counts.web -lt 1 -or $manifest.search_counts.x -lt 1) {
             throw 'Final route did not bind both Web and X search counts.'
           }
-          if ([string]::IsNullOrWhiteSpace($evidence.evidence.model.actual) -or $evidence.evidence.model.actual -ne $evidence.evidence.model.requested -or $manifest.model -ne $evidence.evidence.model.actual) {
-            throw 'Final route did not prove the requested model was the actual ACP session model.'
+          if ([string]::IsNullOrWhiteSpace($evidence.evidence.model.actual) -or (-not [string]::IsNullOrWhiteSpace($evidence.evidence.model.requested) -and $evidence.evidence.model.actual -ne $evidence.evidence.model.requested) -or $manifest.model -ne $evidence.evidence.model.actual) {
+            throw 'Final route did not record the actual ACP session model or honor an explicit model request.'
           }
           if (@($evidence.evidence.validation.qualifying_claims).Count -lt 1) {
             throw 'Final route did not produce an applicable qualifying claim.'

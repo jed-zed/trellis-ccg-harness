@@ -9,7 +9,7 @@
     {
       "name": "ccg",
       "description": "Codex-native CCG workflow with unified role-to-provider routing, an optional snapshot-bound product-manager Provider using local or explicit SSH transport, opt-in external intelligence, spec, team, and quality gates.",
-      "version": "3.4.12",
+      "version": "3.4.14",
       "source": "./plugins/ccg",
       "author": {
         "name": "jed-zed",

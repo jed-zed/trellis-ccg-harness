@@ -76,6 +76,19 @@ describe('product-manager provider policy', () => {
     expect(claude.args).not.toContain('--fallback-model')
   })
 
+  it('uses Provider CLI defaults unless Codex or Gemini is explicitly pinned', () => {
+    const workspace = resolve('fixtures', 'empty')
+    const codex = createCodexProductManagerExecution(resolve('fixtures', 'codex'), {
+      workspace,
+      schemaFile: resolve(workspace, 'schema.json'),
+    })
+    const gemini = createGeminiProductManagerExecution(resolve('fixtures', 'node'), {
+      entrypoint: resolve('fixtures', 'gemini.js'),
+    })
+    expect(codex.args).not.toContain('--model')
+    expect(gemini.args).not.toContain('--model')
+  })
+
   it('passes only provider-specific configuration roots and never arbitrary secrets', () => {
     const codexHome = resolve('fixtures', 'codex-home')
     const geminiHome = resolve('fixtures', 'gemini-home')

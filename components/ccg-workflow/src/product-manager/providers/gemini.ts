@@ -3,7 +3,7 @@ import { validateProviderExecution } from '../provider-registry'
 
 export function createGeminiProductManagerExecution(nodeExecutable: string, options: {
   entrypoint: string
-  model: string
+  model?: string
 }): ProviderExecution {
   return validateProviderExecution({
     executable: nodeExecutable,
@@ -12,8 +12,7 @@ export function createGeminiProductManagerExecution(nodeExecutable: string, opti
       '-y',
       '--output-format',
       'json',
-      '--model',
-      options.model,
+      ...(options.model ? ['--model', options.model] : []),
       '--prompt',
       'Read the complete product-manager request from stdin and return only the requested JSON object.',
     ],

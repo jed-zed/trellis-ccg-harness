@@ -24,7 +24,7 @@ function statePath(repoRoot: string, id: string) {
   return join(repoRoot, '.codex', 'ccg', id, 'status.json')
 }
 
-function validRunnerResult(repoRoot: string, mode = 'contract', action = 'intel', depth = 'normal', effectiveXPolicy = 'preferred', bindings: any[] = [], officialDomains: string[] = []) {
+function validRunnerResult(repoRoot: string, mode = 'contract', action = 'intel', depth = 'normal', effectiveXPolicy = 'preferred', bindings: any[] = [], officialDomains: string[] = [], requirement = 'required') {
   const evidenceId = `workflow-evidence-${++evidenceCounter}`
   const bundleDir = join(repoRoot, '.codex', 'ccg', 'intelligence', evidenceId)
   fs.ensureDirSync(bundleDir)
@@ -37,7 +37,7 @@ function validRunnerResult(repoRoot: string, mode = 'contract', action = 'intel'
   const artifact = `${JSON.stringify({
     schemaVersion: 2,
     decision: {
-      requirement: 'required',
+      requirement,
       status: 'verified',
       action,
       investigation_mode: mode,
@@ -84,7 +84,7 @@ function validRunnerResult(repoRoot: string, mode = 'contract', action = 'intel'
     action,
     investigation_mode: mode,
     depth,
-    requirement: 'required',
+    requirement,
     effective_x_policy: effectiveXPolicy,
     cli_version: 'grok 0.2.106',
     prompt_sha256: 'a'.repeat(64),
@@ -132,8 +132,8 @@ function validRunnerResultForRequest(repoRoot: string, request: any) {
   })
   const mode = request.options.mode || 'contract'
   const configuredX = request.options.config.x_search_policy || 'preferred'
-  const effectiveX = configuredX === 'disabled' ? 'disabled' : configuredX === 'required' || mode === 'incident' ? 'required' : 'preferred'
-  return validRunnerResult(repoRoot, mode, request.action, request.options.depth || 'normal', effectiveX, bindings, request.options.officialDomains || [])
+  const effectiveX = configuredX === 'disabled' ? 'disabled' : configuredX === 'required' ? 'required' : 'preferred'
+  return validRunnerResult(repoRoot, mode, request.action, request.options.depth || 'normal', effectiveX, bindings, request.options.officialDomains || [], request.options.requirement || 'required')
 }
 
 describe('Grok workflow routing behavior', () => {
@@ -276,7 +276,7 @@ describe('Grok workflow routing behavior', () => {
       config: { enabled: true, auto_route: true, require_web_search: true, x_search_policy: 'disabled' },
       workflow: 'spec-plan',
       phase: 'spec-plan',
-      task: 'Plan an SDK API compatibility upgrade.',
+      task: 'Plan a current SDK API compatibility upgrade.',
       plan,
       target,
       dependencies: [proposal],

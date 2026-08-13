@@ -267,8 +267,8 @@ export async function init(options: InitOptions = {}): Promise<InitResult> {
   let backendModels: ModelType[] = ['codex']
   let searchModels: ModelType[] = ['grok']
   let inheritedRouting = createDefaultRouting()
-  let geminiModel = 'gemini-3.1-pro-preview'
-  let grokModel = 'grok-4.5'
+  let geminiModel = ''
+  let grokModel = ''
   const mode: CollaborationMode = 'smart'
   let selectedWorkflows = getCoreCommandIds()
   let _installMode: 'v3' | 'legacy' = 'v3'
@@ -283,8 +283,8 @@ export async function init(options: InitOptions = {}): Promise<InitResult> {
       frontendModels = existingConfig.routing.frontend?.models || ['gemini']
       backendModels = existingConfig.routing.backend?.models || ['codex']
       searchModels = existingConfig.routing.search?.models || ['grok']
-      geminiModel = existingConfig.routing.geminiModel || 'gemini-3.1-pro-preview'
-      grokModel = existingConfig.routing.grokModel || 'grok-4.5'
+      geminiModel = existingConfig.routing.geminiModel || ''
+      grokModel = existingConfig.routing.grokModel || ''
     }
     frontendModels = parseModelOption(options.frontend, frontendModels, '--frontend')
     backendModels = parseModelOption(options.backend, backendModels, '--backend')
@@ -507,11 +507,10 @@ export async function init(options: InitOptions = {}): Promise<InitResult> {
           name: 'selectedGeminiModel',
           message: i18n.t('init:model.selectGeminiModel'),
           choices: [
-            { name: `gemini-3.1-pro-preview ${ansis.green(`(${i18n.t('init:model.recommended')})`)}`, value: 'gemini-3.1-pro-preview' },
-            { name: 'gemini-2.5-flash', value: 'gemini-2.5-flash' },
+            { name: `Gemini CLI default ${ansis.green(`(${i18n.t('init:model.recommended')})`)}`, value: '' },
             { name: `${i18n.t('init:model.custom')}`, value: 'custom' },
           ],
-          default: geminiModel || 'gemini-3.1-pro-preview',
+          default: geminiModel ? 'custom' : '',
         }])
 
         if (selectedGeminiModel === 'custom') {
@@ -535,11 +534,10 @@ export async function init(options: InitOptions = {}): Promise<InitResult> {
           name: 'selectedGrokModel',
           message: i18n.t('init:model.selectGrokModel'),
           choices: [
-            { name: `grok-4.5 ${ansis.green(`(${i18n.t('init:model.recommended')})`)} ${ansis.gray('— 500k context')}`, value: 'grok-4.5' },
-            { name: `grok-composer-2.5-fast ${ansis.gray('— Cursor Composer, fast coding')}`, value: 'grok-composer-2.5-fast' },
+            { name: `Grok CLI default ${ansis.green(`(${i18n.t('init:model.recommended')})`)}`, value: '' },
             { name: `${i18n.t('init:model.custom')}`, value: 'custom' },
           ],
-          default: grokModel || 'grok-4.5',
+          default: grokModel ? 'custom' : '',
         }])
 
         if (selectedGrokModel === 'custom') {
@@ -858,10 +856,10 @@ export async function init(options: InitOptions = {}): Promise<InitResult> {
       console.log(`  ${ansis.cyan(i18n.t('init:summary.apiProvider'))}  ${apiLabel}`)
       console.log(`  ${ansis.cyan(i18n.t('init:summary.modelRouting'))}  ${ansis.green(fmName)} (Frontend) + ${ansis.blue(bmName)} (Backend) + ${ansis.magenta(smName)} (Search)`)
       if ([frontendModels[0], backendModels[0], searchModels[0]].includes('gemini')) {
-        console.log(`  ${ansis.cyan(i18n.t('init:summary.geminiModel'))}   ${ansis.gray(geminiModel)}`)
+        console.log(`  ${ansis.cyan(i18n.t('init:summary.geminiModel'))}   ${ansis.gray(geminiModel || 'CLI default')}`)
       }
       if ([frontendModels[0], backendModels[0], searchModels[0]].includes('grok')) {
-        console.log(`  ${ansis.cyan(i18n.t('init:summary.grokModel'))}   ${ansis.gray(grokModel)}`)
+        console.log(`  ${ansis.cyan(i18n.t('init:summary.grokModel'))}   ${ansis.gray(grokModel || 'CLI default')}`)
       }
       console.log(`  ${ansis.cyan(i18n.t('init:summary.commandCount'))}  ${ansis.yellow(workflowsCount.toString())}`)
       const mcpSummary = (() => {

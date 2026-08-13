@@ -29,7 +29,7 @@ function statePath(id: string) {
 function validRunnerResult(
   mode = 'contract',
   createdAt = new Date().toISOString(),
-  model = 'grok-4.5',
+  model = 'grok-cli-default',
   artifactRoot = '.codex/ccg/intelligence',
   action = 'intel',
   depth = 'normal',
@@ -37,6 +37,8 @@ function validRunnerResult(
   bindings: any[] = [],
   officialDomains: string[] = [],
   bundleRoot = root,
+  requestedModel: string | null = model,
+  requirement = 'required',
 ) {
   const evidenceId = `route-evidence-${++evidenceCounter}`
   const bundleDir = join(bundleRoot, ...artifactRoot.split('/'), evidenceId)
@@ -48,7 +50,7 @@ function validRunnerResult(
   const artifact = `${JSON.stringify({
     schemaVersion: 2,
     decision: {
-      requirement: 'required',
+      requirement,
       status: 'verified',
       action,
       investigation_mode: mode,
@@ -60,7 +62,7 @@ function validRunnerResult(
       created_at: createdAt,
     },
     evidence: {
-      model: { requested: model, actual: model, provenance: 'grok agent --model' },
+      model: { requested: requestedModel, actual: model, provenance: 'ACP session model' },
       action,
       investigation_mode: mode,
       depth,
@@ -95,7 +97,7 @@ function validRunnerResult(
     action,
     investigation_mode: mode,
     depth,
-    requirement: 'required',
+    requirement,
     effective_x_policy: effectiveXPolicy,
     cli_version: 'grok 0.2.106',
     prompt_sha256: 'a'.repeat(64),
@@ -148,12 +150,13 @@ function validRunnerResultForRequest(request: any, overrides: { createdAt?: stri
   const mode = request.options.mode || 'contract'
   const configuredX = request.options.config.x_search_policy || 'preferred'
   const effectiveX = configuredX === 'disabled' ? 'disabled' : configuredX === 'required' || mode === 'incident' ? 'required' : 'preferred'
+  const requestedModel = String(request.options.depth === 'deep'
+    ? request.options.config.deep_research_model
+    : (request.options.config.default_model || '')).trim()
   return validRunnerResult(
     mode,
     overrides.createdAt || new Date().toISOString(),
-    overrides.model || String(request.options.depth === 'deep'
-      ? request.options.config.deep_research_model
-      : (request.options.config.default_model || 'grok-4.5')),
+    overrides.model || requestedModel || 'grok-cli-default',
     overrides.artifactRoot || String(request.options.config.artifact_root || '.codex/ccg/intelligence'),
     request.action,
     request.options.depth || 'normal',
@@ -161,6 +164,8 @@ function validRunnerResultForRequest(request: any, overrides: { createdAt?: stri
     bindings,
     request.options.officialDomains || [],
     request.repoRoot,
+    requestedModel || null,
+    request.options.requirement,
   )
 }
 
@@ -208,7 +213,7 @@ describe('Grok automatic intelligence routing', () => {
       exitCode: 0,
       invoked: true,
       decision: {
-        requirement: 'required',
+        requirement: 'preferred',
         mode: 'contract',
         trigger: 'dependency_api_contract',
         status: 'verified',
@@ -251,7 +256,7 @@ describe('Grok automatic intelligence routing', () => {
     })
 
     expect(result.decision).toMatchObject({
-      requirement: 'required',
+      requirement: 'preferred',
       mode: 'incident',
       trigger: 'current_incident',
       require_web_search: true,
@@ -272,7 +277,7 @@ describe('Grok automatic intelligence routing', () => {
   it('inherits incident mode and depth without promoting preferred X', () => {
     const previous = {
       decision: {
-        requirement: 'required',
+        requirement: 'preferred',
         status: 'verified',
         action: 'intel',
         investigation_mode: 'incident',
@@ -417,7 +422,7 @@ describe('Grok automatic intelligence routing', () => {
       config: enabledConfig(),
       workflow: 'review',
       phase: 'final-verify',
-      task: 'Verify the applied external SDK change.',
+      task: 'Verify the current applied external SDK change.',
       trigger: 'final_diff_verify',
       plan: 'plan.md',
       diff: 'change.diff',
@@ -428,7 +433,7 @@ describe('Grok automatic intelligence routing', () => {
 
     const first = await (routeRuntime as any).runWorkflowRoute(input, { invoke })
     const unchanged = await (routeRuntime as any).runWorkflowRoute(input, { invoke })
-    expect(first.decision).toMatchObject({ action: 'verify', investigation_mode: 'contract', mode: 'contract', requirement: 'required', trigger: 'final_diff_verify' })
+    expect(first.decision).toMatchObject({ action: 'verify', investigation_mode: 'contract', mode: 'contract', requirement: 'preferred', trigger: 'final_diff_verify' })
     expect(unchanged).toMatchObject({ exitCode: 0, invoked: true, reused: false })
     expect(calls).toBe(2)
 
@@ -453,7 +458,7 @@ describe('Grok automatic intelligence routing', () => {
       config: enabledConfig(),
       workflow: 'review',
       phase: 'final-verify',
-      task: 'Verify the applied external SDK change.',
+      task: 'Verify the current applied external SDK change.',
       trigger: 'final_diff_verify',
       diff: 'change.diff',
       stateFile: statePath('missing-official-domain'),
@@ -504,7 +509,7 @@ describe('Grok automatic intelligence routing', () => {
     expect(calls).toBe(6)
   })
 
-  it('propagates required evidence exit 2 and records the blocking result', async () => {
+  it('records an automatic search failure as advisory without blocking local work', async () => {
     const stateFile = statePath('blocked-state')
     const result = await (routeRuntime as any).runWorkflowRoute({
       repoRoot: root,
@@ -517,10 +522,10 @@ describe('Grok automatic intelligence routing', () => {
       invoke: async () => ({ exitCode: 2, status: 'invocation_failed', reason: 'No usable terminal response.' }),
     })
 
-    expect(result).toMatchObject({ exitCode: 2, invoked: true })
+    expect(result).toMatchObject({ exitCode: 0, invoked: true })
     expect(fs.readJsonSync(stateFile)).toMatchObject({
-      execution: { exit_code: 2, status: 'invocation_failed' },
-      decision: { status: 'blocked' },
+      execution: { exit_code: 0, provider_exit_code: 2, status: 'invocation_failed' },
+      decision: { requirement: 'preferred', status: 'advisory_failed' },
     })
   })
 
@@ -536,6 +541,8 @@ describe('Grok automatic intelligence routing', () => {
       workflow: 'go',
       phase: 'intake',
       task: 'Upgrade the current dependency API.',
+      semanticMode: 'contract',
+      semanticReason: 'The user explicitly requires current external evidence before proceeding.',
       stateFile: routeState,
     }, {
       invoke: async () => ({ exitCode: 2, status: 'invocation_failed', reason: 'No usable terminal response.' }),
@@ -573,7 +580,11 @@ describe('Grok automatic intelligence routing', () => {
       task: 'Upgrade the current dependency API.',
       stateFile: statePath('missing-bundle'),
     }, { invoke: async () => ({ exitCode: 0, status: 'verified' }) })
-    expect(result).toMatchObject({ exitCode: 3, decision: { status: 'blocked' }, execution: { status: 'unsafe_context' } })
+    expect(result).toMatchObject({
+      exitCode: 0,
+      decision: { requirement: 'preferred', status: 'advisory_failed' },
+      execution: { status: 'unsafe_context', exit_code: 0, provider_exit_code: 3 },
+    })
   })
 
   it('revalidates hashes and freshness before reuse and reruns invalid evidence', async () => {
@@ -622,7 +633,7 @@ describe('Grok automatic intelligence routing', () => {
     const artifact = `${JSON.stringify({
       schemaVersion: 2,
       decision: {
-        requirement: 'required',
+        requirement: 'preferred',
         status: 'verified',
         action: 'intel',
         investigation_mode: 'contract',
@@ -660,7 +671,7 @@ describe('Grok automatic intelligence routing', () => {
       action: 'intel',
       investigation_mode: 'contract',
       depth: 'normal',
-      requirement: 'required',
+      requirement: 'preferred',
       effective_x_policy: 'preferred',
       cli_version: 'grok 0.2.106',
       prompt_sha256: 'a'.repeat(64),
@@ -690,7 +701,7 @@ describe('Grok automatic intelligence routing', () => {
       config: enabledConfig(),
       workflow: 'gptpro-plan',
       phase: 'intake',
-      task: 'Upgrade the Acme SDK API contract.',
+      task: 'Upgrade the current Acme SDK API contract.',
       taskDir,
       stateFile,
     }, {
@@ -709,14 +720,14 @@ describe('Grok automatic intelligence routing', () => {
       id: `grok-external-intelligence-${evidenceId}`,
       provider: 'grok',
       role: 'external-intelligence',
-      policy: 'required',
+      policy: 'preferred',
       artifactSha256,
       manifestSha256,
       localOnly: true,
       exported: false,
     }))
     expect(fs.readJsonSync(join(taskDir, 'task.json')).intelligence).toMatchObject({
-      requirement: 'required',
+      requirement: 'preferred',
       status: 'verified',
       evidence_id: evidenceId,
       manifest_sha256: manifestSha256,

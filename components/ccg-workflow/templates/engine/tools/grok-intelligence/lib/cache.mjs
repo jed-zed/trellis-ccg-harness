@@ -121,6 +121,88 @@ async function assertContainedDirectory(parent, target, name) {
   return canonicalTarget
 }
 
+function processIsAlive(pid) {
+  try {
+    process.kill(pid, 0)
+    return true
+  }
+  catch (error) {
+    return error?.code === 'EPERM'
+  }
+}
+
+async function readCacheLockOwner(lockPath) {
+  const lockMetadata = await lstat(lockPath)
+  if (!lockMetadata.isDirectory() || lockMetadata.isSymbolicLink())
+    throw new Error('Cache lock is not a regular directory')
+  const ownerPath = resolve(lockPath, 'owner.json')
+  const metadata = await lstat(ownerPath)
+  if (!metadata.isFile() || metadata.isSymbolicLink())
+    throw new Error('Cache lock owner is not a regular file')
+  const value = JSON.parse(await readFile(ownerPath, 'utf8'))
+  if (!Number.isInteger(value?.pid) || value.pid < 1 || typeof value?.created_at !== 'string' || !value.created_at)
+    throw new Error('Cache lock owner metadata is invalid')
+  return {
+    ...value,
+    owner: typeof value.owner === 'string' && value.owner ? value.owner : `legacy:${value.pid}:${value.created_at}`,
+  }
+}
+
+async function publishCacheLock(lockRoot, lockPath, owner, clock) {
+  await mkdir(lockPath, { mode: 0o700 })
+  try {
+    await writeFile(resolve(lockPath, 'owner.json'), `${JSON.stringify({ owner, created_at: clock().toISOString(), pid: process.pid })}\n`, {
+      flag: 'wx',
+      mode: 0o600,
+    })
+  }
+  catch (error) {
+    await removeContainedDirectory(lockRoot, lockPath).catch(() => {})
+    throw error
+  }
+}
+
+async function removeCacheLock(lockRoot, lockPath) {
+  const metadata = await lstat(lockPath)
+  if (!metadata.isDirectory() || metadata.isSymbolicLink())
+    throw new Error('Cache lock is not a regular directory')
+  await removeContainedDirectory(lockRoot, lockPath)
+}
+
+async function reclaimAbandonedCacheLock(lockRoot, lockPath) {
+  let observed
+  try {
+    observed = await readCacheLockOwner(lockPath)
+  }
+  catch {
+    return false
+  }
+  if (processIsAlive(observed.pid)) return false
+
+  const claimPath = resolve(lockPath, '.reclaim')
+  try {
+    await mkdir(claimPath, { mode: 0o700 })
+  }
+  catch (error) {
+    if (error?.code === 'ENOENT') return true
+    if (error?.code === 'EEXIST') return false
+    throw error
+  }
+  let reclaimed = false
+  try {
+    const current = await readCacheLockOwner(lockPath)
+    if (current.owner !== observed.owner || processIsAlive(current.pid))
+      return false
+    await removeCacheLock(lockRoot, lockPath)
+    reclaimed = true
+    return true
+  }
+  finally {
+    if (!reclaimed)
+      await removeContainedDirectory(lockPath, claimPath).catch(() => {})
+  }
+}
+
 export async function withCacheLock({ cacheRoot, key, clock = () => new Date() }, action) {
   const fingerprint = validateFingerprint(key)
   if (typeof action !== 'function')
@@ -130,24 +212,37 @@ export async function withCacheLock({ cacheRoot, key, clock = () => new Date() }
   await mkdir(lockRoot, { recursive: true, mode: 0o700 })
   await assertContainedDirectory(root, lockRoot, 'cache lock root')
   const lockPath = resolve(lockRoot, `${fingerprint}.lock`)
-  try {
-    await mkdir(lockPath, { mode: 0o700 })
-    await assertContainedDirectory(lockRoot, lockPath, 'cache lock')
-  }
-  catch (error) {
-    if (error?.code === 'EEXIST')
+  const owner = `${process.pid}-${randomUUID()}`
+  let acquired = false
+  for (let attempt = 0; attempt < 2 && !acquired; attempt += 1) {
+    try {
+      await publishCacheLock(lockRoot, lockPath, owner, clock)
+      acquired = true
+    }
+    catch (error) {
+      let metadata
+      try { metadata = await lstat(lockPath) }
+      catch (metadataError) {
+        if (metadataError?.code === 'ENOENT') continue
+        throw metadataError
+      }
+      if (!metadata.isDirectory() || metadata.isSymbolicLink())
+        throw new Error('Cache lock path is not a regular directory')
+      if (attempt === 0 && await reclaimAbandonedCacheLock(lockRoot, lockPath))
+        continue
       throw new Error(`Cache lock is busy for ${fingerprint}`)
-    throw error
+    }
   }
+  if (!acquired)
+    throw new Error(`Cache lock is busy for ${fingerprint}`)
   try {
-    await writeFile(resolve(lockPath, 'owner.json'), `${JSON.stringify({ created_at: clock().toISOString(), pid: process.pid })}\n`, {
-      flag: 'wx',
-      mode: 0o600,
-    })
     return await action()
   }
   finally {
-    await removeContainedDirectory(lockRoot, lockPath)
+    const observed = await readCacheLockOwner(lockPath)
+    if (observed.owner !== owner)
+      throw new Error('Cache lock ownership changed while held')
+    await removeCacheLock(lockRoot, lockPath)
   }
 }
 

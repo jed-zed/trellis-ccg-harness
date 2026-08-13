@@ -27,10 +27,10 @@ If the user asks for JSON or machine-readable output:
 powershell -NoProfile -ExecutionPolicy Bypass -File "<plugin-root>\scripts\doctor.ps1" -Json
 ```
 
-If the user explicitly asks to check Gemini model availability, add `-CheckGeminiModel`. Use `-GeminiModel <model>` only when the user names a model; otherwise doctor checks the configured default model:
+If the user explicitly asks to check Gemini model availability, add `-CheckGeminiModel`. Use `-GeminiModel <model>` only when the user names a model; otherwise doctor lets Gemini CLI choose its default model:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File "<plugin-root>\scripts\doctor.ps1" -CheckGeminiModel -GeminiModel gemini-3.1-pro-preview -Verbose
+powershell -NoProfile -ExecutionPolicy Bypass -File "<plugin-root>\scripts\doctor.ps1" -CheckGeminiModel -Verbose
 ```
 
 The model probe uses Gemini CLI `--skip-trust` so availability diagnostics do not stall on workspace trust prompts.
