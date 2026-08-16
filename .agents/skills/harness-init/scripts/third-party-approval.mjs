@@ -188,8 +188,9 @@ async function readProcessInstance(pid) {
       identity = fields[19] ? `linux:${bootId.trim()}:${fields[19]}` : undefined;
     } else if (process.platform === "win32") {
       const result = await execFile(
-        "pwsh",
+        "powershell.exe",
         [
+          "-NoLogo",
           "-NoProfile",
           "-NonInteractive",
           "-Command",
