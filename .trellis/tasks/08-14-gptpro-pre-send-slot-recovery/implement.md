@@ -59,7 +59,7 @@ CCG lint/typecheck/build 已通过；`ccg:test` 为 629 通过、3 跳过、1 �
 ## Phase 5 — finish
 
 - [x] 执行 Trellis Phase 3.3 spec-update judgment：规格补充 PowerShell JSON 规范整数的 `Int32`/`Int64` 宿主表示与禁止强制转换约束。
-- [ ] 按 Phase 3.4 提交本任务改动；不推送、不发布、不安装，除非另有授权。
+- [x] 按 Phase 3.4 提交本任务改动：`685e680c1b98846662044196a3698238d0cec3e4`；未推送、发布或安装。
 - [ ] 只有全部验收与用户最终确认后才运行 `trellis-finish-work`/archive。
 - [ ] 部署或回滚前确认没有 in-flight batch，避免新旧 parent/child handoff 版本交错。
 

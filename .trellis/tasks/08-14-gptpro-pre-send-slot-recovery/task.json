@@ -15,7 +15,7 @@
   "branch": "codex/gptpro-run-starting-slot-recovery",
   "base_branch": "main",
   "worktree_path": "G:/CodexWorktrees/gptpro-run-starting-slot-recovery-harness",
-  "commit": null,
+  "commit": "685e680c1b98846662044196a3698238d0cec3e4",
   "pr_url": null,
   "subtasks": [],
   "children": [],
@@ -25,6 +25,6 @@
     ".agents/skills/chatgpt-pro-sidebar/tests/chatgpt-pro-sidebar-watch.Tests.ps1",
     ".trellis/spec/tooling/chatgpt-pro-agent-browser-v2.md"
   ],
-  "notes": "Implementation complete in the isolated worktree. Final sidebar Pester is 322/322 (watcher 134/134 and adapter 188/188); Harness tests are 453 passed, 3 skipped, 0 failed; doctor, conflicts, and source verification pass. The handoff now reuses the strict canonical-integer schema predicate across PowerShell JSON Int32/Int64 representations. GPT Pro round 5 was sent once, completed through RootWait, canonically imported, and accepted with no Critical or Major finding. Phase 3.3/3.4, refreshed FINAL_REVIEW, final user acceptance, and archive remain pending.",
+  "notes": "Implementation is committed locally at 685e680c1b98846662044196a3698238d0cec3e4 in the isolated worktree. Final sidebar Pester is 322/322 (watcher 134/134 and adapter 188/188); Harness tests are 453 passed, 3 skipped, 0 failed; doctor, conflicts, and source verification pass. The handoff now reuses the strict canonical-integer schema predicate across PowerShell JSON Int32/Int64 representations. GPT Pro round 5 was sent once, completed through RootWait, canonically imported, and accepted with no Critical or Major finding. Phase 3.3/3.4 are complete; refreshed FINAL_REVIEW, final user acceptance, and archive remain pending.",
   "meta": {}
 }
