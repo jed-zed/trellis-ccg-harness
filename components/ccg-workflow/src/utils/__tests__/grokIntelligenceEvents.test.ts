@@ -48,6 +48,43 @@ describe('Grok ACP event normalization', () => {
     expect(normalized.unknownEvents).toEqual([])
   })
 
+  it('completes URL and pattern WebSearch actions without treating them as search evidence', () => {
+    const start = (toolCallId: string) => ({
+      method: 'session/update',
+      params: { update: { sessionUpdate: 'tool_call', toolCallId, kind: 'search', rawInput: { variant: 'WebSearch', backend: true } } },
+    })
+    const complete = (toolCallId: string, action: Record<string, unknown>) => ({
+      method: 'session/update',
+      params: { update: { sessionUpdate: 'tool_call_update', toolCallId, status: 'completed', rawOutput: { action } } },
+    })
+    const search = complete('search-result', {
+      type: 'search',
+      query: 'official contract',
+      sources: [{ type: 'url', url: 'https://docs.x.ai/reference' }],
+    })
+    const url = complete('url-action', { type: 'url', url: 'https://docs.x.ai/reference' })
+    const pattern = complete('pattern-action', { type: 'pattern', url: 'https://docs.x.ai/reference', pattern: 'contract' })
+    const normalized = normalizeAcpEvents([
+      start('search-result'),
+      search,
+      start('url-action'),
+      url,
+      start('pattern-action'),
+      pattern,
+      { method: 'session/update', params: { update: { sessionUpdate: 'agent_message_chunk', content: { text: 'Evidence collected.' } } } },
+      { method: '_x.ai/session/update', params: { update: { sessionUpdate: 'turn_completed', stop_reason: 'end_turn' } } },
+    ], { requireComplete: true })
+
+    expect(normalized.searches).toEqual([expect.objectContaining({ toolCallId: 'search-result', query: 'official contract' })])
+    expect(normalized.unknownEvents).toEqual([url, pattern])
+    expect(normalized.events.filter((event: any) => event.kind === 'search_result')).toHaveLength(1)
+
+    const blankQuery = structuredClone(search)
+    blankQuery.params.update.rawOutput.action.query = ' '
+    expect(() => normalizeAcpEvents([start('search-result'), blankQuery], { requireComplete: false }))
+      .toThrow(/query must be a non-empty string/)
+  })
+
   it('classifies X-domain WebSearch but rejects a prose-only X URL', async () => {
     const normalized = normalizeAcpEvents(
       parseAcpJsonl(await readFixture('acp-x-empty-sources.jsonl')),

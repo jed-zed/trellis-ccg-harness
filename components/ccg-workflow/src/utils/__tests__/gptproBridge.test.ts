@@ -825,6 +825,18 @@ describe('GPT Pro sidebar bridge', () => {
     }
   })
 
+  it('documents strict pre-send capacity recovery without authorizing resend', () => {
+    const content = readFileSync(
+      join(PACKAGE_ROOT, 'plugins', 'ccg', 'skills', 'ccg-gptpro-bridge', 'SKILL.md'),
+      'utf-8',
+    )
+    expect(content).toContain('run-starting/submissionAttempted=false')
+    expect(content).toContain('immediately before the single adapter send')
+    expect(content).toContain('schema-2 `run-starting/false` claim as `never-invoked`')
+    expect(content).toContain('Legacy schema-1 claims')
+    expect(content).toContain('resend or deletion of idempotency and target claims')
+  })
+
   it('resolves the project sidebar Skill before the global fallback', () => {
     for (const relativePath of [
       'docs/gptpro-manual-bridge.md',

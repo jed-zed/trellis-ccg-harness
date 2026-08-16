@@ -137,7 +137,13 @@ complete distinct `targetBinding`. Then:
 Never split one dependent conversation into parallel rounds. A partial batch keeps valid completed
 evidence but must not report all success. `queued-timeout` means no slot and no send;
 `ConcurrencySlotRecoveryRequired` keeps the slot isolated until durable pre-click or terminal proof
-allows explicit diagnostic release. Neither state authorizes resend.
+allows explicit diagnostic release. The capacity-claim schema is independent from watcher/evidence
+and batch-manifest schemas. A current claim stays `run-starting/submissionAttempted=false` through
+direct and batch handoff, then changes atomically immediately before the single adapter send. Recovery
+may accept a schema-2 `run-starting/false` claim as `never-invoked` only after durable evidence checks
+and only when watcher and terminal markers are absent. Legacy schema-1 claims, attempted sends,
+non-canonical values, and contradictory evidence remain recovery-required. Neither state authorizes
+resend or deletion of idempotency and target claims.
 
 ## Follow-up Rounds
 

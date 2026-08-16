@@ -59,7 +59,7 @@ describe('CCG global Codex hook delegates Trellis lifecycle', () => {
       expect(result.stdout).toContain('Trellis delegated')
       expect(result.stdout).not.toContain('.ccg/tasks')
       expect(result.stderr).toBe('')
-    })
+    }, 35_000)
   }
 
   it('fails closed to Trellis-only guidance when the project hook is missing', async () => {

@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process'
-import { chmod, mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -518,6 +518,54 @@ describe('Grok intelligence ACP transport', () => {
     await expect(stat(join(grokHome, 'memtrace', 'run-new.jsonl'))).rejects.toThrow()
   })
 
+  it('preserves the primary error and completes cleanup when child termination also fails', async () => {
+    const terminationError = new Error('synthetic child termination cleanup failure')
+    const client = makeClient('invalid-model', {
+      terminateProcess: async (child: ReturnType<typeof spawn>) => {
+        if (child.exitCode == null && child.signalCode == null) {
+          child.kill('SIGKILL')
+          await new Promise(resolvePromise => child.once('close', resolvePromise))
+        }
+        throw terminationError
+      },
+    })
+
+    let caught: any
+    try {
+      await client.run(runOptions())
+    }
+    catch (error) {
+      caught = error
+    }
+
+    expect(caught).toBeInstanceOf(Error)
+    expect(caught.message).toMatch(/ACP session\/prompt failed: invalid model/i)
+    expect(caught.cleanupErrors).toContain(terminationError)
+    expect(Object.keys(caught)).not.toContain('cleanupErrors')
+    expect(await readdir(rawEventsDir)).toEqual([])
+    expect(await readFile(join(grokHome, 'auth.json'), 'utf8')).toContain('preserve-me')
+    await expect(stat(join(grokHome, 'sessions', 'run-new'))).rejects.toThrow()
+    await expect(stat(join(grokHome, '.ccg-intelligence-lease'))).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('fails closed when child termination is the only failure', async () => {
+    const terminationError = new Error('synthetic child termination cleanup failure')
+    const client = makeClient('success', {
+      terminateProcess: async (child: ReturnType<typeof spawn>) => {
+        if (child.exitCode == null && child.signalCode == null) {
+          child.kill('SIGKILL')
+          await new Promise(resolvePromise => child.once('close', resolvePromise))
+        }
+        throw terminationError
+      },
+    })
+
+    await expect(client.run(runOptions())).rejects.toBe(terminationError)
+    expect(await readdir(rawEventsDir)).toEqual([])
+    await expect(stat(join(grokHome, 'sessions', 'run-new'))).rejects.toThrow()
+    await expect(stat(join(grokHome, '.ccg-intelligence-lease'))).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
   it('purges historical volatile credential artifacts without deleting persistent login state', async () => {
     await Promise.all([
       mkdir(join(grokHome, 'sessions', 'stale-session'), { recursive: true }),
@@ -552,6 +600,27 @@ describe('Grok intelligence ACP transport', () => {
     await Promise.all([action(), action()])
     expect(maximum).toBe(1)
     expect(await stat(grokHome)).toBeDefined()
+  })
+
+  it('preserves the action error when shared lease release also fails', async () => {
+    const primaryError = new Error('synthetic primary lease action failure')
+    let caught: any
+    try {
+      await withCredentialHomeLease(grokHome, async () => {
+        const ownerPath = join(grokHome, '.ccg-intelligence-lease', 'owner.json')
+        const owner = JSON.parse(await readFile(ownerPath, 'utf8'))
+        await writeFile(ownerPath, `${JSON.stringify({ ...owner, owner: 'changed-owner' })}\n`)
+        throw primaryError
+      }, { validateDirectory: async (path: string) => path })
+    }
+    catch (error) {
+      caught = error
+    }
+
+    expect(caught).toBe(primaryError)
+    expect(caught.cleanupErrors).toHaveLength(1)
+    expect(caught.cleanupErrors[0].message).toMatch(/ownership changed/i)
+    expect(Object.keys(caught)).not.toContain('cleanupErrors')
   })
 
   it('recovers a credential-home lease whose owner process was terminated', async () => {

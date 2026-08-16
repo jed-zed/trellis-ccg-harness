@@ -35,6 +35,13 @@ function isXDomainQuery(query) {
   return /(?:^|\s)site:(?:www\.)?(?:x\.com|twitter\.com)\b/i.test(query)
 }
 
+function isAuxiliaryWebAction(action) {
+  return isPlainObject(action)
+    && !Object.hasOwn(action, 'query')
+    && !Object.hasOwn(action, 'sources')
+    && (Object.hasOwn(action, 'url') || Object.hasOwn(action, 'pattern'))
+}
+
 function normalizeSource(source, callId) {
   if (!isPlainObject(source) || source.type !== 'url' || typeof source.url !== 'string')
     throw new Error(`WebSearch ${callId} returned a malformed source record`)
@@ -77,6 +84,9 @@ function normalizeSearchResult(update, startedCall) {
       backend: startedCall.backend === true,
       error: String(update.rawOutput?.error || update.error || 'WebSearch failed'),
     }
+  }
+  if (!nativeXSearch && isAuxiliaryWebAction(action)) {
+    return { kind: 'web_action', toolCallId: callId, action }
   }
   if (nativeXSearch) {
     const output = update.rawOutput
@@ -184,6 +194,10 @@ export function normalizeAcpEvents(messages, { requireComplete = true, requireSe
           break
         }
         completedCalls.set(callId, result)
+        if (result.kind === 'web_action') {
+          unknownEvents.push(message)
+          break
+        }
         searches.push(result)
         events.push(result)
         break
