@@ -41,6 +41,7 @@ const EXACT_RELEASE = /^v?\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?
 const NPM_PACKAGE = /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/;
 const LOCK_CLAIM_DIRECTORY_REMOVE_RETRIES = 5;
 const LOCK_CLAIM_DIRECTORY_REMOVE_RETRY_DELAY_MS = 100;
+const WINDOWS_PROCESS_IDENTITY_ATTEMPTS = 3;
 const TARGET_TRANSACTION_PHASES = new Set([
   "prepared",
   "claiming-previous",
@@ -187,20 +188,34 @@ async function readProcessInstance(pid) {
       const fields = stat.slice(close + 1).trim().split(/\s+/);
       identity = fields[19] ? `linux:${bootId.trim()}:${fields[19]}` : undefined;
     } else if (process.platform === "win32") {
-      const result = await execFile(
-        "powershell.exe",
-        [
-          "-NoLogo",
-          "-NoProfile",
-          "-NonInteractive",
-          "-Command",
-          "& { param([int]$targetPid) (Get-Process -Id $targetPid -ErrorAction Stop).StartTime.ToUniversalTime().Ticks }",
-          String(pid),
-        ],
-        { windowsHide: true, timeout: 5_000, maxBuffer: 4_096 },
-      );
-      const ticks = String(result.stdout ?? "").trim();
-      identity = /^\d+$/.test(ticks) ? `win32:${pid}:${ticks}` : undefined;
+      let lastError;
+      for (let attempt = 1; attempt <= WINDOWS_PROCESS_IDENTITY_ATTEMPTS; attempt += 1) {
+        try {
+          const result = await execFile(
+            "powershell.exe",
+            [
+              "-NoLogo",
+              "-NoProfile",
+              "-NonInteractive",
+              "-Command",
+              "& { param([int]$targetPid) (Get-Process -Id $targetPid -ErrorAction Stop).StartTime.ToUniversalTime().Ticks }",
+              String(pid),
+            ],
+            { windowsHide: true, timeout: 5_000, maxBuffer: 4_096 },
+          );
+          const ticks = String(result.stdout ?? "").trim();
+          if (/^\d+$/.test(ticks)) {
+            identity = `win32:${pid}:${ticks}`;
+            break;
+          }
+        } catch (error) {
+          if (error?.code === "ENOENT" || error?.code === "ESRCH" || Number(error?.code) === 1) {
+            return null;
+          }
+          lastError = error;
+        }
+      }
+      if (!identity && lastError) throw lastError;
     } else {
       const result = await execFile(
         "/bin/ps",
