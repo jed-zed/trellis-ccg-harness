@@ -60,7 +60,7 @@ CCG lint/typecheck/build 已通过；`ccg:test` 为 629 通过、3 跳过、1 �
 
 - [x] 执行 Trellis Phase 3.3 spec-update judgment：规格补充 PowerShell JSON 规范整数的 `Int32`/`Int64` 宿主表示与禁止强制转换约束。
 - [x] 按 Phase 3.4 提交本任务改动：`685e680c1b98846662044196a3698238d0cec3e4`；未推送、发布或安装。
-- [ ] 只有全部验收与用户最终确认后才运行 `trellis-finish-work`/archive。
+- [x] 全部验收与用户最终确认已完成，进入 `trellis-finish-work`/archive。
 - [ ] 部署或回滚前确认没有 in-flight batch，避免新旧 parent/child handoff 版本交错。
 
 ## Rollback points
@@ -73,4 +73,4 @@ CCG lint/typecheck/build 已通过；`ccg:test` 为 629 通过、3 跳过、1 �
 
 - 当前 Trellis 状态：`in_progress`。
 - 已获用户明确实施及 Grok、Antigravity、Claude、GPT Pro 调用授权。
-- GPT Pro round 1 已规范导入但因缺少实现正文无法验证；round 2 的页面回答发现 coercive schema blocker，适配器成功提取但旧 RootWait worker-crashed 事件使其不能规范导入；round 3/4 均有 durable `pre-invoke-failed`、零 click/零 attempt 证明；清空残留 composer 后，压缩提示的 round 5 在同一会话单次发送、由 RootWait 完成并规范导入。最终结论为 Critical/Major 均为 0、建议 `ACCEPT`。首次 FINAL_REVIEW 的用户验收因 AC8 记录过时和 handoff 强制转换而拒绝；两项现已修复，最终完整 sidebar 为 322/322。Phase 3.3/3.4 已完成，之后需刷新 FINAL_REVIEW 再请求最终验收。
+- GPT Pro round 1 已规范导入但因缺少实现正文无法验证；round 2 的页面回答发现 coercive schema blocker，适配器成功提取但旧 RootWait worker-crashed 事件使其不能规范导入；round 3/4 均有 durable `pre-invoke-failed`、零 click/零 attempt 证明；清空残留 composer 后，压缩提示的 round 5 在同一会话单次发送、由 RootWait 完成并规范导入。最终结论为 Critical/Major 均为 0、建议 `ACCEPT`。首次 FINAL_REVIEW 的用户验收因 AC8 记录过时和 handoff 强制转换而拒绝；两项现已修复，最终完整 sidebar 为 322/322。M1 与刷新后的 FINAL_REVIEW 均已由用户验收，`final-eligibility` 为 `eligible: true`，当前执行归档；部署或回滚前的 no-in-flight-batch 检查继续保留为发布门禁。

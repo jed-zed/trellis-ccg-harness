@@ -3,7 +3,7 @@
   "name": "gptpro-pre-send-slot-recovery",
   "title": "Recover GPT Pro pre-send run-starting capacity slots",
   "description": "修复 RootWait 在真正进入 adapter send 前过早标记 submissionAttempted，导致无发送证据的 run-starting 容量槽无法安全回收的问题。",
-  "status": "in_progress",
+  "status": "completed",
   "dev_type": "fix",
   "scope": "tooling",
   "package": "chatgpt-pro-sidebar",
@@ -11,7 +11,7 @@
   "creator": "codex",
   "assignee": "codex",
   "createdAt": "2026-08-14",
-  "completedAt": null,
+  "completedAt": "2026-08-16",
   "branch": "codex/gptpro-run-starting-slot-recovery",
   "base_branch": "main",
   "worktree_path": "G:/CodexWorktrees/gptpro-run-starting-slot-recovery-harness",
@@ -25,6 +25,6 @@
     ".agents/skills/chatgpt-pro-sidebar/tests/chatgpt-pro-sidebar-watch.Tests.ps1",
     ".trellis/spec/tooling/chatgpt-pro-agent-browser-v2.md"
   ],
-  "notes": "Implementation is committed locally at 685e680c1b98846662044196a3698238d0cec3e4 in the isolated worktree. Final sidebar Pester is 322/322 (watcher 134/134 and adapter 188/188); Harness tests are 453 passed, 3 skipped, 0 failed; doctor, conflicts, and source verification pass. The handoff now reuses the strict canonical-integer schema predicate across PowerShell JSON Int32/Int64 representations. GPT Pro round 5 was sent once, completed through RootWait, canonically imported, and accepted with no Critical or Major finding. Phase 3.3/3.4 are complete; refreshed FINAL_REVIEW, final user acceptance, and archive remain pending.",
+  "notes": "Implementation is committed locally at 685e680c1b98846662044196a3698238d0cec3e4 in the isolated worktree. Final sidebar Pester is 322/322 (watcher 134/134 and adapter 188/188); Harness tests are 453 passed, 3 skipped, 0 failed; doctor, conflicts, and source verification pass. The handoff now reuses the strict canonical-integer schema predicate across PowerShell JSON Int32/Int64 representations. GPT Pro round 5 was sent once, completed through RootWait, canonically imported, and accepted with no Critical or Major finding. Phase 3.3/3.4, M1 acceptance, refreshed FINAL_REVIEW, final user acceptance, and final-eligibility are complete. Archive is now authorized; deployment or rollback remains gated on confirming no in-flight batch.",
   "meta": {}
 }
