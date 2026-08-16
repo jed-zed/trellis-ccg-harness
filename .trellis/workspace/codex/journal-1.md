@@ -201,3 +201,28 @@ Published accepted Grok receipt-state changes through CCG PR #33 and Harness PR 
 ### Status
 
 [OK] **Completed**
+
+
+## Session 7: Recover GPT Pro pre-send capacity slots
+
+**Date**: 2026-08-16
+**Task**: Recover GPT Pro pre-send capacity slots
+**Branch**: `codex/gptpro-run-starting-slot-recovery`
+
+### Summary
+
+Moved submissionAttempted to the exact adapter-send boundary, added strict schema-2 never-invoked recovery, completed 322/322 sidebar validation and provider reviews, recorded final acceptance, and archived the task. Deployment or rollback remains gated on confirming no in-flight batch.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `685e680c1b98846662044196a3698238d0cec3e4` | (see git log) |
+| `afc32cb675d504aa21147142662af1b9ec4f996e` | (see git log) |
+| `2ed0dcb93ff8ca08ba98c1ad6a78050e3de3aff7` | (see git log) |
+| `1c01b19d447de150127cd3b1db1d446e4ae49353` | (see git log) |
+| `53f69a94d72960527a0d6f0dc946e383cc34c22a` | (see git log) |
+
+### Status
+
+[OK] **Completed**
