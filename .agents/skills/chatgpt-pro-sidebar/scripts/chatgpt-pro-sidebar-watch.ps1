@@ -38,6 +38,7 @@ $ErrorActionPreference = 'Stop'
 
 $Script:WatcherName = 'chatgpt-pro-sidebar-watch'
 $Script:WatcherSchemaVersion = 1
+$Script:CapacityClaimSchemaVersion = 2
 $Script:Utf8NoBom = [System.Text.UTF8Encoding]::new($false)
 $Script:Utf8Strict = [System.Text.UTF8Encoding]::new($false, $true)
 $Script:WatcherScriptPath = $PSCommandPath
@@ -231,11 +232,16 @@ function Read-WatchJson {
         }
         return $null
     }
-    try {
-        return [System.IO.File]::ReadAllText($Path, $Script:Utf8NoBom) | ConvertFrom-Json
-    }
-    catch {
-        throw ('Invalid JSON file: ' + [System.IO.Path]::GetFileName($Path))
+    for ($attempt = 1; $attempt -le 5; $attempt++) {
+        try {
+            return [System.IO.File]::ReadAllText($Path, $Script:Utf8NoBom) | ConvertFrom-Json
+        }
+        catch {
+            if ($attempt -eq 5) {
+                throw ('Invalid JSON file: ' + [System.IO.Path]::GetFileName($Path))
+            }
+            Start-Sleep -Milliseconds 25
+        }
     }
 }
 
@@ -1952,6 +1958,29 @@ function Test-CapacityOwnerAlive {
     }
 }
 
+function Test-CapacityClaimSchemaVersion {
+    param([Parameter(Mandatory = $true)]$Claim)
+
+    $property = $Claim.PSObject.Properties['schemaVersion']
+    return (
+        $null -ne $property -and
+        ($property.Value -is [int] -or $property.Value -is [long]) -and
+        [long]$property.Value -eq $Script:CapacityClaimSchemaVersion
+    )
+}
+
+function Test-CapacitySubmissionNotAttempted {
+    param([Parameter(Mandatory = $true)]$Claim)
+
+    $property = $Claim.PSObject.Properties['submissionAttempted']
+    return (
+        $null -ne $property -and
+        $property.Value -is [bool] -and
+        -not $property.Value -and
+        $null -eq $Claim.PSObject.Properties['submissionAttemptedAtUtc']
+    )
+}
+
 function Test-WatchRetryNotSubmittedProof {
     param(
         [AllowNull()]$State,
@@ -2011,11 +2040,21 @@ function Get-CapacityReleaseProof {
         return [pscustomobject]@{ safe = $false; reason = 'owner-still-running' }
     }
     $directory = [string](Get-WatchProperty $Claim 'evidenceDirectory' '')
-    $adapterState = if ([string]::IsNullOrWhiteSpace($directory)) {
+    $adapterStatePath = if ([string]::IsNullOrWhiteSpace($directory)) { '' } else { Join-Path $directory 'state.json' }
+    $watchStatePath = if ([string]::IsNullOrWhiteSpace($directory)) { '' } else { Join-Path $directory $Script:StateFileName }
+    $eventPath = if ([string]::IsNullOrWhiteSpace($directory)) { '' } else { Join-Path $directory $Script:EventFileName }
+    $durableEvidencePaths = if ([string]::IsNullOrWhiteSpace($directory)) {
+        @()
+    }
+    else {
+        @($adapterStatePath, $watchStatePath, $eventPath, (Join-Path $directory 'evidence.json'))
+    }
+    $hasDurableEvidence = @($durableEvidencePaths | Where-Object { [System.IO.File]::Exists($_) }).Count -gt 0
+    $adapterState = if ([string]::IsNullOrWhiteSpace($adapterStatePath)) {
         $null
     }
     else {
-        Read-WatchJson -Path (Join-Path $directory 'state.json')
+        Read-WatchJson -Path $adapterStatePath
     }
     $retryOutcome = [string](Get-WatchProperty $adapterState 'retryOutcome' '')
     if (-not [string]::IsNullOrWhiteSpace($retryOutcome)) {
@@ -2048,8 +2087,8 @@ function Get-CapacityReleaseProof {
         if ($adapterPhase -eq 'completed') {
             return [pscustomobject]@{ safe = $true; reason = 'durable-adapter-terminal' }
         }
-        $watchState = Read-WatchJson -Path (Join-Path $directory $Script:StateFileName)
-        $event = Read-WatchJson -Path (Join-Path $directory $Script:EventFileName)
+        $watchState = Read-WatchJson -Path $watchStatePath
+        $event = Read-WatchJson -Path $eventPath
         $eventStatus = [string](Get-WatchProperty $event 'status' '')
         if (
             [string](Get-WatchProperty $watchState 'phase' '') -eq 'terminal' -and
@@ -2058,6 +2097,16 @@ function Get-CapacityReleaseProof {
         ) {
             return [pscustomobject]@{ safe = $true; reason = 'durable-watcher-terminal' }
         }
+    }
+    if (
+        -not $hasDurableEvidence -and
+        (Test-CapacityClaimSchemaVersion -Claim $Claim) -and
+        $claimPhase -eq 'run-starting' -and
+        (Test-CapacitySubmissionNotAttempted -Claim $Claim) -and
+        [string]::IsNullOrWhiteSpace([string](Get-WatchProperty $Claim 'watcherId' '')) -and
+        [string]::IsNullOrWhiteSpace([string](Get-WatchProperty $Claim 'terminalStatus' ''))
+    ) {
+        return [pscustomobject]@{ safe = $true; reason = 'never-invoked' }
     }
     return [pscustomobject]@{ safe = $false; reason = 'terminal-state-not-proven' }
 }
@@ -2081,6 +2130,45 @@ function Set-CapacitySlotClaim {
         }
         Write-WatchJsonAtomic -Path $path -Value $claim
         return $claim
+    }
+    finally {
+        Exit-CapacityMutex -Mutex $mutex
+    }
+}
+
+function Confirm-CapacitySubmissionAttempt {
+    param(
+        [Parameter(Mandatory = $true)][ValidateRange(1, 6)][int]$Id,
+        [Parameter(Mandatory = $true)][string]$ClaimId
+    )
+
+    $mutex = Enter-CapacityMutex
+    try {
+        $path = Get-CapacitySlotPath -Id $Id
+        $claim = Read-WatchJson -Path $path -Required
+        if ([string](Get-WatchProperty $claim 'claimId' '') -ne $ClaimId) {
+            throw 'Capacity slot ownership changed.'
+        }
+        if (
+            -not (Test-CapacityClaimSchemaVersion -Claim $claim) -or
+            [string](Get-WatchProperty $claim 'phase' '') -ne 'run-starting' -or
+            -not (Test-CapacitySubmissionNotAttempted -Claim $claim)
+        ) {
+            throw 'Capacity claim is not at the verified pre-send boundary.'
+        }
+        $claim | Add-Member -NotePropertyName submissionAttempted -NotePropertyValue $true -Force
+        $claim | Add-Member -NotePropertyName submissionAttemptedAtUtc -NotePropertyValue ([datetime]::UtcNow.ToString('o')) -Force
+        Write-WatchJsonAtomic -Path $path -Value $claim
+        return $claim
+    }
+    catch {
+        if ($_.Exception.Data.Contains('Category')) { throw }
+        $exception = [System.InvalidOperationException]::new(
+            'Capacity claim cannot cross the adapter submission boundary.',
+            $_.Exception
+        )
+        $exception.Data['Category'] = 'ConcurrencySlotRecoveryRequired'
+        throw $exception
     }
     finally {
         Exit-CapacityMutex -Mutex $mutex
@@ -2161,7 +2249,7 @@ function Acquire-CapacitySlot {
         $claimId = [guid]::NewGuid().ToString()
         $owner = Get-CapacityProcessIdentity
         $claim = [ordered]@{
-            schemaVersion = 1
+            schemaVersion = $Script:CapacityClaimSchemaVersion
             slotId = $slotIdValue
             claimId = $claimId
             codexThreadId = $ThreadId
@@ -2188,6 +2276,7 @@ function Get-CapacitySlots {
         $claim = Read-WatchJson -Path (Get-CapacitySlotPath -Id $id)
         if ($null -eq $claim) { continue }
         [ordered]@{
+            schemaVersion = Get-WatchProperty $claim 'schemaVersion' $null
             slotId = $id
             codexThreadId = [string](Get-WatchProperty $claim 'codexThreadId' '')
             roundId = [string](Get-WatchProperty $claim 'roundId' '')
@@ -2197,6 +2286,8 @@ function Get-CapacitySlots {
             ownerProcessStartedAtUtc = [string](Get-WatchProperty $claim 'ownerProcessStartedAtUtc' '')
             ownerAlive = Test-CapacityOwnerAlive -Claim $claim
             phase = [string](Get-WatchProperty $claim 'phase' '')
+            submissionAttempted = Get-WatchProperty $claim 'submissionAttempted' $null
+            submissionAttemptedAtUtc = [string](Get-WatchProperty $claim 'submissionAttemptedAtUtc' '')
         }
     }
     return [ordered]@{ ok = $true; command = 'slots'; slots = @($items) }
@@ -2223,8 +2314,9 @@ function Get-ValidatedCapacityHandoff {
                 [System.StringComparison]::OrdinalIgnoreCase
             ) -or
             -not [string]::Equals($claimEvidence, $expectedEvidence, [System.StringComparison]::OrdinalIgnoreCase) -or
+            -not (Test-CapacityClaimSchemaVersion -Claim $claim) -or
             [string](Get-WatchProperty $claim 'phase' '') -ne 'run-starting' -or
-            -not [bool](Get-WatchProperty $claim 'submissionAttempted' $false)
+            -not (Test-CapacitySubmissionNotAttempted -Claim $claim)
         ) {
             throw 'Capacity claim handoff does not match this RootWait round.'
         }
@@ -2620,7 +2712,7 @@ function Invoke-RootWaitBatch {
             }
             $null = $queued.RemoveAt(0)
             $null = Set-CapacitySlotClaim -Id $slot.slotId -ClaimId $slot.claimId -Changes ([ordered]@{
-                phase = 'run-starting'; submissionAttempted = $true
+                phase = 'run-starting'; submissionAttempted = $false
             })
             $remaining = [int][Math]::Ceiling(($deadline - $now).TotalSeconds)
             try {
@@ -2748,6 +2840,8 @@ function Invoke-RootWaitRound {
         [AllowEmptyString()][string]$SessionKeyValue = '',
         [AllowEmptyString()][string]$ResponseDeadlineAtUtcValue = '',
         [switch]$RequireFreshConversation,
+        [Parameter(Mandatory = $true)][ValidateRange(1, 6)][int]$CapacitySlotId,
+        [Parameter(Mandatory = $true)][string]$CapacityClaimId,
         [scriptblock]$NowAction = { [datetime]::UtcNow }
     )
 
@@ -2757,6 +2851,7 @@ function Invoke-RootWaitRound {
     $adapterPath = Get-WatchAdapterPath
     $sendResult = $null
     $sendFailure = ''
+    $null = Confirm-CapacitySubmissionAttempt -Id $CapacitySlotId -ClaimId $CapacityClaimId
     try {
         $sendResult = Invoke-WatchAdapterSend `
             -AdapterPath $adapterPath `
@@ -3007,6 +3102,8 @@ function Invoke-CapacityBoundRootWaitRound {
             -ClaimId $CapacityClaimId `
             -ThreadId $ThreadId `
             -EvidenceDirectory $EvidenceDirectory
+        $roundArguments.CapacitySlotId = $CapacitySlotId
+        $roundArguments.CapacityClaimId = $CapacityClaimId
         return Invoke-RootWaitRound @roundArguments
     }
 
@@ -3025,9 +3122,11 @@ function Invoke-CapacityBoundRootWaitRound {
     $roundStarted = $false
     try {
         $null = Set-CapacitySlotClaim -Id $slot.slotId -ClaimId $slot.claimId -Changes ([ordered]@{
-            phase = 'run-starting'; submissionAttempted = $true
+            phase = 'run-starting'; submissionAttempted = $false
         })
         $roundStarted = $true
+        $roundArguments.CapacitySlotId = $slot.slotId
+        $roundArguments.CapacityClaimId = $slot.claimId
         $result = Invoke-RootWaitRound @roundArguments
     }
     catch {
