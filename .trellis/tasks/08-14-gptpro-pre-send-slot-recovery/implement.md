@@ -73,4 +73,4 @@ CCG lint/typecheck/build 已通过；`ccg:test` 为 629 通过、3 跳过、1 �
 
 - 当前 Trellis 状态：`in_progress`。
 - 已获用户明确实施及 Grok、Antigravity、Claude、GPT Pro 调用授权。
-- GPT Pro round 1 已规范导入但因缺少实现正文无法验证；round 2 的页面回答发现 coercive schema blocker，适配器成功提取但旧 RootWait worker-crashed 事件使其不能规范导入；round 3/4 均有 durable `pre-invoke-failed`、零 click/零 attempt 证明；清空残留 composer 后，压缩提示的 round 5 在同一会话单次发送、由 RootWait 完成并规范导入。最终结论为 Critical/Major 均为 0、建议 `ACCEPT`。首次 FINAL_REVIEW 的用户验收因 AC8 记录过时和 handoff 强制转换而拒绝；两项现已修复，最终完整 sidebar 为 322/322。当前进入 Phase 3.3/3.4，之后需刷新 FINAL_REVIEW 再请求最终验收。
+- GPT Pro round 1 已规范导入但因缺少实现正文无法验证；round 2 的页面回答发现 coercive schema blocker，适配器成功提取但旧 RootWait worker-crashed 事件使其不能规范导入；round 3/4 均有 durable `pre-invoke-failed`、零 click/零 attempt 证明；清空残留 composer 后，压缩提示的 round 5 在同一会话单次发送、由 RootWait 完成并规范导入。最终结论为 Critical/Major 均为 0、建议 `ACCEPT`。首次 FINAL_REVIEW 的用户验收因 AC8 记录过时和 handoff 强制转换而拒绝；两项现已修复，最终完整 sidebar 为 322/322。Phase 3.3/3.4 已完成，之后需刷新 FINAL_REVIEW 再请求最终验收。
