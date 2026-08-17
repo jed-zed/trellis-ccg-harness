@@ -274,6 +274,50 @@ $watchState = [ordered]@{
     }
 }
 
+Describe 'Atomic watcher JSON state' {
+    It 'retries a transient sharing violation during an atomic replacement' {
+        $path = Join-Path $TestDrive 'transient-watch-state.json'
+        $ready = Join-Path $TestDrive 'transient-watch-state.ready'
+        $childPath = Join-Path $TestDrive 'hold-watch-state.ps1'
+        [System.IO.File]::WriteAllText($path, '{"phase":"completed"}', $Script:Utf8NoBom)
+        [System.IO.File]::WriteAllText($childPath, @'
+param([string]$Path, [string]$Ready)
+$stream = [System.IO.File]::Open($Path, 'Open', 'Read', 'None')
+try {
+    [System.IO.File]::WriteAllText($Ready, 'ready')
+    Start-Sleep -Milliseconds 55
+}
+finally {
+    $stream.Dispose()
+}
+'@, [System.Text.UTF8Encoding]::new($true))
+        $process = Start-Process powershell.exe -ArgumentList @(
+            '-NoProfile', '-NonInteractive', '-File', ('"' + $childPath + '"'),
+            '-Path', ('"' + $path + '"'), '-Ready', ('"' + $ready + '"')
+        ) -PassThru -WindowStyle Hidden
+        try {
+            $deadline = [datetime]::UtcNow.AddSeconds(2)
+            while (-not [System.IO.File]::Exists($ready) -and [datetime]::UtcNow -lt $deadline) {
+                Start-Sleep -Milliseconds 10
+            }
+            [System.IO.File]::Exists($ready) | Should -BeTrue
+            (Read-WatchJson -Path $path -Required).phase | Should -Be 'completed'
+        }
+        finally {
+            $process.WaitForExit(2000) | Out-Null
+            if (-not $process.HasExited) { $process.Kill() }
+            $process.Dispose()
+        }
+    }
+
+    It 'keeps persistently malformed JSON fail-closed after bounded rereads' {
+        $path = Join-Path $TestDrive 'malformed-watch-state.json'
+        [System.IO.File]::WriteAllText($path, '{', $Script:Utf8NoBom)
+
+        { Read-WatchJson -Path $path -Required } | Should -Throw '*Invalid JSON file: malformed-watch-state.json*'
+    }
+}
+
 Describe 'Watcher binding validation' {
     It 'reads ordered command results without dropping their fields' {
         Get-WatchProperty ([ordered]@{ started = $true }) 'started' $false | Should -BeTrue
@@ -499,6 +543,14 @@ Describe 'Atomic RootWait round' {
         [System.IO.File]::WriteAllText($script:roundPrompt, 'bounded request', [System.Text.UTF8Encoding]::new($false))
         $script:roundOrder = [System.Collections.ArrayList]::new()
         $script:roundDeadline = [DateTime]::UtcNow.AddHours(2).ToString('o')
+        $Script:CapacityRootOverride = Join-Path $TestDrive ('round-capacity-' + [guid]::NewGuid().ToString('N'))
+        $script:roundClaim = Acquire-CapacitySlot `
+            -ThreadId $script:ThreadId `
+            -RoundId 'atomic-root-round' `
+            -EvidenceDirectory $script:roundDirectory
+        $null = Set-CapacitySlotClaim -Id $script:roundClaim.slotId -ClaimId $script:roundClaim.claimId -Changes ([ordered]@{
+            phase = 'run-starting'; submissionAttempted = $false
+        })
 
         Mock Get-WatchAdapterPath { 'adapter.ps1' }
         Mock Get-WatchEvidenceBinding {
@@ -518,6 +570,10 @@ Describe 'Atomic RootWait round' {
                 eventFile = $Script:EventFileName
             }
         }
+    }
+
+    AfterEach {
+        $Script:CapacityRootOverride = $null
     }
 
     It 'forwards one bounded send request to the adapter' {
@@ -577,7 +633,9 @@ Describe 'Atomic RootWait round' {
             -EvidenceDirectory $script:roundDirectory `
             -ThreadId $script:ThreadId `
             -PromptFile $script:roundPrompt `
-            -IdempotencyKeyValue 'atomic-root-round-1'
+            -IdempotencyKeyValue 'atomic-root-round-1' `
+            -CapacitySlotId $script:roundClaim.slotId `
+            -CapacityClaimId $script:roundClaim.claimId
 
         @($script:roundOrder) | Should -Be @('send', 'binding', 'start', 'wait')
         $result.command | Should -Be 'run-root'
@@ -606,7 +664,9 @@ Describe 'Atomic RootWait round' {
             -EvidenceDirectory $script:roundDirectory `
             -ThreadId $script:ThreadId `
             -PromptFile $script:roundPrompt `
-            -IdempotencyKeyValue 'atomic-root-round-2'
+            -IdempotencyKeyValue 'atomic-root-round-2' `
+            -CapacitySlotId $script:roundClaim.slotId `
+            -CapacityClaimId $script:roundClaim.claimId
 
         @($script:roundOrder) | Should -Be @('send', 'binding', 'start', 'wait')
         $result.evidencePhaseAtStart | Should -Be 'send-uncertain'
@@ -628,7 +688,9 @@ Describe 'Atomic RootWait round' {
                 -EvidenceDirectory $script:roundDirectory `
                 -ThreadId $script:ThreadId `
                 -PromptFile $script:roundPrompt `
-                -IdempotencyKeyValue 'atomic-root-round-3'
+                -IdempotencyKeyValue 'atomic-root-round-3' `
+                -CapacitySlotId $script:roundClaim.slotId `
+                -CapacityClaimId $script:roundClaim.claimId
         } | Should -Throw '*composer unavailable*'
         Should -Invoke Start-WatchProcess -Times 0 -Exactly
         Should -Invoke Wait-RootWatchEvent -Times 0 -Exactly
@@ -670,6 +732,8 @@ Describe 'Atomic RootWait round' {
             -ThreadId $script:ThreadId `
             -PromptFile $script:roundPrompt `
             -IdempotencyKeyValue 'atomic-root-deadline' `
+            -CapacitySlotId $script:roundClaim.slotId `
+            -CapacityClaimId $script:roundClaim.claimId `
             -NowAction { $startedAt.AddSeconds(120) }
 
         $script:capturedWaitTimeout | Should -Be 7080
@@ -703,6 +767,8 @@ Describe 'Atomic RootWait round' {
             -ThreadId $script:ThreadId `
             -PromptFile $script:roundPrompt `
             -IdempotencyKeyValue 'atomic-root-near-deadline' `
+            -CapacitySlotId $script:roundClaim.slotId `
+            -CapacityClaimId $script:roundClaim.claimId `
             -NowAction { $now }
 
         $script:capturedStartTimeout | Should -Be 1
@@ -722,7 +788,9 @@ Describe 'Atomic RootWait round' {
             -EvidenceDirectory $script:roundDirectory `
             -ThreadId $script:ThreadId `
             -PromptFile $script:roundPrompt `
-            -IdempotencyKeyValue 'atomic-root-retry-not-submitted'
+            -IdempotencyKeyValue 'atomic-root-retry-not-submitted' `
+            -CapacitySlotId $script:roundClaim.slotId `
+            -CapacityClaimId $script:roundClaim.claimId
         $event = Read-WatchJson -Path (Join-Path $script:roundDirectory $Script:EventFileName) -Required
 
         $result.terminalStatus | Should -Be 'stopped-unverified'
@@ -751,7 +819,9 @@ Describe 'Atomic RootWait round' {
                 -EvidenceDirectory $script:roundDirectory `
                 -ThreadId $script:ThreadId `
                 -PromptFile $script:roundPrompt `
-                -IdempotencyKeyValue 'atomic-root-invalid-proof'
+                -IdempotencyKeyValue 'atomic-root-invalid-proof' `
+                -CapacitySlotId $script:roundClaim.slotId `
+                -CapacityClaimId $script:roundClaim.claimId
         }
         catch {
             $category = [string]$_.Exception.Data['Category']
@@ -775,7 +845,9 @@ Describe 'Atomic RootWait round' {
             -EvidenceDirectory $script:roundDirectory `
             -ThreadId $script:ThreadId `
             -PromptFile $script:roundPrompt `
-            -IdempotencyKeyValue 'atomic-root-recovery-required'
+            -IdempotencyKeyValue 'atomic-root-recovery-required' `
+            -CapacitySlotId $script:roundClaim.slotId `
+            -CapacityClaimId $script:roundClaim.claimId
         $event = Read-WatchJson -Path (Join-Path $script:roundDirectory $Script:EventFileName) -Required
 
         $result.terminalStatus | Should -Be 'stopped-unverified'
@@ -809,6 +881,8 @@ Describe 'Atomic RootWait round' {
                 -ThreadId $script:ThreadId `
                 -PromptFile $script:roundPrompt `
                 -IdempotencyKeyValue ("atomic-root-expired-$Outcome") `
+                -CapacitySlotId $script:roundClaim.slotId `
+                -CapacityClaimId $script:roundClaim.claimId `
                 -NowAction { $deadline.AddSeconds(1) }
         } | Should -Throw '*after the absolute response deadline*'
 
@@ -827,6 +901,339 @@ Describe 'Batch RootWait capacity' {
     AfterEach {
         $Script:CapacityRootOverride = $null
         $Script:WatcherScriptPath = $script:originalWatcherScriptPath
+    }
+
+    It 'versions only capacity claims and exposes their pre-send state' {
+        $directory = Join-Path $TestDrive 'capacity-schema'
+        $null = New-Item -ItemType Directory -Path $directory -Force
+
+        $claim = Acquire-CapacitySlot -ThreadId $script:ThreadId -RoundId 'capacity-schema' -EvidenceDirectory $directory
+        $stored = Read-WatchJson -Path (Get-CapacitySlotPath -Id $claim.slotId) -Required
+        $diagnostic = (Get-CapacitySlots).slots[0]
+        $manifestPath = New-BatchFixture -Root (Join-Path $TestDrive 'capacity-schema-manifest')
+
+        $stored.schemaVersion | Should -Be 2
+        $stored.phase | Should -Be 'slot-acquired-pre-send'
+        $stored.submissionAttempted | Should -BeFalse
+        $diagnostic.schemaVersion | Should -Be 2
+        $diagnostic.submissionAttempted | Should -BeFalse
+        $diagnostic.submissionAttemptedAtUtc | Should -BeNullOrEmpty
+        $Script:WatcherSchemaVersion | Should -Be 1
+        (Read-WatchJson -Path $manifestPath -Required).schemaVersion | Should -Be 1
+    }
+
+    It 'crosses the capacity submission boundary only immediately before adapter send' {
+        $directory = Join-Path $TestDrive 'capacity-send-boundary'
+        $null = New-Item -ItemType Directory -Path $directory -Force
+        $prompt = Join-Path $TestDrive 'capacity-send-boundary.md'
+        [System.IO.File]::WriteAllText($prompt, 'bounded request', $Script:Utf8NoBom)
+        $script:beforeAdapter = $null
+        $script:atAdapter = $null
+        $script:attemptedAt = ''
+        $script:secondTransitionCategory = ''
+        Mock Get-WatchAdapterPath {
+            $slot = (Get-CapacitySlots).slots[0]
+            $stored = Read-WatchJson -Path (Get-CapacitySlotPath -Id $slot.slotId) -Required
+            $script:beforeAdapter = [bool]$stored.submissionAttempted
+            return 'adapter.ps1'
+        }
+        Mock Invoke-WatchAdapterSend {
+            param($EvidenceDirectory)
+            $slot = (Get-CapacitySlots).slots[0]
+            $stored = Read-WatchJson -Path (Get-CapacitySlotPath -Id $slot.slotId) -Required
+            $script:atAdapter = [bool]$stored.submissionAttempted
+            $script:attemptedAt = [string]$stored.submissionAttemptedAtUtc
+            try {
+                $null = Confirm-CapacitySubmissionAttempt -Id $slot.slotId -ClaimId $stored.claimId
+            }
+            catch {
+                $script:secondTransitionCategory = [string]$_.Exception.Data['Category']
+            }
+            $null = Set-AdapterTerminalFixture -Directory $EvidenceDirectory -Outcome 'retry-not-submitted'
+            [pscustomobject]@{ ExitCode = 0; Payload = [pscustomobject]@{ ok = $true } }
+        }
+
+        $result = Invoke-CapacityBoundRootWaitRound `
+            -EvidenceDirectory $directory `
+            -ThreadId $script:ThreadId `
+            -PromptFile $prompt `
+            -IdempotencyKeyValue 'capacity-send-boundary'
+
+        $script:beforeAdapter | Should -BeFalse
+        $script:atAdapter | Should -BeTrue
+        $script:attemptedAt | Should -Not -BeNullOrEmpty
+        $script:secondTransitionCategory | Should -Be 'ConcurrencySlotRecoveryRequired'
+        $result.terminalOutcome | Should -Be 'retry-not-submitted'
+        Should -Invoke Invoke-WatchAdapterSend -Times 1 -Exactly
+    }
+
+    It 'releases an unambiguous schema 2 run-starting false claim as never-invoked' {
+        $directory = Join-Path $TestDrive 'capacity-never-invoked'
+        $null = New-Item -ItemType Directory -Path $directory -Force
+        $claim = Acquire-CapacitySlot -ThreadId $script:ThreadId -RoundId 'never-invoked' -EvidenceDirectory $directory
+        $null = Set-CapacitySlotClaim -Id $claim.slotId -ClaimId $claim.claimId -Changes ([ordered]@{
+            schemaVersion = 2
+            phase = 'run-starting'
+            submissionAttempted = $false
+            ownerPid = 999999
+            ownerProcessStartedAtUtc = '2026-08-14T00:00:00Z'
+        })
+        Mock Invoke-WatchAdapterSend { throw 'adapter must not be invoked during release' }
+        Mock Start-BatchRoundProcess { throw 'child must not be started during release' }
+
+        $release = Release-CapacitySlot -Id $claim.slotId -ExpectedClaimId $claim.claimId
+
+        $release.proof | Should -Be 'never-invoked'
+        (Get-CapacitySlots).slots.Count | Should -Be 0
+        Should -Invoke Invoke-WatchAdapterSend -Times 0 -Exactly
+        Should -Invoke Start-BatchRoundProcess -Times 0 -Exactly
+    }
+
+    It 'keeps contradictory durable evidence isolated from never-invoked recovery' -TestCases @(
+        @{ AdapterPhase = 'sent' }
+        @{ AdapterPhase = 'send-uncertain' }
+    ) {
+        param($AdapterPhase)
+        $directory = Join-Path $TestDrive ("capacity-never-invoked-conflict-$AdapterPhase")
+        $null = New-Item -ItemType Directory -Path $directory -Force
+        $claim = Acquire-CapacitySlot -ThreadId $script:ThreadId -RoundId 'never-invoked-conflict' -EvidenceDirectory $directory
+        $null = Set-CapacitySlotClaim -Id $claim.slotId -ClaimId $claim.claimId -Changes ([ordered]@{
+            schemaVersion = 2
+            phase = 'run-starting'
+            submissionAttempted = $false
+        })
+        Write-WatchJsonAtomic -Path (Join-Path $directory 'state.json') -Value ([ordered]@{
+            phase = $AdapterPhase
+            invokeAttempted = $true
+            automaticResendAllowed = $false
+        })
+        $category = ''
+
+        try {
+            $null = Release-CapacitySlot -Id $claim.slotId -ExpectedClaimId $claim.claimId -OwnerCompletionObserved
+        }
+        catch {
+            $category = [string]$_.Exception.Data['Category']
+        }
+
+        $category | Should -Be 'ConcurrencySlotRecoveryRequired'
+        (Get-CapacitySlots).slots.Count | Should -Be 1
+    }
+
+    It 'keeps every lone durable watcher artifact isolated from never-invoked recovery' -TestCases @(
+        @{ ArtifactName = 'watch-state.json' }
+        @{ ArtifactName = 'watch-event.json' }
+        @{ ArtifactName = 'evidence.json' }
+    ) {
+        param($ArtifactName)
+        $safeName = $ArtifactName.Replace('.', '-')
+        $directory = Join-Path $TestDrive ("capacity-never-invoked-artifact-$safeName")
+        $null = New-Item -ItemType Directory -Path $directory -Force
+        $claim = Acquire-CapacitySlot -ThreadId $script:ThreadId -RoundId 'never-invoked-artifact' -EvidenceDirectory $directory
+        $null = Set-CapacitySlotClaim -Id $claim.slotId -ClaimId $claim.claimId -Changes ([ordered]@{
+            schemaVersion = 2
+            phase = 'run-starting'
+            submissionAttempted = $false
+        })
+        Write-WatchJsonAtomic -Path (Join-Path $directory $ArtifactName) -Value ([ordered]@{
+            incomplete = $true
+        })
+        $category = ''
+
+        try {
+            $null = Release-CapacitySlot -Id $claim.slotId -ExpectedClaimId $claim.claimId -OwnerCompletionObserved
+        }
+        catch {
+            $category = [string]$_.Exception.Data['Category']
+        }
+
+        $category | Should -Be 'ConcurrencySlotRecoveryRequired'
+        (Get-CapacitySlots).slots.Count | Should -Be 1
+    }
+
+    It 'rejects legacy run-starting false claims as ambiguous recovery state' {
+        $directory = Join-Path $TestDrive 'capacity-legacy-run-starting'
+        $null = New-Item -ItemType Directory -Path $directory -Force
+        $claim = Acquire-CapacitySlot -ThreadId $script:ThreadId -RoundId 'legacy-run-starting' -EvidenceDirectory $directory
+        $null = Set-CapacitySlotClaim -Id $claim.slotId -ClaimId $claim.claimId -Changes ([ordered]@{
+            schemaVersion = 1
+            phase = 'run-starting'
+            submissionAttempted = $false
+            ownerPid = 999999
+            ownerProcessStartedAtUtc = '2026-08-14T00:00:00Z'
+        })
+        $category = ''
+
+        try {
+            $null = Release-CapacitySlot -Id $claim.slotId -ExpectedClaimId $claim.claimId
+        }
+        catch {
+            $category = [string]$_.Exception.Data['Category']
+        }
+
+        $category | Should -Be 'ConcurrencySlotRecoveryRequired'
+        (Get-CapacitySlots).slots.Count | Should -Be 1
+    }
+
+    It 'rejects run-starting claims missing versioned submission fields' -TestCases @(
+        @{ MissingField = 'schemaVersion' }
+        @{ MissingField = 'submissionAttempted' }
+    ) {
+        param($MissingField)
+        $directory = Join-Path $TestDrive ("capacity-missing-$MissingField")
+        $null = New-Item -ItemType Directory -Path $directory -Force
+        $claim = Acquire-CapacitySlot -ThreadId $script:ThreadId -RoundId 'missing-field' -EvidenceDirectory $directory
+        $storedPath = Get-CapacitySlotPath -Id $claim.slotId
+        $stored = Read-WatchJson -Path $storedPath -Required
+        $stored.phase = 'run-starting'
+        $stored.ownerPid = 999999
+        $stored.ownerProcessStartedAtUtc = '2026-08-14T00:00:00Z'
+        $stored.PSObject.Properties.Remove($MissingField)
+        Write-WatchJsonAtomic -Path $storedPath -Value $stored
+        $category = ''
+
+        try {
+            $null = Release-CapacitySlot -Id $claim.slotId -ExpectedClaimId $claim.claimId
+        }
+        catch {
+            $category = [string]$_.Exception.Data['Category']
+        }
+
+        $category | Should -Be 'ConcurrencySlotRecoveryRequired'
+        (Get-CapacitySlots).slots.Count | Should -Be 1
+    }
+
+    It 'rejects a non-boolean submissionAttempted value as ambiguous recovery state' {
+        $directory = Join-Path $TestDrive 'capacity-non-boolean-submission'
+        $null = New-Item -ItemType Directory -Path $directory -Force
+        $claim = Acquire-CapacitySlot -ThreadId $script:ThreadId -RoundId 'non-boolean-submission' -EvidenceDirectory $directory
+        $null = Set-CapacitySlotClaim -Id $claim.slotId -ClaimId $claim.claimId -Changes ([ordered]@{
+            schemaVersion = 2
+            phase = 'run-starting'
+            submissionAttempted = 'false'
+        })
+        $category = ''
+
+        try {
+            $null = Release-CapacitySlot -Id $claim.slotId -ExpectedClaimId $claim.claimId -OwnerCompletionObserved
+        }
+        catch {
+            $category = [string]$_.Exception.Data['Category']
+        }
+
+        $category | Should -Be 'ConcurrencySlotRecoveryRequired'
+        (Get-CapacitySlots).slots.Count | Should -Be 1
+    }
+
+    It 'rejects noncanonical schema values at handoff, submission, and never-invoked release' -TestCases @(
+        @{ Name = 'string'; Value = '2' }
+        @{ Name = 'decimal'; Value = [decimal]2 }
+        @{ Name = 'rounded-double'; Value = [double]1.6 }
+        @{ Name = 'null'; Value = $null }
+        @{ Name = 'array'; Value = @(2) }
+        @{ Name = 'object'; Value = [pscustomobject]@{ value = 2 } }
+    ) {
+        param($Name, $Value)
+        $directory = Join-Path $TestDrive ("capacity-schema-$Name")
+        $null = New-Item -ItemType Directory -Path $directory -Force
+        $claim = Acquire-CapacitySlot -ThreadId $script:ThreadId -RoundId "schema-$Name" -EvidenceDirectory $directory
+        $null = Set-CapacitySlotClaim -Id $claim.slotId -ClaimId $claim.claimId -Changes ([ordered]@{
+            schemaVersion = $Value
+            phase = 'run-starting'
+            submissionAttempted = $false
+            ownerPid = 999999
+            ownerProcessStartedAtUtc = '2026-08-14T00:00:00Z'
+        })
+        if ($Name -eq 'decimal') {
+            $slotPath = Get-CapacitySlotPath -Id $claim.slotId
+            $raw = [System.IO.File]::ReadAllText($slotPath, $Script:Utf8NoBom)
+            $raw = [regex]::Replace($raw, '("schemaVersion"\s*:\s*)2(?=\s*,)', '${1}2.0', 1)
+            [System.IO.File]::WriteAllText($slotPath, $raw, $Script:Utf8NoBom)
+        }
+        $handoffCategory = ''
+        $confirmCategory = ''
+        $releaseCategory = ''
+
+        try {
+            $null = Get-ValidatedCapacityHandoff `
+                -Id $claim.slotId `
+                -ClaimId $claim.claimId `
+                -ThreadId $script:ThreadId `
+                -EvidenceDirectory $directory
+        }
+        catch { $handoffCategory = [string]$_.Exception.Data['Category'] }
+        try { $null = Confirm-CapacitySubmissionAttempt -Id $claim.slotId -ClaimId $claim.claimId }
+        catch { $confirmCategory = [string]$_.Exception.Data['Category'] }
+        try { $null = Release-CapacitySlot -Id $claim.slotId -ExpectedClaimId $claim.claimId }
+        catch { $releaseCategory = [string]$_.Exception.Data['Category'] }
+
+        $handoffCategory | Should -Be 'ConcurrencySlotRecoveryRequired'
+        $confirmCategory | Should -Be 'ConcurrencySlotRecoveryRequired'
+        $releaseCategory | Should -Be 'ConcurrencySlotRecoveryRequired'
+        (Get-CapacitySlots).slots.Count | Should -Be 1
+    }
+
+    It 'rejects impossible never-invoked claim markers' -TestCases @(
+        @{ Name = 'attempt-time'; Changes = @{ submissionAttemptedAtUtc = '2026-08-14T00:00:00Z' } }
+        @{ Name = 'watcher'; Changes = @{ watcherId = [guid]::NewGuid().ToString() } }
+        @{ Name = 'terminal'; Changes = @{ terminalStatus = 'completed' } }
+    ) {
+        param($Name, $Changes)
+        $directory = Join-Path $TestDrive ("capacity-impossible-$Name")
+        $null = New-Item -ItemType Directory -Path $directory -Force
+        $claim = Acquire-CapacitySlot -ThreadId $script:ThreadId -RoundId "impossible-$Name" -EvidenceDirectory $directory
+        $updates = [ordered]@{
+            phase = 'run-starting'
+            submissionAttempted = $false
+            ownerPid = 999999
+            ownerProcessStartedAtUtc = '2026-08-14T00:00:00Z'
+        }
+        foreach ($key in $Changes.Keys) { $updates[$key] = $Changes[$key] }
+        $null = Set-CapacitySlotClaim -Id $claim.slotId -ClaimId $claim.claimId -Changes $updates
+        $releaseCategory = ''
+
+        try { $null = Release-CapacitySlot -Id $claim.slotId -ExpectedClaimId $claim.claimId }
+        catch { $releaseCategory = [string]$_.Exception.Data['Category'] }
+
+        $releaseCategory | Should -Be 'ConcurrencySlotRecoveryRequired'
+        (Get-CapacitySlots).slots.Count | Should -Be 1
+    }
+
+    It 'rejects an invalid capacity CAS before adapter invocation' -TestCases @(
+        @{ SchemaVersion = 1; Phase = 'run-starting'; SubmissionAttempted = $false }
+        @{ SchemaVersion = 2; Phase = 'run-starting'; SubmissionAttempted = $true }
+        @{ SchemaVersion = 2; Phase = 'slot-acquired-pre-send'; SubmissionAttempted = $false }
+    ) {
+        param($SchemaVersion, $Phase, $SubmissionAttempted)
+        $directory = Join-Path $TestDrive ("capacity-cas-rejected-$SchemaVersion-$Phase-$SubmissionAttempted")
+        $null = New-Item -ItemType Directory -Path $directory -Force
+        $prompt = Join-Path $TestDrive ("capacity-cas-rejected-$SchemaVersion-$Phase-$SubmissionAttempted.md")
+        [System.IO.File]::WriteAllText($prompt, 'bounded request', $Script:Utf8NoBom)
+        $claim = Acquire-CapacitySlot -ThreadId $script:ThreadId -RoundId 'cas-rejected' -EvidenceDirectory $directory
+        $null = Set-CapacitySlotClaim -Id $claim.slotId -ClaimId $claim.claimId -Changes ([ordered]@{
+            schemaVersion = $SchemaVersion
+            phase = $Phase
+            submissionAttempted = $SubmissionAttempted
+        })
+        Mock Get-WatchAdapterPath { 'adapter.ps1' }
+        Mock Invoke-WatchAdapterSend { throw 'adapter must not be invoked' }
+        $category = ''
+
+        try {
+            $null = Invoke-RootWaitRound `
+                -EvidenceDirectory $directory `
+                -ThreadId $script:ThreadId `
+                -PromptFile $prompt `
+                -IdempotencyKeyValue 'cas-rejected' `
+                -CapacitySlotId $claim.slotId `
+                -CapacityClaimId $claim.claimId
+        }
+        catch {
+            $category = [string]$_.Exception.Data['Category']
+        }
+
+        $category | Should -Be 'ConcurrencySlotRecoveryRequired'
+        Should -Invoke Invoke-WatchAdapterSend -Times 0 -Exactly
     }
 
     It 'blocks direct run-root at the per-task and global capacity limits before adapter invocation' {
@@ -887,11 +1294,14 @@ Describe 'Batch RootWait capacity' {
         [System.IO.File]::WriteAllText($prompt, 'bounded request', $Script:Utf8NoBom)
         $claim = Acquire-CapacitySlot -ThreadId $script:ThreadId -RoundId 'handoff-round' -EvidenceDirectory $directory
         $null = Set-CapacitySlotClaim -Id $claim.slotId -ClaimId $claim.claimId -Changes ([ordered]@{
-            phase = 'run-starting'; submissionAttempted = $true
+            phase = 'run-starting'; submissionAttempted = $false
         })
         Mock Acquire-CapacitySlot { throw 'child must not double-acquire capacity' }
-        Mock Invoke-RootWaitRound {
-            [ordered]@{ terminalStatus = 'completed'; terminalOutcome = '' }
+        Mock Get-WatchAdapterPath { 'adapter.ps1' }
+        Mock Invoke-WatchAdapterSend {
+            param($EvidenceDirectory)
+            $null = Set-AdapterTerminalFixture -Directory $EvidenceDirectory -Outcome 'retry-not-submitted'
+            [pscustomobject]@{ ExitCode = 0; Payload = [pscustomobject]@{ ok = $true } }
         }
 
         $result = Invoke-CapacityBoundRootWaitRound `
@@ -902,10 +1312,14 @@ Describe 'Batch RootWait capacity' {
             -CapacitySlotId $claim.slotId `
             -CapacityClaimId $claim.claimId
 
-        $result.terminalStatus | Should -Be 'completed'
+        $stored = Read-WatchJson -Path (Get-CapacitySlotPath -Id $claim.slotId) -Required
+        $result.terminalOutcome | Should -Be 'retry-not-submitted'
+        $stored.claimId | Should -Be $claim.claimId
+        $stored.submissionAttempted | Should -BeTrue
+        $stored.submissionAttemptedAtUtc | Should -Not -BeNullOrEmpty
         (Get-CapacitySlots).slots.Count | Should -Be 1
         Should -Invoke Acquire-CapacitySlot -Times 0 -Exactly
-        Should -Invoke Invoke-RootWaitRound -Times 1 -Exactly
+        Should -Invoke Invoke-WatchAdapterSend -Times 1 -Exactly
     }
 
     It 'rejects a mismatched child capacity claim before adapter invocation' {
@@ -915,9 +1329,9 @@ Describe 'Batch RootWait capacity' {
         [System.IO.File]::WriteAllText($prompt, 'bounded request', $Script:Utf8NoBom)
         $claim = Acquire-CapacitySlot -ThreadId $script:ThreadId -RoundId 'handoff-mismatch' -EvidenceDirectory $directory
         $null = Set-CapacitySlotClaim -Id $claim.slotId -ClaimId $claim.claimId -Changes ([ordered]@{
-            phase = 'run-starting'; submissionAttempted = $true
+            phase = 'run-starting'; submissionAttempted = $false
         })
-        Mock Invoke-RootWaitRound { throw 'adapter must not be invoked' }
+        Mock Invoke-WatchAdapterSend { throw 'adapter must not be invoked' }
         $category = ''
 
         try {
@@ -935,7 +1349,80 @@ Describe 'Batch RootWait capacity' {
 
         $category | Should -Be 'ConcurrencySlotRecoveryRequired'
         (Get-CapacitySlots).slots.Count | Should -Be 1
-        Should -Invoke Invoke-RootWaitRound -Times 0 -Exactly
+        Should -Invoke Invoke-WatchAdapterSend -Times 0 -Exactly
+    }
+
+    It 'rejects legacy or already-advanced child handoffs before adapter invocation' -TestCases @(
+        @{ SchemaVersion = 1; SubmissionAttempted = $false }
+        @{ SchemaVersion = 2; SubmissionAttempted = $true }
+    ) {
+        param($SchemaVersion, $SubmissionAttempted)
+        $directory = Join-Path $TestDrive ("capacity-handoff-rejected-$SchemaVersion-$SubmissionAttempted")
+        $null = New-Item -ItemType Directory -Path $directory -Force
+        $prompt = Join-Path $TestDrive ("capacity-handoff-rejected-$SchemaVersion-$SubmissionAttempted.md")
+        [System.IO.File]::WriteAllText($prompt, 'bounded request', $Script:Utf8NoBom)
+        $claim = Acquire-CapacitySlot -ThreadId $script:ThreadId -RoundId 'handoff-rejected' -EvidenceDirectory $directory
+        $null = Set-CapacitySlotClaim -Id $claim.slotId -ClaimId $claim.claimId -Changes ([ordered]@{
+            schemaVersion = $SchemaVersion
+            phase = 'run-starting'
+            submissionAttempted = $SubmissionAttempted
+        })
+        Mock Invoke-WatchAdapterSend { throw 'adapter must not be invoked' }
+        $category = ''
+
+        try {
+            $null = Invoke-CapacityBoundRootWaitRound `
+                -EvidenceDirectory $directory `
+                -ThreadId $script:ThreadId `
+                -PromptFile $prompt `
+                -IdempotencyKeyValue 'handoff-rejected' `
+                -CapacitySlotId $claim.slotId `
+                -CapacityClaimId $claim.claimId
+        }
+        catch {
+            $category = [string]$_.Exception.Data['Category']
+        }
+
+        $category | Should -Be 'ConcurrencySlotRecoveryRequired'
+        (Get-CapacitySlots).slots.Count | Should -Be 1
+        Should -Invoke Invoke-WatchAdapterSend -Times 0 -Exactly
+    }
+
+    It 'requires owner completion before a live never-invoked claim can be released' {
+        $directory = Join-Path $TestDrive 'capacity-live-never-invoked'
+        $null = New-Item -ItemType Directory -Path $directory -Force
+        $claim = Acquire-CapacitySlot -ThreadId $script:ThreadId -RoundId 'live-never-invoked' -EvidenceDirectory $directory
+        $null = Set-CapacitySlotClaim -Id $claim.slotId -ClaimId $claim.claimId -Changes ([ordered]@{
+            phase = 'run-starting'; submissionAttempted = $false
+        })
+        $category = ''
+
+        try {
+            $null = Release-CapacitySlot -Id $claim.slotId -ExpectedClaimId $claim.claimId
+        }
+        catch {
+            $category = [string]$_.Exception.Data['Category']
+        }
+        $release = Release-CapacitySlot -Id $claim.slotId -ExpectedClaimId $claim.claimId -OwnerCompletionObserved
+
+        $category | Should -Be 'ConcurrencySlotRecoveryRequired'
+        $release.proof | Should -Be 'never-invoked'
+        (Get-CapacitySlots).slots.Count | Should -Be 0
+    }
+
+    It 'preserves never-launched for a dead slot-acquired-pre-send claim' {
+        $directory = Join-Path $TestDrive 'capacity-never-launched'
+        $null = New-Item -ItemType Directory -Path $directory -Force
+        $claim = Acquire-CapacitySlot -ThreadId $script:ThreadId -RoundId 'never-launched' -EvidenceDirectory $directory
+        $null = Set-CapacitySlotClaim -Id $claim.slotId -ClaimId $claim.claimId -Changes ([ordered]@{
+            ownerPid = 999999
+            ownerProcessStartedAtUtc = '2026-08-14T00:00:00Z'
+        })
+
+        $release = Release-CapacitySlot -Id $claim.slotId -ExpectedClaimId $claim.claimId
+
+        $release.proof | Should -Be 'never-launched'
+        (Get-CapacitySlots).slots.Count | Should -Be 0
     }
 
     It 'releases a direct run-root only after durable terminal proof' {
@@ -1146,6 +1633,37 @@ Describe 'Batch RootWait capacity' {
         $result.items[0].errorCategory | Should -Be 'ConcurrencySlotTimeout'
         Should -Invoke Start-BatchRoundProcess -Times 0 -Exactly
         (Get-CapacitySlots).slots.Count | Should -Be 0
+    }
+
+    It 'releases the parent claim when a child exits before the submission CAS' {
+        $manifestPath = New-BatchFixture -Root (Join-Path $TestDrive 'batch-child-pre-cas-exit') -TimeoutSeconds 30
+        $script:childClaimId = ''
+        $script:childSubmissionAttempted = $null
+        $process = [pscustomobject]@{ Id = $PID; HasExited = $true }
+        $process | Add-Member -MemberType ScriptMethod -Name Refresh -Value { }
+        $process | Add-Member -MemberType ScriptMethod -Name Dispose -Value { }
+        Mock Start-BatchRoundProcess {
+            param($CapacitySlotId, $CapacityClaimId)
+            $stored = Read-WatchJson -Path (Get-CapacitySlotPath -Id $CapacitySlotId) -Required
+            $script:childClaimId = $CapacityClaimId
+            $script:childSubmissionAttempted = [bool]$stored.submissionAttempted
+            [pscustomobject]@{ Process = $process; StdoutPath = ''; StderrPath = '' }
+        }
+        Mock Read-BatchRoundProcessResult {
+            [ordered]@{
+                roundId = 'round-1'; status = 'recovery-required'; terminalStatus = ''; terminalOutcome = ''
+                errorCategory = 'ConcurrencySlotRecoveryRequired'; submissionAcknowledged = $false; watcherId = ''
+            }
+        }
+        Mock Invoke-WatchAdapterSend { throw 'adapter must not be invoked by the batch parent' }
+
+        $result = Invoke-RootWaitBatch -Path $manifestPath -ExpectedThreadId $script:ThreadId -SleepAction { }
+
+        $script:childClaimId | Should -Not -BeNullOrEmpty
+        $script:childSubmissionAttempted | Should -BeFalse
+        $result.allSucceeded | Should -BeFalse
+        (Get-CapacitySlots).slots.Count | Should -Be 0
+        Should -Invoke Invoke-WatchAdapterSend -Times 0 -Exactly
     }
 
     It 'recognizes a live owner from its recorded UTC process start time' {

@@ -151,6 +151,22 @@ provider. It controls a user-approved external Chrome tab through
   child receives the parent's exact slot and claim identity, validates the
   thread and evidence binding, and reuses that claim without acquiring again.
   One logical round therefore owns exactly one capacity claim.
+- Capacity claims use schema version `2`; watcher/evidence state and batch
+  manifests remain schema version `1`. A schema-2 claim distinguishes
+  `slot-acquired-pre-send/false`, `run-starting/false` (process or child handoff
+  started, adapter not invoked), and `run-starting/true` (the adapter send
+  boundary was crossed). Missing fields and older schemas never inherit the new
+  `false` meaning.
+- Direct and batch paths persist `run-starting/submissionAttempted=false` before
+  entering the shared round. Inside `Invoke-RootWaitRound`, one mutex-held
+  compare-and-swap verifies the claim identity, canonical integer schema value,
+  phase, and explicit boolean `false` with no submission timestamp, then writes
+  `true` plus `submissionAttemptedAtUtc` immediately before the sole
+  `Invoke-WatchAdapterSend` call. Strings, decimals, arrays, objects, and other
+  coercible schema representations fail closed. PowerShell readers accept the
+  canonical JSON integer through its `Int32` or `Int64` host representation;
+  they must not use a numeric cast to admit any other representation. No process launch, admission,
+  or handoff validation may perform that transition.
 - Batch timeout defaults to `7200` seconds. An item that never acquires a slot
   ends as `queued-timeout` with `errorCategory=ConcurrencySlotTimeout` and
   `submissionAcknowledged=false`; it must not be represented as sent.
@@ -160,10 +176,21 @@ provider. It controls a user-approved external Chrome tab through
   without starting a child.
 - An orphaned slot whose durable state proves neither pre-click-unsent nor
   terminal remains isolated and returns `ConcurrencySlotRecoveryRequired`.
+- A schema-2 `run-starting/false` claim may be released as `never-invoked` only
+  after its owner died or the caller explicitly observed owner completion, and
+  only when no adapter, watcher, event, or evidence artifact contradicts that
+  claim. A submission timestamp, watcher id, or terminal marker also contradicts
+  `never-invoked`. Any `sent`, `send-uncertain`, unknown adapter state,
+  incomplete retry proof, noncanonical/schema-1 claim, or `run-starting/true`
+  claim remains isolated. Missing
+  files and blank pages are never independent release evidence.
 - A slot owner's persisted process-start value is an ISO-8601 UTC identity, not
   a local `DateTime` value. Liveness requires both the PID and the parsed UTC
   process start to match after JSON `DateTime`/`DateTimeOffset`/string
   round-trips; malformed or reused identities are dead owners, not matches.
+- Watcher JSON readers may perform only bounded local rereads to tolerate a
+  concurrent atomic file replacement. Persistently malformed JSON remains a
+  fail-closed error and never authorizes capacity release or resend.
 - Read-only diagnostics must expose current slot ownership, and one audited
   recovery operation may release only a provably pre-click-unsent or terminal
   slot. It must not delete idempotency or target claims or authorize another
@@ -281,6 +308,15 @@ provider. It controls a user-approved external Chrome tab through
   nonterminal/`send-uncertain` rejection. Adapter wait, watcher launch/wait,
   recovery, and batch child coverage must prove the same absolute response
   deadline is never reset.
+- Unit coverage for capacity-claim schema `2` while watcher and batch schemas
+  remain `1`; one direct and one batch-child `run-starting/false -> true`
+  compare-and-swap immediately before adapter invocation; rejection of a second
+  transition, older/coercible schemas, contradictory timestamp or terminal
+  markers, missing fields, wrong phase, or mismatched handoff;
+  acceptance of canonical integer `2` after both PowerShell `Int32` and `Int64`
+  JSON round-trips without accepting strings, decimals, doubles, or containers;
+  `never-invoked` release for dead and explicitly completed owners; preservation
+  of `never-launched`; and fail-closed `sent`/`send-uncertain` contradictions.
 - Harness conflicts must require `transport=agent-browser-cli-v2` and
   `continuation=codex-root-wait` while preserving the logical Skill/protocol
   name `chatgpt-pro-sidebar`.
@@ -307,7 +343,9 @@ provider. It controls a user-approved external Chrome tab through
    terminal event, leaves acknowledgement pending for independent Codex review,
    permits no caller-driven resend, and never registers a Stop Hook or invokes
    a model watcher. Direct calls acquire capacity before `send`; batch children
-   validate and reuse the parent's claim. The adapter's single durable
+   validate schema `2`, `run-starting/false`, and reuse the parent's claim. The
+   shared round atomically changes that same claim to `true` immediately before
+   adapter invocation. The adapter's single durable
    proved-not-submitted retry is internal to the same logical `send`; adapter
    terminal outcomes bypass watcher launch and return through the same root
    task.
@@ -328,7 +366,8 @@ provider. It controls a user-approved external Chrome tab through
    normalization, retained baseline suffix, full-baseline-loss rejection,
    shared absolute deadline, both adapter terminal outcomes returning to the
    original thread, direct fourth/six-plus-one capacity refusal before adapter
-   work, single-count batch claim handoff, safe release versus retained
+   work, single-count schema-2 batch claim handoff, one pre-send compare-and-swap,
+   `never-invoked` recovery without browser work, safe release versus retained
    isolation, batch non-success, terminal RootWait return, and separate matching
    acknowledgement.
 7. **Wrong vs correct** — wrong: return to the model between `send`, `start`,
@@ -349,7 +388,10 @@ provider. It controls a user-approved external Chrome tab through
 3. **Contract** — the parent process acquires capacity before starting a child
    `run-root`. At most three children for one task and six for the local user may
    run at once. An item without capacity remains local and must not open a page,
-   write the composer, or click Send.
+   write the composer, or click Send. Before child launch the parent persists
+   schema-2 `run-starting/false`; the child validates and reuses that exact claim,
+   and only the shared round flips it to `true`. The parent remains the sole
+   batch claim releaser.
 4. **Terminal evidence** — every item keeps independent watcher, URL, target,
    prompt, response, and evidence hashes. The parent writes one atomic
    `batch-result.json` with slot-wait and run-duration telemetry; local polling
@@ -357,13 +399,17 @@ provider. It controls a user-approved external Chrome tab through
 5. **Errors and recovery** — a queued item reaching its batch deadline becomes
    `queued-timeout` with `ConcurrencySlotTimeout` and
    `submissionAcknowledged=false`. A dead owner releases capacity only with
-   durable pre-click-unsent or terminal proof; otherwise it remains isolated as
-   `ConcurrencySlotRecoveryRequired`. No path authorizes an automatic resend.
+   durable pre-click-unsent, terminal, or unambiguous schema-2 `never-invoked`
+   proof; otherwise it remains isolated as `ConcurrencySlotRecoveryRequired`.
+   Old/advanced claims and contradictory durable artifacts remain isolated. No
+   path authorizes an automatic resend.
 6. **Required tests** — prove per-task `3`, global `6`, a seventh item starting
    no browser child, cross-thread slot ownership, atomic partial results,
    duplicate-key rejection, UTC owner identity round-trip, locked-stdout
    terminal fallback, nonterminal durable-evidence rejection, safe release
-   proof, no-resend recovery, immutable manifest/intent binding, V2 manual-save
+   proof, schema-2 `run-starting/false` parent/child handoff, pre-CAS child exit
+   release, skewed-schema rejection before adapter work, no-resend recovery,
+   immutable manifest/intent binding, V2 manual-save
    rejection with legacy compatibility, and serialized follow-up identity
    checks.
 7. **Wrong vs correct** — wrong: treat a child exit or unreadable stdout as

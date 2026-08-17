@@ -20,7 +20,7 @@ $trustedCommandResolverPath = Join-Path $RepoRoot $trustedCommandResolverRelativ
 $expectedThirdPartyManifestSha256 = "748796e09774955811aa1d4a8ed165efb865d88643d493cd9cf211d835a34850"
 # Canonical UTF-8 SHA-256 (CRLF normalized to LF) of the shared validator.
 # `-Index` must execute this exact staged source, never a mutable worktree copy.
-$expectedThirdPartyValidatorSha256 = "b56358a5bb1e250e8289aff3a7f875a6028810ae1ab8f7900eee9688f43dcc73"
+$expectedThirdPartyValidatorSha256 = "607c8a4756cc369daa5627c1be298b1ba87d375efddd4ea036a865eccbf6c4eb"
 # Canonical UTF-8 SHA-256 of the validator's trusted command dependency.
 $expectedTrustedCommandResolverSha256 = "febf8675ace4cf0ce353c8680aa4e3e606e424844704a85877efd7610f420d2e"
 

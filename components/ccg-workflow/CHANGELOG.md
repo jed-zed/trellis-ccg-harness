@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **GPT Pro pre-send capacity contract** — Keep schema-2 claims unattempted until the exact adapter-send
+  boundary, allow release only with strict `never-invoked` proof, and retain legacy or contradictory
+  claims fail-closed without authorizing resend.
+
 ## [3.4.14] - 2026-08-13
 
 ### Fixed

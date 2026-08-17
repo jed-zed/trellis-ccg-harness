@@ -19,10 +19,14 @@ if (testFiles.length === 0) {
   process.exit(1);
 }
 
-const result = spawnSync(process.execPath, ["--test", ...testFiles], {
-  cwd: repoRoot,
-  stdio: "inherit",
-});
+const result = spawnSync(
+  process.execPath,
+  ["--test", "--test-concurrency=1", ...testFiles],
+  {
+    cwd: repoRoot,
+    stdio: "inherit",
+  },
+);
 
 if (result.error) {
   console.error(`Unable to start the Harness test runner: ${result.error.message}`);

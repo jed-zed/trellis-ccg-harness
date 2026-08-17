@@ -225,7 +225,12 @@ function fixture() {
     root,
     homeDir,
     repoRoot,
-    cleanup: () => rmSync(root, { recursive: true, force: true }),
+    cleanup: () => rmSync(root, {
+      recursive: true,
+      force: true,
+      maxRetries: 10,
+      retryDelay: 100,
+    }),
   };
 }
 

@@ -244,12 +244,18 @@ export async function withCredentialHomeVolatileSnapshot(grokHome, action, {
     throw new Error('Credential-home snapshot action must be a function')
   const root = await validateDirectory(grokHome)
   const snapshot = await snapshotCredentialHome(root)
+  const cleanupErrors = []
+  let primaryError
+  let result
   try {
-    return await action(root)
+    result = await action(root)
   }
-  finally {
-    await restoreCredentialHome(root, snapshot)
+  catch (error) {
+    primaryError = normalizeError(error)
   }
+  await collectCleanupError(cleanupErrors, () => restoreCredentialHome(root, snapshot))
+  throwCollectedErrors(primaryError, cleanupErrors)
+  return result
 }
 
 function processIsAlive(pid) {
@@ -368,12 +374,18 @@ export async function withCredentialHomeLease(grokHome, action, options = {}) {
   if (typeof action !== 'function')
     throw new Error('Credential lease action must be a function')
   const release = await acquireCredentialHomeLease(grokHome, options)
+  const cleanupErrors = []
+  let primaryError
+  let result
   try {
-    return await action()
+    result = await action()
   }
-  finally {
-    await release()
+  catch (error) {
+    primaryError = normalizeError(error)
   }
+  await collectCleanupError(cleanupErrors, release)
+  throwCollectedErrors(primaryError, cleanupErrors)
+  return result
 }
 
 async function assertNoLinksRecursively(path) {
@@ -462,6 +474,38 @@ function createDeferred() {
     rejectPromise = reject
   })
   return { promise, resolve: resolvePromise, reject: rejectPromise }
+}
+
+function normalizeError(error) {
+  return error instanceof Error ? error : new Error(String(error))
+}
+
+async function collectCleanupError(cleanupErrors, action) {
+  try {
+    await action()
+  }
+  catch (error) {
+    cleanupErrors.push(normalizeError(error))
+  }
+}
+
+function attachCleanupErrors(error, cleanupErrors) {
+  if (cleanupErrors.length === 0)
+    return error
+  Object.defineProperty(error, 'cleanupErrors', {
+    configurable: true,
+    value: cleanupErrors,
+  })
+  return error
+}
+
+function throwCollectedErrors(primaryError, cleanupErrors) {
+  if (primaryError)
+    throw attachCleanupErrors(primaryError, cleanupErrors)
+  if (cleanupErrors.length > 0) {
+    const [first, ...additional] = cleanupErrors
+    throw attachCleanupErrors(first, additional)
+  }
 }
 
 function redactText(value, secrets) {
@@ -566,6 +610,7 @@ export function createGrokAcpClient({
   command = 'grok',
   prefixArgs = [],
   spawnProcess = spawn,
+  terminateProcess = terminateChild,
   validatePrivateDirectory: validatePrivate = validatePrivateDirectory,
   randomName,
   onSpawn,
@@ -579,6 +624,9 @@ export function createGrokAcpClient({
       const releaseCredentialLease = options.credentialLeaseHeld === true
         ? async () => {}
         : await acquireCredentialHomeLease(grokHome, { validateDirectory: validatePrivate })
+      const cleanupErrors = []
+      let primaryError
+      let result
       try {
       const childEnvironment = buildExactGrokEnvironment({
         sourceEnv: options.sourceEnv || {},
@@ -604,9 +652,9 @@ export function createGrokAcpClient({
         })
       }
       catch (error) {
-        await capture.handle.close().catch(() => {})
-        await rm(capture.path, { force: true })
-        await restoreCredentialHome(grokHome, credentialSnapshot)
+        await collectCleanupError(cleanupErrors, () => capture.handle.close())
+        await collectCleanupError(cleanupErrors, () => rm(capture.path, { force: true }))
+        await collectCleanupError(cleanupErrors, () => restoreCredentialHome(grokHome, credentialSnapshot))
         throw error
       }
       onSpawn?.(child)
@@ -792,13 +840,12 @@ export function createGrokAcpClient({
       }
 
       const stopChild = () => {
-        terminatePromise ||= terminateChild(child, 250, spawnProcess === spawn)
+        terminatePromise ||= terminateProcess(child, 250, spawnProcess === spawn)
         return terminatePromise
       }
 
       let overallTimer
       let abortHandler
-      let result
       try {
         overallTimer = setTimeout(() => {
           cancelSession()
@@ -893,17 +940,21 @@ export function createGrokAcpClient({
         }
         pending.clear()
         cancelSession()
-        await stopChild()
-        await stdoutQueue.catch(() => {})
-        await capture.handle.close().catch(() => {})
-        await rm(capture.path, { force: true })
-        await restoreCredentialHome(grokHome, credentialSnapshot)
+        await collectCleanupError(cleanupErrors, stopChild)
+        await collectCleanupError(cleanupErrors, () => stdoutQueue)
+        await collectCleanupError(cleanupErrors, () => capture.handle.close())
+        await collectCleanupError(cleanupErrors, () => rm(capture.path, { force: true }))
+        await collectCleanupError(cleanupErrors, () => restoreCredentialHome(grokHome, credentialSnapshot))
       }
-      return result
+      }
+      catch (error) {
+        primaryError = normalizeError(error)
       }
       finally {
-        await releaseCredentialLease()
+        await collectCleanupError(cleanupErrors, releaseCredentialLease)
       }
+      throwCollectedErrors(primaryError, cleanupErrors)
+      return result
     },
   }
 }
