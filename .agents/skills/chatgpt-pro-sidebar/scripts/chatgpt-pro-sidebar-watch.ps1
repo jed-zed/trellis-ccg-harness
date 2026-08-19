@@ -1,4 +1,4 @@
-﻿#requires -Version 5.1
+#requires -Version 5.1
 # Source encoding: UTF-8 with BOM.
 [CmdletBinding()]
 param(
@@ -44,16 +44,10 @@ $Script:Utf8Strict = [System.Text.UTF8Encoding]::new($false, $true)
 $Script:WatcherScriptPath = $PSCommandPath
 $Script:StateFileName = 'watch-state.json'
 $Script:EventFileName = 'watch-event.json'
-$Script:StopHookClaimFileName = 'watch-stop-hook.claim'
-$Script:CallbackFileName = 'watch-callback.json'
 $Script:ContinuationAckFileName = 'watch-continuation-ack.json'
 $Script:LogFileName = 'watch.log'
 $Script:WorkerStdoutFileName = 'watch-worker.stdout.log'
 $Script:WorkerStderrFileName = 'watch-worker.stderr.log'
-$Script:StopHookRegistryDirectoryName = 'stop-hook-v2'
-$Script:LegacyStopHookRegistryDirectoryName = 'stop-hook-v1'
-$Script:MaximumStopHookWaitSeconds = 7400
-$Script:StopHookRegistryRootOverride = $null
 $Script:CapacityRootOverride = $null
 $Script:CapacityDirectoryName = 'concurrency-v1'
 $Script:CapacitySlotCount = 6
@@ -109,10 +103,7 @@ function Get-WatchContinuationTransport {
     if ($agentMonitor) {
         return 'codex-agent-monitor'
     }
-    if ([bool](Get-WatchProperty $State 'noWake' $false)) {
-        return 'disabled'
-    }
-    return 'codex-stop-hook'
+    throw 'Watcher state has no supported local continuation transport.'
 }
 
 function Get-WatchSha256Text {
@@ -418,70 +409,8 @@ function Get-WatchRemainingDeadlineSeconds {
     return [Math]::Min($RequestedTimeoutSeconds, $remaining)
 }
 
-function Get-WatchStopHookRegistryRoot {
-    if (-not [string]::IsNullOrWhiteSpace([string]$Script:StopHookRegistryRootOverride)) {
-        return [System.IO.Path]::GetFullPath([string]$Script:StopHookRegistryRootOverride)
-    }
-    if ([string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) {
-        throw 'LOCALAPPDATA is unavailable for the Stop Hook registry.'
-    }
-    return [System.IO.Path]::GetFullPath(
-        (Join-Path (Join-Path $env:LOCALAPPDATA 'ChatGptProSidebar') $Script:StopHookRegistryDirectoryName)
-    )
-}
-
-function Get-WatchStopHookRegistrationPath {
-    param(
-        [Parameter(Mandatory = $true)][string]$ThreadId,
-        [Parameter(Mandatory = $true)][string]$WatcherId
-    )
-
-    if (-not (Test-WatchThreadId -Value $ThreadId)) {
-        throw 'Cannot register a Stop Hook continuation for an invalid thread id.'
-    }
-    $parsedWatcherId = [guid]::Empty
-    if (-not [guid]::TryParse($WatcherId, [ref]$parsedWatcherId)) {
-        throw 'Cannot register a Stop Hook continuation for an invalid watcher id.'
-    }
-    $threadDirectory = Join-Path (Get-WatchStopHookRegistryRoot) ($ThreadId.ToLowerInvariant())
-    return Join-Path $threadDirectory ($parsedWatcherId.ToString().ToLowerInvariant() + '.json')
-}
-
-function Register-WatchStopHook {
-    param(
-        [Parameter(Mandatory = $true)][string]$EvidenceDirectory,
-        [Parameter(Mandatory = $true)][string]$ThreadId,
-        [Parameter(Mandatory = $true)][string]$WatcherId,
-        [Parameter(Mandatory = $true)][int]$WatcherTimeoutSeconds,
-        [Parameter(Mandatory = $true)][int]$FinalizeTimeout
-    )
-
-    $boundedWaitSeconds = $WatcherTimeoutSeconds + $FinalizeTimeout + 120
-    if ($boundedWaitSeconds -gt $Script:MaximumStopHookWaitSeconds) {
-        throw "Watcher timeout exceeds the $($Script:MaximumStopHookWaitSeconds)-second Stop Hook horizon."
-    }
-    $registrationPath = Get-WatchStopHookRegistrationPath -ThreadId $ThreadId -WatcherId $WatcherId
-    $registration = [ordered]@{
-        schemaVersion = $Script:WatcherSchemaVersion
-        transport = 'codex-stop-hook'
-        phase = 'registered'
-        registeredAtUtc = [datetime]::UtcNow.ToString('o')
-        hookDeadlineUtc = [datetime]::UtcNow.AddSeconds($boundedWaitSeconds).ToString('o')
-        codexThreadId = $ThreadId.ToLowerInvariant()
-        watcherId = $WatcherId
-        evidenceDirectory = [System.IO.Path]::GetFullPath($EvidenceDirectory)
-        stateFile = $Script:StateFileName
-        eventFile = $Script:EventFileName
-        claimFile = $Script:StopHookClaimFileName
-        callbackFile = $Script:CallbackFileName
-    }
-    Write-WatchJsonAtomic -Path $registrationPath -Value $registration
-    return $registrationPath
-}
-
 function Assert-WatchConfiguration {
     param(
-        [switch]$DisableStopHookHorizon,
         [int]$ConfiguredTimeoutSeconds = $TimeoutSeconds,
         [int]$ConfiguredFinalizeTimeoutSeconds = $FinalizeTimeoutSeconds
     )
@@ -500,12 +429,6 @@ function Assert-WatchConfiguration {
     }
     if ($ConfiguredFinalizeTimeoutSeconds -lt 5 -or $ConfiguredFinalizeTimeoutSeconds -gt 300) {
         throw 'FinalizeTimeoutSeconds must be between 5 and 300.'
-    }
-    if (-not $DisableStopHookHorizon) {
-        $maximumWatcherTimeoutSeconds = $Script:MaximumStopHookWaitSeconds - $ConfiguredFinalizeTimeoutSeconds - 120
-        if ($ConfiguredTimeoutSeconds -gt $maximumWatcherTimeoutSeconds) {
-            throw "TimeoutSeconds must be between 1 and $maximumWatcherTimeoutSeconds for the Stop Hook horizon."
-        }
     }
 }
 
@@ -1190,11 +1113,9 @@ function Invoke-WatchWorker {
     $event = Complete-WatchTerminalEvidence -StatePath $statePath -EventPath $eventPath -State $state -LoopResult $loopResult
 
     $continuationTransport = Get-WatchContinuationTransport -State $state
-    $continuationRegistered = $continuationTransport -eq 'codex-stop-hook'
     Write-WatchLog -EvidenceDirectory $EvidenceDirectory -Record ([ordered]@{
         atUtc = [datetime]::UtcNow.ToString('o')
         terminalStatus = $event.status
-        continuationRegistered = $continuationRegistered
         continuationTransport = $continuationTransport
     })
 
@@ -1203,7 +1124,6 @@ function Invoke-WatchWorker {
         command = 'worker'
         terminalStatus = $event.status
         eventFile = $Script:EventFileName
-        continuationRegistered = $continuationRegistered
         continuationTransport = $continuationTransport
     }
 }
@@ -1336,7 +1256,6 @@ function Start-WatchProcess {
         [Parameter(Mandatory = $true)][string]$EvidenceDirectory,
         [Parameter(Mandatory = $true)][string]$ThreadId,
         [int]$WatcherTimeoutSeconds = $TimeoutSeconds,
-        [switch]$DisableContinuation,
         [switch]$AgentMonitor,
         [switch]$RootWait,
         [switch]$KeepLauncherAlive
@@ -1356,25 +1275,19 @@ function Start-WatchProcessExclusive {
         [Parameter(Mandatory = $true)][string]$EvidenceDirectory,
         [Parameter(Mandatory = $true)][string]$ThreadId,
         [int]$WatcherTimeoutSeconds = $TimeoutSeconds,
-        [switch]$DisableContinuation,
         [switch]$AgentMonitor,
         [switch]$RootWait,
         [switch]$KeepLauncherAlive
     )
 
-    if (([int][bool]$DisableContinuation + [int][bool]$AgentMonitor + [int][bool]$RootWait) -gt 1) {
-        throw 'DisableContinuation, AgentMonitor, and RootWait are mutually exclusive.'
-    }
     if ($KeepLauncherAlive -and -not $RootWait) {
         throw 'KeepLauncherAlive is valid only with RootWait.'
     }
-    if (-not $RootWait -or $DisableContinuation -or $AgentMonitor) {
+    if (-not $RootWait -or $AgentMonitor) {
         throw 'The V2 watcher supports RootWait only; Stop Hook and model-monitor continuations are disabled.'
     }
-    $disableStopHook = $true
     $requestedTransport = 'codex-root-wait'
     Assert-WatchConfiguration `
-        -DisableStopHookHorizon:$disableStopHook `
         -ConfiguredTimeoutSeconds $WatcherTimeoutSeconds `
         -ConfiguredFinalizeTimeoutSeconds $FinalizeTimeoutSeconds
     $binding = Get-WatchEvidenceBinding -EvidenceDirectory $EvidenceDirectory -ThreadId $ThreadId
@@ -1405,7 +1318,6 @@ function Start-WatchProcessExclusive {
             watcherId = [string](Get-WatchProperty $existing 'watcherId' '')
             stateFile = $Script:StateFileName
             eventFile = if ([System.IO.File]::Exists($eventPath)) { $Script:EventFileName } else { $null }
-            continuationRegistered = $existingTransport -eq 'codex-stop-hook'
             continuationTransport = $existingTransport
         }
     }
@@ -1441,15 +1353,13 @@ function Start-WatchProcessExclusive {
         maxProbeFailures = $MaxProbeFailures
         timeoutSeconds = $WatcherTimeoutSeconds
         finalizeTimeoutSeconds = $FinalizeTimeoutSeconds
-        noWake = [bool]$disableStopHook
+        noWake = $true
         agentMonitor = [bool]$AgentMonitor
         rootWait = [bool]$RootWait
         launcherHostRetained = [bool]$KeepLauncherAlive
         workerTokenSha256 = Get-WatchSha256Text -Text $token
     }
     Write-WatchJsonAtomic -Path $statePath -Value $state
-
-    $stopHookRegistrationPath = $null
 
     $workerArguments = New-WatchWorkerArgumentList `
         -ScriptPath $Script:WatcherScriptPath `
@@ -1458,7 +1368,7 @@ function Start-WatchProcessExclusive {
         -Token $token `
         -ExpectedWatcherId $watcherId `
         -WorkerTimeoutSeconds $WatcherTimeoutSeconds `
-        -DisableWake:$disableStopHook `
+        -DisableWake `
         -AgentMonitor:$AgentMonitor `
         -RootWait:$RootWait
 
@@ -1497,13 +1407,11 @@ function Start-WatchProcessExclusive {
         codexThreadId = $binding.CodexThreadId
         stateFile = $Script:StateFileName
         eventFile = $Script:EventFileName
-        noWake = [bool]$disableStopHook
+        noWake = $true
         agentMonitor = [bool]$AgentMonitor
         rootWait = [bool]$RootWait
         launcherHostRetained = [bool]$KeepLauncherAlive
-        continuationRegistered = $false
         continuationTransport = $requestedTransport
-        stopHookRegistrationPath = $stopHookRegistrationPath
         pollingConsumesModelTokens = $false
     }
 }
@@ -1527,91 +1435,9 @@ function Get-WatchStatus {
         processAlive = $alive
         terminalStatus = if ($null -eq $event) { $null } else { [string](Get-WatchProperty $event 'status' '') }
         eventFile = if ($null -eq $event) { $null } else { $Script:EventFileName }
-        continuationRequested = [System.IO.File]::Exists((Join-Path $EvidenceDirectory $Script:StopHookClaimFileName))
         continuationAcknowledged = [System.IO.File]::Exists((Join-Path $EvidenceDirectory $Script:ContinuationAckFileName))
         continuationTransport = Get-WatchContinuationTransport -State $state
         pollingConsumesModelTokens = $false
-    }
-}
-
-function Acknowledge-WatchContinuation {
-    param(
-        [Parameter(Mandatory = $true)][string]$EvidenceDirectory,
-        [Parameter(Mandatory = $true)][string]$ThreadId
-    )
-
-    if (-not (Test-WatchThreadId -Value $ThreadId)) {
-        throw 'CodexThreadId must be the exact current Codex thread UUID.'
-    }
-    $state = Read-WatchJson -Path (Join-Path $EvidenceDirectory $Script:StateFileName) -Required
-    $event = Read-WatchJson -Path (Join-Path $EvidenceDirectory $Script:EventFileName)
-    $claim = Read-WatchJson -Path (Join-Path $EvidenceDirectory $Script:StopHookClaimFileName) -Required
-    $watcherId = [string](Get-WatchProperty $state 'watcherId' '')
-    $expectedThreadId = $ThreadId.ToLowerInvariant()
-    if ([string](Get-WatchProperty $state 'codexThreadId' '') -ne $expectedThreadId -or
-        [string](Get-WatchProperty $claim 'codexThreadId' '') -ne $expectedThreadId) {
-        throw 'Continuation evidence belongs to another Codex task.'
-    }
-    $claimWatcherId = [string](Get-WatchProperty $claim 'watcherId' '')
-    $claimStatus = [string](Get-WatchProperty $claim 'terminalStatus' '')
-    $registrationPath = [string](Get-WatchProperty $state 'stopHookRegistrationPath' '')
-    $registrationParent = if ([string]::IsNullOrWhiteSpace($registrationPath)) {
-        ''
-    }
-    else {
-        Split-Path -Parent $registrationPath
-    }
-    $isLegacyClaim = (
-        [string]::IsNullOrWhiteSpace($claimWatcherId) -and
-        -not [string]::IsNullOrWhiteSpace($registrationParent) -and
-        (Split-Path -Leaf $registrationParent) -eq $Script:LegacyStopHookRegistryDirectoryName
-    )
-    $isSynthesizedStatus = @('worker-crashed', 'timeout') -contains $claimStatus
-    if ($isSynthesizedStatus) {
-        $callback = Read-WatchJson -Path (Join-Path $EvidenceDirectory $Script:CallbackFileName) -Required
-        $callbackWatcherId = [string](Get-WatchProperty $callback 'watcherId' '')
-        $isLegacyCallback = $isLegacyClaim -and [string]::IsNullOrWhiteSpace($callbackWatcherId)
-        if (
-            [string](Get-WatchProperty $callback 'codexThreadId' '') -ne $expectedThreadId -or
-            ($callbackWatcherId -ne $watcherId -and -not $isLegacyCallback) -or
-            [string](Get-WatchProperty $callback 'terminalStatus' '') -ne $claimStatus -or
-            [bool](Get-WatchProperty $callback 'continuationRequested' $false) -ne $true
-        ) {
-            throw 'Synthesized continuation callback does not match the reviewed claim.'
-        }
-        $status = $claimStatus
-    }
-    else {
-        $status = if ($null -eq $event) { '' } else { [string](Get-WatchProperty $event 'status' '') }
-        if ([string]::IsNullOrWhiteSpace($status)) {
-            throw 'A terminal watch event or matching synthesized claim is required before acknowledgement.'
-        }
-        if ($claimStatus -ne $status) {
-            throw 'Continuation claim terminal status does not match the reviewed result.'
-        }
-    }
-    if ($claimWatcherId -ne $watcherId -and -not $isLegacyClaim) {
-        throw 'Continuation claim belongs to another watcher.'
-    }
-    $acknowledgement = [ordered]@{
-        schemaVersion = $Script:WatcherSchemaVersion
-        transport = 'codex-stop-hook'
-        acknowledged = $true
-        acknowledgementType = 'codex-reviewed'
-        acknowledgedAtUtc = [datetime]::UtcNow.ToString('o')
-        codexThreadId = $expectedThreadId
-        watcherId = $watcherId
-        terminalStatus = $status
-    }
-    Write-WatchJsonAtomic -Path (Join-Path $EvidenceDirectory $Script:ContinuationAckFileName) -Value $acknowledgement
-    return [ordered]@{
-        ok = $true
-        command = 'acknowledge'
-        acknowledged = $true
-        watcherId = $watcherId
-        codexThreadId = $expectedThreadId
-        terminalStatus = $status
-        acknowledgementFile = $Script:ContinuationAckFileName
     }
 }
 
@@ -3159,8 +2985,8 @@ function Invoke-CapacityBoundRootWaitRound {
 }
 
 function Invoke-WatchMain {
-    if (@('run-root', 'run-batch-root', 'slots', 'release-slot', 'start', 'worker', 'status', 'wait-root', 'acknowledge', 'acknowledge-monitor', 'acknowledge-root') -notcontains $Command) {
-        throw 'Command must be run-root, run-batch-root, slots, release-slot, start, worker, status, wait-root, acknowledge, acknowledge-monitor, or acknowledge-root.'
+    if (@('run-root', 'run-batch-root', 'slots', 'release-slot', 'start', 'worker', 'status', 'wait-root', 'acknowledge-monitor', 'acknowledge-root') -notcontains $Command) {
+        throw 'Command must be run-root, run-batch-root, slots, release-slot, start, worker, status, wait-root, acknowledge-monitor, or acknowledge-root.'
     }
     if (-not [string]::IsNullOrWhiteSpace($ResponseDeadlineAtUtc) -and $Command -ne 'run-root') {
         throw 'ResponseDeadlineAtUtc is valid only with run-root.'
@@ -3208,7 +3034,6 @@ function Invoke-WatchMain {
             return Start-WatchProcess `
                 -EvidenceDirectory $directory `
                 -ThreadId $CodexThreadId `
-                -DisableContinuation:$NoWake `
                 -AgentMonitor:$AgentMonitor `
                 -RootWait:$RootWait `
                 -KeepLauncherAlive:$KeepLauncherAlive
@@ -3237,10 +3062,6 @@ function Invoke-WatchMain {
                 -EvidenceDirectory $directory `
                 -ThreadId $CodexThreadId `
                 -WaitTimeoutSeconds $TimeoutSeconds
-        }
-        'acknowledge' {
-            $directory = Resolve-WatchEvidenceDirectory -Path $EvidenceDir
-            return Acknowledge-WatchContinuation -EvidenceDirectory $directory -ThreadId $CodexThreadId
         }
         'acknowledge-monitor' {
             $directory = Resolve-WatchEvidenceDirectory -Path $EvidenceDir

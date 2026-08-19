@@ -1,0 +1,33 @@
+{
+  "id": "remove-legacy-gptpro-stop-hook",
+  "name": "remove-legacy-gptpro-stop-hook",
+  "title": "Safely remove legacy GPT Pro Stop Hook",
+  "description": "Retire the unsupported GPT Pro Stop Hook from global Codex configuration, stale local registry state, and the Harness runtime while preserving the active RootWait path.",
+  "status": "in_progress",
+  "dev_type": null,
+  "scope": "tooling",
+  "package": null,
+  "priority": "P2",
+  "creator": "codex",
+  "assignee": "codex",
+  "createdAt": "2026-08-18",
+  "completedAt": null,
+  "branch": "codex/remove-legacy-gptpro-stop-hook",
+  "base_branch": "main",
+  "worktree_path": "G:/CodexWorktrees/remove-legacy-gptpro-stop-hook-harness",
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    "G:/CodexData/.codex/hooks.json",
+    ".agents/skills/chatgpt-pro-sidebar/scripts/chatgpt-pro-sidebar-stop-hook.py",
+    ".agents/skills/chatgpt-pro-sidebar/scripts/chatgpt-pro-sidebar-watch.ps1",
+    ".agents/skills/chatgpt-pro-sidebar/tests/chatgpt-pro-sidebar-stop-hook.Tests.ps1",
+    ".agents/skills/chatgpt-pro-sidebar/tests/chatgpt-pro-sidebar-watch.Tests.ps1",
+    ".trellis/spec/tooling/chatgpt-pro-agent-browser-v2.md"
+  ],
+  "notes": "Accepted with the documented unchanged main-branch sidebar URL-abbreviation baseline failure; task-owned watcher and Harness gates are green.",
+  "meta": {}
+}
