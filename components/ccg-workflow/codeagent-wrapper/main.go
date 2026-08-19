@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	version               = "5.12.12"
+	version               = "5.12.13"
 	defaultWorkdir        = "."
 	defaultTimeout        = 7200 // seconds (2 hours)
 	defaultCoverageTarget = 90.0
@@ -648,6 +648,7 @@ Environment Variables:
 	    CODEAGENT_RETAIN_LOG_ON_FAILURE
 	                                Retain the complete wrapper log after a failed Grok diagnostic run
 	    GEMINI_MODEL               Default Gemini model
+	    ANTIGRAVITY_MODEL          Default Antigravity model
     GROK_MODEL                 Default Grok model
 
 Exit Codes:
