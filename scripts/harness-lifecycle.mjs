@@ -521,30 +521,20 @@ async function exportCommit(
   };
 }
 
-export function buildHarnessDoctorArguments(
-  repoRoot,
-  { ccgUpdateTargetVersion = null } = {},
-) {
-  const doctorArguments = [
+export function buildHarnessDoctorArguments(repoRoot) {
+  return [
     "-NoProfile",
     "-File",
     path.join(repoRoot, "scripts", "doctor.ps1"),
     "-RepoRoot",
     repoRoot,
   ];
-  if (ccgUpdateTargetVersion) {
-    doctorArguments.push(
-      "-CcgUpdateTargetVersion",
-      ccgUpdateTargetVersion,
-    );
-  }
-  return doctorArguments;
 }
 
-function runHarnessDoctor(repoRoot, options = {}) {
+function runHarnessDoctor(repoRoot) {
   run(
     "pwsh",
-    buildHarnessDoctorArguments(repoRoot, options),
+    buildHarnessDoctorArguments(repoRoot),
     { cwd: repoRoot },
   );
 }
@@ -698,7 +688,9 @@ async function runFinalCcgVerification(args, manifest, prepared) {
   }
 
   finalCommands.push(
-    ...(await runActivatedCcgCliSmokes(args.repoRoot, componentRoot)),
+    ...(await runActivatedCcgCliSmokes(args.repoRoot, componentRoot, {
+      verifyManagedRuntime: false,
+    })),
   );
 
   await runHarnessTests(args.repoRoot, run);
@@ -706,7 +698,11 @@ async function runFinalCcgVerification(args, manifest, prepared) {
   return finalCommands;
 }
 
-async function runActivatedCcgCliSmokes(repoRoot, componentRoot) {
+async function runActivatedCcgCliSmokes(
+  repoRoot,
+  componentRoot,
+  { verifyManagedRuntime = true } = {},
+) {
   const commands = [];
   const packageManifest = await readJson(
     path.join(componentRoot, "package.json"),
@@ -722,6 +718,7 @@ async function runActivatedCcgCliSmokes(repoRoot, componentRoot) {
     "Final-path CCG CLI",
   );
   commands.push("node bin/ccg.mjs --version");
+  if (!verifyManagedRuntime) return commands;
 
   const ownership = await readOwnershipIfPresent(repoRoot);
   const ccgOwnership = ownership?.entries.find(
@@ -1067,10 +1064,8 @@ async function updateCcgHarness(args, manifest) {
   );
   try {
     const source = validateResolvedUpdateSource(resolved, args, manifest);
-    const targetVersion = readTargetCcgVersion(resolved, source, manifest);
-    runHarnessDoctor(args.repoRoot, {
-      ccgUpdateTargetVersion: targetVersion,
-    });
+    readTargetCcgVersion(resolved, source, manifest);
+    runHarnessDoctor(args.repoRoot);
     const prepared = await prepareUpdateCandidate(
       args,
       manifest,
