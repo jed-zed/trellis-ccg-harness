@@ -76,7 +76,7 @@ with the backed-up global Hook registration.
   a contract not already captured; record the explicit no-update judgment
   otherwise.
 - [x] Present validation and machine-state evidence for user acceptance.
-- [ ] Phase 3.4: create local work commit(s) on
+- [x] Phase 3.4: create local work commit(s) on
   `codex/remove-legacy-gptpro-stop-hook` only after acceptance.
 - [ ] Push/PR/merge/install only with separate explicit authorization.
 - [ ] Archive the Trellis task only after repository and machine cleanup are

@@ -15,7 +15,7 @@
   "branch": "codex/remove-legacy-gptpro-stop-hook",
   "base_branch": "main",
   "worktree_path": "G:/CodexWorktrees/remove-legacy-gptpro-stop-hook-harness",
-  "commit": null,
+  "commit": "c415288346c48135ac91204c673322b430730664",
   "pr_url": null,
   "subtasks": [],
   "children": [],
