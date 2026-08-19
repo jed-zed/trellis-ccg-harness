@@ -2,15 +2,20 @@
 
 > [根目录](../CLAUDE.md) > **skills-v2**
 
-**Last Updated**: 2026-08-13 (v3.4.14)
+**Last Updated**: 2026-08-18 (v3.4.15)
 
-> 本文档已同步 v3.4.14 的 Provider 原生模型默认、非阻塞伴随搜索与 Grok 缓存锁恢复，并保留 GPT Pro URL-first 恢复、Grok 宽容结果接收和原生自动更新；较早章节仍保留历史架构背景，完整历史见 [CHANGELOG.md](./CHANGELOG.md)。
+> 本文档已同步 v3.4.15 的 Antigravity 可配置默认模型，并保留 Provider 原生默认、非阻塞伴随搜索、Grok 缓存锁恢复与 GPT Pro URL-first 恢复；较早章节仍保留历史架构背景，完整历史见 [CHANGELOG.md](./CHANGELOG.md)。
 
 ---
 
 ## 变更记录 (Changelog)
 
 > 完整变更历史请查看 [CHANGELOG.md](./CHANGELOG.md)
+
+### 2026-08-18 (v3.4.15)
+
+- 非空 `ANTIGRAVITY_MODEL` 作为 `--model` 传给 Antigravity；未设置或空白时继续使用 CLI 默认值，不改变 CCG 角色路由。
+- codeagent-wrapper 升级到 v5.12.13，并同步安装器版本与六平台摘要。
 
 ### 2026-08-13 (v3.4.14)
 
@@ -384,7 +389,7 @@
 |--------|------|------|
 | TypeScript CLI 源码 | [src/CLAUDE.md](./src/CLAUDE.md) | CLI 主入口、命令实现、安装器、i18n、工具链 |
 | 模板文件 | [templates/CLAUDE.md](./templates/CLAUDE.md) | 斜杠命令、提示词、子智能体、技能、规则模板 |
-| codeagent-wrapper | [codeagent-wrapper/CLAUDE.md](./codeagent-wrapper/CLAUDE.md) | Go 二进制包装器，多模型调用桥接，v5.12.12 |
+| codeagent-wrapper | [codeagent-wrapper/CLAUDE.md](./codeagent-wrapper/CLAUDE.md) | Go 二进制包装器，多模型调用桥接，v5.12.13 |
 
 ---
 
@@ -416,7 +421,7 @@ npx ccg-workflow menu
 ### codeagent-wrapper 入口
 
 - **主入口**：`codeagent-wrapper/main.go`
-- **当前版本**：v5.12.12
+- **当前版本**：v5.12.13
 - **调用语法**：
   ```bash
   codeagent-wrapper --backend <codex|gemini|claude> - [工作目录] <<'EOF'
@@ -728,7 +733,7 @@ graph TD
     Init --> Agents["~/.claude/agents/ccg/<br/>7 个子智能体"]
     Init --> Skills["~/.claude/skills/ccg/<br/>100+ 技能文件"]
     Init --> Prompts["~/.claude/.ccg/prompts/<br/>36 个专家提示词"]
-    Init --> Binary["~/.claude/bin/<br/>codeagent-wrapper v5.12.12"]
+    Init --> Binary["~/.claude/bin/<br/>codeagent-wrapper v5.12.13"]
     Init --> MCP["~/.claude.json<br/>MCP 配置（可选）"]
 
     User2["Claude Code 用户"] --> SlashCmd["/ccg:workflow<br/>/ccg:frontend<br/>..."]

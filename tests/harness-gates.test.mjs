@@ -75,6 +75,30 @@ test("Go build output is removed when the build command fails", () => {
   }
 });
 
+test("Windows keeps every CCG test while allowing slow process-tree cleanup", () => {
+  const checkout = mkdtempSync(path.join(tmpdir(), "harness-gates-windows-"));
+  mkdirSync(path.join(checkout, "codeagent-wrapper"), { recursive: true });
+  const calls = [];
+
+  try {
+    runCcgGates(
+      checkout,
+      (command, args) => calls.push([command, args]),
+      { platform: "win32" },
+    );
+    assert.ok(calls.some(([command, args]) => (
+      command === "pnpm"
+      && args.join(" ")
+        === "exec vitest run --testTimeout 60000 --no-file-parallelism --pool threads"
+    )));
+    assert.equal(calls.some(([command, args]) => (
+      command === "pnpm" && args[0] === "test"
+    )), false);
+  } finally {
+    rmSync(checkout, { recursive: true, force: true });
+  }
+});
+
 test("Harness gate module remains loadable from the repository", () => {
   assert.equal(
     existsSync(path.join(repoRoot, "scripts", "lib", "harness-gates.mjs")),

@@ -137,10 +137,10 @@ node .\scripts\harness-init.mjs mark-ready --repo-root .
 pwsh -NoProfile -File .\scripts\clean-install-acceptance.ps1 -Live -HarnessRef v0.2.0 -ProjectContract .\tests\fixtures\public-baseline-approved-contract.json
 pnpm harness:test
 pwsh -NoProfile -File .\scripts\doctor.ps1
-pnpm harness:update -- --trellis-version <exact-semantic-version>
-pnpm harness:update -- --source-checkout <clean-personal-ccg-checkout>
+pnpm harness:update --trellis-version <exact-semantic-version>
+pnpm harness:update --source-checkout <clean-personal-ccg-checkout>
 # Optional audit replay:
-pnpm harness:update -- --ccg-commit <40-character-commit> --source-checkout <path>
+pnpm harness:update --ccg-commit <40-character-commit> --source-checkout <path>
 pnpm harness:rollback
 pnpm harness:recover
 pnpm harness:uninstall

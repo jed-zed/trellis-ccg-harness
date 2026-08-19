@@ -36,11 +36,18 @@ Lifecycle mutation is a separate transaction boundary:
    Harness gates;
 6. snapshot the current component or exact Trellis-managed files;
 7. apply the candidate, update the source manifest, then rerun frozen install,
-   CCG/Go gates, tracked-tree validation, local CLI and any Harness-owned global
-   CLI smoke from the final component path;
+   CCG/Go gates, tracked-tree validation, and local CLI smoke from the final
+   component path; the pre-update doctor validates the currently installed
+   baseline, while the unpublished target runtime remains a later bootstrap
+   responsibility;
 8. commit the transaction record only after success, otherwise restore the
    snapshot automatically;
 9. remove the rollback snapshot superseded by the newly committed transaction.
+
+On Windows, the CCG Vitest gate runs the same complete suite serially in the
+thread pool with a 60-second per-test limit. This prevents slow native
+process-tree cleanup from starving child-process worker RPC without skipping
+assertions; other platforms keep the source package's default test command.
 
 Rollback restores only a Harness-created snapshot and only while the current
 component or managed-file fingerprints still match what Harness installed.
@@ -214,9 +221,10 @@ is not exposed to untrusted task input.
 - User-level Trellis hook precedence depends on the local fallback containing
   the marker declared by the adapter contract; doctor reports drift if a
   future global Trellis update removes that guard.
-- The activated local CCG CLI and its Harness-managed packaged global
-  installation are blocking doctor/update checks and must not junction back
-  into the mutable snapshot.
+- Ordinary doctor/bootstrap checks require the Harness-managed packaged global
+  CCG installation to match the published manifest and never junction back into
+  the mutable snapshot. Snapshot update instead validates the installed baseline
+  before mutation and leaves the unpublished target runtime to later bootstrap.
 - Search capability is true only when the response contains both a web-search
   tool call and citation/annotation evidence.
 - GPT Pro remains owned by the existing CCG bridge and is not reimplemented by

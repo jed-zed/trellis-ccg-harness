@@ -16,8 +16,10 @@ The Harness is the combined Trellis workflow layer and the user's personal CCG i
 ## Import and update rules
 
 - Import only tracked files from the clean current HEAD of the selected personal CCG checkout.
-- Treat CCG source, component snapshot, source manifest, and installed CLI/plugin
-  as one coupled update transaction; partial updates fail closed and roll back.
+- Treat CCG source, component snapshot, and source manifest as one atomic
+  publication transaction. Install the matching CLI/plugin from the merged
+  manifest as the following owned transaction; see
+  [Harness Lifecycle Update](../tooling/harness-lifecycle.md).
 - Verify the personal remote URL, current commit, Git tree, package version, and
   content digest before accepting an update.
 - Refresh `harness.sources.json` on every coupled update. Its exact identifiers

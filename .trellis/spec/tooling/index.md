@@ -14,6 +14,7 @@ snapshot and is verified through root commands.
 
 | Specification | Applies when |
 |---|---|
+| [Harness Lifecycle Update](./harness-lifecycle.md) | Changing CCG snapshot update, rollback, bootstrap ordering, or runtime verification |
 | [Harness Initializer](./harness-initializer.md) | Changing contract apply, project ownership, or readiness promotion |
 | [Product Manager Review](./product-manager-review.md) | Changing reviewer providers, task projection, evidence, gates, or lifecycle integration |
 | [ChatGPT Pro Agent Browser V2](./chatgpt-pro-agent-browser-v2.md) | Changing external Chrome discovery, exact-once behavior, or RootWait monitoring |
@@ -24,6 +25,8 @@ snapshot and is verified through root commands.
 - Read the active Trellis task's `prd.md`, `design.md`, and `implement.md`.
 - Read `.harness/adapter.json`, `harness.sources.json`, and the relevant root
   script before changing lifecycle behavior.
+- Read [Harness Lifecycle Update](./harness-lifecycle.md) before changing CCG
+  snapshot update, rollback, or bootstrap ordering.
 - Preserve user-owned files and use authenticated, compare-and-swap
   transactions for owned project state.
 - Add a failing regression before changing initializer behavior.

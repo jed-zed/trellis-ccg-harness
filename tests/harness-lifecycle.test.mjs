@@ -198,7 +198,7 @@ test("update parsing accepts a clean checkout HEAD or one explicit CCG/Trellis t
   );
 });
 
-test("CCG update doctor mode is explicit and target-version bound", () => {
+test("CCG snapshot update doctor uses the current manifest baseline", () => {
   const repoRoot = path.resolve("C:/harness");
   assert.deepEqual(buildHarnessDoctorArguments(repoRoot), [
     "-NoProfile",
@@ -207,20 +207,6 @@ test("CCG update doctor mode is explicit and target-version bound", () => {
     "-RepoRoot",
     repoRoot,
   ]);
-  assert.deepEqual(
-    buildHarnessDoctorArguments(repoRoot, {
-      ccgUpdateTargetVersion: "3.3.1",
-    }),
-    [
-      "-NoProfile",
-      "-File",
-      path.join(repoRoot, "scripts", "doctor.ps1"),
-      "-RepoRoot",
-      repoRoot,
-      "-CcgUpdateTargetVersion",
-      "3.3.1",
-    ],
-  );
 });
 
 test("semantic version comparison follows prerelease precedence", () => {

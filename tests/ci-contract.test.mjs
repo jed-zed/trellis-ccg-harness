@@ -93,6 +93,26 @@ test("bootstrap package-installs CCG without a global link to the snapshot", asy
   )
 })
 
+test("CCG snapshot update verifies the installed baseline before the new runtime exists", async () => {
+  const lifecycle = await readFile(
+    path.join(ROOT, "scripts", "harness-lifecycle.mjs"),
+    "utf8",
+  )
+
+  assert.match(
+    lifecycle,
+    /readTargetCcgVersion\(resolved, source, manifest\);\s+runHarnessDoctor\(args\.repoRoot\);/,
+  )
+  assert.doesNotMatch(
+    lifecycle,
+    /runHarnessDoctor\(args\.repoRoot,\s*\{\s*ccgUpdateTargetVersion:/,
+  )
+  assert.match(
+    lifecycle,
+    /runActivatedCcgCliSmokes\(args\.repoRoot, componentRoot, \{\s*verifyManagedRuntime: false,\s*\}\)/,
+  )
+})
+
 test("Dependabot covers Actions, the CCG package, and the Go wrapper", async () => {
   const config = await readFile(
     path.join(ROOT, ".github", "dependabot.yml"),

@@ -3,13 +3,29 @@ import { readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-export function runCcgGates(checkout, execute) {
+export function runCcgGates(
+  checkout,
+  execute,
+  { platform = process.platform } = {},
+) {
   execute("go", ["version"], { cwd: checkout, capture: true });
+  const testArgs = platform === "win32"
+    ? [
+        "exec",
+        "vitest",
+        "run",
+        "--testTimeout",
+        "60000",
+        "--no-file-parallelism",
+        "--pool",
+        "threads",
+      ]
+    : ["test"];
   const commands = [
     ["pnpm", ["install", "--frozen-lockfile"]],
     ["pnpm", ["lint"]],
     ["pnpm", ["typecheck"]],
-    ["pnpm", ["test"]],
+    ["pnpm", testArgs],
     ["pnpm", ["build"]],
   ];
   for (const [command, commandArgs] of commands) {

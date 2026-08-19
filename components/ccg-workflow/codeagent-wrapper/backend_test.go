@@ -402,6 +402,7 @@ func TestGrokBuildArgs_NewMode(t *testing.T) {
 }
 
 func TestAntigravityBuildArgs_ReviewModeInheritsBackendPermissions(t *testing.T) {
+	t.Setenv("ANTIGRAVITY_MODEL", "")
 	cfg := &Config{
 		Mode:              "new",
 		WorkDir:           "/tmp/project",
@@ -424,6 +425,7 @@ func TestAntigravityBuildArgs_ReviewModeInheritsBackendPermissions(t *testing.T)
 }
 
 func TestAntigravityBuildArgs_ReadOnlyMarkerPreservesNativePermissions(t *testing.T) {
+	t.Setenv("ANTIGRAVITY_MODEL", "")
 	cfg := &Config{Mode: "new", WorkDir: "/tmp/project", Backend: "antigravity", ReadOnly: true}
 	want := []string{
 		"--output-format", "stream-json",
@@ -436,9 +438,31 @@ func TestAntigravityBuildArgs_ReadOnlyMarkerPreservesNativePermissions(t *testin
 }
 
 func TestAntigravityBuildArgs_DefaultStillUsesStreamJSON(t *testing.T) {
+	t.Setenv("ANTIGRAVITY_MODEL", "")
 	args := buildAntigravityArgs(&Config{Mode: "new", Backend: "antigravity"}, "task")
 	if !hasArgPair(args, "--output-format", "stream-json") {
 		t.Fatalf("args missing stream-json output: %v", args)
+	}
+}
+
+func TestAntigravityBuildArgs_ModelFromEnvironment(t *testing.T) {
+	t.Setenv("ANTIGRAVITY_MODEL", "")
+	if err := os.Unsetenv("ANTIGRAVITY_MODEL"); err != nil {
+		t.Fatalf("unset ANTIGRAVITY_MODEL: %v", err)
+	}
+	if args := buildAntigravityArgs(&Config{Mode: "new", Backend: "antigravity"}, "task"); slices.Contains(args, "--model") {
+		t.Fatalf("unset ANTIGRAVITY_MODEL added a model: %v", args)
+	}
+
+	t.Setenv("ANTIGRAVITY_MODEL", " \t ")
+	if args := buildAntigravityArgs(&Config{Mode: "new", Backend: "antigravity"}, "task"); slices.Contains(args, "--model") {
+		t.Fatalf("blank ANTIGRAVITY_MODEL added a model: %v", args)
+	}
+
+	t.Setenv("ANTIGRAVITY_MODEL", "gemini-3.7-flash-high")
+	args := buildAntigravityArgs(&Config{Mode: "new", Backend: "antigravity"}, "task")
+	if !hasArgPair(args, "--model", "gemini-3.7-flash-high") {
+		t.Fatalf("args missing configured Antigravity model: %v", args)
 	}
 }
 

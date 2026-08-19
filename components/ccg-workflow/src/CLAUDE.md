@@ -2,11 +2,15 @@
 
 > [根目录](../CLAUDE.md) > **src**
 
-**Last Updated**: 2026-08-13 (v3.4.14)
+**Last Updated**: 2026-08-18 (v3.4.15)
 
 ---
 
 ## 变更记录
+
+### 2026-08-18 (v3.4.15)
+- Antigravity 支持通过非空 `ANTIGRAVITY_MODEL` 传入 `--model`；未设置或空白时保持 CLI 默认值。
+- wrapper 与安装器期望版本同步升级到 v5.12.13，并刷新六平台摘要。
 
 ### 2026-08-13 (v3.4.14)
 - 未配置 Gemini/Grok 模型时省略模型参数，记录 Provider 实际返回身份，并保留产品经理 Claude `opus`。
@@ -182,7 +186,7 @@ v1.7.83 将原 1878 行单文件拆分为 5 个聚焦模块，各自边界清晰
 #### Binary 管理（`src/utils/installer.ts:61`）
 
 ```typescript
-const EXPECTED_BINARY_VERSION = '5.12.12'  // 必须与 codeagent-wrapper/main.go 中 version 常量保持一致
+const EXPECTED_BINARY_VERSION = '5.12.13'  // 必须与 codeagent-wrapper/main.go 中 version 常量保持一致
 
 // 唯一可执行来源：个人仓库 preset Release
 const BINARY_SOURCES = [

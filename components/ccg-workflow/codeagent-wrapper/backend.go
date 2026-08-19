@@ -146,6 +146,9 @@ func buildAntigravityArgs(cfg *Config, targetArg string) []string {
 		args = append(args, "--dangerously-skip-permissions")
 	}
 	args = append(args, "--output-format", "stream-json")
+	if model := strings.TrimSpace(os.Getenv("ANTIGRAVITY_MODEL")); model != "" {
+		args = append(args, "--model", model)
+	}
 
 	if cfg.Mode == "resume" && cfg.SessionID != "" {
 		args = append(args, "--conversation", cfg.SessionID)

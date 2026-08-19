@@ -439,7 +439,7 @@ node .\scripts\harness-adapter.mjs grok-probe --live
 ```powershell
 # 在稀疏临时 worktree 中用精确版本生成候选，校验 npm integrity，
 # 保留项目覆盖层并通过共享快照事务落地
-pnpm harness:update -- --trellis-version <exact-semantic-version>
+pnpm harness:update --trellis-version <exact-semantic-version>
 ```
 
 一次事务只能更新 Trellis 或 CCG 其中一个来源。Trellis 更新会跳过并保留
@@ -453,10 +453,10 @@ CCG 只能从个人 fork 或已验证的本地个人 checkout 更新。不得把
 ```powershell
 # 推荐：从干净 checkout 的当前 HEAD 解析 commit/tree，运行 CCG + Harness 门禁，
 # 然后联动替换 snapshot、manifest 和匹配运行时
-pnpm harness:update -- --source-checkout I:\ai\ccg-workflow
+pnpm harness:update --source-checkout I:\ai\ccg-workflow
 
 # 可选：审计重放或远端拉取时仍可显式给出完整 commit
-pnpm harness:update -- --ccg-commit <40-character-commit> --source-checkout I:\ai\ccg-workflow
+pnpm harness:update --ccg-commit <40-character-commit> --source-checkout I:\ai\ccg-workflow
 
 # 恢复上一份由 Harness 创建的快照
 pnpm harness:rollback

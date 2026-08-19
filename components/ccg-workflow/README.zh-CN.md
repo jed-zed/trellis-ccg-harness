@@ -295,6 +295,7 @@ Provider 调用仍需显式批准。Codex 仍负责真实工作区的最终写�
 | `CODEX_TIMEOUT` | `7200` | Wrapper 超时（秒） |
 | `CODEAGENT_POST_MESSAGE_DELAY` | `5` | 完成后延迟（秒） |
 | `CODEAGENT_RETAIN_LOG_ON_FAILURE` | 未设置 | 单次 Grok 诊断设为 `1`，失败后保留完整 wrapper 日志 |
+| `ANTIGRAVITY_MODEL` | 未设置 | 作为 `--model` 传给 Antigravity；未设置或空白时保留 CLI 默认值 |
 | `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` | 未设置 | 设为 `1` 启用 Agent Teams 并行 |
 | `XAI_API_KEY` | 未设置 | 经批准的无界面/CI Grok 情报运行所用显式 API Key |
 
@@ -363,4 +364,4 @@ MIT
 
 ---
 
-v3.4.14 | [Issues](https://github.com/jed-zed/ccg-gptpro-worflow/issues) | [Contributing](./CONTRIBUTING.md)
+v3.4.15 | [Issues](https://github.com/jed-zed/ccg-gptpro-worflow/issues) | [Contributing](./CONTRIBUTING.md)
