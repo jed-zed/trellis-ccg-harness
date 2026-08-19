@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 6
-- **Last Active**: 2026-08-08
+- **Total Sessions**: 7
+- **Last Active**: 2026-08-19
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~159 | Active |
+| `journal-1.md` | ~225 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 7 | 2026-08-19 | Retire legacy GPT Pro Stop Hook | `c415288346c48135ac91204c673322b430730664`, `d0feea70ad7a81936a41323307482f2b9810b430` | `codex/remove-legacy-gptpro-stop-hook` |
 | 6 | 2026-08-08 | GPT Pro multi-window cross-task RootWait | `87a335b`, `1297a5e`, `e1c69e4` | `codex/gptpro-agent-browser-rootwait-v2` |
 | 5 | 2026-08-06 | Publish snapshot-only Grok review draft PRs | `b30a6b83174ccf07c0c25192e5a3ed291665d452`, `99d715fd1f5356efe4b34eff343376c2fea1c126` | `codex/grok-review-verification-harness` |
 | 4 | 2026-08-06 | Fix Grok review dynamic tool boundary | `62da924` | `codex/grok-review-verification-harness` |
