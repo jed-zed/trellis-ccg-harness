@@ -63,9 +63,9 @@ powershell.exe -NoProfile -File $adapter wait -EvidenceDir <dir> -TimeoutSeconds
 powershell.exe -NoProfile -File $adapter response -EvidenceDir <dir>
 powershell.exe -NoProfile -File $adapter run -PromptPath <prompt.md> -EvidenceDir <empty-dir> -IdempotencyKey <opaque-key> -ResponseTimeoutSeconds 7200
 
-# Preferred complete round: send once, start the local watcher immediately,
-# and keep this same root Codex turn blocked until terminal evidence exists.
-powershell.exe -NoProfile -File $watcher run-root -PromptPath <prompt.md> -EvidenceDir <empty-dir> -IdempotencyKey <opaque-key> -CodexThreadId $env:CODEX_THREAD_ID -TimeoutSeconds 7200
+# New independent round from the proved empty root homepage: declare fresh,
+# send once, and keep this root Codex turn blocked until terminal evidence exists.
+powershell.exe -NoProfile -File $watcher run-root -PromptPath <prompt.md> -EvidenceDir <empty-dir> -IdempotencyKey <opaque-key> -CodexThreadId $env:CODEX_THREAD_ID -TimeoutSeconds 7200 -FreshConversation
 
 # Independent rounds: the manifest owns prompt/evidence/target bindings.
 powershell.exe -NoProfile -File $watcher run-batch-root -ManifestPath <batch-manifest.json> -CodexThreadId $env:CODEX_THREAD_ID
@@ -90,13 +90,15 @@ transport.
    `transport=agent-browser-cli-v2`, one target binding, canonical ChatGPT URL,
    `selectedModeControlCount=1`, `selectedModeLabel=Pro`,
    `selectedModeIsPro=true`, no login/challenge, and `generating=false`.
-2. For a new task, call `new-chat` or use `run`. Only an empty canonical root
-   homepage is already a fresh chat; custom GPT and conversation URLs are not.
-   Otherwise one same-profile root homepage tab is opened in background.
+2. For a new independent task, call `run-root -FreshConversation` from a proved
+   empty canonical root homepage. Custom GPT and conversation URLs are not fresh.
+   `new-chat`/`run` remain available for their explicit single-process flows.
 3. For an existing conversation, use ordinary `send`; it requires an exact
    canonical conversation URL. Use `-FreshConversation` only on a proved empty
    homepage.
-4. For a complete round, call watcher `run-root` once. It invokes one adapter
+4. For a complete round, call watcher `run-root` once. New independent homepage
+   rounds must include `-FreshConversation`; exact-URL follow-ups omit it. The
+   watcher invokes one adapter
    logical `send` request, including its one permitted proved-not-submitted
    retry, after acquiring one of the existing per-task/global capacity slots.
    It immediately starts the local RootWait watcher when ordinary post-send

@@ -23,6 +23,42 @@ BeforeAll {
         }
     }
 
+    function Set-PreInvokeFailureFixture {
+        param(
+            [Parameter(Mandatory = $true)][string]$Directory,
+            [Parameter(Mandatory = $true)][string]$IdempotencyKey,
+            [string]$ThreadId = $script:ThreadId,
+            [string]$Category = 'ComposerMissing',
+            [switch]$TargetUnresolved
+        )
+
+        $prompt = 'bounded request'
+        $promptPath = Join-Path $Directory 'prompt.md'
+        [System.IO.File]::WriteAllText($promptPath, $prompt, $Script:Utf8NoBom)
+        $state = [ordered]@{
+            schemaVersion = 1
+            tool = 'chatgpt-pro-sidebar'
+            transport = 'agent-browser-cli-v2'
+            phase = 'pre-invoke-failed'
+            codexThreadId = $ThreadId
+            idempotencyKey = $IdempotencyKey
+            idempotencyKeySha256 = Get-WatchSha256Text -Text $IdempotencyKey
+            promptFile = 'prompt.md'
+            promptSha256 = Get-WatchSha256Text -Text $prompt
+            evidenceDirectorySha256 = Get-WatchSha256Text -Text ([System.IO.Path]::GetFullPath($Directory).ToLowerInvariant())
+            targetBinding = if ($TargetUnresolved) { $null } else { New-TestTargetBinding -Url 'https://chatgpt.com/' }
+            targetBindingResolved = -not [bool]$TargetUnresolved
+            invokeAttempted = $false
+            invokeReturned = $false
+            submissionAcknowledged = $false
+            automaticResendAllowed = $false
+            preInvokeFailureCategory = $Category
+            preInvokeFailedAtUtc = [DateTime]::UtcNow.ToString('o')
+        }
+        Write-WatchJsonAtomic -Path (Join-Path $Directory 'state.json') -Value $state
+        return $state
+    }
+
     function New-WatchProbe {
         param(
             [bool]$Generating,
@@ -1458,10 +1494,12 @@ Describe 'Batch RootWait capacity' {
         $prompt = Join-Path $TestDrive 'direct-pre-click-prompt.md'
         [System.IO.File]::WriteAllText($prompt, 'bounded request', $Script:Utf8NoBom)
         Mock Invoke-RootWaitRound {
-            param($EvidenceDirectory)
-            Write-WatchJsonAtomic -Path (Join-Path $EvidenceDirectory 'state.json') -Value ([ordered]@{
-                phase = 'pre-invoke-failed'; invokeAttempted = $false
-            })
+            param($EvidenceDirectory, $IdempotencyKeyValue, $RequireFreshConversation)
+            $RequireFreshConversation | Should -BeTrue
+            $null = Set-PreInvokeFailureFixture `
+                -Directory $EvidenceDirectory `
+                -IdempotencyKey $IdempotencyKeyValue `
+                -Category 'ComposerMissing'
             throw 'adapter rejected before invocation'
         }
 
@@ -1470,7 +1508,8 @@ Describe 'Batch RootWait capacity' {
                 -EvidenceDirectory $directory `
                 -ThreadId $script:ThreadId `
                 -PromptFile $prompt `
-                -IdempotencyKeyValue 'direct-pre-click-key'
+                -IdempotencyKeyValue 'direct-pre-click-key' `
+                -RequireFreshConversation
         } | Should -Throw '*before invocation*'
 
         (Get-CapacitySlots).slots.Count | Should -Be 0
@@ -1860,10 +1899,20 @@ Describe 'Batch RootWait capacity' {
         })
         { Release-CapacitySlot -Id $orphanClaims[0].slotId -OwnerCompletionObserved } | Should -Throw '*terminal or pre-click state is not proven*'
 
-        Write-WatchJsonAtomic -Path (Join-Path $safeDirectory 'state.json') -Value ([ordered]@{
-            phase = 'pre-invoke-failed'
-            invokeAttempted = $false
-        })
+        $tampered = Set-PreInvokeFailureFixture `
+            -Directory $safeDirectory `
+            -IdempotencyKey 'orphan-1' `
+            -Category 'ExistingConversationUnproved' `
+            -TargetUnresolved
+        $tampered.promptSha256 = ('f' * 64)
+        Write-WatchJsonAtomic -Path (Join-Path $safeDirectory 'state.json') -Value $tampered
+        { Release-CapacitySlot -Id $orphanClaims[0].slotId -OwnerCompletionObserved } | Should -Throw '*terminal or pre-click state is not proven*'
+
+        $null = Set-PreInvokeFailureFixture `
+            -Directory $safeDirectory `
+            -IdempotencyKey 'orphan-1' `
+            -Category 'ExistingConversationUnproved' `
+            -TargetUnresolved
         (Release-CapacitySlot -Id $orphanClaims[0].slotId).proof | Should -Be 'durable-pre-click-unsent'
     }
 

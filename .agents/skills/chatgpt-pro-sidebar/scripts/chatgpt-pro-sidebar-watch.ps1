@@ -128,6 +128,20 @@ function Get-WatchSha256Text {
     }
 }
 
+function Get-WatchSha256File {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    $stream = [System.IO.File]::OpenRead($Path)
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        return (($sha.ComputeHash($stream) | ForEach-Object { $_.ToString('x2') }) -join '')
+    }
+    finally {
+        $sha.Dispose()
+        $stream.Dispose()
+    }
+}
+
 function Enter-WatchStartMutex {
     param(
         [Parameter(Mandatory = $true)][string]$EvidenceDirectory,
@@ -2030,6 +2044,97 @@ function Test-WatchRetryNotSubmittedProof {
     return $true
 }
 
+function Test-WatchPreInvokeFailedProof {
+    param(
+        [AllowNull()]$State,
+        [Parameter(Mandatory = $true)]$Claim
+    )
+
+    if ($null -eq $State) {
+        return $false
+    }
+    $schemaProperty = $State.PSObject.Properties['schemaVersion']
+    if ($null -eq $schemaProperty -or
+        ($schemaProperty.Value -isnot [int] -and $schemaProperty.Value -isnot [long]) -or
+        [long]$schemaProperty.Value -ne 1 -or
+        [string](Get-WatchProperty $State 'tool' '') -cne 'chatgpt-pro-sidebar' -or
+        [string](Get-WatchProperty $State 'transport' '') -cne 'agent-browser-cli-v2' -or
+        [string](Get-WatchProperty $State 'phase' '') -ne 'pre-invoke-failed') {
+        return $false
+    }
+    foreach ($booleanName in @('invokeAttempted', 'invokeReturned', 'submissionAcknowledged', 'automaticResendAllowed')) {
+        $property = $State.PSObject.Properties[$booleanName]
+        if ($null -eq $property -or $property.Value -isnot [bool] -or $property.Value) {
+            return $false
+        }
+    }
+
+    $threadId = [string](Get-WatchProperty $State 'codexThreadId' '')
+    $idempotencyKey = [string](Get-WatchProperty $State 'idempotencyKey' '')
+    $idempotencyKeySha256 = [string](Get-WatchProperty $State 'idempotencyKeySha256' '')
+    $promptSha256 = [string](Get-WatchProperty $State 'promptSha256' '')
+    $failureCategory = [string](Get-WatchProperty $State 'preInvokeFailureCategory' '')
+    if ($threadId -ne [string](Get-WatchProperty $Claim 'codexThreadId' '') -or
+        $idempotencyKey -notmatch '^[A-Za-z0-9._:-]{1,128}$' -or
+        $idempotencyKeySha256 -notmatch '^[0-9a-f]{64}$' -or
+        (Get-WatchSha256Text -Text $idempotencyKey) -cne $idempotencyKeySha256 -or
+        $promptSha256 -notmatch '^[0-9a-f]{64}$' -or
+        [string]::IsNullOrWhiteSpace($failureCategory) -or
+        $failureCategory.Length -gt 128 -or $failureCategory -match '[\r\n]') {
+        return $false
+    }
+
+    $directory = [string](Get-WatchProperty $Claim 'evidenceDirectory' '')
+    $directorySha256 = [string](Get-WatchProperty $State 'evidenceDirectorySha256' '')
+    if ([string]::IsNullOrWhiteSpace($directory)) {
+        return $false
+    }
+    $promptPath = Join-Path $directory 'prompt.md'
+    if ($directorySha256 -cne [string](Get-WatchProperty $Claim 'evidenceDirectorySha256' '') -or
+        -not [System.IO.File]::Exists($promptPath)) {
+        return $false
+    }
+    try {
+        if ((Get-WatchSha256File -Path $promptPath) -cne $promptSha256) {
+            return $false
+        }
+    }
+    catch { return $false }
+
+    try {
+        $failedAtUtc = [DateTimeOffset]::Parse(
+            [string](Get-WatchProperty $State 'preInvokeFailedAtUtc' ''),
+            [Globalization.CultureInfo]::InvariantCulture,
+            [Globalization.DateTimeStyles]::AssumeUniversal
+        )
+        if ($failedAtUtc.Offset -ne [TimeSpan]::Zero) { return $false }
+    }
+    catch {
+        return $false
+    }
+
+    $resolvedProperty = $State.PSObject.Properties['targetBindingResolved']
+    if ($null -eq $resolvedProperty -or $resolvedProperty.Value -isnot [bool]) {
+        return $false
+    }
+    $binding = Get-WatchProperty $State 'targetBinding' $null
+    if (-not $resolvedProperty.Value) {
+        return $null -eq $binding
+    }
+    if ($null -eq $binding) {
+        return $false
+    }
+    foreach ($name in @('browserId', 'profileId', 'tabId', 'sessionKey')) {
+        $value = [string](Get-WatchProperty $binding $name '')
+        if ([string]::IsNullOrWhiteSpace($value) -or $value.Length -gt 512 -or $value -match '[\r\n]') {
+            return $false
+        }
+    }
+    $targetUrl = [string](Get-WatchProperty $binding 'url' '')
+    return [string](Get-WatchProperty $binding 'origin' '') -ceq 'https://chatgpt.com' -and
+        ($targetUrl -ceq 'https://chatgpt.com/' -or (Test-WatchConversationUrl -Value $targetUrl))
+}
+
 function Get-CapacityReleaseProof {
     param(
         [Parameter(Mandatory = $true)]$Claim,
@@ -2081,7 +2186,7 @@ function Get-CapacityReleaseProof {
 
     if (-not [string]::IsNullOrWhiteSpace($directory)) {
         $adapterPhase = [string](Get-WatchProperty $adapterState 'phase' '')
-        if ($adapterPhase -eq 'pre-invoke-failed' -and -not [bool](Get-WatchProperty $adapterState 'invokeAttempted' $true)) {
+        if ($adapterPhase -eq 'pre-invoke-failed' -and (Test-WatchPreInvokeFailedProof -State $adapterState -Claim $Claim)) {
             return [pscustomobject]@{ safe = $true; reason = 'durable-pre-click-unsent' }
         }
         if ($adapterPhase -eq 'completed') {

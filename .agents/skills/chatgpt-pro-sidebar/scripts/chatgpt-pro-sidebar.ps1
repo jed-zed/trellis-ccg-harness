@@ -3528,6 +3528,100 @@ function New-SendIntentState {
     return $state
 }
 
+function Set-AgentBrowserPreInvokeFailedState {
+    param(
+        [Parameter(Mandatory = $true)][string]$EvidenceDirectory,
+        [Parameter(Mandatory = $true)][string]$PromptText,
+        [Parameter(Mandatory = $true)][string]$IdempotencyKeyValue,
+        [Parameter(Mandatory = $true)][string]$CodexThreadIdValue,
+        [Parameter(Mandatory = $true)][string]$FailureCategory,
+        [AllowNull()]$TargetBinding = $null,
+        [AllowNull()]$CurrentState = $null,
+        [AllowEmptyCollection()][string[]]$BaselineHashes = @(),
+        [AllowEmptyString()][string]$ConversationUrlBeforeSend = '',
+        [AllowEmptyString()][string]$GlobalReservationAtUtc = '',
+        [AllowEmptyString()][string]$TargetClaimKeySha256 = ''
+    )
+
+    $threadId = Resolve-CodexThreadId -Value $CodexThreadIdValue
+    $promptSha256 = Get-Sha256Text -Text $PromptText
+    $idempotencyKeySha256 = Get-Sha256Text -Text $IdempotencyKeyValue
+    $state = $CurrentState
+    if ($null -eq $state) {
+        $existingState = Read-EvidenceState -Directory $EvidenceDirectory
+        if ($null -ne $existingState) {
+            return $existingState
+        }
+
+        $targetResolved = $false
+        if ($null -ne $TargetBinding) {
+            try {
+                $null = Assert-AgentBrowserTargetBindingComplete -Binding $TargetBinding
+                $targetResolved = $true
+            }
+            catch { }
+        }
+        if ($targetResolved) {
+            $state = New-SendIntentState `
+                -PromptSha256 $promptSha256 `
+                -IdempotencyKeyValue $IdempotencyKeyValue `
+                -BaselineHashes $BaselineHashes `
+                -ConversationUrlBeforeSend $ConversationUrlBeforeSend `
+                -IdempotencyKeySha256 $idempotencyKeySha256 `
+                -GlobalReservationAtUtc $GlobalReservationAtUtc `
+                -Transport $Script:AgentBrowserTransport `
+                -TargetBinding $TargetBinding `
+                -CodexThreadIdValue $threadId `
+                -TargetClaimKeySha256 $TargetClaimKeySha256
+        }
+        else {
+            $failedAtUtc = [DateTime]::UtcNow.ToString('o')
+            $state = [ordered]@{
+                schemaVersion = $Script:SchemaVersion
+                tool = $Script:ToolName
+                transport = $Script:AgentBrowserTransport
+                live = $true
+                phase = 'pre-invoke-failed'
+                idempotencyKey = $IdempotencyKeyValue
+                idempotencyKeySha256 = $idempotencyKeySha256
+                globalReservationAtUtc = $GlobalReservationAtUtc
+                promptFile = 'prompt.md'
+                promptSha256 = $promptSha256
+                baselineResponseSha256 = @($BaselineHashes)
+                conversationUrlBeforeSend = $ConversationUrlBeforeSend
+                automaticResendAllowed = $false
+                clipboardUsed = $false
+                codexThreadId = $threadId
+                targetBinding = $null
+                targetClaimKeySha256 = $TargetClaimKeySha256
+                requestStartedAtUtc = $failedAtUtc
+            }
+        }
+    }
+
+    $promptPath = Join-Path $EvidenceDirectory 'prompt.md'
+    if (-not [System.IO.File]::Exists($promptPath)) {
+        Write-Utf8NoBomAtomic -Path $promptPath -Text $PromptText
+    }
+    elseif ((Get-Sha256File -Path $promptPath) -cne $promptSha256) {
+        Set-ObjectProperty -InputObject $state -Name 'promptFile' -Value ''
+    }
+
+    $resolvedBinding = Get-ObjectProperty $state 'targetBinding' $null
+    $targetResolved = $null -ne $resolvedBinding
+    Set-ObjectProperty -InputObject $state -Name 'phase' -Value 'pre-invoke-failed'
+    Set-ObjectProperty -InputObject $state -Name 'invokeAttempted' -Value $false
+    Set-ObjectProperty -InputObject $state -Name 'invokeReturned' -Value $false
+    Set-ObjectProperty -InputObject $state -Name 'submissionAcknowledged' -Value $false
+    Set-ObjectProperty -InputObject $state -Name 'automaticResendAllowed' -Value $false
+    Set-ObjectProperty -InputObject $state -Name 'targetBindingResolved' -Value $targetResolved
+    Set-ObjectProperty -InputObject $state -Name 'evidenceDirectorySha256' -Value (Get-Sha256Text -Text ([System.IO.Path]::GetFullPath($EvidenceDirectory).ToLowerInvariant()))
+    Set-ObjectProperty -InputObject $state -Name 'preInvokeFailureCategory' -Value $FailureCategory
+    Set-ObjectProperty -InputObject $state -Name 'preInvokeFailedAtUtc' -Value ([DateTime]::UtcNow.ToString('o'))
+    Write-EvidenceState -Directory $EvidenceDirectory -State $state
+    return $state
+}
+
 function Try-BindLiveConversationUrl {
     param(
         [Parameter(Mandatory = $true)]$State,
@@ -5012,6 +5106,18 @@ function Invoke-AgentBrowserSend {
         [scriptblock]$UtcNowProvider = { [DateTime]::UtcNow }
     )
 
+    $threadId = ''
+    $promptSha = Get-Sha256Text -Text $PromptText
+    $idempotencyKeySha256 = Get-Sha256Text -Text $IdempotencyKeyValue
+    $baselineHashes = @()
+    $conversationUrlBeforeSend = ''
+    $globalReservation = $null
+    $targetClaim = $null
+    $state = $null
+    $clickBoundaryCrossed = $false
+    $uiLease = $null
+    $retryUiLease = $null
+    try {
     $threadId = Resolve-CodexThreadId -Value $CodexThreadIdValue
     $null = Assert-AgentBrowserTargetBindingComplete -Binding $TargetBinding
     if ($PromptText.Length -gt $Script:AgentBrowserPromptCharacterLimit) {
@@ -5021,10 +5127,7 @@ function Invoke-AgentBrowserSend {
     Assert-IdempotencyAvailable -ExistingState $existingState -IdempotencyKey $IdempotencyKeyValue
     Assert-EvidenceDirectoryPristine -Directory $EvidenceDirectory
     $null = Assert-GlobalIdempotencyKeyAvailable -IdempotencyKeyValue $IdempotencyKeyValue
-    $idempotencyKeySha256 = Get-Sha256Text -Text $IdempotencyKeyValue
     $uiLease = Enter-UiMutex -TargetBinding $TargetBinding
-    $retryUiLease = $null
-    try {
     $target = Resolve-AgentBrowserTarget -ExpectedBinding $TargetBinding
     $snapshot = Get-AgentBrowserPageSnapshot -Target $target
     $snapshot = Ensure-AgentBrowserProMode -Target $target -Snapshot $snapshot
@@ -5036,84 +5139,40 @@ function Invoke-AgentBrowserSend {
     $baselineResponses = @($snapshot.Responses)
     $baselineHashes = @($baselineResponses | ForEach-Object { $_.ContentSha256 })
     $baselineUserHashes = @($snapshot.UserTurns | ForEach-Object { $_.ContentSha256 })
-    $promptSha = Get-Sha256Text -Text $PromptText
     $globalReservation = Reserve-GlobalIdempotencyKey -IdempotencyKeyValue $IdempotencyKeyValue -PromptSha256 $promptSha
     $conversationUrlBeforeSend = if ($snapshot.UrlExact) { [string]$snapshot.Url } else { '' }
 
     # Reserve the global request identity before claiming a browser target. A
     # reservation race can fail closed without stranding that target.
     $TargetBinding = ConvertTo-AgentBrowserTargetBinding -Target $target
-    try {
-        $targetClaim = Reserve-AgentBrowserTargetClaim `
-            -CodexThreadIdValue $threadId `
-            -EvidenceDirectory $EvidenceDirectory `
-            -IdempotencyKeySha256Value $idempotencyKeySha256 `
-            -Binding $TargetBinding
-    }
-    catch {
-        Write-Utf8NoBomAtomic -Path (Join-Path $EvidenceDirectory 'prompt.md') -Text $PromptText
-        $failedState = New-SendIntentState `
-            -PromptSha256 $promptSha `
-            -IdempotencyKeyValue $IdempotencyKeyValue `
-            -BaselineHashes $baselineHashes `
-            -ConversationUrlBeforeSend $conversationUrlBeforeSend `
-            -IdempotencyKeySha256 $globalReservation.KeySha256 `
-            -GlobalReservationAtUtc $globalReservation.ReservedAtUtc `
-            -Transport $Script:AgentBrowserTransport `
-            -TargetBinding $TargetBinding `
-            -CodexThreadIdValue $threadId
-        Set-ObjectProperty -InputObject $failedState -Name 'phase' -Value 'pre-invoke-failed'
-        Set-ObjectProperty -InputObject $failedState -Name 'invokeAttempted' -Value $false
-        Set-ObjectProperty -InputObject $failedState -Name 'preInvokeFailureCategory' -Value (Get-ExceptionCategory -Exception $_.Exception)
-        Set-ObjectProperty -InputObject $failedState -Name 'preInvokeFailedAtUtc' -Value ([DateTime]::UtcNow.ToString('o'))
-        Write-EvidenceState -Directory $EvidenceDirectory -State $failedState
-        throw
-    }
+    $targetClaim = Reserve-AgentBrowserTargetClaim `
+        -CodexThreadIdValue $threadId `
+        -EvidenceDirectory $EvidenceDirectory `
+        -IdempotencyKeySha256Value $idempotencyKeySha256 `
+        -Binding $TargetBinding
 
-    try {
-        $fillEnvelope = Invoke-AgentBrowserCliJson -Arguments @(
-            'fill', '#prompt-textarea', $PromptText,
-            '--tab', [string]$target.TabId,
-            '--browser', [string]$target.BrowserId,
-            '--profile', [string]$target.ProfileId,
-            '--timeout', '30'
-        )
-        Assert-AgentBrowserCommandResultBinding -Envelope $fillEnvelope -Target $target
-        $target = Resolve-AgentBrowserTarget -ExpectedBinding (ConvertTo-AgentBrowserTargetBinding -Target $target)
-        $prepared = Get-AgentBrowserPageSnapshot -Target $target
-        Assert-AgentBrowserPostFillReady -Snapshot $prepared
-        Assert-PreSendUrlInvariant `
-            -InitialUrlState ([pscustomobject]@{ Url = $snapshot.Url; Exact = $snapshot.UrlExact }) `
-            -CurrentUrlState ([pscustomobject]@{ Url = $prepared.Url; Exact = $prepared.UrlExact }) `
-            -RequireFreshConversation:$RequireFreshConversation `
-            -RequireExistingConversation:$RequireExistingConversation
-        Assert-SendPreconditions -Snapshot ([pscustomobject]@{
-            Generating = $prepared.Generating
-            ComposerCount = $prepared.ComposerCount
-            SendCount = $prepared.SendCount
-            ComposerSha256 = Get-Sha256Text -Text $prepared.ComposerValue
-        }) -ExpectedPromptSha256 $promptSha
-    }
-    catch {
-        Write-Utf8NoBomAtomic -Path (Join-Path $EvidenceDirectory 'prompt.md') -Text $PromptText
-        $failedState = New-SendIntentState `
-            -PromptSha256 $promptSha `
-            -IdempotencyKeyValue $IdempotencyKeyValue `
-            -BaselineHashes $baselineHashes `
-            -ConversationUrlBeforeSend $conversationUrlBeforeSend `
-            -IdempotencyKeySha256 $globalReservation.KeySha256 `
-            -GlobalReservationAtUtc $globalReservation.ReservedAtUtc `
-            -Transport $Script:AgentBrowserTransport `
-            -TargetBinding (ConvertTo-AgentBrowserTargetBinding -Target $target) `
-            -CodexThreadIdValue $threadId `
-            -TargetClaimKeySha256 $targetClaim.KeySha256
-        Set-ObjectProperty -InputObject $failedState -Name 'phase' -Value 'pre-invoke-failed'
-        Set-ObjectProperty -InputObject $failedState -Name 'invokeAttempted' -Value $false
-        Set-ObjectProperty -InputObject $failedState -Name 'preInvokeFailureCategory' -Value (Get-ExceptionCategory -Exception $_.Exception)
-        Set-ObjectProperty -InputObject $failedState -Name 'preInvokeFailedAtUtc' -Value ([DateTime]::UtcNow.ToString('o'))
-        Write-EvidenceState -Directory $EvidenceDirectory -State $failedState
-        throw
-    }
+    $fillEnvelope = Invoke-AgentBrowserCliJson -Arguments @(
+        'fill', '#prompt-textarea', $PromptText,
+        '--tab', [string]$target.TabId,
+        '--browser', [string]$target.BrowserId,
+        '--profile', [string]$target.ProfileId,
+        '--timeout', '30'
+    )
+    Assert-AgentBrowserCommandResultBinding -Envelope $fillEnvelope -Target $target
+    $target = Resolve-AgentBrowserTarget -ExpectedBinding (ConvertTo-AgentBrowserTargetBinding -Target $target)
+    $prepared = Get-AgentBrowserPageSnapshot -Target $target
+    Assert-AgentBrowserPostFillReady -Snapshot $prepared
+    Assert-PreSendUrlInvariant `
+        -InitialUrlState ([pscustomobject]@{ Url = $snapshot.Url; Exact = $snapshot.UrlExact }) `
+        -CurrentUrlState ([pscustomobject]@{ Url = $prepared.Url; Exact = $prepared.UrlExact }) `
+        -RequireFreshConversation:$RequireFreshConversation `
+        -RequireExistingConversation:$RequireExistingConversation
+    Assert-SendPreconditions -Snapshot ([pscustomobject]@{
+        Generating = $prepared.Generating
+        ComposerCount = $prepared.ComposerCount
+        SendCount = $prepared.SendCount
+        ComposerSha256 = Get-Sha256Text -Text $prepared.ComposerValue
+    }) -ExpectedPromptSha256 $promptSha
 
     Write-Utf8NoBomAtomic -Path (Join-Path $EvidenceDirectory 'prompt.md') -Text $PromptText
     $state = New-SendIntentState `
@@ -5207,11 +5266,6 @@ function Invoke-AgentBrowserSend {
         }
         catch {
             if ($attemptNumber -eq 1) {
-                Set-ObjectProperty -InputObject $state -Name 'phase' -Value 'pre-invoke-failed'
-                Set-ObjectProperty -InputObject $state -Name 'invokeAttempted' -Value $false
-                Set-ObjectProperty -InputObject $state -Name 'preInvokeFailureCategory' -Value (Get-ExceptionCategory -Exception $_.Exception)
-                Set-ObjectProperty -InputObject $state -Name 'preInvokeFailedAtUtc' -Value ([DateTime]::UtcNow.ToString('o'))
-                Write-EvidenceState -Directory $EvidenceDirectory -State $state
                 throw
             }
             Set-RetryPreparationFailedBeforeClick -EvidenceDirectory $EvidenceDirectory -State $state -Category (Get-ExceptionCategory -Exception $_.Exception) -Message $_.Exception.Message
@@ -5227,10 +5281,6 @@ function Invoke-AgentBrowserSend {
                     -ResponseTimeoutSecondsValue $ResponseTimeoutSecondsValue
             }
             catch {
-                Set-ObjectProperty -InputObject $state -Name 'phase' -Value 'pre-invoke-failed'
-                Set-ObjectProperty -InputObject $state -Name 'invokeAttempted' -Value $false
-                Set-ObjectProperty -InputObject $state -Name 'preInvokeFailureCategory' -Value (Get-ExceptionCategory -Exception $_.Exception)
-                Write-EvidenceState -Directory $EvidenceDirectory -State $state
                 throw
             }
             Set-ObjectProperty -InputObject $state -Name 'firstClickAtUtc' -Value ($clickStartedAt.ToString('o'))
@@ -5238,10 +5288,6 @@ function Invoke-AgentBrowserSend {
         }
         if ($clickStartedAt -ge $responseDeadline) {
             if ($attemptNumber -eq 1) {
-                Set-ObjectProperty -InputObject $state -Name 'phase' -Value 'pre-invoke-failed'
-                Set-ObjectProperty -InputObject $state -Name 'invokeAttempted' -Value $false
-                Set-ObjectProperty -InputObject $state -Name 'preInvokeFailureCategory' -Value 'ResponseDeadlineExpired'
-                Write-EvidenceState -Directory $EvidenceDirectory -State $state
                 Throw-SidebarError -ExitCode $Script:ExitCodes.Timeout -Category 'ResponseDeadlineExpired' -Message 'The absolute response deadline expired before the first click.'
             }
             Set-RetryPreparationFailedBeforeClick -EvidenceDirectory $EvidenceDirectory -State $state -Category 'ResponseDeadlineExpired' -Message 'The absolute response deadline expired before the second click.'
@@ -5268,10 +5314,6 @@ function Invoke-AgentBrowserSend {
             Set-ObjectProperty -InputObject $attemptRecord -Name 'composerSha256Observed' -Value $promptSha
             if ($attemptNumber -eq 1) {
                 Set-ObjectProperty -InputObject $attemptRecord -Name 'outcome' -Value 'pre-click-deadline-expired'
-                Set-ObjectProperty -InputObject $state -Name 'phase' -Value 'pre-invoke-failed'
-                Set-ObjectProperty -InputObject $state -Name 'invokeAttempted' -Value $false
-                Set-ObjectProperty -InputObject $state -Name 'preInvokeFailureCategory' -Value 'ResponseDeadlineExpired'
-                Write-EvidenceState -Directory $EvidenceDirectory -State $state
                 Throw-SidebarError -ExitCode $Script:ExitCodes.Timeout -Category 'ResponseDeadlineExpired' -Message 'The absolute response deadline expired after durable intent persistence and before the first click.'
             }
             Set-ObjectProperty -InputObject $attemptRecord -Name 'outcome' -Value 'retry-not-submitted'
@@ -5282,6 +5324,7 @@ function Invoke-AgentBrowserSend {
             Throw-SidebarError -ExitCode $Script:ExitCodes.Timeout -Category 'RetryNotSubmitted' -Message 'The absolute response deadline expired after durable retry intent persistence and before the second click.'
         }
 
+        $clickBoundaryCrossed = $true
         try {
             $clickEnvelope = Invoke-AgentBrowserCliJson -Arguments @(
                 'click', 'button[data-testid="send-button"]',
@@ -5460,6 +5503,32 @@ function Invoke-AgentBrowserSend {
         Write-EvidenceState -Directory $EvidenceDirectory -State $state
         Throw-SidebarError -ExitCode $Script:ExitCodes.SendUncertain -Category 'RecoveryRequired' -Message 'Submission progress could not be proved and the composer no longer proves a safe retry. Automatic resend is prohibited.'
     }
+    }
+    catch {
+        $failure = $_.Exception
+        if (-not $clickBoundaryCrossed -and (Test-CodexDesktopThreadId -Value $threadId)) {
+            $reservationAtUtc = if ($null -eq $globalReservation) { '' } else { [string]$globalReservation.ReservedAtUtc }
+            $claimKeySha256 = if ($null -eq $targetClaim) { '' } else { [string]$targetClaim.KeySha256 }
+            $failureBinding = if ($null -ne $state) {
+                Get-ObjectProperty $state 'targetBinding' $TargetBinding
+            }
+            else {
+                $TargetBinding
+            }
+            $null = Set-AgentBrowserPreInvokeFailedState `
+                -EvidenceDirectory $EvidenceDirectory `
+                -PromptText $PromptText `
+                -IdempotencyKeyValue $IdempotencyKeyValue `
+                -CodexThreadIdValue $threadId `
+                -FailureCategory (Get-ExceptionCategory -Exception $failure) `
+                -TargetBinding $failureBinding `
+                -CurrentState $state `
+                -BaselineHashes $baselineHashes `
+                -ConversationUrlBeforeSend $conversationUrlBeforeSend `
+                -GlobalReservationAtUtc $reservationAtUtc `
+                -TargetClaimKeySha256 $claimKeySha256
+        }
+        throw
     }
     finally {
         Exit-UiMutex -Lease $retryUiLease
@@ -5746,17 +5815,32 @@ function Invoke-MainCommand {
             try {
                 $promptText = Read-PromptInput -PromptPathValue $PromptPath -PromptValue $Prompt
                 $key = Resolve-IdempotencyKey -Value $IdempotencyKey
-                $target = Resolve-AgentBrowserCommandTarget
-                return Invoke-AgentBrowserSend `
-                    -PromptText $promptText `
-                    -EvidenceDirectory $directory `
-                    -IdempotencyKeyValue $key `
-                    -CodexThreadIdValue $threadId `
-                    -RequireFreshConversation:$FreshConversation `
-                    -RequireExistingConversation:(-not $FreshConversation) `
-                    -TargetBinding (ConvertTo-AgentBrowserTargetBinding -Target $target) `
-                    -ResponseTimeoutSecondsValue $ResponseTimeoutSeconds `
-                    -ResponseDeadlineAtUtcValue $ResponseDeadlineAtUtc
+                $targetBinding = $null
+                try {
+                    $target = Resolve-AgentBrowserCommandTarget
+                    $targetBinding = ConvertTo-AgentBrowserTargetBinding -Target $target
+                    return Invoke-AgentBrowserSend `
+                        -PromptText $promptText `
+                        -EvidenceDirectory $directory `
+                        -IdempotencyKeyValue $key `
+                        -CodexThreadIdValue $threadId `
+                        -RequireFreshConversation:$FreshConversation `
+                        -RequireExistingConversation:(-not $FreshConversation) `
+                        -TargetBinding $targetBinding `
+                        -ResponseTimeoutSecondsValue $ResponseTimeoutSeconds `
+                        -ResponseDeadlineAtUtcValue $ResponseDeadlineAtUtc
+                }
+                catch {
+                    $failure = $_.Exception
+                    $null = Set-AgentBrowserPreInvokeFailedState `
+                        -EvidenceDirectory $directory `
+                        -PromptText $promptText `
+                        -IdempotencyKeyValue $key `
+                        -CodexThreadIdValue $threadId `
+                        -FailureCategory (Get-ExceptionCategory -Exception $failure) `
+                        -TargetBinding $targetBinding
+                    throw
+                }
             }
             finally {
                 $lock.Dispose()
