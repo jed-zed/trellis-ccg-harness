@@ -201,3 +201,40 @@ Published accepted Grok receipt-state changes through CCG PR #33 and Harness PR 
 ### Status
 
 [OK] **Completed**
+
+
+## Session 7: Fix GPT Pro fresh pre-invoke recovery
+
+**Date**: 2026-08-19
+**Task**: Fix GPT Pro fresh pre-invoke recovery
+**Branch**: `codex/gptpro-preinvoke-recovery`
+
+### Summary
+
+Require explicit fresh root rounds, persist verifiable pre-invoke failures, recover the stranded unsent slot, and complete a safe GPT Pro review.
+
+### Main Changes
+
+- Required FreshConversation for new independent root-homepage rounds.
+- Persisted and strictly validated pre-invoke-failed evidence without weakening post-click no-resend semantics.
+- Recovered only the proven-unsent slot and completed the bounded PR 46 GPT Pro review.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `4d4c40d` | (see git log) |
+
+### Testing
+
+- [OK] Adapter Pester: 191/191 passed.
+- [OK] Watcher Pester: 134/134 passed.
+- [OK] Harness conflicts: 19 passed, 0 blocking, 0 warning.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Push or merge only when separately authorized.
