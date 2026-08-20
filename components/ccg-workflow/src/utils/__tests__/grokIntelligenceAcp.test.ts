@@ -200,7 +200,6 @@ describe('Grok intelligence ACP transport', () => {
       command: process.execPath,
       prefixArgs: [fakeChildPath, mode],
       validatePrivateDirectory: async (path: string) => path,
-      terminateProcess: terminateFixtureChild,
       ...extra,
     })
   }
@@ -233,13 +232,6 @@ describe('Grok intelligence ACP transport', () => {
         CCG_PRIVATE_TOKEN: 'must-not-leak',
       },
       ...overrides,
-    }
-  }
-
-  async function terminateFixtureChild(child: ReturnType<typeof spawn>) {
-    if (child.exitCode == null && child.signalCode == null) {
-      child.kill('SIGKILL')
-      await new Promise(resolvePromise => child.once('close', resolvePromise))
     }
   }
 
