@@ -203,7 +203,29 @@ Published accepted Grok receipt-state changes through CCG PR #33 and Harness PR 
 [OK] **Completed**
 
 
-## Session 7: Fix GPT Pro fresh pre-invoke recovery
+## Session 8: Retire legacy GPT Pro Stop Hook
+
+**Date**: 2026-08-19
+**Task**: Retire legacy GPT Pro Stop Hook
+**Branch**: `codex/remove-legacy-gptpro-stop-hook`
+
+### Summary
+
+Removed the global and repository legacy GPT Pro Stop Hook path, retired stale local registry state, preserved RootWait, and completed the accepted validation gates.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `c415288346c48135ac91204c673322b430730664` | (see git log) |
+| `d0feea70ad7a81936a41323307482f2b9810b430` | (see git log) |
+
+### Status
+
+[OK] **Completed**
+
+
+## Session 9: Fix GPT Pro fresh pre-invoke recovery
 
 **Date**: 2026-08-19
 **Task**: Fix GPT Pro fresh pre-invoke recovery
