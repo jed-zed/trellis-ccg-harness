@@ -1849,6 +1849,13 @@ Describe 'Exact URL fallback and sanitization' {
         $source | Should -Match '-RequireExistingConversation:\(-not \$FreshConversation\)'
     }
 
+    It 'documents new independent root rounds with an explicit fresh mode' {
+        $skillPath = Join-Path (Split-Path -Parent $PSScriptRoot) 'SKILL.md'
+        $skillSource = [System.IO.File]::ReadAllText($skillPath)
+
+        $skillSource | Should -Match '(?m)^powershell\.exe .*\$watcher run-root .* -FreshConversation$'
+    }
+
     It 'accepts one canonical exact conversation URL for a follow-up send' {
         {
             Assert-ChatGptUrlState -UrlState ([pscustomobject]@{
@@ -2703,6 +2710,75 @@ Describe 'agent-browser-cli V2 transport' {
         }
         Should -Invoke Reserve-AgentBrowserTargetClaim -Times 0 -Exactly
         Should -Invoke Invoke-AgentBrowserCliJson -Times 0 -Exactly
+        $state = Read-EvidenceState -Directory $directory
+        $state.phase | Should -Be 'pre-invoke-failed'
+        $state.invokeAttempted | Should -BeFalse
+        $state.preInvokeFailureCategory | Should -Be 'IdempotencyReservationFailed'
+        $state.targetBindingResolved | Should -BeTrue
+        (Get-Sha256File -Path (Join-Path $directory 'prompt.md')) | Should -Be $state.promptSha256
+    }
+
+    It 'records the homepage existing-conversation mode failure before reservation fill or click' {
+        $directory = Join-Path $TestDrive 'v2-homepage-existing-mode'
+        $null = New-Item -ItemType Directory -Path $directory
+        $script:v2MutationCalls = 0
+        Mock Resolve-AgentBrowserTarget { $script:v2Target }
+        Mock Get-AgentBrowserPageSnapshot {
+            [pscustomobject]@{
+                Url = 'https://chatgpt.com/'; UrlExact = $false; ComposerCount = 1; ComposerValue = ''; SendCount = 0
+                LoginCount = 0; ProCount = 1; SelectedModeControlCount = 1; SelectedModeLabel = 'Pro'; SelectedModeIsPro = $true
+                SecurityChallengeCount = 0; Generating = $false; UserTurns = @(); Responses = @(); Target = $script:v2Target
+            }
+        }
+        Mock Reserve-GlobalIdempotencyKey { throw 'reservation must not run' }
+        Mock Invoke-AgentBrowserCliJson { $script:v2MutationCalls++; throw 'browser mutation must not run' }
+
+        Assert-ThrowsCategory -Category 'ExistingConversationUnproved' -ExitCode 29 -Action {
+            Invoke-AgentBrowserSend `
+                -PromptText 'new independent review' `
+                -EvidenceDirectory $directory `
+                -IdempotencyKeyValue 'v2-homepage-existing-mode' `
+                -CodexThreadIdValue $script:v2ThreadId `
+                -RequireExistingConversation `
+                -TargetBinding (ConvertTo-AgentBrowserTargetBinding -Target $script:v2Target)
+        }
+
+        $state = Read-EvidenceState -Directory $directory
+        $state.phase | Should -Be 'pre-invoke-failed'
+        $state.preInvokeFailureCategory | Should -Be 'ExistingConversationUnproved'
+        $state.invokeAttempted | Should -BeFalse
+        $state.globalReservationAtUtc | Should -Be ''
+        $state.targetBinding.url | Should -Be 'https://chatgpt.com/'
+        $script:v2MutationCalls | Should -Be 0
+        Should -Invoke Reserve-GlobalIdempotencyKey -Times 0 -Exactly
+    }
+
+    It 'records a target-discovery failure before the shared send function starts' {
+        $directory = Join-Path $TestDrive 'v2-target-discovery-failure'
+        $null = New-Item -ItemType Directory -Path $directory
+        $Command = 'send'
+        $Prompt = 'new independent review'
+        $PromptPath = ''
+        $EvidenceDir = $directory
+        $IdempotencyKey = 'v2-target-discovery-failure'
+        $CodexThreadId = $script:v2ThreadId
+        $FreshConversation = $true
+        Mock Resolve-AgentBrowserCommandTarget {
+            throw (New-SidebarException -ExitCode 20 -Category 'AgentBrowserTargetMissing' -Message 'no target')
+        }
+        Mock Invoke-AgentBrowserSend { throw 'shared send must not start' }
+
+        Assert-ThrowsCategory -Category 'AgentBrowserTargetMissing' -ExitCode 20 -Action {
+            Invoke-MainCommand
+        }
+
+        $state = Read-EvidenceState -Directory $directory
+        $state.phase | Should -Be 'pre-invoke-failed'
+        $state.preInvokeFailureCategory | Should -Be 'AgentBrowserTargetMissing'
+        $state.targetBindingResolved | Should -BeFalse
+        $state.targetBinding | Should -BeNullOrEmpty
+        $state.invokeAttempted | Should -BeFalse
+        Should -Invoke Invoke-AgentBrowserSend -Times 0 -Exactly
     }
 
     It 'records durable pre-invoke evidence when target claiming fails after global reservation' {
@@ -3523,6 +3599,7 @@ Describe 'agent-browser-cli V2 transport' {
         $dispatcher = [regex]::Match($source, '(?s)function Invoke-MainCommand\s*\{.*?(?=\r?\nif \(\$MyInvocation\.InvocationName)').Value
         $dispatcher | Should -Match 'Invoke-AgentBrowserSend'
         $dispatcher | Should -Match 'Invoke-AgentBrowserWait'
+        $dispatcher | Should -Match 'Set-AgentBrowserPreInvokeFailedState'
         $dispatcher | Should -Match '(?s)Invoke-AgentBrowserSend.+-ResponseTimeoutSecondsValue \$ResponseTimeoutSeconds'
         $dispatcher | Should -Match '(?s)Invoke-AgentBrowserWait.+-TimeoutSecondsValue \$ResponseTimeoutSeconds'
         $dispatcher | Should -Not -Match 'Initialize-LiveUiAutomation|Invoke-LiveSend|Invoke-LiveWait|Invoke-LiveNewChat'

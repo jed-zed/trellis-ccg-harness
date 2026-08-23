@@ -176,14 +176,24 @@ provider. It controls a user-approved external Chrome tab through
   without starting a child.
 - An orphaned slot whose durable state proves neither pre-click-unsent nor
   terminal remains isolated and returns `ConcurrencySlotRecoveryRequired`.
+- After the adapter owns the evidence directory, every caught failure before
+  the first click persists `pre-invoke-failed`. The record binds tool/schema,
+  transport, Codex thread, idempotency key and hash, prompt file and hash,
+  evidence-directory hash, resolved-or-unresolved target state, failure
+  category, timestamp, and explicit false values for `invokeAttempted`,
+  `invokeReturned`, `submissionAcknowledged`, and `automaticResendAllowed`.
+  Evidence-lock conflicts, corrupt prior state, and evidence-write failures
+  remain isolated because another writer or durable boundary cannot be ruled
+  out.
 - A schema-2 `run-starting/false` claim may be released as `never-invoked` only
   after its owner died or the caller explicitly observed owner completion, and
   only when no adapter, watcher, event, or evidence artifact contradicts that
   claim. A submission timestamp, watcher id, or terminal marker also contradicts
   `never-invoked`. Any `sent`, `send-uncertain`, unknown adapter state,
-  incomplete retry proof, noncanonical/schema-1 claim, or `run-starting/true`
-  claim remains isolated. Missing
-  files and blank pages are never independent release evidence.
+  incomplete retry proof, noncanonical/schema-1 claim, or an invalid
+  `run-starting/true` proof remains isolated. A valid bound
+  `pre-invoke-failed` record releases only its capacity slot; missing files and
+  blank pages are never independent release evidence.
 - A slot owner's persisted process-start value is an ISO-8601 UTC identity, not
   a local `DateTime` value. Liveness requires both the PID and the parsed UTC
   process start to match after JSON `DateTime`/`DateTimeOffset`/string
@@ -331,8 +341,10 @@ provider. It controls a user-approved external Chrome tab through
    is already in `sent`, `send-intent`, or `send-uncertain`.
 2. **Signature** — `run-root` requires `PromptPath`, an existing empty
    `EvidenceDir`, a unique opaque `IdempotencyKey`, the exact UUID
-   `CodexThreadId`, and a bounded `TimeoutSeconds`; `FreshConversation` is
-   optional and retains the adapter's existing proof requirements. A caller
+   `CodexThreadId`, and a bounded `TimeoutSeconds`. A new independent round on
+   the proved empty root homepage must pass `FreshConversation`; an exact-URL
+   follow-up must omit it. Both retain the adapter's existing proof
+   requirements. A caller
    selecting among multiple targets must pass the complete opaque
    `BrowserId`, `ProfileId`, `TabId`, and `SessionKey` tuple; partial tuples
    fail before adapter invocation. `SlotId` plus `CapacityClaimId` is an
@@ -349,26 +361,30 @@ provider. It controls a user-approved external Chrome tab through
    proved-not-submitted retry is internal to the same logical `send`; adapter
    terminal outcomes bypass watcher launch and return through the same root
    task.
-4. **Validation and errors** — a pre-send failure without waitable evidence
-   launches no watcher. A process/result failure with valid post-send evidence
-   continues observation without retry. Generation-active status is normalized
-   only from its exact structured details. Virtualized turn lists must retain an
-   unchanged baseline suffix. Wrong thread, invalid state, stale watcher,
-   mismatched event, or unproved baseline fails closed.
+4. **Validation and errors** — a caught pre-click failure writes the bound
+   `pre-invoke-failed` record, launches no watcher, and permits capacity release
+   only after the watcher validates the complete proof. A process/result failure
+   with valid post-send evidence continues observation without retry.
+   Generation-active status is normalized only from its exact structured
+   details. Virtualized turn lists must retain an unchanged baseline suffix.
+   Wrong thread, invalid state, stale watcher, mismatched event, or unproved
+   baseline fails closed.
 5. **Cases** — good: acknowledged send reaches `completed`; base: a valid
    `send-uncertain` state is observed without resend; terminal-safe:
    `retry-not-submitted` releases capacity only with complete durable proof;
    terminal-isolated: `recovery-required` returns
    `ConcurrencySlotRecoveryRequired` and retains capacity; bad:
-   `pre-invoke-failed` stops before watcher launch.
+   `pre-invoke-failed` stops before watcher launch and releases the matching
+   capacity slot only when its bound proof is complete.
 6. **Required tests** — prove the ordered single command, one adapter send,
    post-send failure continuation, pre-send no-launch, strict generation-active
    normalization, retained baseline suffix, full-baseline-loss rejection,
    shared absolute deadline, both adapter terminal outcomes returning to the
    original thread, direct fourth/six-plus-one capacity refusal before adapter
    work, single-count schema-2 batch claim handoff, one pre-send compare-and-swap,
-   `never-invoked` recovery without browser work, safe release versus retained
-   isolation, batch non-success, terminal RootWait return, and separate matching
+   `never-invoked` recovery without browser work, a fresh-homepage pre-click
+   failure with bound evidence and automatic slot release, tampered proof
+   retention, batch non-success, terminal RootWait return, and separate matching
    acknowledgement.
 7. **Wrong vs correct** — wrong: return to the model between `send`, `start`,
    and `wait-root`; correct: issue one `run-root` tool call, review its evidence,
