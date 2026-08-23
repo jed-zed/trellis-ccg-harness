@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 9
-- **Last Active**: 2026-08-19
+- **Total Sessions**: 10
+- **Last Active**: 2026-08-23
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~255 | Active |
+| `journal-1.md` | ~285 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 10 | 2026-08-23 | 发布架构死代码与旧机制重审记录 | `df5f5ff1002e19932ede06f5655b7a1f8ca37966`, `8d775c4bd1f87707eff4d55ac8a5cf16614fb946`, `3115210d96c3f1398059388e811fc0b46318242d` | `codex/publish-audit-records` |
 | 9 | 2026-08-19 | Fix GPT Pro fresh pre-invoke recovery | `4d4c40d` | `codex/gptpro-preinvoke-recovery` |
 | 8 | 2026-08-19 | Retire legacy GPT Pro Stop Hook | `c415288346c48135ac91204c673322b430730664`, `d0feea70ad7a81936a41323307482f2b9810b430` | `codex/remove-legacy-gptpro-stop-hook` |
 | 6 | 2026-08-08 | GPT Pro multi-window cross-task RootWait | `87a335b`, `1297a5e`, `e1c69e4` | `codex/gptpro-agent-browser-rootwait-v2` |
