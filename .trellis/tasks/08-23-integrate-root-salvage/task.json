@@ -1,0 +1,30 @@
+{
+  "id": "integrate-root-salvage",
+  "name": "integrate-root-salvage",
+  "title": "Integrate preserved root evidence onto latest main",
+  "description": "Preserve the dirty root branch completely, then salvage only valid Trellis evidence and independent documentation onto an isolated branch based on ab9c259 while keeping runtime code and managed snapshots identical to main.",
+  "status": "in_progress",
+  "dev_type": null,
+  "scope": "trellis-evidence-and-independent-docs-only",
+  "package": null,
+  "priority": "P0",
+  "creator": "codex",
+  "assignee": "codex",
+  "createdAt": "2026-08-23",
+  "completedAt": null,
+  "branch": "codex/integrate-root-salvage",
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "integration_base": "ab9c2597054fbafb0353024a1593fea3798a7e8d",
+    "source_root_head": "d6fa26d6b7e8454d7cb985c06c48bd3e5b277305",
+    "backup_path": "G:\\CodexBackups\\trellis-ccg-harness-root-20260823T195605Z"
+  }
+}
