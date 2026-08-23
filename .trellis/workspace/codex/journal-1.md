@@ -283,3 +283,40 @@ Require explicit fresh root rounds, persist verifiable pre-invoke failures, reco
 ### Status
 
 [OK] **Completed**
+
+
+## Session 11: Integrate preserved root evidence onto latest main
+
+**Date**: 2026-08-23
+**Task**: Integrate preserved root evidence onto latest main
+**Branch**: `codex/integrate-root-salvage`
+
+### Summary
+
+Preserved the divergent dirty root losslessly, then integrated only validated Trellis evidence onto exact main commit ab9c259 without changing runtime or managed snapshots.
+
+### Main Changes
+
+- Verified an external bundle, 14-commit mbox, 124-file archive, manifests, SHA-256 checks, and an actual restore exercise.
+- Imported only 16 exact task artifact files from four completed CCG 3.4.15 Trellis archives plus this integration task evidence.
+- Kept obsolete GPT Pro UIA, Stop Hook, provider runtime, managed snapshots, tests, duplicate journals, and other superseded root mechanisms backup-only.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `da64875` | (see git log) |
+
+### Testing
+
+- [OK] Harness: 455 non-skipped tests have passing evidence, 3 platform skips, 0 unresolved failures; doctor, conflicts, and source verification passed.
+- [OK] CCG authoritative checkout: lint, typecheck, serialized 635-test suite, and build passed; Go wrapper short tests and build passed.
+- [OK] Root HEAD, 124-path dirty set, dirty-file hashes, backup manifest, integration allowlist, and zero runtime/managed delta were reverified.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Keep the integration branch local; do not push, open a PR, merge, delete the root worktree, or delete the backup without separate authorization.
