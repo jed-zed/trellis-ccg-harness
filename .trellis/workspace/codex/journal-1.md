@@ -260,3 +260,26 @@ Require explicit fresh root rounds, persist verifiable pre-invoke failures, reco
 ### Next Steps
 
 - Push or merge only when separately authorized.
+
+
+## Session 10: 发布架构死代码与旧机制重审记录
+
+**Date**: 2026-08-23
+**Task**: 发布架构死代码与旧机制重审记录
+**Branch**: `codex/publish-audit-records`
+
+### Summary
+
+整合并归档架构耦合、重复、替代后死代码审计，以及 H1 权限投影和 H2 SSE channel 旧工作树误报的最新 main 验证证据；未修改产品代码。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `df5f5ff1002e19932ede06f5655b7a1f8ca37966` | (see git log) |
+| `8d775c4bd1f87707eff4d55ac8a5cf16614fb946` | (see git log) |
+| `3115210d96c3f1398059388e811fc0b46318242d` | (see git log) |
+
+### Status
+
+[OK] **Completed**

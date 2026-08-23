@@ -1,0 +1,30 @@
+{
+  "id": "fix-ccg-sse-channel-close-ownership",
+  "name": "fix-ccg-sse-channel-close-ownership",
+  "title": "修复 CCG WebServer SSE channel 双重关闭",
+  "description": "核验最新 main 的 WebServer Stop 与 SSE handler channel 关闭所有权；确认旧工作树中的双重关闭路径已不在当前主线。",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P1",
+  "creator": "codex",
+  "assignee": "codex",
+  "createdAt": "2026-08-22",
+  "completedAt": "2026-08-22",
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    "components/ccg-workflow/codeagent-wrapper/server.go",
+    "components/ccg-workflow/codeagent-wrapper/server_test.go",
+    "harness.sources.json"
+  ],
+  "notes": "No product-code change required on origin/main 73602402f5c0d603b7cc0c3442f0e519c1eae59d; current main already has single channel-close ownership and closed-channel handling.",
+  "meta": {}
+}
