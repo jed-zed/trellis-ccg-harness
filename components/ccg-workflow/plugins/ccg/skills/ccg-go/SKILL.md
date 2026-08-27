@@ -16,6 +16,8 @@ Reuse this same task id throughout `/ccg:go`, including S and git-action routes.
 
 - Before inspecting or routing ordinary work, write the bounded request to the active task directory
   and run `ccg route --workflow go --phase intake --task-file <request-file> --state-file <state-file>`.
+
+Run this potentially long route with the host's tool-managed background execution and wait mechanism; never put it under a foreground timeout shorter than the runner's 10-minute timeout. If the host cancels or terminates the job before a terminal state is written, run `ccg route recover --state-file <state-file> --status cancelled --reason "<reason>"` (or use `--status failed`); recovery refuses to overwrite a live owner.
   The controller must add `--semantic-mode contract|incident --semantic-reason <reason>` when its own
   judgment finds a material current-fact dependency even if the user did not ask to search. Supply
   plan/diff/dependency paths when present, re-run final external verification when their digests change,

@@ -9,6 +9,8 @@ For a pure local code review, do not run or invoke Grok external-intelligence an
 
 `ccg route --workflow team-review --phase team-intake --task-file ".ccg/tasks/<task-id>/intelligence-request.md" --state-file ".ccg/tasks/<task-id>/intelligence-route.json"`
 
+Run this potentially long route with the host's tool-managed background execution and wait mechanism; never put it under a foreground timeout shorter than the runner's 10-minute timeout. If the host cancels or terminates the job before a terminal state is written, run `ccg route recover --state-file <state-file> --status cancelled --reason "<reason>"` (or use `--status failed`); recovery refuses to overwrite a live owner.
+
 Only the controller or team leader runs that external-fact path, with repeated `--official-domain <domain>` chosen before Grok runs. Teammates never invoke Grok independently. Stop ordinary work on exit code `2`, `3`, or `4` only for an explicit required semantic route; advisory search failures do not block ordinary work.
 
 # CCG Team Review

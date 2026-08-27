@@ -105,10 +105,18 @@ function buildPrompt({ task, action, mode, requireWebSearch, xSearchPolicy, offi
   ].join('\n')
 }
 
-function invocationFailedResult(requirement, reason, attempts, runRoot) {
+function invocationFailureStatus(error, signal) {
+  if (signal?.aborted || /abort|cancel/i.test(failureText(error)))
+    return 'cancelled'
+  if (/timed?\s*out|timeout/i.test(failureText(error)))
+    return 'timed_out'
+  return 'invocation_failed'
+}
+
+function invocationFailedResult(requirement, reason, attempts, runRoot, status = 'invocation_failed') {
   return {
     exitCode: requirement === 'required' ? EXIT.REQUIRED_UNAVAILABLE : EXIT.OK,
-    status: 'invocation_failed',
+    status,
     reason,
     attempts,
     ...(runRoot ? { runRoot } : {}),
@@ -275,15 +283,18 @@ export async function runGrokIntelligence(options) {
           break
         }
         if (!isTransient(error) || attempts > maxRetries) {
-          result = invocationFailedResult(options.requirement, failureText(error, secrets), attempts, roots.runRoot)
+          result = invocationFailedResult(options.requirement, failureText(error, secrets), attempts, roots.runRoot, invocationFailureStatus(error, options.signal))
           break
         }
       }
     }
-    result ||= invocationFailedResult(options.requirement, failureText(lastError, secrets), attempts, roots.runRoot)
+    result ||= invocationFailedResult(options.requirement, failureText(lastError, secrets), attempts, roots.runRoot, invocationFailureStatus(lastError, options.signal))
   }
   catch (error) {
-    result = isUnsafe(error)
+    const failureStatus = invocationFailureStatus(error, options.signal)
+    result = failureStatus !== 'invocation_failed'
+      ? invocationFailedResult(options.requirement, failureText(error, secrets), attempts, roots?.runRoot, failureStatus)
+      : isUnsafe(error)
       ? { exitCode: EXIT.UNSAFE, status: 'unsafe_cli_context', reason: failureText(error, secrets), attempts, ...(roots ? { runRoot: roots.runRoot } : {}) }
       : { exitCode: EXIT.UNSAFE, status: 'policy_violation', reason: failureText(error, secrets), attempts, ...(roots ? { runRoot: roots.runRoot } : {}) }
   }

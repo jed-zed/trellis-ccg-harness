@@ -487,16 +487,16 @@ describe('isolated Grok runner lifecycle', () => {
   })
 
   it.each([
-    ['timeout', new Error('timed out')],
-    ['cancellation', new Error('cancelled')],
-    ['malformed JSON', new Error('Malformed JSON-RPC line')],
-    ['raw cap', new Error('raw event byte cap exceeded')],
-  ])('handles %s without leaving an unredacted run directory', async (_name, error) => {
+    ['timeout', new Error('timed out'), 'timed_out'],
+    ['cancellation', new Error('cancelled'), 'cancelled'],
+    ['malformed JSON', new Error('Malformed JSON-RPC line'), 'invocation_failed'],
+    ['raw cap', new Error('raw event byte cap exceeded'), 'invocation_failed'],
+  ])('handles %s without leaving an unredacted run directory', async (_name, error, status) => {
     const fail = async () => {
       throw error
     }
     const result = await runGrokIntelligence(baseOptions({ runAcp: fail }))
-    expect(result.exitCode).toBe(2)
+    expect(result).toMatchObject({ exitCode: 2, status })
     expect((await readdir(root)).filter(name => name.startsWith('ccg-grok-run-'))).toEqual([])
   })
 

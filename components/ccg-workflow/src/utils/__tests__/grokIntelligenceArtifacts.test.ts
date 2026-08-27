@@ -376,6 +376,16 @@ describe('versioned Grok evidence cache', () => {
     await held
   })
 
+  it('releases the owned cache lock when the action throws', async () => {
+    const key = createCacheFingerprint(fingerprintInput()).key
+    const lockPath = join(cacheRoot, '.locks', `${key}.lock`)
+
+    await expect(withCacheLock({ cacheRoot, key }, async () => {
+      throw new Error('provider failed')
+    })).rejects.toThrow('provider failed')
+    await expect(stat(lockPath)).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
   it('reclaims a cache lock whose owner process has exited', async () => {
     const key = createCacheFingerprint(fingerprintInput()).key
     const lockPath = join(cacheRoot, '.locks', `${key}.lock`)
