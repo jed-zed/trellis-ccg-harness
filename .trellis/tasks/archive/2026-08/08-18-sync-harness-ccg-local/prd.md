@@ -33,13 +33,13 @@
 
 ## Acceptance Criteria
 
-- [ ] **AC1 / R1**：两个原工作区的同步前证据和回滚材料完整；同步后逐项复核，所有同步前已存在的脏内容保持不变。
-- [ ] **AC2 / R2-R4**：CCG 定制从核验后的最新个人 `main` 派生，只有已批准的最小语义变更；版本为 `3.4.15` / `3.4.15+codex.1` / wrapper `5.12.13`，六平台摘要和测试通过。
-- [ ] **AC3 / R5-R6**：本机全局 CLI、Codex plugin 和 Codex-mode ownership 安装成功；`ccg/config.toml`、routing 和用户所有文件保持同步前语义与字节边界要求。
-- [ ] **AC4 / R5-R7**：Harness `main` manifest/snapshot 精确钉住 CCG merge commit、tree、`3.4.15` 和 `3.4.15+codex.1`；`ccg --version`、插件 manifest、关键运行文件、`ccg doctor --platform codex`、Harness doctor、source verification 与 conflict audit 均通过且无 blocking/warning。
-- [ ] **AC5 / R6**：回滚副本、SHA-256 清单和恢复命令已记录；失败路径不留下 pending transaction。
-- [ ] **AC6 / R8**：每次 commit、push、PR、merge 和本机安装都有对应的当次批准；没有 Provider 安装/登录/调用或现有 worktree 清理。
-- [ ] **AC7 / R9**：使用假的 `agy` 捕获 argv，离线证明 `--model gemini-3.7-flash-high` 生效；定制已进入 CCG merge commit、Harness provenance 和 Codex-mode ownership。
+- [x] **AC1 / R1**：两个原工作区的同步前证据和回滚材料完整；同步后逐项复核，所有同步前已存在的脏内容保持不变。
+- [x] **AC2 / R2-R4**：CCG 定制从核验后的最新个人 `main` 派生，只有已批准的最小语义变更；版本为 `3.4.15` / `3.4.15+codex.1` / wrapper `5.12.13`，六平台摘要和测试通过。
+- [x] **AC3 / R5-R6**：本机全局 CLI、Codex plugin 和 Codex-mode ownership 安装成功；`ccg/config.toml`、routing 和用户所有文件保持同步前语义与字节边界要求。
+- [x] **AC4 / R5-R7**：Harness `main` manifest/snapshot 精确钉住 CCG merge commit、tree、`3.4.15` 和 `3.4.15+codex.1`；`ccg --version`、插件 manifest、关键运行文件、`ccg doctor --platform codex`、Harness doctor、source verification 与 conflict audit 均通过且无 blocking/warning。
+- [x] **AC5 / R6**：回滚副本、SHA-256 清单和恢复命令已记录；失败路径不留下 pending transaction。
+- [x] **AC6 / R8**：每次 commit、push、PR、merge 和本机安装都有对应的当次批准；没有 Provider 安装/登录/调用或现有 worktree 清理。
+- [x] **AC7 / R9**：使用假的 `agy` 捕获 argv，离线证明 `--model gemini-3.7-flash-high` 生效；定制已进入 CCG merge commit、Harness provenance 和 Codex-mode ownership。
 
 ## Out of Scope
 

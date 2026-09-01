@@ -42,28 +42,28 @@ managed Harness/CCG snapshots must remain exactly as they are on `main`.
 
 ## Acceptance Criteria
 
-- [ ] `G:\\CodexBackups\\trellis-ccg-harness-root-20260823T195605Z` contains
+- [x] `G:\\CodexBackups\\trellis-ccg-harness-root-20260823T195605Z` contains
   the bundle, patch series, dirty-file archive, inventories, and top-level
   `BACKUP-SHA256SUMS.txt`.
-- [ ] Bundle verification restores root HEAD `d6fa26d` and the same ordered 14
+- [x] Bundle verification restores root HEAD `d6fa26d` and the same ordered 14
   local commit IDs.
-- [ ] The dirty-file archive contains 124 entries and all 124 restored file
+- [x] The dirty-file archive contains 124 entries and all 124 restored file
   hashes match the source manifest.
-- [ ] Root HEAD and its 124-path dirty set remain unchanged after backup and
+- [x] Root HEAD and its 124-path dirty set remain unchanged after backup and
   integration work.
-- [ ] The integration branch starts at exact commit `ab9c259` and contains no
+- [x] The integration branch starts at exact commit `ab9c259` and contains no
   merge or cherry-pick of root product code.
-- [ ] Every changed path relative to `ab9c259` is Trellis task/workspace
+- [x] Every changed path relative to `ab9c259` is Trellis task/workspace
   evidence or an independently reviewed project document.
-- [ ] `components/ccg-workflow/**`, `harness.sources.json`, provider runtime,
+- [x] `components/ccg-workflow/**`, `harness.sources.json`, provider runtime,
   Harness adapter code, tests, and other managed/runtime paths are byte-for-byte
   unchanged from `ab9c259`.
-- [ ] Old GPT Pro UIA / Stop Hook and other superseded mechanisms are retained
+- [x] Old GPT Pro UIA / Stop Hook and other superseded mechanisms are retained
   only in the external backup, not reintroduced into the integration branch.
-- [ ] Trellis task validation, journal/index generation, Harness conflict
+- [x] Trellis task validation, journal/index generation, Harness conflict
   checks, source verification, and the repository's complete offline quality
   gates pass.
-- [ ] The final integration worktree is clean and committed locally; no remote
+- [x] The final integration worktree is clean and committed locally; no remote
   write occurs.
 
 ## Out of Scope

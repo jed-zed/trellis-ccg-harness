@@ -17,12 +17,12 @@
 
 ## Acceptance Criteria
 
-- [ ] **AC1 / R1-R4**：Harness branch 基于重新核验的最新 `main`；CCG source checkout 精确等于已发布 merge SHA/tree；两个原脏工作区不变。
-- [ ] **AC2 / R5**：只有 lifecycle 生成的必要 snapshot、manifest、lockfile/受管版本表面发生变化，Trellis 仍为 `0.6.9`。
-- [ ] **AC3 / R5-R6**：`harness.sources.json` 精确记录 CCG `3.4.15`、plugin `3.4.15+codex.1`、merge commit 和 tree；snapshot tree 独立比对一致。
-- [ ] **AC4 / R6**：update 自带检查、source verification 和 conflict audit 全部通过；G5 前 doctor 只有目标 CLI/plugin 尚未安装这一组预期差异，G5 后完整通过且无 blocking/warning。
-- [ ] **AC5 / R7**：无 pending transaction；失败时可由受支持 rollback/recover 恢复。
-- [ ] **AC6 / R8**：commit/push/PR/merge 均有对应门禁批准；最终记录 Harness merge SHA、PR 和云端 `main` manifest 证据。
+- [x] **AC1 / R1-R4**：Harness branch 基于重新核验的最新 `main`；CCG source checkout 精确等于已发布 merge SHA/tree；两个原脏工作区不变。
+- [x] **AC2 / R5**：只有 lifecycle 生成的必要 snapshot、manifest、lockfile/受管版本表面发生变化，Trellis 仍为 `0.6.9`。
+- [x] **AC3 / R5-R6**：`harness.sources.json` 精确记录 CCG `3.4.15`、plugin `3.4.15+codex.1`、merge commit 和 tree；snapshot tree 独立比对一致。
+- [x] **AC4 / R6**：update 自带检查、source verification 和 conflict audit 全部通过；G5 前 doctor 只有目标 CLI/plugin 尚未安装这一组预期差异，G5 后完整通过且无 blocking/warning。
+- [x] **AC5 / R7**：无 pending transaction；失败时可由受支持 rollback/recover 恢复。
+- [x] **AC6 / R8**：commit/push/PR/merge 均有对应门禁批准；最终记录 Harness merge SHA、PR 和云端 `main` manifest 证据。
 
 ## Out of Scope
 
