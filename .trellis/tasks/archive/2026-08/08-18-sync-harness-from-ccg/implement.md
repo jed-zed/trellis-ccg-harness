@@ -10,7 +10,7 @@
 ## Phase 2 — Lifecycle 更新
 
 - [x] 从精确 Harness `main` 创建新 `codex/` 分支。
-- [x] 回归验证 update 只要求当前已安装基线，目标全局 CLI/plugin 留给 G5。
+- [x] 以 `2052120` 修复并回归验证 update 只要求当前已安装基线，目标全局 CLI/plugin 留给 G5。
 - [x] 运行受支持的 `harness:update`，只传 40 位 CCG merge SHA 和 clean source checkout。
 - [x] 若失败，保存日志并使用受支持 recover/rollback；不手改生成物。
 
@@ -19,7 +19,7 @@
 - [x] 复核 lifecycle 全部内建检查结果。
 - [x] 独立比对 source checkout tree、snapshot tree 和 `harness.sources.json`。
 - [x] 运行 Harness doctor、source verification 和 `harness-adapter conflicts`；G5 前 doctor 只能有目标 CLI/plugin 尚未安装的预期差异。
-- [x] 检查 diff，只保留 lifecycle 必需生成物；复核两个原脏工作区不变。
+- [x] 检查 diff，只保留前置 lifecycle 修复、对应测试/规范和 lifecycle 必需生成物；复核两个原脏工作区不变。
 - [x] 展示 diff、身份和测试结果，等待 G3。
 
 ## Phase 4 — Draft PR 与合并
