@@ -17,6 +17,8 @@ Load and follow `skills/ccg-gptpro-bridge/SKILL.md`.
   gate. Only when a conclusion depends on a current external fact, predeclare its authoritative
   domain, write the bounded subject, and run
   `ccg route --workflow gptpro-review --phase final-verify --task-file <request-file> --state-file <state-file> --trigger final_diff_verify --plan <plan> --diff <diff> --dependency <lockfile>`.
+
+Run this potentially long route with the host's tool-managed background execution and wait mechanism; never put it under a foreground timeout shorter than the runner's 10-minute timeout. If the host cancels or terminates the job before a terminal state is written, run `ccg route recover --state-file <state-file> --status cancelled --reason "<reason>"` (or use `--status failed`); recovery refuses to overwrite a live owner.
   Add repeated `--official-domain <domain>` chosen before Grok runs. Bind the external verification to
   the exact plan, diff, dependency locks, and test summary; require its canonical artifact, manifest,
   hashes, and active-task pointer. Exit `2`, `3`, or `4` stops the workflow, and raw Grok output is

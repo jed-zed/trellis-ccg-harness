@@ -115,6 +115,7 @@ function validRunnerResult(repoRoot: string, mode = 'contract', action = 'intel'
 
 function validRunnerResultForRequest(repoRoot: string, request: any) {
   const bindingInputs = [
+    ...(request.options.files || []).map((path: string) => ['target', path]),
     request.options.plan ? ['plan', request.options.plan] : null,
     request.options.diff ? ['diff', request.options.diff] : null,
     ...(request.options.dependencies || []).map((path: string) => ['dependency', path]),
@@ -180,6 +181,8 @@ describe('Grok workflow routing behavior', () => {
         expect(content, relativePath).toContain(`--workflow ${entry.id}`)
         expect(content, relativePath).toContain('--state-file')
         expect(content, relativePath).toMatch(/exit (?:code )?`?2(?:`, `3`, or `4|\/3\/4)/i)
+        expect(content, relativePath).toContain('tool-managed background execution and wait mechanism')
+        expect(content, relativePath).toContain('ccg route recover --state-file')
       }
     }
   })
@@ -188,6 +191,7 @@ describe('Grok workflow routing behavior', () => {
     const repoRoot = join(tempRoot, 'team-family')
     await fs.ensureDir(repoRoot)
     await fs.writeJson(join(repoRoot, 'package.json'), { name: 'fixture' })
+    await fs.writeFile(join(repoRoot, 'pnpm-lock.yaml'), 'lockfileVersion: 9\n')
     const stateFile = join(repoRoot, '.ccg', 'tasks', 'team-task', 'intelligence-route.json')
     const invocations: any[] = []
     const events: string[] = []
@@ -197,6 +201,7 @@ describe('Grok workflow routing behavior', () => {
       workflow: 'team',
       phase: 'team-intake',
       task: 'Upgrade the current SDK contract for all builders.',
+      dependencies: ['pnpm-lock.yaml'],
       stateFile,
     }
     const runtime = {
@@ -227,6 +232,8 @@ describe('Grok workflow routing behavior', () => {
     await fs.ensureDir(repoRoot)
     const stateFile = statePath(repoRoot, `route-${workflow}`)
     const diff = join(repoRoot, 'change.diff')
+    const dependency = join(repoRoot, 'pnpm-lock.yaml')
+    await fs.writeFile(dependency, 'lockfileVersion: 9\n')
     if (trigger === 'final_diff_verify') await fs.writeFile(diff, '+ verified change\n')
     const order: string[] = []
     const result = await (routeRuntime as any).runWorkflowRoute({
@@ -237,6 +244,7 @@ describe('Grok workflow routing behavior', () => {
       trigger,
       ...(trigger === 'final_diff_verify' ? { diff } : {}),
       ...(trigger === 'final_diff_verify' ? { officialDomains: ['docs.x.ai'] } : {}),
+      dependencies: [dependency],
       task: 'Use the latest SDK API contract in this workflow.',
       stateFile,
     }, {

@@ -312,7 +312,7 @@ async function validateSuccessfulBundle(repoRoot, routeDecision, result, { confi
     || !Number.isInteger(manifestJson.search_counts?.x) || manifestJson.search_counts.x < 0)
     throw new Error('Automatic route manifest provenance is incomplete')
   const manifestBindings = new Map(manifestJson.bindings.map(binding => [`${binding?.path}:${binding?.sha256}`, binding]))
-  for (const binding of [bindings?.plan, bindings?.diff, ...(bindings?.dependencies || [])].filter(Boolean)) {
+  for (const binding of [bindings?.target, bindings?.plan, bindings?.diff, ...(bindings?.dependencies || [])].filter(Boolean)) {
     const manifestBinding = manifestBindings.get(`${binding.path}:${binding.sha256}`)
     if (!manifestBinding || manifestBinding.bytes !== binding.bytes)
       throw new Error(`Automatic route manifest does not bind ${binding.path}`)
@@ -442,7 +442,7 @@ function classifySemanticRoute(input) {
   return { requirement: 'required', action: 'intel', investigation_mode: input.semanticMode, mode: input.semanticMode, depth: input.depth || 'normal', trigger: 'codex_semantic_judgment', reason }
 }
 
-function classifyHardTrigger(task, depth = 'normal') {
+function classifyHardTrigger(task, input, depth = 'normal') {
   if (INCIDENT_PATTERN.test(task) && CURRENT_PATTERN.test(task)) {
     return {
       requirement: 'preferred',
@@ -454,7 +454,8 @@ function classifyHardTrigger(task, depth = 'normal') {
       reason: 'A current external incident may benefit from source-backed service and release evidence.',
     }
   }
-  if (CONTRACT_PATTERN.test(task) && CURRENT_PATTERN.test(task)) {
+  const hasContractBinding = Boolean(input.target || (input.dependencies || []).length > 0)
+  if (hasContractBinding && CONTRACT_PATTERN.test(task) && CURRENT_PATTERN.test(task)) {
     return {
       requirement: 'preferred',
       action: 'intel',
@@ -496,7 +497,7 @@ export function classifyWorkflowRoute(input, config, previous = null) {
     throw new Error('Automatic intelligence routing requires a non-empty task')
   const route = input.trigger === 'final_diff_verify'
     ? classifyFinalVerification(input, task, previous)
-    : (classifySemanticRoute(input) || classifyHardTrigger(task, input.depth || 'normal'))
+    : (classifySemanticRoute(input) || classifyHardTrigger(task, input, input.depth || 'normal'))
   return decorateActiveDecision(route, config, task)
 }
 
@@ -505,6 +506,8 @@ export function buildRouteCommandArgv(decision, input) {
   const argv = [action, '--task', input.task.trim()]
   argv.push('--mode', decision.investigation_mode || decision.mode)
   argv.push('--depth', decision.depth || 'normal')
+  if (input.target)
+    argv.push('--file', input.target)
   if (input.plan)
     argv.push('--plan', input.plan)
   if (input.diff)
@@ -523,6 +526,7 @@ function commandOptions(input, decision, config) {
     task: input.task.trim(),
     mode: decision.investigation_mode || decision.mode,
     depth: decision.depth || 'normal',
+    files: input.target ? [input.target] : [],
     ...(input.plan ? { plan: input.plan } : {}),
     ...(input.diff ? { diff: input.diff } : {}),
     dependencies: [...(input.dependencies || [])],
@@ -537,7 +541,7 @@ async function defaultInvoke(request) {
   if (!request.configPath)
     return { exitCode: 4, status: 'configuration_required', reason: 'Automatic route has no readable CCG config path.' }
   const options = { ...request.options, config: request.configPath }
-  return runManualCommand(request.action, options, { repoRoot: request.repoRoot, configPath: request.configPath })
+  return runManualCommand(request.action, options, { repoRoot: request.repoRoot, configPath: request.configPath, signal: request.signal })
 }
 
 function makeState({ input, bindings, decision, execution, inputDigest }) {
@@ -610,7 +614,7 @@ async function completeSkippedRoute(input, context, runtime) {
     bindings: context.bindings,
     decision: context.decision,
     inputDigest: context.inputDigest,
-    execution: { status: 'skipped', exit_code: 0, invoked: false },
+    execution: { status: 'completed', provider_status: 'skipped', exit_code: 0, invoked: false },
   })
   await writeRouteState(context, state)
   emit(runtime, 'state:complete')
@@ -620,24 +624,36 @@ async function completeSkippedRoute(input, context, runtime) {
 async function invokeRouteRunner(input, context, runtime) {
   const action = context.decision.action || 'intel'
   const argv = buildRouteCommandArgv(context.decision, input)
+  const owner = { token: randomUUID(), pid: process.pid, started_at: context.clock().toISOString() }
   const pendingState = makeState({
     input,
     bindings: context.bindings,
     decision: context.decision,
     inputDigest: context.inputDigest,
-    execution: { status: 'pending', exit_code: null, invoked: true, action, argv },
+    execution: { status: 'pending', exit_code: null, invoked: true, action, argv, owner },
   })
   await writeRouteState(context, pendingState)
   emit(runtime, 'state:pending')
   const invoke = runtime.invoke || defaultInvoke
-  const result = await invoke({
-    action,
-    argv,
-    options: commandOptions(input, context.decision, context.config),
-    repoRoot: context.repoRoot,
-    configPath: input.configPath ? resolve(input.configPath) : '',
-    stateFile: context.statePath,
-  })
+  let result
+  try {
+    result = await invoke({
+      action,
+      argv,
+      options: commandOptions(input, context.decision, context.config),
+      repoRoot: context.repoRoot,
+      configPath: input.configPath ? resolve(input.configPath) : '',
+      stateFile: context.statePath,
+      signal: runtime.signal,
+    })
+  }
+  catch (error) {
+    const reason = error instanceof Error ? error.message : String(error)
+    const status = runtime.signal?.aborted || /abort|cancel/i.test(reason)
+      ? 'cancelled'
+      : /timed?\s*out|timeout/i.test(reason) ? 'timed_out' : 'invocation_failed'
+    result = { exitCode: 2, status, reason }
+  }
   return { action, argv, result }
 }
 
@@ -675,6 +691,10 @@ async function completeInvokedRoute(input, context, invocation, runtime) {
   const received = providerExitCode === 0 && ['verified', 'received_unverified'].includes(result?.status)
   const advisoryFailure = context.decision.requirement === 'preferred' && !received
   const exitCode = advisoryFailure ? 0 : providerExitCode
+  const providerStatus = String(result?.status || 'configuration_required')
+  const executionStatus = received
+    ? 'completed'
+    : providerStatus === 'timed_out' ? 'timed_out' : providerStatus === 'cancelled' ? 'cancelled' : 'failed'
   const finalDecision = {
     ...context.decision,
     status: received ? result.status : advisoryFailure ? 'advisory_failed' : 'blocked',
@@ -685,10 +705,12 @@ async function completeInvokedRoute(input, context, invocation, runtime) {
     decision: finalDecision,
     inputDigest: context.inputDigest,
     execution: {
-      status: String(result?.status || 'configuration_required'),
+      status: executionStatus,
+      provider_status: providerStatus,
       exit_code: exitCode,
       ...(advisoryFailure ? { provider_exit_code: providerExitCode } : {}),
       invoked: true,
+      owner: null,
       action: invocation.action,
       argv: invocation.argv,
       ...(result?.reason ? { reason: String(result.reason) } : {}),
@@ -714,6 +736,59 @@ export async function runWorkflowRoute(input, runtime = {}) {
     return completeSkippedRoute(input, context, runtime)
   const invocation = await invokeRouteRunner(input, context, runtime)
   return completeInvokedRoute(input, context, invocation, runtime)
+}
+
+function isProcessAlive(pid) {
+  try {
+    process.kill(pid, 0)
+    return true
+  }
+  catch (error) {
+    if (error?.code === 'EPERM') return true
+    if (error?.code === 'ESRCH') return false
+    throw error
+  }
+}
+
+export async function recoverWorkflowRoute(input, runtime = {}) {
+  if (!['failed', 'cancelled'].includes(input.status))
+    throw new Error('Route recovery status must be failed or cancelled')
+  if (!input.stateFile)
+    throw new Error('Route recovery requires --state-file')
+  const repoInput = resolve(input.repoRoot || process.cwd())
+  const repoRoot = await realpath(repoInput)
+  const requestedStatePath = mapInputPath(repoInput, repoRoot, input.stateFile, 'state file')
+  const statePath = assertAllowedStatePath(repoRoot, requestedStatePath.absolute).absolute
+  await assertNoLinkedPath(repoRoot, dirname(statePath), 'state directory')
+  const previous = validateExistingRouteState(await readJsonIfPresent(statePath))
+  const owner = previous?.execution?.owner
+  if (previous?.execution?.status !== 'pending' || typeof owner?.token !== 'string'
+    || !Number.isInteger(owner?.pid) || owner.pid <= 0)
+    throw new Error('Route recovery requires a pending state with a valid execution owner')
+  if (isProcessAlive(owner.pid))
+    throw new Error(`Route owner process ${owner.pid} is still active`)
+  const current = validateExistingRouteState(await readJsonIfPresent(statePath))
+  if (current?.execution?.status !== 'pending' || current.execution?.owner?.token !== owner.token
+    || current.execution?.owner?.pid !== owner.pid || isProcessAlive(owner.pid))
+    throw new Error('Route execution owner changed during recovery')
+  const preferred = current.decision?.requirement === 'preferred'
+  const updatedAt = (runtime.clock ? runtime.clock() : new Date()).toISOString()
+  const state = {
+    ...current,
+    decision: { ...current.decision, status: preferred ? 'advisory_failed' : 'blocked' },
+    execution: {
+      ...current.execution,
+      status: input.status,
+      provider_status: 'process_terminated',
+      exit_code: preferred ? 0 : 2,
+      ...(preferred ? { provider_exit_code: 2 } : {}),
+      reason: String(input.reason || 'The route owner process terminated before writing a terminal state.'),
+      owner: null,
+    },
+    updated_at: updatedAt,
+  }
+  await writeRouteState({ repoRoot, statePath }, state)
+  return { exitCode: state.execution.exit_code, invoked: true, reused: false, ...state }
 }
 
 export async function waiveWorkflowRoute(input, runtime = {}) {
@@ -773,7 +848,8 @@ function parseArgs(argv) {
 
 async function main(argv = process.argv.slice(2)) {
   const waiverAction = argv[0] === 'waive'
-  const args = parseArgs(waiverAction ? argv.slice(1) : argv)
+  const recoverAction = argv[0] === 'recover'
+  const args = parseArgs(waiverAction || recoverAction ? argv.slice(1) : argv)
   const repoRoot = resolve(args.repoRoot || process.cwd())
   if (waiverAction) {
     const result = await waiveWorkflowRoute({ repoRoot, stateFile: args.stateFile, reason: args.reason })
@@ -781,28 +857,45 @@ async function main(argv = process.argv.slice(2)) {
     process.exitCode = result.exitCode
     return
   }
+  if (recoverAction) {
+    const result = await recoverWorkflowRoute({ repoRoot, stateFile: args.stateFile, status: args.status, reason: args.reason })
+    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`)
+    process.exitCode = result.exitCode
+    return
+  }
   const configPath = resolve(args.config || resolve(homedir(), '.codex', 'ccg', 'config.toml'))
   const taskFile = args.taskFile ? await assertNoLinkedPath(repoRoot, args.taskFile, 'task file') : null
   const task = taskFile ? await readFile(taskFile.absolute, 'utf8') : String(args.task || '')
-  const result = await runWorkflowRoute({
-    repoRoot,
-    configPath,
-    workflow: args.workflow || 'unknown',
-    phase: args.phase || 'intake',
-    task,
-    stateFile: args.stateFile,
-    trigger: args.trigger,
-    semanticMode: args.semanticMode,
-    semanticReason: args.semanticReason,
-    inheritedRequirement: args.inheritedRequirement,
-    depth: args.depth,
-    target: args.target,
-    plan: args.plan,
-    diff: args.diff,
-    dependencies: args.dependencies,
-    officialDomains: args.officialDomains,
-    forceRefresh: args.forceRefresh === true,
-  })
+  const controller = new AbortController()
+  const cancel = () => controller.abort(new Error('Route cancelled by host signal'))
+  process.once('SIGINT', cancel)
+  process.once('SIGTERM', cancel)
+  let result
+  try {
+    result = await runWorkflowRoute({
+      repoRoot,
+      configPath,
+      workflow: args.workflow || 'unknown',
+      phase: args.phase || 'intake',
+      task,
+      stateFile: args.stateFile,
+      trigger: args.trigger,
+      semanticMode: args.semanticMode,
+      semanticReason: args.semanticReason,
+      inheritedRequirement: args.inheritedRequirement,
+      depth: args.depth,
+      target: args.target,
+      plan: args.plan,
+      diff: args.diff,
+      dependencies: args.dependencies,
+      officialDomains: args.officialDomains,
+      forceRefresh: args.forceRefresh === true,
+    }, { signal: controller.signal })
+  }
+  finally {
+    process.removeListener('SIGINT', cancel)
+    process.removeListener('SIGTERM', cancel)
+  }
   process.stdout.write(`${JSON.stringify(result, null, 2)}\n`)
   process.exitCode = result.exitCode
 }
