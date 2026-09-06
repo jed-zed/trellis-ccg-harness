@@ -16,6 +16,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { stripVTControlCharacters } from "node:util";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const VERIFY_SCRIPT = path.join(ROOT, "scripts", "verify-sources.ps1");
@@ -907,6 +908,20 @@ test("source verification binds the trusted command resolver in worktree and ind
   }
 });
 
+function plainPowerShellError(output) {
+  return stripVTControlCharacters(output).replace(/\r?\n\s*\|\s*/g, " ");
+}
+
+test("native dependency assertions preserve wrapped PowerShell error text", () => {
+  for (const [first, second] of [
+    ["Staged validator dependency windows-process-identity.mjs SHA-256", "mismatch. Expected hash"],
+    ["Validator dependency windows-process-identity.mjs is missing from the", "staged Git tree."],
+  ]) {
+    const wrapped = `\x1b[31;1m${first}\x1b[0m\n\x1b[36;1m     | \x1b[31;1m${second}\x1b[0m`;
+    assert.equal(plainPowerShellError(wrapped), `${first} ${second}`);
+  }
+});
+
 for (const name of ["windows-process-identity.mjs", "python-resolver.mjs"]) {
   test(`source verification binds native identity dependency ${name} in worktree and index`, () => {
     const value = fixture();
@@ -916,17 +931,17 @@ for (const name of ["windows-process-identity.mjs", "python-resolver.mjs"]) {
     const checkFailure = (args, message) => {
       const result = verify(value, args);
       assert.notEqual(result.status, 0);
-      assert.match(`${result.stdout}\n${result.stderr}`, new RegExp(message, "i"));
+      assert.match(plainPowerShellError(`${result.stdout}\n${result.stderr}`), new RegExp(message, "i"));
     };
     try {
       writeFileSync(dependencyPath, "export const tampered = true;\n");
-      checkFailure([], `Validator dependency ${label} SHA-256[\\s\\S]*?mismatch`);
+      checkFailure([], `Validator dependency ${label} SHA-256 mismatch`);
       const stagedClean = verify(value, ["-Index"]);
       assert.equal(stagedClean.status, 0, `${stagedClean.stdout}\n${stagedClean.stderr}`);
       git(value.harnessRoot, "add", "--", relativePath);
-      checkFailure(["-Index"], `Staged validator dependency ${label} SHA-256[\\s\\S]*?mismatch`);
+      checkFailure(["-Index"], `Staged validator dependency ${label} SHA-256 mismatch`);
       git(value.harnessRoot, "rm", "--cached", "--", relativePath);
-      checkFailure(["-Index"], `Validator dependency ${label} is missing from the staged Git[\\s\\S]*?tree`);
+      checkFailure(["-Index"], `Validator dependency ${label} is missing from the staged Git tree`);
       rmSync(dependencyPath);
       checkFailure([], `Validator dependency ${label} not found`);
     } finally {

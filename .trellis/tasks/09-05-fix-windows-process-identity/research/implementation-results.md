@@ -200,3 +200,32 @@ any resulting metadata-only commits must also pass fresh CI before merge.
   platforms passed. Commit gates `j-me9q94` reported no failures and two test
   complexity warnings (`canCommit=true` with the supported warning allowance;
   `gates_passed=false` is retained rather than reported as warning-free).
+
+## Common test diagnostic normalization (2026-09-06 UTC)
+
+- Follow-up commit `50f8aa0f9241af74609dc9e2857e10560f4002e0` was pushed
+  normally. [CI run 34014536098](https://github.com/jed-zed/trellis-ccg-harness/actions/runs/34014536098)
+  demonstrated that allowing only one specific wrap point was insufficient:
+  the staged hash assertion passed, but the subsequent missing-staged-file
+  assertion encountered a wrap between `the` and `staged Git tree`.
+- The validator still rejected the missing staged dependency correctly.
+  The replacement test-only repair normalizes ANSI escapes and PowerShell
+  continuation gutters at the new tests' common `checkFailure` entrypoint,
+  then matches the full diagnostic text. The two broad hash-gap expressions
+  and the missing-file gap expression are replaced by exact word spacing.
+  Runtime code, hashes, timeout/retry settings, and CI remain unchanged.
+- A small automated regression covers the two observed ANSI/wrapped messages
+  and verifies exact reconstructed text. Its focused run in `j-t6qav2` passed.
+  The complete source-verification file then passed **16/16**, with zero
+  failures or skips (494.649 s). `git diff --check` passed. Commit gate
+  `j-bu6g04` had no failures and the same two test complexity warnings;
+  supported warning allowance returned `canCommit=true`, not a warning-free pass.
+- Independent one-shot read-only verification replayed both actual CI error
+  blocks through the current helper. Both match; wrong dependency/error
+  semantics are not normalized into the expected text. `checkFailure` still
+  requires a nonzero exit and the specific dependency and rejection reason.
+- No failed CI run is treated as acceptance. The task remains in progress
+  pending a green replacement run and exact-head verification before merge.
+- Run 34014536098 finished with 8 successful jobs; both Ubuntu jobs had
+  exactly the missing-staged-file assertion failure (454 pass / 1 fail /
+  8 platform skips). Both Windows Node jobs and the remaining six jobs passed.
