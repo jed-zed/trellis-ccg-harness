@@ -33,7 +33,7 @@ previously approved PID-fixture synchronization and merge only after fresh CI.
 ## Notes
 
 - Boss approved: "批准按这份方案新建 Trellis 修复任务，并执行 `task.py start` 开始处理".
-- Accepted plan: `../archive/2026-08/08-23-integrate-root-salvage/research/pr49-windows-process-query-plan.md`.
+- Accepted plan (repository-relative): `.trellis/tasks/archive/2026-08/08-23-integrate-root-salvage/research/pr49-windows-process-query-plan.md`.
 - Boss approved the revised native Win32/Python approach with "批准" after the
   PowerShell 7 candidate failed. The current design supersedes that candidate,
   not its recorded failure evidence.

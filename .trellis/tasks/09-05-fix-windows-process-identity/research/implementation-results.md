@@ -169,3 +169,34 @@ Next: commit the synchronized snapshot and results, run the post-update doctor,
 then publish to the existing Harness PR. Keep this task active until the pushed
 repair head passes fresh CI. After recording acceptance with Trellis tools,
 any resulting metadata-only commits must also pass fresh CI before merge.
+
+## First pushed CI: Linux error-format assertion (2026-09-06 UTC)
+
+- Snapshot/results commit `2e6cf4640c5b2edd967e0b875b0fd4689aca6cc3`
+  was pushed normally to Harness PR #49. Post-update doctor passed, the
+  worktree was clean, and the latest main was fully incorporated.
+- [Harness CI run 34013488634](https://github.com/jed-zed/trellis-ccg-harness/actions/runs/34013488634)
+  did not authorize merge. Both Ubuntu Node 20/22 jobs reported exactly one
+  failure in the new native dependency tampering test (454 pass / 1 fail /
+  8 platform skips each).
+- The verifier correctly rejected the altered staged dependency with a
+  nonzero exit and `Staged validator dependency windows-process-identity.mjs
+  SHA-256 mismatch`. PowerShell's Ubuntu error renderer wrapped between
+  `SHA-256` and `mismatch`, including ANSI formatting and a continuation gutter.
+  The test incorrectly required those words to be contiguous.
+- Bounded log replay `j-0ymgch` reproduced the old assertion failure against
+  the actual CI error text. The corrected expression in `j-0is6qr` accepted
+  that same text. The change only allows formatting between `SHA-256` and
+  `mismatch` in the two new dependency assertions, matching the existing
+  multiline diagnostic assertion convention. Nonzero status, dependency
+  identity and mismatch semantics remain required. No verifier, runtime,
+  integrity pin, timeout or CI configuration was changed.
+- `j-0is6qr` completed the entire source-verification file: **15/15 passed,
+  zero failures or skips** (469.116 s), including both native dependency
+  worktree/staged tampering cases. `git diff --check` also passed. The task
+  remains active; fresh replacement CI is mandatory before acceptance or merge.
+- The first run completed with 8 successful jobs and the two Ubuntu failures
+  above. Both Windows Node jobs, all Go platforms, and all bootstrap/doctor
+  platforms passed. Commit gates `j-me9q94` reported no failures and two test
+  complexity warnings (`canCommit=true` with the supported warning allowance;
+  `gates_passed=false` is retained rather than reported as warning-free).

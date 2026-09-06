@@ -1,4 +1,3 @@
-{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
 {"file": ".trellis/spec/tooling/harness-initializer.md", "reason": "Preserve native identity, ownership safety and portable dependency verification"}
 {"file": ".trellis/spec/tooling/harness-lifecycle.md", "reason": "Keep supported source synchronization and rollback gates"}
 {"file": ".trellis/tasks/09-05-fix-windows-process-identity/research/implementation-results.md", "reason": "Retain rejected candidates and red-green evidence"}

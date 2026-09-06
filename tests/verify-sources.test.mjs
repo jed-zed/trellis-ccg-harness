@@ -920,11 +920,11 @@ for (const name of ["windows-process-identity.mjs", "python-resolver.mjs"]) {
     };
     try {
       writeFileSync(dependencyPath, "export const tampered = true;\n");
-      checkFailure([], `Validator dependency ${label} SHA-256 mismatch`);
+      checkFailure([], `Validator dependency ${label} SHA-256[\\s\\S]*?mismatch`);
       const stagedClean = verify(value, ["-Index"]);
       assert.equal(stagedClean.status, 0, `${stagedClean.stdout}\n${stagedClean.stderr}`);
       git(value.harnessRoot, "add", "--", relativePath);
-      checkFailure(["-Index"], `Staged validator dependency ${label} SHA-256 mismatch`);
+      checkFailure(["-Index"], `Staged validator dependency ${label} SHA-256[\\s\\S]*?mismatch`);
       git(value.harnessRoot, "rm", "--cached", "--", relativePath);
       checkFailure(["-Index"], `Validator dependency ${label} is missing from the staged Git[\\s\\S]*?tree`);
       rmSync(dependencyPath);
