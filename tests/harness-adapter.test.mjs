@@ -370,6 +370,9 @@ function createFixture() {
       };
     }
     if (command === "python" || command === "python3") {
+      if (args.at(-1) === "import sys; print(sys.executable)") {
+        return { status: 0, stdout: command, stderr: "" };
+      }
       return { status: 0, stdout: state.taskPath, stderr: "" };
     }
     if (command === "git" && args.includes("write-tree")) {
@@ -551,10 +554,10 @@ test("builds canonical context from the active Trellis task", () => {
   }
 });
 
-test("canonical context uses the shared Windows py -3 resolver", () => {
+test("canonical context resolves Windows Python through py -3 without where.exe", () => {
   const fixture = createFixture();
   const calls = [];
-  const launcher = "C:\\Windows\\py.exe";
+  const interpreter = "C:\\Python Tools\\python.exe";
   try {
     const runner = (command, args, options) => {
       calls.push([command, args]);
@@ -565,12 +568,13 @@ test("canonical context uses the shared Windows py -3 resolver", () => {
           stderr: "",
         };
       }
-      if (command === "where.exe" && args[0] === "py") {
-        return { status: 0, stdout: `${launcher}\n`, stderr: "" };
+      if (command === "where.exe") throw new Error("where.exe must not be needed");
+      if (command === "py" && args.at(-1) === "import sys; print(sys.executable)") {
+        assert.deepEqual(args.slice(0, -1), ["-3", "-I", "-S", "-c"]);
+        return { status: 0, stdout: `${interpreter}\n`, stderr: "" };
       }
       if (
-        command === launcher &&
-        args[0] === "-3" &&
+        command === interpreter &&
         args.at(-1) === "current"
       ) {
         return {
@@ -590,8 +594,8 @@ test("canonical context uses the shared Windows py -3 resolver", () => {
     assert.equal(
       calls.some(
         ([command, args]) =>
-          command === launcher &&
-          args[0] === "-3" &&
+          command === interpreter &&
+          !args.includes("-3") &&
           args.at(-1) === "current",
       ),
       true,

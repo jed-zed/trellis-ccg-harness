@@ -1,0 +1,16 @@
+386235b7281ec5e43d985059545d8a8209575da306bc954fb3e83d8b8f023ea6 *.trellis/tasks/archive/2026-08/08-18-integrate-antigravity-model-ccg/task.json
+8a0d6f061b84a97fb4d70bc1cf4c517b81969ee62e0bd18a2f60ab5993b6c654 *.trellis/tasks/archive/2026-08/08-18-integrate-antigravity-model-ccg/prd.md
+96d3752ec8699f4e8190106dd8ff54f9b15a1cb2d47bbf7338c8a3d603014fec *.trellis/tasks/archive/2026-08/08-18-integrate-antigravity-model-ccg/design.md
+f4cbcc87c225d4ef5a09a3577c6daa85d22e023c5d075ebcf916d929c8350b18 *.trellis/tasks/archive/2026-08/08-18-integrate-antigravity-model-ccg/implement.md
+b4fd174ff7383251d4778262fca4f2e07bd0595138350228007a68cbe6c9672d *.trellis/tasks/archive/2026-08/08-18-sync-harness-ccg-local/task.json
+558358136925c017b1a41a11f946c5d3df8c103b503cb9e03d68aa13845d8e61 *.trellis/tasks/archive/2026-08/08-18-sync-harness-ccg-local/prd.md
+10b3135b7d386e5606df2663d159723eea3e61a4ff7b43db06630ed864c5ba4f *.trellis/tasks/archive/2026-08/08-18-sync-harness-ccg-local/design.md
+bda992b07532e3dd549962ffd0a562bf81c5653e39438b5f7b43c73605807620 *.trellis/tasks/archive/2026-08/08-18-sync-harness-ccg-local/implement.md
+28df202b20083d080039fa4c0f5f9b5880a079a706682a5e92b014c46e8369ba *.trellis/tasks/archive/2026-08/08-18-sync-harness-from-ccg/task.json
+b9abac7b61d3f797e4ba14d59e72aadbe7ba376ac6282aaa9e1d1233e4cd12d6 *.trellis/tasks/archive/2026-08/08-18-sync-harness-from-ccg/prd.md
+e93960802a0c8c9f1aa1aefb36afd879d2971c28af7bf8c264c5cb5e8b2da9e3 *.trellis/tasks/archive/2026-08/08-18-sync-harness-from-ccg/design.md
+a2a25a40bd84f2f1e378635a8df0895b5528df82caae70ece93ca89b883851fe *.trellis/tasks/archive/2026-08/08-18-sync-harness-from-ccg/implement.md
+19d0ead963c377005290e1152340a53731ab09e0dd2ae7d525b2162c84c02ceb *.trellis/tasks/archive/2026-08/08-18-install-synced-ccg-local/task.json
+2fdcaefc9040acd1a5354d03ea097f9fd5a13537dec342af425590546e85f1df *.trellis/tasks/archive/2026-08/08-18-install-synced-ccg-local/prd.md
+cdb476a712fcc4e73bffb53aeee98c8ad8e37ccf81ed91c637272958840d23fb *.trellis/tasks/archive/2026-08/08-18-install-synced-ccg-local/design.md
+865972a74303d22578483ee2dd4b755c87e176d92426689f746158387dbe143d *.trellis/tasks/archive/2026-08/08-18-install-synced-ccg-local/implement.md

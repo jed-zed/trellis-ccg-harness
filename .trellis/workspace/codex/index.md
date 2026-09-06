@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 10
-- **Last Active**: 2026-08-23
+- **Total Sessions**: 12
+- **Last Active**: 2026-09-06
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~285 | Active |
+| `journal-1.md` | ~360 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,8 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 12 | 2026-09-06 | PR49 Windows process identity repair and verified source sync | `094ee383fbc3a5f5c0bf6c23f43e0d328b5b1403`, `2e6cf4640c5b2edd967e0b875b0fd4689aca6cc3`, `50f8aa0f9241af74609dc9e2857e10560f4002e0`, `1d8b1585287c7ed01506e3307a28aa0667991c33` | `codex/sync-cleanup-test-pid-collision` |
+| 11 | 2026-08-23 | Integrate preserved root evidence onto latest main | `da64875` | `codex/integrate-root-salvage` |
 | 10 | 2026-08-23 | 发布架构死代码与旧机制重审记录 | `df5f5ff1002e19932ede06f5655b7a1f8ca37966`, `8d775c4bd1f87707eff4d55ac8a5cf16614fb946`, `3115210d96c3f1398059388e811fc0b46318242d` | `codex/publish-audit-records` |
 | 9 | 2026-08-19 | Fix GPT Pro fresh pre-invoke recovery | `4d4c40d` | `codex/gptpro-preinvoke-recovery` |
 | 8 | 2026-08-19 | Retire legacy GPT Pro Stop Hook | `c415288346c48135ac91204c673322b430730664`, `d0feea70ad7a81936a41323307482f2b9810b430` | `codex/remove-legacy-gptpro-stop-hook` |

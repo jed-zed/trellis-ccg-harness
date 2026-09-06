@@ -221,6 +221,24 @@ Errors propagate to `scripts/harness-init.mjs`, which writes one
 
 ## 6. Tests Required
 
+Windows process-identity repairs must exercise both real project initialization
+and Global Init approval receipts, observing a valid numeric identity response
+in each path. Initializer completion alone can use the existing conservative
+unknown-identity behavior and therefore does not prove the query succeeded.
+A host-name change or a single later green rerun is not sufficient acceptance
+when the original identity failure still reproduces; retain the failure and
+preserve the query bounds and live-owner protections.
+
+Windows identity queries share the portable Skill's native Win32/Python helper.
+Use the existing Python resolver and an isolated standard-library query; resolve
+the Windows interpreter with `sys.executable`, not `where.exe` (observed to exhaust
+the five-second query budget). Resolution and query share that budget. Preserve
+the .NET UTC-ticks identity format, approval's three attempts and conservative
+unknown-owner handling. Missing Python, access denial and query errors do not
+prove owner death. Every new validator import must be pinned and materialized
+from the staged tree for `verify-sources.ps1 -Index`, as well as checked in the
+worktree. Exported Skills must include those dependencies without root imports.
+
 `tests/harness-init-cli.test.mjs` must assert:
 
 - adoption preserves every pre-existing unrelated byte;

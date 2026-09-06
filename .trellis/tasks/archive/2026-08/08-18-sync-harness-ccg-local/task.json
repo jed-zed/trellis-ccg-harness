@@ -1,0 +1,30 @@
+{
+  "id": "sync-harness-ccg-local",
+  "name": "sync-harness-ccg-local",
+  "title": "同步云端 Harness 和 CCG 到本地",
+  "description": "",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "codex",
+  "assignee": "codex",
+  "createdAt": "2026-08-18",
+  "completedAt": "2026-08-19",
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "08-18-integrate-antigravity-model-ccg",
+    "08-18-sync-harness-from-ccg",
+    "08-18-install-synced-ccg-local"
+  ],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}

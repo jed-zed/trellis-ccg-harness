@@ -27,6 +27,7 @@ import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import { readWindowsProcessIdentity } from "./windows-process-identity.mjs";
 import {
   AGENTS_PERSONAL_SKILLS,
   auditSkillPlatformMigration as auditSkillPlatformMigrationCore,
@@ -2747,25 +2748,7 @@ async function readPlatformProcessIdentity(pid) {
     }
   }
   if (process.platform === "win32") {
-    try {
-      const { stdout } = await execFile(
-        "powershell.exe",
-        [
-          "-NoLogo",
-          "-NoProfile",
-          "-NonInteractive",
-          "-Command",
-          `$p = Get-Process -Id ${pid} -ErrorAction Stop; ` +
-            "[Console]::Out.Write($p.StartTime.ToUniversalTime().Ticks)",
-        ],
-        { windowsHide: true, timeout: 5_000, maxBuffer: 4_096 },
-      );
-      const ticks = stdout.trim();
-      if (/^\d+$/.test(ticks)) return `win32:${pid}:${ticks}`;
-      return undefined;
-    } catch {
-      return undefined;
-    }
+    return readWindowsProcessIdentity(pid);
   }
   if (process.platform === "darwin") {
     try {
