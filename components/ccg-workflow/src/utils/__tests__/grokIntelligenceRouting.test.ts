@@ -129,6 +129,7 @@ function validRunnerResult(
 function validRunnerResultForRequest(request: any, overrides: { createdAt?: string, model?: string, artifactRoot?: string, pathRoot?: string } = {}) {
   const canonicalRepoRoot = fs.realpathSync(request.repoRoot)
   const bindingInputs = [
+    ...(request.options.files || []).map((path: string) => ['target', path]),
     request.options.plan ? ['plan', request.options.plan] : null,
     request.options.diff ? ['diff', request.options.diff] : null,
     ...(request.options.dependencies || []).map((path: string) => ['dependency', path]),
@@ -204,7 +205,12 @@ describe('Grok automatic intelligence routing', () => {
       invoke: async (request: any) => {
         events.push('invoke')
         invocation = request
-        expect(fs.readJsonSync(stateFile)).toMatchObject({ execution: { status: 'pending' } })
+        expect(fs.readJsonSync(stateFile)).toMatchObject({
+          execution: {
+            status: 'pending',
+            owner: { token: expect.any(String), pid: process.pid, started_at: expect.any(String) },
+          },
+        })
         return validRunnerResultForRequest(request)
       },
     })
@@ -234,9 +240,63 @@ describe('Grok automatic intelligence routing', () => {
     ])
     expect(events).toEqual(['decision', 'state:pending', 'invoke', 'state:complete'])
     expect(fs.readJsonSync(stateFile)).toMatchObject({
-      execution: { status: 'verified', exit_code: 0 },
+      execution: { status: 'completed', provider_status: 'verified', exit_code: 0, owner: null },
       bindings: { dependencies: [{ path: 'pnpm-lock.yaml', sha256: expect.stringMatching(/^[a-f0-9]{64}$/) }] },
     })
+  })
+
+  it('does not infer an external API contract from generic compatibility wording without bindings', async () => {
+    let calls = 0
+    const result = await (routeRuntime as any).runWorkflowRoute({
+      repoRoot: root,
+      config: enabledConfig(),
+      workflow: 'optimize',
+      phase: 'intake',
+      task: 'Optimize current local compatibility logic and reduce render latency.',
+      target: null,
+      dependencies: [],
+      stateFile: statePath('local-compatibility-skip'),
+    }, {
+      invoke: async () => {
+        calls++
+        throw new Error('must not invoke')
+      },
+    })
+
+    expect(calls).toBe(0)
+    expect(result).toMatchObject({
+      invoked: false,
+      decision: { status: 'skipped', trigger: 'no_initial_trigger' },
+      execution: { status: 'completed', provider_status: 'skipped' },
+    })
+  })
+
+  it('binds a real target source file to an automatic external API contract route', async () => {
+    const target = 'src/vendor-client.ts'
+    await fs.ensureDir(join(root, 'src'))
+    await fs.writeFile(join(root, target), 'export const apiVersion = "v2"\n')
+    let invocation: any
+    const result = await (routeRuntime as any).runWorkflowRoute({
+      repoRoot: root,
+      config: enabledConfig(),
+      workflow: 'go',
+      phase: 'intake',
+      task: 'Verify the current vendor API contract before updating this client.',
+      target,
+      dependencies: [],
+      stateFile: statePath('target-contract'),
+    }, {
+      invoke: async (request: any) => {
+        invocation = request
+        return validRunnerResultForRequest(request)
+      },
+    })
+
+    expect(result).toMatchObject({ invoked: true, decision: { trigger: 'dependency_api_contract' } })
+    expect(invocation.argv).toContain('--file')
+    expect(invocation.argv).toContain(target)
+    expect(invocation.options.files).toEqual([target])
+    expect(result.bindings.target).toMatchObject({ path: target, sha256: expect.stringMatching(/^[a-f0-9]{64}$/) })
   })
 
   it('routes a current incident with required Web evidence and policy-derived X evidence', async () => {
@@ -325,6 +385,7 @@ describe('Grok automatic intelligence routing', () => {
       workflow: 'go',
       phase: 'intake',
       task: 'Upgrade the current external SDK API.',
+      dependencies: ['pnpm-lock.yaml'],
       depth: 'deep',
       stateFile: statePath('deep-model'),
     }, {
@@ -481,6 +542,7 @@ describe('Grok automatic intelligence routing', () => {
       workflow: 'go',
       phase: 'intake',
       task: 'Upgrade the current external SDK API.',
+      dependencies: ['pnpm-lock.yaml'],
       stateFile,
     }
     const invoke = async (request: any) => {
@@ -517,6 +579,7 @@ describe('Grok automatic intelligence routing', () => {
       workflow: 'go',
       phase: 'intake',
       task: 'Upgrade the current dependency API.',
+      dependencies: ['pnpm-lock.yaml'],
       stateFile,
     }, {
       invoke: async () => ({ exitCode: 2, status: 'invocation_failed', reason: 'No usable terminal response.' }),
@@ -524,9 +587,104 @@ describe('Grok automatic intelligence routing', () => {
 
     expect(result).toMatchObject({ exitCode: 0, invoked: true })
     expect(fs.readJsonSync(stateFile)).toMatchObject({
-      execution: { exit_code: 0, provider_exit_code: 2, status: 'invocation_failed' },
+      execution: { exit_code: 0, provider_exit_code: 2, status: 'failed', provider_status: 'invocation_failed' },
       decision: { requirement: 'preferred', status: 'advisory_failed' },
     })
+  })
+
+  it.each([
+    ['timed_out', 'timed_out'],
+    ['cancelled', 'cancelled'],
+    ['invocation_failed', 'failed'],
+  ])('persists provider %s as terminal execution status %s', async (providerStatus, status) => {
+    const controller = new AbortController()
+    let observedSignal: AbortSignal | undefined
+    const stateFile = statePath(`terminal-${providerStatus}`)
+    await (routeRuntime as any).runWorkflowRoute({
+      repoRoot: root,
+      config: enabledConfig(),
+      workflow: 'go',
+      phase: 'intake',
+      task: 'Verify the current dependency API.',
+      dependencies: ['pnpm-lock.yaml'],
+      stateFile,
+    }, {
+      signal: controller.signal,
+      invoke: async (request: any) => {
+        observedSignal = request.signal
+        return { exitCode: 2, status: providerStatus, reason: providerStatus }
+      },
+    })
+
+    expect(observedSignal).toBe(controller.signal)
+    expect(fs.readJsonSync(stateFile)).toMatchObject({
+      execution: { status, provider_status: providerStatus },
+    })
+  })
+
+  it('terminalizes a thrown child-process failure instead of leaving pending state', async () => {
+    const stateFile = statePath('thrown-child-failure')
+    await (routeRuntime as any).runWorkflowRoute({
+      repoRoot: root,
+      config: enabledConfig(),
+      workflow: 'go',
+      phase: 'intake',
+      task: 'Verify the current dependency API.',
+      dependencies: ['pnpm-lock.yaml'],
+      stateFile,
+    }, {
+      invoke: async () => {
+        throw new Error('child exited without a result')
+      },
+    })
+
+    expect(fs.readJsonSync(stateFile)).toMatchObject({
+      execution: { status: 'failed', provider_status: 'invocation_failed' },
+      decision: { status: 'advisory_failed' },
+    })
+  })
+
+  it('recovers only a pending route whose recorded owner process is dead', async () => {
+    const stateFile = statePath('recover-dead-owner')
+    await fs.ensureDir(join(stateFile, '..'))
+    await fs.writeJson(stateFile, {
+      schemaVersion: 1,
+      workflow: 'go',
+      decision: { requirement: 'preferred', status: 'pending' },
+      execution: {
+        status: 'pending',
+        owner: { token: 'dead-owner', pid: 2147483647, started_at: '2026-07-22T00:00:00.000Z' },
+      },
+    })
+
+    const recovered = await (routeRuntime as any).recoverWorkflowRoute({
+      repoRoot: root,
+      stateFile,
+      status: 'cancelled',
+      reason: 'Host terminated the background job.',
+    }, { clock: () => new Date('2026-07-22T00:10:00.000Z') })
+    expect(recovered).toMatchObject({
+      execution: { status: 'cancelled', provider_status: 'process_terminated', owner: null },
+      decision: { status: 'advisory_failed' },
+    })
+
+    const liveStateFile = statePath('recover-live-owner')
+    await fs.ensureDir(join(liveStateFile, '..'))
+    await fs.writeJson(liveStateFile, {
+      schemaVersion: 1,
+      workflow: 'go',
+      decision: { requirement: 'preferred', status: 'pending' },
+      execution: {
+        status: 'pending',
+        owner: { token: 'live-owner', pid: process.pid, started_at: '2026-07-22T00:00:00.000Z' },
+      },
+    })
+    await expect((routeRuntime as any).recoverWorkflowRoute({
+      repoRoot: root,
+      stateFile: liveStateFile,
+      status: 'failed',
+    })).rejects.toThrow(/active|alive/i)
+    expect(fs.readJsonSync(liveStateFile)).toMatchObject({ execution: { status: 'pending', owner: { token: 'live-owner' } } })
   })
 
   it('applies an explicit user waiver only to an existing blocked route without inventing evidence', async () => {
@@ -563,7 +721,7 @@ describe('Grok automatic intelligence routing', () => {
           created_at: '2026-07-22T12:00:00.000Z',
         },
       },
-      execution: { status: 'invocation_failed', exit_code: 2 },
+      execution: { status: 'failed', provider_status: 'invocation_failed', exit_code: 2 },
     })
     expect(await fs.readJson(evidenceFile)).toEqual({ schemaVersion: 1, items: [{ id: 'existing-non-grok-evidence' }] })
     await expect((routeRuntime as any).waiveWorkflowRoute({ repoRoot: root, stateFile: routeState, reason: '' }))
@@ -578,12 +736,13 @@ describe('Grok automatic intelligence routing', () => {
       workflow: 'go',
       phase: 'intake',
       task: 'Upgrade the current dependency API.',
+      dependencies: ['pnpm-lock.yaml'],
       stateFile: statePath('missing-bundle'),
     }, { invoke: async () => ({ exitCode: 0, status: 'verified' }) })
     expect(result).toMatchObject({
       exitCode: 0,
       decision: { requirement: 'preferred', status: 'advisory_failed' },
-      execution: { status: 'unsafe_context', exit_code: 0, provider_exit_code: 3 },
+      execution: { status: 'failed', provider_status: 'unsafe_context', exit_code: 0, provider_exit_code: 3 },
     })
   })
 
@@ -597,6 +756,7 @@ describe('Grok automatic intelligence routing', () => {
       workflow: 'go',
       phase: 'intake',
       task: 'Upgrade the current dependency API.',
+      dependencies: ['pnpm-lock.yaml'],
       stateFile,
     }
     const runtime = {
@@ -633,7 +793,7 @@ describe('Grok automatic intelligence routing', () => {
     const artifact = `${JSON.stringify({
       schemaVersion: 2,
       decision: {
-        requirement: 'preferred',
+        requirement: 'required',
         status: 'verified',
         action: 'intel',
         investigation_mode: 'contract',
@@ -671,7 +831,7 @@ describe('Grok automatic intelligence routing', () => {
       action: 'intel',
       investigation_mode: 'contract',
       depth: 'normal',
-      requirement: 'preferred',
+      requirement: 'required',
       effective_x_policy: 'preferred',
       cli_version: 'grok 0.2.106',
       prompt_sha256: 'a'.repeat(64),
@@ -702,6 +862,8 @@ describe('Grok automatic intelligence routing', () => {
       workflow: 'gptpro-plan',
       phase: 'intake',
       task: 'Upgrade the current Acme SDK API contract.',
+      semanticMode: 'contract',
+      semanticReason: 'Canonical publication requires explicit current external evidence.',
       taskDir,
       stateFile,
     }, {
@@ -720,14 +882,14 @@ describe('Grok automatic intelligence routing', () => {
       id: `grok-external-intelligence-${evidenceId}`,
       provider: 'grok',
       role: 'external-intelligence',
-      policy: 'preferred',
+      policy: 'required',
       artifactSha256,
       manifestSha256,
       localOnly: true,
       exported: false,
     }))
     expect(fs.readJsonSync(join(taskDir, 'task.json')).intelligence).toMatchObject({
-      requirement: 'preferred',
+      requirement: 'required',
       status: 'verified',
       evidence_id: evidenceId,
       manifest_sha256: manifestSha256,

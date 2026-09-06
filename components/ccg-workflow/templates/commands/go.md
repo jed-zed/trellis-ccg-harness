@@ -30,6 +30,8 @@ Bootstrap contract: 在调用路由器之前，create or reuse 一个只含 `[a-
 ccg route --workflow go --phase intake --task-file ".ccg/tasks/<task-id>/intelligence-request.md" --state-file ".ccg/tasks/<task-id>/intelligence-route.json"
 ```
 
+Run this potentially long route with the host's tool-managed background execution and wait mechanism; never put it under a foreground timeout shorter than the runner's 10-minute timeout. If the host cancels or terminates the job before a terminal state is written, run `ccg route recover --state-file <state-file> --status cancelled --reason "<reason>"` (or use `--status failed`); recovery refuses to overwrite a live owner.
+
 确定性触发器由路由器识别；模糊但确实依赖外部能力、近期版本或服务状态时，主编排器追加
 `--semantic-mode contract|incident --semantic-reason <reason>`。传入存在的 plan、diff 和依赖/锁文件，
 并在 final verify 阶段用 `--trigger final_diff_verify` 重新判定。读取 state file 中的 decision/reason；

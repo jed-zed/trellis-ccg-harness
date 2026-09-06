@@ -15,6 +15,8 @@ ordinary `/ccg:plan` semantics have already run.
 
 Run the Grok intelligence decision by writing the bounded planning subject to the active task directory, then run
 `ccg route --workflow gptpro-plan --phase intake --task-file <request-file> --state-file <state-file>`
+
+Run this potentially long route with the host's tool-managed background execution and wait mechanism; never put it under a foreground timeout shorter than the runner's 10-minute timeout. If the host cancels or terminates the job before a terminal state is written, run `ccg route recover --state-file <state-file> --status cancelled --reason "<reason>"` (or use `--status failed`); recovery refuses to overwrite a live owner.
 before ordinary `/ccg:plan`. The main orchestrator adds `--semantic-mode contract|incident` and a
 reason when external evidence is materially useful even if the user did not request search. When external intelligence is
 required, the shared route must produce canonical source-backed evidence before any Gemini/Claude

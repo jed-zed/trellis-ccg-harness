@@ -16,6 +16,8 @@ Load and follow `skills/ccg-gptpro-bridge/SKILL.md`.
 - Treat the argument as a planning task or plan-review input.
 - Before ordinary planning or any Gemini or GPT Pro handoff, write the bounded subject and run
   `ccg route --workflow gptpro-plan --phase intake --task-file <request-file> --state-file <state-file>`.
+
+Run this potentially long route with the host's tool-managed background execution and wait mechanism; never put it under a foreground timeout shorter than the runner's 10-minute timeout. If the host cancels or terminates the job before a terminal state is written, run `ccg route recover --state-file <state-file> --status cancelled --reason "<reason>"` (or use `--status failed`); recovery refuses to overwrite a live owner.
   Let the current orchestrator add a semantic mode/reason whenever external evidence is materially
   useful even if the user did not request search. When required, the shared route runs Grok contract evidence
   and require its canonical artifact, manifest, hashes, and active-task pointer. Exit `2`, `3`, or `4`

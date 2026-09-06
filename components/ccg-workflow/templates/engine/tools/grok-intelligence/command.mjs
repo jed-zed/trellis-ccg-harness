@@ -395,6 +395,7 @@ export async function runManualCommand(action, options, runtime = {}) {
     throw new Error('--diff is required for verify; pass an actual bounded diff file')
   const officialDomains = normalizeOfficialDomains(options.officialDomains)
   const bindings = (await Promise.all([
+    ...(options.files || []).map(file => digestBinding(repoRoot, 'target', file)),
     digestBinding(repoRoot, 'plan', options.plan),
     digestBinding(repoRoot, 'diff', options.diff, { allowEmpty: options.allowEmptyDiff === true }),
     ...(options.dependencies || []).map(file => digestBinding(repoRoot, 'dependency', file)),
@@ -502,6 +503,7 @@ export async function runManualCommand(action, options, runtime = {}) {
       officialDomains,
       command: runtime.command,
       prefixArgs: runtime.prefixArgs,
+      signal: runtime.signal,
       runDiagnostics: async () => diagnostics,
     })
     if (result.exitCode !== 0 || !['verified', 'received_unverified'].includes(result.status))

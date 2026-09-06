@@ -160,6 +160,7 @@ describe('Grok intelligence distribution', () => {
       fs.writeFile(join(root, 'pnpm-lock.yaml'), 'lockfileVersion: 9\n'),
     ])
     try {
+      const controller = new AbortController()
       let runnerOptions: any
       const result = await runManualCommand('verify', {
         task: 'Verify current API support.',
@@ -171,6 +172,7 @@ describe('Grok intelligence distribution', () => {
         officialDomains: ['docs.x.ai'],
       }, {
         repoRoot: root,
+        signal: controller.signal,
         paths: { grokHome: join(root, 'grok'), tempParent: join(root, 'runs') },
         runDiagnostics: async () => ({ version: 'grok 0.2.106', models: ['grok-4.5'] }),
         gitState: async () => ({ head: '0123456789abcdef', dirtyDigest: 'selected-files-digest' }),
@@ -194,11 +196,12 @@ describe('Grok intelligence distribution', () => {
         },
       })
       expect(result).toMatchObject({ exitCode: 0, status: 'verified', webSearches: 1, xSearches: 1 })
-      expect(result.bindings.map((binding: any) => binding.kind)).toEqual(['plan', 'diff', 'dependency'])
+      expect(result.bindings.map((binding: any) => binding.kind)).toEqual(['target', 'plan', 'diff', 'dependency'])
       expect(await fs.pathExists(join(root, result.manifestPath))).toBe(true)
       expect(result.manifestSha256).toMatch(/^[a-f0-9]{64}$/)
       expect(runnerOptions).not.toHaveProperty('model')
       expect(runnerOptions.allowedCcgPlanPaths).toEqual(['.codex/ccg/plans/plan.md'])
+      expect(runnerOptions.signal).toBe(controller.signal)
       expect(result.model).toBe('grok-4.6')
       expect(await fs.readJson(join(root, result.manifestPath))).toMatchObject({ model: 'grok-4.6' })
       expect((await fs.readJson(join(root, result.manifestPath))).prompt_sha256).toBe(
@@ -433,7 +436,10 @@ describe('Grok intelligence distribution', () => {
         prompt_sha256: expect.stringMatching(/^[a-f0-9]{64}$/),
         git_head: '0123456789abcdef',
         dirty_digest: 'repo-digest',
-        bindings: [expect.objectContaining({ kind: 'diff', path: 'change.diff', sha256: expect.stringMatching(/^[a-f0-9]{64}$/) })],
+        bindings: expect.arrayContaining([
+          expect.objectContaining({ kind: 'target', path: 'package.json', sha256: expect.stringMatching(/^[a-f0-9]{64}$/) }),
+          expect.objectContaining({ kind: 'diff', path: 'change.diff', sha256: expect.stringMatching(/^[a-f0-9]{64}$/) }),
+        ]),
         official_domains: ['docs.x.ai'],
         search_counts: { web: 1, x: 1 },
         attempts: 1,
