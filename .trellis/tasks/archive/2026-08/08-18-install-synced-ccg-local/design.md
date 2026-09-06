@@ -42,7 +42,7 @@ PreviewOnly(full + PluginOnly)
 
 - 在命令环境中显式设置 `CODEX_HOME=G:\CodexData\.codex`，不依赖 Junction 推断。
 - 保存配置原文和结构化 routing 快照；最终仅接受 installer-owned plugin 注册的必要差异。
-- Provider action 只取 `keep` 或 `later`，不触发探测。
+- 预览阶段的 Provider action 只取 `keep` 或 `later`；单独执行的 Global Init 阶段只取 `later` 或 `skip`（仅 Claude），不触发探测。
 - `.claude` 前后 tree fingerprint 必须一致。
 
 ## Rollback

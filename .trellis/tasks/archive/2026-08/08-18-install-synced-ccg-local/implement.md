@@ -5,7 +5,7 @@
 - [x] 重新读取 CCG/Harness 云端 `main`，核验 Harness manifest、CCG tree、版本和六资产。
 - [x] 将专用 Harness worktree 切到精确最终 Harness `main`，验证 clean、RepoRoot ownership 和无 pending transaction。
 - [x] 准备精确 CCG merge checkout；设置真实 `CODEX_HOME`。
-- [x] 记录 Provider 当前状态并生成仅含 `keep` / `later` 的 action；运行 full 和 PluginOnly PreviewOnly。
+- [x] 预览阶段记录 Provider 当前状态并生成仅含 `keep` / `later` 的 action；运行 full 和 PluginOnly PreviewOnly。
 - [x] 向 Boss 展示最终 SHA、预览、备份路径、将恢复的唯一 extra chunk 和回滚命令，等待 G5。
 
 ## Phase 2 — 备份与 lifecycle 基线
@@ -19,7 +19,7 @@
 
 - [x] 以 `CI=true` 运行 `bootstrap.ps1 -LinkCcg`，目标 `3.4.15`、前一 plugin `3.4.14+codex.1`、authoritative checkout 为最终 CCG source。
 - [x] 运行 non-interactive `install.ps1 -PluginOnly`，同步 `3.4.15+codex.1` plugin；Codex mode 在显式真实 `CODEX_HOME` 下使用同一受支持 CLI 完成。
-- [x] 运行 non-interactive Global Init，Provider 仅 `later` / `skip`，catalog 不扩展，并核验 15 个平台 Skill。
+- [x] 运行 non-interactive Global Init，Provider 仅 `later` / `skip`（`skip` 仅用于 Claude），catalog 不扩展，并核验 15 个平台 Skill。
 - [x] 每次失败均保存日志并检查 transaction；确认失败发生在受保护状态写入前或由受支持事务恢复后才继续。
 
 ## Phase 4 — 验证

@@ -11,7 +11,7 @@
 - **R3 — 新鲜备份**：任何全局写入前，创建新的时间戳备份，覆盖全局 `ccg-workflow` 包、Harness lifecycle ownership、Codex plugin/ownership、codeagent wrapper、`ccg/config.toml` 和受管文件；记录 `MISSING.txt`、`SHA256SUMS.txt`、ACL/路径及恢复命令，不复制或输出凭据。
 - **R4 — Ownership 基线恢复**：当前 lifecycle ownership 记录全局包 tree `1473096f...` / 3808 entries，而 live tree 为 `b5b9a51d...` / 3809 entries，源于 2026-08-14 的受控本地 rebuild。新鲜备份后，只从 `G:\CodexData\.codex\ccg\local-backups\antigravity-model-20260814-1530\npm-dist` 原位恢复旧 dist，并删除已核验且已备份的唯一额外 chunk `dist\shared\ccg-workflow.Bg2c-ocR.mjs`；重新检查必须精确回到 ownership 记录。不得手改 ownership。任何不一致立即恢复新鲜备份并停止。
 - **R5 — 受支持安装序列**：先运行完整 setup 和 PluginOnly 的 `-PreviewOnly`；G5 后以 `CI=true` 运行 Harness `bootstrap.ps1 -LinkCcg` 安装新 CLI，再运行 `install.ps1 -PluginOnly` 同步 plugin/Codex mode，最后运行完整 non-interactive Global Setup 做幂等验证和 15 个平台 Skill 核验。
-- **R6 — Provider 和配置保护**：Provider action 根据执行时状态选择：已安装用 `keep`，未安装用 `later`；禁止 `install`、`login`、`check` 和 Provider 请求。安装前后逐项比较 routing、行为配置、`.claude` 和用户所有文件；只允许受管 plugin 注册的必要变化。
+- **R6 — Provider 和配置保护**：预览阶段的 Provider action 根据执行时状态选择：已安装用 `keep`，未安装用 `later`；单独执行的 Global Init 阶段使用 `later` / `skip`，其中 `skip` 仅用于 Claude。禁止 `install`、`login`、`check` 和 Provider 请求。安装前后逐项比较 routing、行为配置、`.claude` 和用户所有文件；只允许受管 plugin 注册的必要变化。
 - **R7 — 定制验证**：用户级 `ANTIGRAVITY_MODEL` 保持 `gemini-3.7-flash-high`；wrapper version/digest 与 `5.12.13` installer 和 ownership 一致。用假的 `agy` 捕获 argv，离线证明精确加入 `--model gemini-3.7-flash-high`，不得调用真实 Provider。
 - **R8 — 完成验证**：核验 `ccg --version`、plugin manifest/cache、关键 post-`3.4.14` 运行文件、双重 wrapper integrity、`ccg doctor --platform codex`、Harness doctor、source verification、conflict audit、无 pending transaction，以及两个原脏工作区不变。
 - **R9 — 回滚**：bootstrap/Codex-mode 自带事务优先；人工回滚只恢复新鲜备份中的精确 owned paths，并仅删除本次安装新建且已核验的版本目录。回滚后重新运行版本、ownership、doctor 和配置核验；未经批准不删除备份。
@@ -31,7 +31,7 @@
 本机 `CODEX_HOME` 位于 G 盘，而 Harness `install.ps1` 会把它重算为
 `<HomeDir>\.codex`。因此 PluginOnly 完成插件登记后，Codex mode 通过同一
 受支持的 `ccg codex-mode install` 命令在显式真实 `CODEX_HOME` 环境中完成；
-Global Init 也通过仓库入口单独执行，Provider 全部选择 `later` / `skip`。
+Global Init 也通过仓库入口单独执行，Provider 全部选择 `later` / `skip`，其中 `skip` 用于跳过 Claude。
 15 个平台 Skill 均存在且通过所有权审计；其中 13 个与 3.4.15 源完全一致，
 `chatgpt-pro-sidebar` 和 `harness-init` 仍是旧 owned bytes，因为现有迁移入口把
 已完成迁移状态视为 `unchanged`。未手改所有权清单；此投影缺口不影响本任务
