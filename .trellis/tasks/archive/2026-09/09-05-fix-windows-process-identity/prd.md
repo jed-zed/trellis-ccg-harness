@@ -28,7 +28,7 @@ previously approved PID-fixture synchronization and merge only after fresh CI.
   conflict checks match the actual repair.
 - [x] Complete required Harness/CCG/Go checks and the supported snapshot update
   succeed; a failed update rolls back and does not authorize merge.
-- [ ] The exact pushed PR head passes all fresh CI checks before merge.
+- [x] The exact pushed PR head passes all fresh CI checks before merge.
 
 ## Notes
 
@@ -39,3 +39,6 @@ previously approved PID-fixture synchronization and merge only after fresh CI.
   not its recorded failure evidence.
 - This task owns only the follow-up repair. The archived salvage task remains
   historical evidence and is not reopened.
+- Repair acceptance is bound to head `1d8b1585287c7ed01506e3307a28aa0667991c33`
+  and CI run `34015526939` (10/10 successful jobs). Subsequent archive/journal
+  commits must pass their own fresh CI before the final head can be merged.

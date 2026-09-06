@@ -229,3 +229,26 @@ any resulting metadata-only commits must also pass fresh CI before merge.
 - Run 34014536098 finished with 8 successful jobs; both Ubuntu jobs had
   exactly the missing-staged-file assertion failure (454 pass / 1 fail /
   8 platform skips). Both Windows Node jobs and the remaining six jobs passed.
+
+## Repair acceptance and metadata handoff (2026-09-06 UTC)
+
+- Repair commit `1d8b1585287c7ed01506e3307a28aa0667991c33` passed
+  [Harness CI run 34015526939](https://github.com/jed-zed/trellis-ccg-harness/actions/runs/34015526939):
+  **10/10 successful jobs**, zero failed or pending jobs. The exact PR head,
+  OPEN/MERGEABLE state and all ten successful check conclusions were verified
+  together before task acceptance (`j-0rsgnb`).
+- Ubuntu Node 20's complete Harness result was 456 passed / 8 platform skips /
+  zero failures. Windows Node 22's complete Harness result was 463 passed /
+  1 platform skip / zero failures. Both total 464 tests. The Windows CCG suite
+  passed 643 tests with 3 existing skips; its lifecycle rerun passed 126 tests.
+  The real native Windows paths, Linux diagnostic normalization, and staged
+  dependency protections passed without reducing any CI gate.
+- Record mode showed a clean worktree and this one task still active. Only
+  this task is accepted for archive; other active tasks remain untouched.
+  Archive source/destination were resolved inside the isolated worktree and
+  the destination was confirmed absent. Task context references are updated
+  for the archive location and must validate after the Trellis move.
+- Remaining delivery sequence: use Trellis archive/journal tools, publish
+  their metadata-only commits, wait for all fresh checks on the final PR head,
+  then merge only that exact unchanged head. This acceptance does not claim
+  those future checks or the merge have already happened.
