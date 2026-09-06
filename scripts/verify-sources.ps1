@@ -20,9 +20,14 @@ $trustedCommandResolverPath = Join-Path $RepoRoot $trustedCommandResolverRelativ
 $expectedThirdPartyManifestSha256 = "748796e09774955811aa1d4a8ed165efb865d88643d493cd9cf211d835a34850"
 # Canonical UTF-8 SHA-256 (CRLF normalized to LF) of the shared validator.
 # `-Index` must execute this exact staged source, never a mutable worktree copy.
-$expectedThirdPartyValidatorSha256 = "607c8a4756cc369daa5627c1be298b1ba87d375efddd4ea036a865eccbf6c4eb"
+$expectedThirdPartyValidatorSha256 = "b202d98f7280560916eae69c6772b70cb7f27876bbfda818bcee035065d3a606"
 # Canonical UTF-8 SHA-256 of the validator's trusted command dependency.
 $expectedTrustedCommandResolverSha256 = "febf8675ace4cf0ce353c8680aa4e3e606e424844704a85877efd7610f420d2e"
+# Every transitive native-identity import is pinned and staged with the validator.
+$identityDependencyPins = @{
+  "windows-process-identity.mjs" = "bbce7766912c3ec91dfd83223b4feca2b903dbe2d03fc868e0c7a5273434672d"
+  "python-resolver.mjs" = "68eb4a600b1c03545ccc8edf8318a1b3760f7ee11d9ce9d7dedfd04f9b40ae1d"
+}
 
 function Assert-Equal {
   param(
@@ -493,7 +498,8 @@ function Get-CanonicalTextSha256 {
 function New-StagedValidatorFiles {
   param(
     [Parameter(Mandatory = $true)][byte[]]$ValidatorBytes,
-    [Parameter(Mandatory = $true)][byte[]]$ResolverBytes
+    [Parameter(Mandatory = $true)][byte[]]$ResolverBytes,
+    [Parameter(Mandatory = $true)][hashtable]$IdentityDependencies
   )
 
   $tempRoot = [System.IO.Path]::GetFullPath([System.IO.Path]::GetTempPath())
@@ -508,6 +514,9 @@ function New-StagedValidatorFiles {
     (Join-Path $directory "trusted-command-resolver.mjs"),
     $ResolverBytes
   )
+  foreach ($name in $IdentityDependencies.Keys) {
+    [System.IO.File]::WriteAllBytes((Join-Path $directory $name), $IdentityDependencies[$name])
+  }
   return [pscustomobject]@{ Directory = $directory; File = $file; TempRoot = $tempRoot }
 }
 
@@ -604,7 +613,17 @@ function Assert-ThirdPartySourceManifest {
     $resolverBytes = Get-GitTreeBytes -Treeish $Treeish -RelativePath $trustedCommandResolverRelativePath
     $resolverSha256 = Get-CanonicalTextSha256 -Bytes $resolverBytes
     Assert-Equal "Staged trusted command resolver SHA-256" $expectedTrustedCommandResolverSha256 $resolverSha256
-    $temporaryValidator = New-StagedValidatorFiles -ValidatorBytes $validatorBytes -ResolverBytes $resolverBytes
+    $identityDependencies = @{}
+    foreach ($name in $identityDependencyPins.Keys) {
+      $relativePath = ".agents/skills/harness-init/scripts/$name"
+      if (-not (Test-GitTreePath -Treeish $Treeish -RelativePath $relativePath)) {
+        throw "Validator dependency $name is missing from the staged Git tree."
+      }
+      $bytes = Get-GitTreeBytes -Treeish $Treeish -RelativePath $relativePath
+      Assert-Equal "Staged validator dependency $name SHA-256" $identityDependencyPins[$name] (Get-CanonicalTextSha256 -Bytes $bytes)
+      $identityDependencies[$name] = $bytes
+    }
+    $temporaryValidator = New-StagedValidatorFiles -ValidatorBytes $validatorBytes -ResolverBytes $resolverBytes -IdentityDependencies $identityDependencies
     try {
       $manifestText = Get-GitTreeText -Treeish $Treeish -RelativePath $thirdPartyManifestRelativePath
       $actual = Get-ThirdPartyManifestSha256 -Mode "text" -ValidatorPath $temporaryValidator.File -ManifestText $manifestText
@@ -627,6 +646,14 @@ function Assert-ThirdPartySourceManifest {
     Assert-Equal "Third-party source manifest validator SHA-256" $expectedThirdPartyValidatorSha256 $validatorSha256
     $resolverSha256 = Get-CanonicalTextSha256 -Bytes ([System.IO.File]::ReadAllBytes($trustedCommandResolverPath))
     Assert-Equal "Trusted command resolver SHA-256" $expectedTrustedCommandResolverSha256 $resolverSha256
+    foreach ($name in $identityDependencyPins.Keys) {
+      $dependencyPath = Join-Path $RepoRoot ".agents/skills/harness-init/scripts/$name"
+      if (-not (Test-Path -LiteralPath $dependencyPath -PathType Leaf)) {
+        throw "Validator dependency $name not found: $dependencyPath"
+      }
+      $bytes = [System.IO.File]::ReadAllBytes($dependencyPath)
+      Assert-Equal "Validator dependency $name SHA-256" $identityDependencyPins[$name] (Get-CanonicalTextSha256 -Bytes $bytes)
+    }
     $actual = Get-ThirdPartyManifestSha256 -Mode "file" -ValidatorPath $thirdPartyValidatorPath -ManifestPath $thirdPartyManifestPath
   }
   Assert-Equal "Third-party source manifest canonical SHA-256" $expectedThirdPartyManifestSha256 $actual

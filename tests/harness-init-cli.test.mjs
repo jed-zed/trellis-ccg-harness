@@ -2015,6 +2015,10 @@ test("skill export is portable and refuses to overwrite a collision", async () =
       "harness-init",
     );
     assert.equal(result.status, "exported");
+    const exportedIdentity = await import(
+      pathToFileURL(path.join(targetSkill, "scripts", "windows-process-identity.mjs")).href
+    );
+    assert.equal(await exportedIdentity.readWindowsProcessIdentity(0), null);
     assert.equal(
       existsSync(path.join(targetSkill, "scripts", "harness-init-core.mjs")),
       true,

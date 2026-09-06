@@ -156,6 +156,9 @@ function copyThirdPartySourceAssets(harnessRoot) {
     TRUSTED_COMMAND_RESOLVER,
     path.join(harnessInit, "scripts", "trusted-command-resolver.mjs"),
   );
+  for (const name of ["windows-process-identity.mjs", "python-resolver.mjs"]) {
+    cpSync(path.join(path.dirname(THIRD_PARTY_VALIDATOR), name), path.join(harnessInit, "scripts", name));
+  }
 }
 
 function fixture() {
@@ -903,3 +906,31 @@ test("source verification binds the trusted command resolver in worktree and ind
     value.cleanup();
   }
 });
+
+for (const name of ["windows-process-identity.mjs", "python-resolver.mjs"]) {
+  test(`source verification binds native identity dependency ${name} in worktree and index`, () => {
+    const value = fixture();
+    const relativePath = `.agents/skills/harness-init/scripts/${name}`;
+    const dependencyPath = path.join(value.harnessRoot, relativePath);
+    const label = name.replaceAll(".", "\\.");
+    const checkFailure = (args, message) => {
+      const result = verify(value, args);
+      assert.notEqual(result.status, 0);
+      assert.match(`${result.stdout}\n${result.stderr}`, new RegExp(message, "i"));
+    };
+    try {
+      writeFileSync(dependencyPath, "export const tampered = true;\n");
+      checkFailure([], `Validator dependency ${label} SHA-256 mismatch`);
+      const stagedClean = verify(value, ["-Index"]);
+      assert.equal(stagedClean.status, 0, `${stagedClean.stdout}\n${stagedClean.stderr}`);
+      git(value.harnessRoot, "add", "--", relativePath);
+      checkFailure(["-Index"], `Staged validator dependency ${label} SHA-256 mismatch`);
+      git(value.harnessRoot, "rm", "--cached", "--", relativePath);
+      checkFailure(["-Index"], `Validator dependency ${label} is missing from the staged Git[\\s\\S]*?tree`);
+      rmSync(dependencyPath);
+      checkFailure([], `Validator dependency ${label} not found`);
+    } finally {
+      value.cleanup();
+    }
+  });
+}
