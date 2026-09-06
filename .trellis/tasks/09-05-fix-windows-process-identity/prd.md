@@ -26,7 +26,7 @@ previously approved PID-fixture synchronization and merge only after fresh CI.
   PID-reuse checks pass without relaxing their assertions.
 - [x] Source pin, specification, security review, source verification and
   conflict checks match the actual repair.
-- [ ] Complete required Harness/CCG/Go checks and the supported snapshot update
+- [x] Complete required Harness/CCG/Go checks and the supported snapshot update
   succeed; a failed update rolls back and does not authorize merge.
 - [ ] The exact pushed PR head passes all fresh CI checks before merge.
 

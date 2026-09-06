@@ -138,3 +138,34 @@ Primary API references used for the implementation:
   context files. No second task or external provider was created.
 - Remote main was rechecked as `a68519f6233bef3022c333a75b0f56ee8e6353df`.
   Personal CCG PR #49 remains merged; Harness PR #49 remains open at `d9b51ca`.
+
+## Successful supported update
+
+- Independent Harness repair commit:
+  `094ee383fbc3a5f5c0bf6c23f43e0d328b5b1403`. The worktree was clean before update.
+- `j-vb5ekj` ran the approved lifecycle update and exited 0 with
+  `status=updated`, source commit `6252515c5359a7e704296ad1ac39d7624d244543`,
+  tree `bdebcc0f2812922b7fd1d488673f8c45e95f6d01`, and transaction
+  `2026-09-06T04-40-56-218Z-0a2f3ca1-23e6-42b9-8361-d01248bca656`.
+- Preflight doctor, source verification and conflict checks passed.
+- Source and exported snapshot each passed lint, typecheck, 643 tests with
+  3 existing skips, package build, full Go tests and Go build. The source Go
+  test result was cached; the snapshot reported 36.884 s of test execution.
+  A slow Go preparation interval was inspected read-only: no extra module
+  subdirectories, links or ancestor `go.work` files explained an expanded scan.
+  The command completed without a timeout/configuration/cache change.
+- The final Harness suite passed **460 / 463**, with **3 existing skips and
+  zero failures** (750.763 s). The original Windows lock failures, new native
+  regressions, full adapter file, and staged dependency tampering tests all
+  passed in this single final run.
+- The component/manifest diff is exactly the approved PID-fixture repair plus
+  generated provenance: 2 files, 12 insertions / 10 deletions. No unrelated
+  managed source was transplanted.
+- A separate bounded packaging check found no production path that copies the
+  root Python entrypoints without the Skill tree; standalone export imports
+  also passed in the complete Harness run.
+
+Next: commit the synchronized snapshot and results, run the post-update doctor,
+then publish to the existing Harness PR. Keep this task active until the pushed
+repair head passes fresh CI. After recording acceptance with Trellis tools,
+any resulting metadata-only commits must also pass fresh CI before merge.

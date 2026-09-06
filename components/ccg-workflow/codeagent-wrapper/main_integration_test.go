@@ -809,15 +809,17 @@ func TestRunCleanupFlagEndToEnd_Success(t *testing.T) {
 
 	tempDir := setTempDirEnv(t, t.TempDir())
 
-	staleA := createTempLog(t, tempDir, "codex-wrapper-2100.log")
-	staleB := createTempLog(t, tempDir, "codex-wrapper-2200-extra.log")
-	keeper := createTempLog(t, tempDir, "codex-wrapper-2300.log")
+	pidBase := os.Getpid() + 1000
+	staleA := createTempLog(t, tempDir, fmt.Sprintf("codex-wrapper-%d.log", pidBase))
+	staleB := createTempLog(t, tempDir, fmt.Sprintf("codex-wrapper-%d-extra.log", pidBase+1))
+	runningPID := pidBase + 2
+	keeper := createTempLog(t, tempDir, fmt.Sprintf("codex-wrapper-%d.log", runningPID))
 
 	stubProcessRunning(t, func(pid int) bool {
-		return pid == 2300 || pid == os.Getpid()
+		return pid == runningPID || pid == os.Getpid()
 	})
 	stubProcessStartTime(t, func(pid int) time.Time {
-		if pid == 2300 || pid == os.Getpid() {
+		if pid == runningPID || pid == os.Getpid() {
 			return time.Now().Add(-1 * time.Hour)
 		}
 		return time.Time{}
@@ -847,10 +849,10 @@ func TestRunCleanupFlagEndToEnd_Success(t *testing.T) {
 	if !strings.Contains(output, "Files kept: 1") {
 		t.Fatalf("missing 'Files kept: 1' in output: %q", output)
 	}
-	if !strings.Contains(output, "codex-wrapper-2100.log") || !strings.Contains(output, "codex-wrapper-2200-extra.log") {
+	if !strings.Contains(output, filepath.Base(staleA)) || !strings.Contains(output, filepath.Base(staleB)) {
 		t.Fatalf("missing deleted file names in output: %q", output)
 	}
-	if !strings.Contains(output, "codex-wrapper-2300.log") {
+	if !strings.Contains(output, filepath.Base(keeper)) {
 		t.Fatalf("missing kept file names in output: %q", output)
 	}
 
