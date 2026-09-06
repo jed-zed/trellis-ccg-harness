@@ -320,3 +320,41 @@ Preserved the divergent dirty root losslessly, then integrated only validated Tr
 ### Next Steps
 
 - Keep the integration branch local; do not push, open a PR, merge, delete the root worktree, or delete the backup without separate authorization.
+
+
+## Session 12: PR49 Windows process identity repair and verified source sync
+
+**Date**: 2026-09-06
+**Task**: PR49 Windows process identity repair and verified source sync
+**Branch**: `codex/sync-cleanup-test-pid-collision`
+
+### Summary
+
+Replaced Windows process identity queries with bounded native Win32 calls via the existing Python runtime, synced the published personal CCG PID fixture repair through the supported updater, and repaired PowerShell diagnostic-format assertions without weakening validation. Repair head 1d8b158 passed CI 34015526939 (10/10); final metadata commits remain CI-gated before merge.
+
+### Main Changes
+
+- Shared portable native identity helper and resolver; staged dependency integrity coverage retained.
+- Supported lifecycle update pins personal CCG 6252515; no root worktree or global installation mutation.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `094ee383fbc3a5f5c0bf6c23f43e0d328b5b1403` | (see git log) |
+| `2e6cf4640c5b2edd967e0b875b0fd4689aca6cc3` | (see git log) |
+| `50f8aa0f9241af74609dc9e2857e10560f4002e0` | (see git log) |
+| `1d8b1585287c7ed01506e3307a28aa0667991c33` | (see git log) |
+
+### Testing
+
+- [OK] Full supported source/snapshot update, Go builds and tests, and Harness suite passed; latest focused source verification: 16/16.
+- [OK] Fresh repair-head CI: 10/10; Ubuntu Harness 456 pass/8 skip, Windows Node 22 Harness 463 pass/1 skip, zero failures.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Push archive/journal commits to Harness PR #49; require all fresh checks on the exact final head before normal merge.
