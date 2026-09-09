@@ -970,7 +970,7 @@ async function prepareTrellisWorktree(
     integrity,
   );
   const changedPaths = collectWorktreeChanges(worktree);
-  runHarnessTests(worktree, run);
+  await runHarnessTests(worktree, run);
   await assertProtectedPathsAbsent(worktree);
   return {
     candidateRoot: worktree,

@@ -27,9 +27,10 @@ custom agent's ``hooks.userPromptSubmit`` and the IDE ``.kiro.hook``
 (Kiro adds hook stdout directly to the conversation context). Written to
 each platform's hooks directory via writeSharedHooks() at init time.
 
-Silent exit 0 cases (no output):
+Silent exit 0 case (no output):
   - No .trellis/ directory found (not a Trellis project)
-  - task.json malformed or missing status
+
+An unreadable active task record emits task_error rather than no_task.
 """
 from __future__ import annotations
 
@@ -69,7 +70,7 @@ from typing import Optional
 # get the full SessionStart overview; this short reminder points the main session
 # at the start skill once and leaves the per-turn state block compact.
 CODEX_NO_TASK_BOOTSTRAP_NOTICE = """<trellis-bootstrap>
-If you have not already loaded Trellis context this session, read the `trellis-start` skill once.
+Apply Request Triage first. Load `trellis-start` only when the request needs structured task context that is not already loaded.
 </trellis-bootstrap>"""
 
 
@@ -99,10 +100,9 @@ def _detect_platform(input_data: dict) -> str | None:
     if isinstance(input_data.get("cursor_version"), str):
         return "cursor"
     env_map = {
-        # ZCode may set both ZCODE_PROJECT_DIR and CLAUDE_PROJECT_DIR; check
-        # ZCODE first so ZCode sessions aren't misdetected as claude.
+        # Other hosts may also set CLAUDE_PROJECT_DIR as a compatibility alias.
+        # Prefer the host-specific variable before checking that shared alias.
         "ZCODE_PROJECT_DIR": "zcode",
-        "CLAUDE_PROJECT_DIR": "claude",
         "CURSOR_PROJECT_DIR": "cursor",
         "CODEBUDDY_PROJECT_DIR": "codebuddy",
         "FACTORY_PROJECT_DIR": "droid",
@@ -111,6 +111,7 @@ def _detect_platform(input_data: dict) -> str | None:
         "KIRO_PROJECT_DIR": "kiro",
         "COPILOT_PROJECT_DIR": "copilot",
         "TRAE_PROJECT_DIR": "trae",
+        "CLAUDE_PROJECT_DIR": "claude",
     }
     for env_name, platform in env_map.items():
         if os.environ.get(env_name):
@@ -151,7 +152,7 @@ def _resolve_active_task(root: Path, input_data: dict):
 def get_active_task(
     root: Path, input_data: dict
 ) -> Optional[tuple[str, str, str, Path]]:
-    """Return (task_id, status, source, task_dir) for the active task."""
+    """Return task data, task_error, or no pointer; retain the path for PM gates."""
     active = _resolve_active_task(root, input_data)
     if not active.task_path:
         return None
@@ -160,20 +161,22 @@ def get_active_task(
     if not task_dir.is_absolute():
         task_dir = root / task_dir
     if active.stale:
-        return task_dir.name, f"stale_{active.source_type}", active.source
+        return task_dir.name, f"stale_{active.source_type}", active.source, task_dir
 
     task_json = task_dir / "task.json"
     if not task_json.is_file():
-        return None
+        return task_dir.name, "task_error", active.source, task_dir
     try:
         data = json.loads(task_json.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
-        return None
+        return task_dir.name, "task_error", active.source, task_dir
+    if not isinstance(data, dict):
+        return task_dir.name, "task_error", active.source, task_dir
 
     task_id = data.get("id") or task_dir.name
     status = data.get("status", "")
     if not isinstance(status, str) or not status:
-        return None
+        return task_dir.name, "task_error", active.source, task_dir
     return task_id, status, active.source, task_dir
 
 

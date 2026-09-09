@@ -1,16 +1,16 @@
 {
   "schemaVersion": 1,
-  "capturedAt": "2026-09-06T04:40:58.777Z",
+  "capturedAt": "2026-09-06T16:46:04.267Z",
   "harness": {
     "repository": "https://github.com/jed-zed/trellis-ccg-harness",
     "visibility": "public"
   },
   "trellis": {
     "package": "@mindfoldhq/trellis",
-    "version": "0.6.9",
-    "integrity": "sha512-QAi3W+KXb32grrx4PjbNS7WP7JT5IqlwTH78dZDY5tX0E3O/9mCZPGgxDDuVVbJiGD1qcyaFwsUJZhfHZpA+2A==",
+    "version": "0.6.16",
+    "integrity": "sha512-guWqyWiRJ2Eine2H6+rI0X1DhHKpe9zkfC9pJdm2HHGEL+E2mPhGd78pbLZ917CeDuED0frYKNs/aC9lR1mMuQ==",
     "upstream": "https://github.com/mindfold-ai/trellis",
-    "sourceMode": "latest-generated-project-assets",
+    "sourceMode": "generated-project-assets-from-explicit-version",
     "preUpgradeAudit": {
       "version": "0.5.17",
       "changedFiles": 0,

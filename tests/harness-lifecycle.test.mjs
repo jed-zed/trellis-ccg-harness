@@ -209,6 +209,92 @@ test("CCG snapshot update doctor uses the current manifest baseline", () => {
   ]);
 });
 
+test("Trellis candidate gate failure is caught and cleaned before application", () => {
+  const script = String.raw`
+    import assert from "node:assert/strict";
+    import childProcess from "node:child_process";
+    import fs from "node:fs";
+    import { syncBuiltinESMExports } from "node:module";
+    import { tmpdir } from "node:os";
+    import path from "node:path";
+    import { pathToFileURL } from "node:url";
+
+    const repoRoot = fs.mkdtempSync(path.join(tmpdir(), "candidate-gate-test-"));
+    const manifest = { trellis: { version: "0.6.16", integrity: "sha512-AAAA" } };
+    let candidateRoot;
+    let worktreeRemoved = false;
+    let applicationReached = false;
+    const unhandled = [];
+    process.on("unhandledRejection", (error) => unhandled.push(error.message));
+    const realExists = fs.existsSync;
+    fs.existsSync = (target) => /[\\/](npm-cli|pnpm)\.js$/.test(target)
+      || realExists(target);
+    childProcess.spawnSync = (command, args) => {
+      let stdout = "";
+      if (command === "git") {
+        const gitArgs = args.slice(2);
+        if (gitArgs[0] === "worktree" && gitArgs[1] === "add") {
+          candidateRoot = gitArgs[4];
+          fs.mkdirSync(path.join(candidateRoot, ".trellis"), { recursive: true });
+          fs.mkdirSync(path.join(candidateRoot, "tests"));
+          fs.writeFileSync(path.join(candidateRoot, ".trellis", ".version"), "0.6.17");
+          fs.writeFileSync(path.join(candidateRoot, "harness.sources.json"), JSON.stringify(manifest));
+          fs.writeFileSync(path.join(candidateRoot, "README.md"), "@mindfoldhq/trellis@0.6.16");
+          fs.writeFileSync(path.join(candidateRoot, "tests", "candidate.test.mjs"), "");
+        } else if (gitArgs[0] === "worktree" && gitArgs[1] === "remove") {
+          worktreeRemoved = true;
+        }
+      } else if (args.includes("view")) {
+        stdout = JSON.stringify("sha512-AAAA");
+      } else if (args[0] === "--test") {
+        return { status: 1, stdout: "", stderr: "candidate fixture failed" };
+      } else if (!args.includes("dlx")) {
+        throw new Error("Unexpected fixture command: " + command + " " + args.join(" "));
+      }
+      return { status: 0, stdout, stderr: "" };
+    };
+    syncBuiltinESMExports();
+    const { createTrellisCandidate, cleanupTrellisCandidate } = await import(
+      pathToFileURL(path.join(process.argv[1], "scripts", "harness-lifecycle.mjs"))
+    );
+    let failure;
+    try {
+      try {
+        await createTrellisCandidate({ repoRoot, trellisVersion: "0.6.17" }, manifest);
+        applicationReached = true;
+      } catch (error) {
+        failure = error;
+      }
+      await new Promise(setImmediate);
+      const evidence = {
+        applicationReached,
+        worktreeRemoved,
+        temporaryRootRemoved: !realExists(path.dirname(candidateRoot)),
+        caughtFailure: failure?.message ?? null,
+        unhandled,
+      };
+      process.stdout.write(JSON.stringify(evidence) + "\n");
+      assert.equal(applicationReached, false, "failed candidate reached application branch");
+      assert.match(failure?.message ?? "", /exited with 1/);
+      assert.equal(worktreeRemoved, true);
+      assert.equal(evidence.temporaryRootRemoved, true);
+      assert.deepEqual(unhandled, []);
+    } finally {
+      if (candidateRoot && realExists(path.dirname(candidateRoot))) {
+        await cleanupTrellisCandidate(repoRoot, {
+          candidateRoot, temporaryRoot: path.dirname(candidateRoot), worktreeAdded: true,
+        });
+      }
+      fs.rmSync(repoRoot, { recursive: true, force: true });
+    }
+  `;
+  const result = spawnSync(process.execPath, ["--input-type=module", "--eval", script, ROOT], {
+    encoding: "utf8",
+    shell: false,
+  });
+  assert.equal(result.status, 0, [result.stdout, result.stderr].filter(Boolean).join("\n"));
+});
+
 test("semantic version comparison follows prerelease precedence", () => {
   assert.equal(compareSemanticVersions("0.6.9", "0.7.0"), -1);
   assert.equal(compareSemanticVersions("1.0.0", "1.0.0-rc.1"), 1);
