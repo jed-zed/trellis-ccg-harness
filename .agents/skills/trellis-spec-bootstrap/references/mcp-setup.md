@@ -2,10 +2,6 @@
 
 GitNexus and ABCoder are recommended when bootstrapping Trellis specs because they expose architecture and AST context to the agent. They are tool choices, not platform requirements. Configure them through whatever MCP mechanism your agent host provides.
 
-Neither tool is installed or run by default. Present the recommendation first,
-and do not execute any install, indexing, or MCP-registration command until the
-user explicitly approves that named tool.
-
 ## GitNexus
 
 GitNexus builds a code knowledge graph from the repository. Use it for module boundaries, execution flows, dependency relationships, blast radius, and graph queries.
@@ -14,13 +10,13 @@ GitNexus builds a code knowledge graph from the repository. Use it for module bo
 
 ```bash
 # Run from the repository root.
-npx --yes gitnexus@1.6.9 analyze
+npx gitnexus analyze
 
 # Check index status.
-npx --yes gitnexus@1.6.9 status
+npx gitnexus status
 
 # Re-index after code changes when the analysis is stale.
-npx --yes gitnexus@1.6.9 analyze
+npx gitnexus analyze
 ```
 
 The index is written to `.gitnexus/`. Keep embeddings only if the project already uses them; otherwise a normal index is enough for spec bootstrapping.
@@ -30,12 +26,8 @@ The index is written to `.gitnexus/`. Keep embeddings only if the project alread
 Use this server command in the host's MCP configuration:
 
 ```bash
-npx --yes gitnexus@1.6.9 mcp
+npx -y gitnexus mcp
 ```
-
-Pinned source identity: npm package `gitnexus@1.6.9`, Git commit
-`4227194ad7bdfbedc29a7fe20e09c6737ce0e744`, npm integrity
-`sha512-Rq5LXFygx7jjMp/YFsIAcnnzuKvvCsb4rxHFILnu05ZOqk7xNXTUSMRa968EOCbxcKFxnhKYaGXoabOUeGZX6A==`.
 
 ### Useful Tools
 
@@ -55,15 +47,9 @@ ABCoder parses code into UniAST and gives precise package, file, and node-level 
 ### Install
 
 ```bash
-go install github.com/cloudwego/abcoder@v0.3.1
+go install github.com/cloudwego/abcoder@latest
 abcoder --help
 ```
-
-Pinned source identity: release `v0.3.1`, Git commit
-`375e069f1f02dca204208d87c7b6f6274544f581`, Git tree
-`b5c075398edbb63cb26c5acfe5a5b2f967e54a2f`, module checksum
-`h1:6lK6+KVZZZ4oQ17FG+Rinav395Gs6XY+l4NZoFV7o1Q=`, and `go.mod`
-checksum `h1:UvVOoWaFhVy3oGSbMHDVmD0Hy4ivioeX/52JvsQnR0g=`.
 
 ### Parse Repositories
 

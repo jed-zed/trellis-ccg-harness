@@ -1,61 +1,24 @@
 ---
 name: trellis-continue
-description: "Resume work on the current task. Loads the workflow Phase Index, figures out which phase/step to pick up at, then pulls the step-level detail via get_context.py --mode phase. Use when coming back to an in-progress task and you need to know what to do next."
+description: "Resume the current Trellis task from its accepted requirements, plan and verification evidence without repeating completed work."
 ---
 
 # Continue Current Task
 
-Resume work on the current task — pick up at the right phase/step in `.trellis/workflow.md`.
-
----
-
-## Step 1: Load Current Context
+Read current task state if it is not already known:
 
 ```bash
 python ./.trellis/scripts/get_context.py
-```
-
-Confirms: current task, git state, recent commits.
-
-## Step 2: Load the Phase Index
-
-```bash
 python ./.trellis/scripts/get_context.py --mode phase
 ```
 
-Shows the Phase Index (Plan / Execute / Finish) with routing + skill mapping.
+Follow Request Triage in `.trellis/workflow.md` when there is no matching task. An unrelated simple question can use the fast lane without mutating the active task.
 
-## Step 3: Decide Where You Are
+- `planning`: read requirements and planning artifacts. Complex tasks must have `prd.md`, `design.md`, and `implement.md`; missing design or implementation plans block complex-task implementation. Lightweight structured tasks may be PRD-only.
+- Present completed planning artifacts and wait for explicit implementation approval before `task.py start`; task-creation consent or a generic request to continue cannot replace that review. Inline seed-only context uses the supported `--allow-empty-context` option.
+- `in_progress`: resume the first unfinished implementation or verification step. Follow the project lint/typecheck/tests and coverage checklist; the final pass covers all affected task scope.
+- Acceptance met: record results and use `trellis-finish-work`. A commit, journal or extra review is not an automatic completion prerequisite.
 
-`get_context.py` shows the active task's `status` field. Route by `status` + artifact presence. This command replaces the user needing to remember the Trellis flow; it does not itself approve implementation.
+A pending product-manager hard gate still requires presentation and a fresh explicit user response. Do not infer acceptance from a generic request to continue.
 
-- `status=planning` + no `prd.md` → **1.1** (load `trellis-brainstorm`)
-- `status=planning` + `prd.md` only → decide whether the task is lightweight or complex. Lightweight can move to **1.4** review; complex returns to **1.1** to add `design.md` + `implement.md`.
-- `status=planning` + complex artifacts complete + sub-agent jsonl not curated (only the seed `_example` row) → **1.3**
-- `status=planning` + required artifacts complete + required jsonl curated or inline mode → **1.4** (ask for start review; only run `task.py start` after user confirms)
-- `status=in_progress` + implementation not started → **2.1**
-- `status=in_progress` + implementation done, not yet checked → **2.2**
-- `status=in_progress` + check passed → **3.3** (spec update) → **3.4** (commit)
-- `status=completed` (rare; usually archived immediately) → archive flow
-
-Phase rules (full detail in `.trellis/workflow.md`):
-
-1. Run steps **in order** within a phase — `[required]` steps must not be skipped
-2. `[once]` steps are already done if the required output exists. `prd.md` alone can be enough only for lightweight tasks; complex tasks also need `design.md` and `implement.md`.
-3. You may go back to an earlier phase if discoveries require it
-
-## Step 4: Load the Specific Step
-
-Once you know which step to resume at:
-
-```bash
-python ./.trellis/scripts/get_context.py --mode phase --step <X.X> --platform codex
-```
-
-Follow the loaded instructions. After each `[required]` step completes, move to the next.
-
----
-
-## Reference
-
-Full workflow and detailed phase steps live in `.trellis/workflow.md`. This command is only an entry point — the canonical guidance is there.
+Load only the missing step detail with `get_context.py --mode phase --step <X.Y> --platform codex`. Every extra step needs a trigger fact -> required output -> stop condition; `.trellis/workflow.md` is the authority.

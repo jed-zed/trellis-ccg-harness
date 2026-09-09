@@ -102,16 +102,13 @@ test("Trellis conflict copies are resolved instead of committed", () => {
   }
 });
 
-test("recommended third-party MCP tools are approval-gated and source-pinned", async () => {
+test("third-party MCP examples retain the restored official Trellis commands", async () => {
   const setup = await text(
     ".agents/skills/trellis-spec-bootstrap/references/mcp-setup.md",
   );
 
-  assert.match(setup, /do not execute.+until the\s+user explicitly approves/is);
-  assert.match(setup, /gitnexus@1\.6\.9/);
-  assert.match(setup, /github\.com\/cloudwego\/abcoder@v0\.3\.1/);
-  assert.match(setup, /sha512-[A-Za-z0-9+/]+=*/);
-  assert.match(setup, /module checksum\s+`h1:/);
-  assert.doesNotMatch(setup, /@latest\b/);
-  assert.doesNotMatch(setup, /\bnpx\s+(?:-y\s+)?gitnexus(?:\s|$)/);
+  assert.match(setup, /\bnpx gitnexus analyze\b/);
+  assert.match(setup, /\bnpx -y gitnexus mcp\b/);
+  assert.match(setup, /\bgo install github\.com\/cloudwego\/abcoder@latest\b/);
+  assert.doesNotMatch(setup, /gitnexus@|abcoder@v/);
 });
