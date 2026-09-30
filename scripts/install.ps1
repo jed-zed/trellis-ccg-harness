@@ -152,7 +152,7 @@ function Get-CommandVersion {
     return $null
   }
   $match = [regex]::Match(
-    ($output -join " "),
+    ([string]($output | Select-Object -Last 1)),
     "(?<![0-9])(?<version>[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?)"
   )
   if (-not $match.Success) {
@@ -1227,8 +1227,8 @@ Write-Output (
 )
 Write-Output "  User home: $HomeDir"
 Write-Output (
-  "  Trellis: install/verify $requiredTrellisVersion " +
-  "(current: $($currentTrellisVersion ?? 'missing'))"
+  "  Trellis: keep $($currentTrellisVersion ?? 'missing'); " +
+  "install $requiredTrellisVersion only when absent"
 )
 Write-Output (
   "  CCG CLI: build/package-install exact $requiredCcgVersion snapshot " +
@@ -1283,7 +1283,7 @@ if (-not $NonInteractive) {
     Confirm-SetupItem "ccg codex-mode install" $ApproveCodexMode.IsPresent
   }
   else {
-    Confirm-SetupItem "Trellis $requiredTrellisVersion" $ApproveTrellis.IsPresent
+    Confirm-SetupItem "Trellis availability; install $requiredTrellisVersion only when absent" $ApproveTrellis.IsPresent
     Confirm-SetupItem "CCG CLI $requiredCcgVersion" $ApproveCcgCli.IsPresent
     Confirm-SetupItem "Codex plugin $pluginId from the local snapshot" `
       $ApproveCcgPlugin.IsPresent
@@ -1355,11 +1355,8 @@ if (-not $NonInteractive) {
 
   $installedTrellisVersion = Get-CommandVersion "trellis"
   $installedCcgVersion = Get-CommandVersion "ccg"
-  if ($installedTrellisVersion -ne $requiredTrellisVersion) {
-    throw (
-      "Installed Trellis version mismatch: expected $requiredTrellisVersion, " +
-      "found $installedTrellisVersion."
-    )
+  if (-not $installedTrellisVersion) {
+    throw "Installed Trellis CLI could not be verified."
   }
   if ($installedCcgVersion -ne $requiredCcgVersion) {
     throw (

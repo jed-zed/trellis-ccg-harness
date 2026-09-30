@@ -74,7 +74,8 @@ const versionForRoot = (state, root) =>
   )?.[1] ?? state.reportedPluginVersion;
 
 if (command === "trellis" && args[0] === "--version") {
-  console.log("trellis 0.6.9");
+  console.log("Trellis project assets: 0.6.9");
+  console.log("trellis 0.6.16");
 } else if (command === "ccg" && args[0] === "--version") {
   console.log(readState().ccgVersion ?? "${CCG_VERSION}");
 } else if (command === "ccg" && args.join(" ") === "codex-mode install") {
@@ -588,6 +589,7 @@ test("non-interactive Global Setup is explicit, exact, provider-safe, and idempo
   try {
     const first = runSetup(value);
     assert.equal(first.status, 0, `${first.stdout}\n${first.stderr}`);
+    assert.match(first.stdout, /Trellis: keep 0\.6\.16; install 0\.6\.9 only when absent/);
     assert.match(
       first.stdout,
       /CCG CLI: build\/package-install exact 3\.3\.2/,

@@ -48,8 +48,12 @@ $requiredTrellis = [string]$manifest.trellis.version
 $currentTrellis = $null
 if (Get-Command trellis -ErrorAction SilentlyContinue) {
   $currentTrellis = ((& trellis --version) | Select-Object -Last 1).Trim()
+  if ($LASTEXITCODE -ne 0 -or -not $currentTrellis) {
+    throw "Installed Trellis CLI is not usable."
+  }
 }
-$manageTrellis = $currentTrellis -ne $requiredTrellis
+# The recorded project-assets version is not a pin on an existing global CLI.
+$manageTrellis = -not $currentTrellis
 $manageCcg = [bool]$LinkCcg
 $lifecycleScript = Join-Path $PSScriptRoot "harness-lifecycle.mjs"
 $beginArguments = @(

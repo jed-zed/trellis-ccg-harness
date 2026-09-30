@@ -126,11 +126,9 @@ $trellisVersion = Read-Version "trellis"
 if (-not $trellisVersion) {
   Add-Failure "Trellis CLI is missing."
 }
-elseif ($trellisVersion.Split([Environment]::NewLine)[-1].Trim() -ne [string]$manifest.trellis.version) {
-  Add-Failure "Trellis CLI must be $($manifest.trellis.version); found $trellisVersion."
-}
 else {
-  Add-Pass "Trellis $($manifest.trellis.version)"
+  $actualTrellisVersion = ($trellisVersion -split "\r?\n")[-1].Trim()
+  Add-Pass "Trellis CLI $actualTrellisVersion (project assets: $($manifest.trellis.version))"
 }
 
 $pnpmVersion = Read-Version "pnpm"

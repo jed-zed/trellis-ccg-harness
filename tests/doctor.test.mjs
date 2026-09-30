@@ -249,6 +249,19 @@ function runSetupDoctor(value, reportPath, previousPluginVersion) {
   });
 }
 
+test("doctor accepts an available Trellis CLI with a different project-assets version", () => {
+  const value = fixture();
+  try {
+    writeCommand(value.binRoot, "trellis", "0.6.16");
+    const reportPath = value.writeReport("newer-trellis.json", adapterReport());
+    const result = runDoctor(value, reportPath);
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+    assert.match(result.stdout, /Trellis CLI 0\.6\.16 \(project assets: 0\.6\.9\)/);
+  } finally {
+    value.cleanup();
+  }
+});
+
 test("doctor warns when the legacy Claude override still points to the SSH bridge", () => {
   const value = fixture();
   try {
