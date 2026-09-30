@@ -52,6 +52,17 @@ npx ccg-workflow    # Install in 60 seconds
 
 **Claude Code** is the lead orchestrator. It analyzes your intent, selects a strategy, and manages the entire workflow. The **Hook Engine** injects state every turn so Claude never loses context — even after compaction. The **codeagent-wrapper** (a compiled Go binary) bridges Claude to external models for parallel analysis and review.
 
+## MCP Research and Legacy Grok
+
+Search actively with existing independent `web_search` agents and grok-search MCP; Codex splits questions and synthesizes the results. Keep the existing agent model and reasoning effort.
+
+Match key conclusions to original sources. Check versions and licenses when reusing code, and experiment conditions when adopting paper conclusions. Mark unverified findings. Ordinary research does not run Grok CLI/ACP, wait for its gates, or require manifests, hashes, or a second search channel.
+
+Use the existing `codex` search route for Codex-led MCP research and keep `intelligence.auto_route = false`. MCP is a retrieval tool, not another CCG Provider. Report unavailable sources without automatically switching to the old CLI.
+
+The Grok coding backend is unchanged. Explicit `/ccg:grok-intel` and `/ccg:grok-verify` commands retain their legacy implementation and strict validation for deliberate reuse; ordinary workflows do not invoke them. The archived instructions below are inactive references.
+
+<!-- Legacy research instructions; inactive in ordinary MCP research.
 ## Grok External Intelligence
 
 Grok now has two deliberately separate roles:
@@ -91,6 +102,7 @@ Validated evidence is local-only by default:
 Cache keys bind the task, mode, model/CLI/policy versions, the complete tracked diff and untracked-file contents, plan, dependencies, official-domain policy, and verification diff. Automatic routes always delegate reuse to the versioned manual cache, which revalidates every manifest member plus evidence/model provenance before reuse; `--force-refresh` always runs a fresh collection and replaces the same-key entry only after success. Retention and bundle caps use `retention_days`, `exported_retention_days`, and `max_bundle_bytes`; export requires `--export <directory>` and never happens automatically. A required blocked route can be waived only by the user with `ccg route waive --state-file <state-file> --reason "<user reason>"`; this records `actor=user` and a timestamp in route state, never mutates evidence, never claims verification passed, and requires downstream bridges to omit external-intelligence evidence flags while retaining the waiver in ordinary routing evidence.
 
 On Windows, the dedicated credential and run roots are protected with owner-only ACLs and reject junction/reparse traversal. Local diagnostics snapshot and restore volatile credential state, and doctor runs purge historical sessions, logs, memtrace, and active-session indexes while preserving browser login, pinned config, and model metadata. Browser OAuth is the normal desktop path; the manual GitHub Actions live smoke uses an environment-approved `XAI_API_KEY`. Junction tests can be skipped by Windows itself when the runner lacks link-creation privilege, but production paths still fail closed on observed links/reparse points.
+-->
 
 ## How It Works
 
@@ -198,11 +210,19 @@ When your message mentions security, caching, RAG, Kubernetes, etc., the relevan
 
 | Command | Description |
 |---------|-------------|
+| `/ccg:grok-intel` | Explicit legacy ACP intelligence collection; not an ordinary research prerequisite |
+| `/ccg:grok-verify` | Explicit legacy verification; not an automatic final gate |
+| `/ccg:gptpro-plan` | Automated GPT Pro sidebar planning evidence with optional MCP research |
+| `/ccg:gptpro-exc` | Automated GPT Pro sidebar execution-route review |
+| `/ccg:gptpro-review` | Automated GPT Pro sidebar review with useful source findings when available |
+
+<!-- Legacy research instructions; inactive in ordinary MCP research.
 | `/ccg:grok-intel` | Collect validated current Web/X evidence through isolated Grok ACP |
 | `/ccg:grok-verify` | Verify a plan, diff, target, and dependencies against current facts |
 | `/ccg:gptpro-plan` | Automated GPT Pro sidebar planning evidence after required Grok routing |
 | `/ccg:gptpro-exc` | Automated GPT Pro sidebar execution-route review |
 | `/ccg:gptpro-review` | Automated GPT Pro sidebar final review with canonical Grok provenance |
+-->
 
 ### OpenSpec Integration
 

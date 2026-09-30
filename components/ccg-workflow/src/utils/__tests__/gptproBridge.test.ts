@@ -872,7 +872,11 @@ describe('GPT Pro sidebar bridge', () => {
     const root = join(TMP_ROOT, 'sidebar-import')
     const taskDir = join(root, '.ccg', 'tasks', 'sidebar-task')
     fs.ensureDirSync(taskDir)
-    fs.writeJsonSync(join(taskDir, 'task.json'), { id: 'sidebar-task', status: 'in_progress' })
+    fs.writeJsonSync(join(taskDir, 'task.json'), {
+      id: 'sidebar-task',
+      status: 'in_progress',
+      intelligence: { requirement: 'required', status: 'failed', evidence_id: 'legacy-missing' },
+    })
     const createOutput = runPython(PYTHON!, [
       BRIDGE,
       '--mode',
@@ -891,6 +895,7 @@ describe('GPT Pro sidebar bridge', () => {
     const sessionDir = parseOutputPath(createOutput, 'CCG_GPTPRO_SESSION_DIR')
     const promptFile = parseOutputPath(createOutput, 'CCG_GPTPRO_PROMPT_FILE')
     const statusFile = parseOutputPath(createOutput, 'CCG_GPTPRO_STATUS_FILE')
+    expect(fs.readJsonSync(statusFile).external_intelligence).toEqual({})
     const sidebarDir = join(dirname(promptFile), 'sidebar')
     const prompt = readFileSync(promptFile, 'utf-8')
       .replace(/\r\n/g, '\n')
@@ -1272,7 +1277,7 @@ describe('GPT Pro sidebar bridge', () => {
     }
   })
 
-  it('keeps conditional Grok evidence ahead of ordinary GPT Pro workflow routing on every surface', () => {
+  it('archives conditional Grok evidence while ordinary GPT Pro workflows use MCP research', () => {
     const surfaces = [
       ['templates/commands/gptpro-plan.md', 'Run the Grok intelligence decision', 'Then run ordinary `/ccg:plan`'],
       ['templates/commands/gptpro-exc.md', 'Run the Grok intelligence decision', 'Then run ordinary'],
@@ -1295,6 +1300,14 @@ describe('GPT Pro sidebar bridge', () => {
       expect(content.indexOf(grokMarker), relativePath).toBeGreaterThanOrEqual(0)
       expect(content.indexOf(grokMarker), relativePath).toBeLessThan(content.indexOf(ordinaryMarker))
       expect(content, relativePath).toMatch(/exit `?2(?:`, `3`, or `4|\/3\/4)/i)
+      const active = content.replace(/<!--[\s\S]*?-->/g, '')
+      expect(active, relativePath).toContain('grok-search MCP')
+      expect(active, relativePath).toContain(ordinaryMarker)
+      expect(active, relativePath).toContain('--require-routing-evidence')
+      expect(active, relativePath).not.toContain('ccg route')
+      expect(active, relativePath).not.toContain('--require-external-intelligence')
+      expect(active, relativePath).not.toContain('--expected-intelligence-mode')
+      expect(active, relativePath).not.toContain('--expected-intelligence-depth')
     }
   })
 

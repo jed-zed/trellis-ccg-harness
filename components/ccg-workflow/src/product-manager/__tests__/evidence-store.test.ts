@@ -74,7 +74,7 @@ describe('product-manager evidence and locking', () => {
       expect(() => resolveProductManagerEvidenceRoot(value.root)).toThrow(/Trellis task/i)
     }
     finally {
-      await rm(value.root, { recursive: true, force: true })
+      await rm(value.root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
     }
   })
 
@@ -107,7 +107,7 @@ describe('product-manager evidence and locking', () => {
       expect(JSON.parse(await readFile(lock, 'utf8')).nonce).toBe('replacement-owner')
     }
     finally {
-      await rm(value.root, { recursive: true, force: true })
+      await rm(value.root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
     }
   })
 
@@ -147,7 +147,7 @@ describe('product-manager evidence and locking', () => {
       expect(executions).toBe(1)
     }
     finally {
-      await rm(value.root, { recursive: true, force: true })
+      await rm(value.root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
     }
   })
 
@@ -207,7 +207,7 @@ describe('product-manager evidence and locking', () => {
       })).resolves.toBe('recovered')
     }
     finally {
-      await rm(value.root, { recursive: true, force: true })
+      await rm(value.root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
     }
   })
 
@@ -231,7 +231,7 @@ describe('product-manager evidence and locking', () => {
       expect(records.every(record => record.token === '[REDACTED]')).toBe(true)
     }
     finally {
-      await rm(value.root, { recursive: true, force: true })
+      await rm(value.root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
     }
   })
 })

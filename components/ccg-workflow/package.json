@@ -87,7 +87,7 @@
     "inquirer": "^12.9.6",
     "ora": "^9.0.0",
     "pathe": "^2.0.3",
-    "smol-toml": "^1.7.0"
+    "smol-toml": "^1.7.1"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

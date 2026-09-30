@@ -63,6 +63,16 @@ product-manager calls still require explicit per-call authorization.
 
 ## Companion Role Contract
 
+Use existing independent research agents with grok-search MCP as the primary
+retrieval tool. Split useful research questions and search actively; Codex
+synthesizes the findings. The `codex` search route means Codex orchestration,
+not a change to a subagent's model. Keep configured subagent models unchanged.
+Follow `ccg-search-evidence.md` for the necessary source checks. Ordinary
+research does not launch a companion Grok CLI/ACP operation, require its
+manifest/hash package, or wait for its gates. Report unavailable sources and
+continue work that does not depend on them; do not automatically use the old CLI.
+
+<!-- Legacy Grok Provider orchestration; inactive in ordinary MCP research.
 When a workflow uses `frontend` or `backend`, the controller evaluates whether
 one logical `search` operation would materially help that task phase. Search is
 advisory companion evidence, not a prerequisite for ordinary local work. If it
@@ -71,6 +81,7 @@ is invoked, make at most two total attempts against the same configured
 `attemptCount`, keep the output read-only, and do not fall back to another
 Provider. A failed advisory search is reported but does not block an otherwise
 valid frontend or backend result.
+-->
 
 The same workflow must evaluate the mapped product-manager event at the next
 eligible checkpoint described by `ccg-product-manager.md`. A candidate opens

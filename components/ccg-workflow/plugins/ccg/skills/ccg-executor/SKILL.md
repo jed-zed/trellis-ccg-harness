@@ -3,6 +3,15 @@ name: executor
 description: Run the CCG workflow inside Codex. Use when the user invokes /ccg, /ccg:workflow, /ccg:execute, /ccg:excute, /ccg:codex-exec, asks Codex to execute a .codex/ccg/plans/*.md file, or wants Codex to orchestrate allowed evidence while implementing a CCG plan.
 ---
 
+## Research
+
+Use existing independent research agents with grok-search MCP. Search actively and
+verify key conclusions against original sources; check versions/licenses when
+reusing code and experiment conditions when adopting papers. Mark unverified findings.
+Archived instructions below are inactive: ordinary work does not run Grok CLI/ACP,
+wait for its gates, or require its manifests and hash packages.
+
+<!-- Legacy Grok CLI/ACP reference; inactive in ordinary research.
 ## Automatic External Intelligence Gate
 
 Before ordinary work, run the shared route once from the controller:
@@ -12,6 +21,7 @@ Before ordinary work, run the shared route once from the controller:
 Run this potentially long route with the host's tool-managed background execution and wait mechanism; never put it under a foreground timeout shorter than the runner's 10-minute timeout. If the host cancels or terminates the job before a terminal state is written, run `ccg route recover --state-file <state-file> --status cancelled --reason "<reason>"` (or use `--status failed`); recovery refuses to overwrite a live owner.
 
 Append existing --plan, --diff, --target, and repeatable --dependency paths whenever those artifacts are available. Add `--semantic-mode contract|incident --semantic-reason "<Codex judgment>"` only for an explicit semantic decision. The runtime honors disabled config, persists the decision reason, and must be re-run after plan, dependency, target, diff, or phase digest changes. Stop ordinary work on exit code `2`, `3`, or `4` only for an explicit required semantic route; advisory search failures do not block ordinary work.
+-->
 
 # CCG Executor
 
@@ -52,7 +62,7 @@ In Codex, the model is:
 
 ```text
 Codex orchestrates four configured top-level roles, applies code, verifies,
-and reports. Frontend or backend work automatically adds search evidence and
+and reports. Frontend or backend work uses research when useful and
 evaluates the product-manager authorization gate.
 ```
 
@@ -77,11 +87,16 @@ providers. Frontend is not permanently Gemini and backend is not permanently
 Codex. An explicit provider request for the current task wins without changing
 the saved defaults.
 
+<!-- Legacy search operation tracking; inactive in ordinary MCP research.
 Whenever `frontend` or `backend` is used, evaluate whether one logical
 `search` operation would materially help the same phase. If invoked, keep one
 stable operation/evidence identity, allow at most two total attempts against
 the same configured Provider, and record `attemptCount`; failure is advisory
-and does not block an otherwise valid local result. Then evaluate the mapped product-manager candidate and
+and does not block an otherwise valid local result.
+-->
+Use the shared MCP research contract when external sources help; independent
+research agents gather material and Codex synthesizes it without legacy search
+gates or evidence packages. Then evaluate the mapped product-manager candidate and
 record `searchStatus` and `productManagerStatus`; stop at
 `authorization_required` until the user explicitly authorizes that Provider
 call.
@@ -136,9 +151,11 @@ Codex-native trigger rules:
 - At the next eligible checkpoint, evaluate the mapped `product-manager`
   candidate and pause for explicit per-call authorization before invocation.
 - Cross-cutting tasks split by role without changing the saved role mappings.
+<!-- Legacy semantic search gate; inactive in ordinary MCP research.
 - If an explicitly required semantic route fails after at most two total
   attempts, stop and report the missing evidence instead of silently
   substituting another provider. Advisory search failure remains non-blocking.
+-->
 
 When Gemini is selected, use:
 

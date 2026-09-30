@@ -65,8 +65,12 @@ Routing Evidence containing:
 
 - the current orchestrator and command semantics;
 - routed frontend/backend/search evidence that actually exists;
+<!-- Legacy mandatory search status; inactive in ordinary research.
 - `searchStatus`: `invoked`, `failed`, or `not_applicable`; the last state is
   forbidden when frontend or backend participated;
+-->
+- `searchStatus`: `invoked`, `failed`, or `not_applicable`; use the last state
+  when external research would not materially help;
 - `productManagerStatus`: `authorization_required`, `authorized`, `declined`,
   `disabled`, `unavailable`, `completed`, or `not_applicable`;
 - the ordinary orchestrator conclusion;
@@ -83,14 +87,26 @@ Search is advisory when ordinary routing used frontend or backend; `failed` or
 candidate may stop at `authorization_required`; GPT Pro must not convert that
 state into authorization or fabricated Provider evidence.
 Gemini remains optional and is included only when ordinary role routing actually used it. If present,
-pass its real non-empty response and concise summary. Never invent provider evidence. Preserve the
-existing required/waived Grok external-intelligence flags and provenance.
+pass its real non-empty response and concise summary. Never invent provider evidence.
+Use existing research agents and grok-search MCP when external sources help.
+Include useful findings and original links in the prompt; ordinary bridge calls
+do not require a Grok receipt, waiver, or external-intelligence flags.
+
+<!-- Legacy Grok gate coupling; inactive in ordinary research.
+Preserve the existing required/waived Grok external-intelligence flags and provenance.
+-->
 
 ## Automated Workflow
 
+<!-- Legacy automatic external-intelligence arguments; inactive.
 1. Create one bridge session with `scripts/gptpro_bridge.py --mode <plan|review|exc>` plus task,
    routing, optional Gemini, and required external-intelligence arguments. Do not pass
    `--detach-preview`, `--open-preview`, or `--open-chatgpt`.
+-->
+1. Create one bridge session with `scripts/gptpro_bridge.py --mode <plan|review|exc>` plus task,
+   routing and optional Gemini arguments. Do not pass `--detach-preview`, `--open-preview`,
+   or `--open-chatgpt`. Keep the explicit legacy external-intelligence validator available
+   for a user-selected legacy workflow only.
 2. Read `CCG_GPTPRO_SESSION_DIR`, `CCG_GPTPRO_PROMPT_FILE`, and `CCG_GPTPRO_STATUS_FILE`.
 3. Set the Skill evidence directory to `<session-dir>/<round-name>/sidebar`; it must be new and empty.
 4. Run Skill `status` and preserve its exact browser/profile/tab/session/URL target binding. Exit `22`

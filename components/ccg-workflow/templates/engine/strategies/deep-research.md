@@ -1,5 +1,14 @@
 # Strategy: Deep Research — 深度研究
 
+## Research
+
+Use existing independent research agents with grok-search MCP. Search actively and
+verify key conclusions against original sources; check versions/licenses when
+reusing code and experiment conditions when adopting papers. Mark unverified findings.
+Archived instructions below are inactive: ordinary work does not run Grok CLI/ACP,
+wait for its gates, or require its manifests and hash packages.
+
+<!-- Legacy Grok CLI/ACP reference; inactive in ordinary research.
 ## Automatic External Intelligence Gate
 
 Before ordinary work, run the shared route once from the controller:
@@ -9,14 +18,16 @@ Before ordinary work, run the shared route once from the controller:
 Run this potentially long route with the host's tool-managed background execution and wait mechanism; never put it under a foreground timeout shorter than the runner's 10-minute timeout. If the host cancels or terminates the job before a terminal state is written, run `ccg route recover --state-file <state-file> --status cancelled --reason "<reason>"` (or use `--status failed`); recovery refuses to overwrite a live owner.
 
 Append existing --plan, --diff, --target, and repeatable --dependency paths whenever those artifacts are available. Add `--semantic-mode contract|incident --semantic-reason "<Codex judgment>"` only for an explicit semantic decision. The runtime honors disabled config, persists the decision reason, and must be re-run after plan, dependency, target, diff, or phase digest changes. Stop ordinary work on exit code `2`, `3`, or `4` only for an explicit required semantic route; advisory search failures do not block ordinary work.
+-->
 
-> 适用于技术方案研究、对比分析。多模型并行探索，结构化输出。
+> 适用于技术方案研究、对比分析。独立代理按问题并行检索，主代理综合。
 
 ## 适用条件
 - 用户提出研究/分析/对比类问题
 - 不涉及代码修改（纯研究）
 - 任何复杂度级别
 
+<!-- Legacy research instructions; inactive in ordinary MCP research.
 ## 前置加载
 
 ```
@@ -50,6 +61,9 @@ Gate: 双模型探索已返回 ✓
 [/phase-state:4-discuss]
 
 ---
+-->
+
+按当前项目任务流程推进：明确问题、并行检索、综合发现、按需继续讨论；无需额外加载模型路由或等待固定双模型门禁。
 
 ## 阶段详情
 
@@ -68,6 +82,7 @@ Gate: 双模型探索已返回 ✓
      约束: [时间/技术/资源约束]
    ```
 
+<!-- Legacy research instructions; inactive in ordinary MCP research.
 ### Phase 2: 多模型并行探索 [required]
 
 **Task 更新**：`currentPhase → "2-explore"`, `nextAction → "双模型并行探索"`
@@ -101,8 +116,17 @@ Gate: 双模型探索已返回 ✓
 **持久化研究成果**（如有任务目录）：
 - 将双模型原始分析写入 `.ccg/tasks/{task-name}/research/backend-analysis.md`
 - 将双模型原始分析写入 `.ccg/tasks/{task-name}/research/frontend-analysis.md`
+-->
 
-输出结构化报告：
+### Phase 2: 独立代理并行检索
+
+把可独立回答的问题派给现有 `web_search`，使用 grok-search MCP 搜索和读取原始资料；相关问题继续深挖，不固定模型数量或要求再跑一条 Grok CLI。返回有用发现、来源和未核实项。
+
+### Phase 3: 综合分析
+
+主代理结合项目约束综合已有结果。关键结论对应原文；实际复用代码查版本和许可证，采用论文结论查实验条件。缺少关键资料时说明具体限制，不等待旧证据门禁。按任务需要记录有用结论，不强制两份模型原始报告。
+
+按问题选择清晰的表达方式；需要比较方案时可参考：
 
 ```
 📋 研究报告: [主题]
@@ -146,6 +170,12 @@ Gate: 双模型探索已返回 ✓
 ## 铁律
 
 - **纯研究模式，不做代码修改** — 除非用户明确要求 POC
+<!-- Legacy research instructions; inactive in ordinary MCP research.
 - **结果必须结构化输出** — 表格对比，不是自由聊天
+-->
+- 以方便理解为准，返回有用发现、来源和必要的不确定说明。
 - **必须给出推荐** — 不可只列选项不做判断
+<!-- Legacy research instructions; inactive in ordinary MCP research.
 - **双模型探索必须并行** — 独立视角更有价值
+-->
+- 独立问题积极并行检索，由主代理综合，无需固定双模型核验。
