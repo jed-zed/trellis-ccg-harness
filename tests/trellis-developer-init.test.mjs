@@ -35,13 +35,15 @@ function fixture() {
 }
 
 function runPython(repoRoot, args) {
-  return spawnSync(PYTHON.command, [...PYTHON.argsPrefix, ...args], {
+  const result = spawnSync(PYTHON.command, [...PYTHON.argsPrefix, ...args], {
     cwd: repoRoot,
     encoding: "utf8",
     shell: false,
     windowsHide: true,
-    timeout: 10_000,
+    timeout: process.platform === "win32" ? 30_000 : 10_000,
   });
+  assert.ifError(result.error);
+  return result;
 }
 
 function runInit(value, args) {

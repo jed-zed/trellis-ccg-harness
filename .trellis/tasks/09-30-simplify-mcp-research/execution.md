@@ -125,3 +125,9 @@ CCG 最终提交 `3b3457c` 的 GitHub CI run `36749712966` 全部 6 项通过，
 最终快照更新成功，更新器退出 0，来源为 `3b3457c37e7af8bb86a6f506db67363e397d2693`、Git tree 为 `835d4df1d02d4806ba2a68883b0fe129ac73be61`。源码与快照各 643 项通过、3 项跳过，各自 lint/typecheck/build、Go test/build 通过；Harness 集成测试 464 项通过、0 失败、1 项跳过。事务 `2026-09-30T17-20-34-972Z-5b61a98f-db9d-4124-8f5d-7f82f743722e` 完成，无 pending journal 或锁残留。完整日志为忽略目录中的 `pr-final-source-update-v3.log`。
 
 CCG PR：https://github.com/jed-zed/ccg-gptpro-worflow/pull/50 。Harness PR：https://github.com/jed-zed/trellis-ccg-harness/pull/52 。发布快照与本任务文档进入后者；后续 GitHub CI 以 PR 当前提交的检查状态为准。个人模型配置、接口、密钥和忽略目录中的运行日志均不进入 PR。8 个任务文档已通过凭据及私有端点模式检查；最终 CCG 提交范围检查未发现无关文件。两个 PR 未合并，本机安装仍保持先前已验证版本，任务未完成或归档。
+
+### GitHub CI 后续：Windows 测试启动超时
+
+Harness 首轮最终提交 `ffa5779` 的 GitHub CI run `36753478288` 为 9 项通过、1 项失败。唯一失败是 Windows Node 20 中 `developer init help is side-effect free`：Python 子进程没有退出状态，测试耗时约 10.6 秒，符合现有 10 秒启动上限；同一用例在其他平台及 Windows Node 22 通过。没有观察到帮助命令写入身份状态，也未改开发者初始化实现。
+
+仅将该测试公共启动器的 Windows 上限设为 30 秒，其他平台仍为 10 秒，并显式断言 `result.error` 为空，避免启动错误被当作预期的参数失败。四个相关测试及 Node 语法检查通过，行为断言全部保留。后续 GitHub CI 以 PR 最新提交状态为准。
