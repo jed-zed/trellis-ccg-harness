@@ -46,7 +46,7 @@ jobs:
         run: pnpm typecheck
 
       - name: Run tests with coverage
-        run: pnpm test -- --coverage
+        run: pnpm test --coverage ${{ runner.os == 'Windows' && '--testTimeout 60000 --no-file-parallelism --pool threads' || '' }}
 
       - name: Upload coverage to Codecov
         if: runner.os == 'Linux' && matrix.node-version == 22

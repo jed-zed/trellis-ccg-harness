@@ -52,6 +52,17 @@ npx ccg-workflow    # 60 秒安装
 
 **Claude Code** 是主控编排器。它分析你的意图、选择策略、管理整个工作流。**Hook 引擎**每轮注入状态，确保 Claude 永不丢失上下文 —— 即使上下文被压缩。**codeagent-wrapper**（编译的 Go 二进制）作为桥梁，将 Claude 连接到外部模型进行并行分析和审查。
 
+## MCP 调研与旧 Grok 链路
+
+积极搜索类似项目、可复用代码、已有方案与适用论文。按独立问题派发现有 `web_search` 子代理，以 grok-search MCP 为主要取资料工具，由 Codex 综合；保留原有代理模型与推理级别。
+
+日常只做必要核验：关键结论对应原文；实际复用代码查版本和许可证；采用论文结论查实验条件；未核实的明确标注。不要求再并跑 Grok CLI/ACP，不强制 manifest、哈希证据包或等待旧搜索门禁。
+
+使用已有 `codex` 搜索路由表达 Codex 编排，并保持 `intelligence.auto_route = false`。MCP 是取资料工具，不是新增 Provider；失败如实报告，不自动改走旧 CLI。
+
+Grok 编码后端不变。显式 `/ccg:grok-intel`、`/ccg:grok-verify` 的旧实现和严格校验继续保留，普通工作流不自动调用。下方旧说明作为停用参考保留。
+
+<!-- Legacy research instructions; inactive in ordinary MCP research.
 ## Grok 外部情报层
 
 Grok 现在有两个刻意隔离的定位：
@@ -91,6 +102,7 @@ ccg doctor --grok-live          # 显式、有限额的付费 Web/X 冒烟
 缓存键绑定任务、模式、计划、目标、依赖、diff 和阶段；`--force-refresh` 可跳过缓存。本地证据默认保留 7 天，显式导出的脱敏包保留 30 天。只有传入 `--export <目录>` 才会导出，系统绝不自动导出。必需门禁只能由用户明确授权豁免，并记录理由和时间。
 
 Windows 上的凭据目录和运行目录使用仅所有者 ACL，并拒绝 junction/重解析路径穿越。桌面默认使用浏览器 OAuth；手动 GitHub Actions live smoke 通过受 environment 审批的 `XAI_API_KEY` 运行。若 Windows 运行器没有创建链接的权限，junction 测试会被系统跳过，但生产路径一旦观察到链接或重解析点仍会关闭式拒绝。
+-->
 
 ## 工作流程
 
@@ -198,11 +210,19 @@ CCG 引擎:
 
 | 命令 | 说明 |
 |------|------|
+| `/ccg:grok-intel` | 显式调用的旧 ACP 情报链路，普通调研不依赖 |
+| `/ccg:grok-verify` | 显式调用的旧核验链路，不作为自动最终门禁 |
+| `/ccg:gptpro-plan` | 自动 GPT Pro 侧栏规划证据，可使用已有 MCP 调研 |
+| `/ccg:gptpro-exc` | 自动 GPT Pro 侧栏执行路线审查 |
+| `/ccg:gptpro-review` | 自动 GPT Pro 侧栏审查，按需加入来源发现 |
+
+<!-- Legacy research instructions; inactive in ordinary MCP research.
 | `/ccg:grok-intel` | 通过隔离的 Grok ACP 收集并验证最新 Web/X 证据 |
 | `/ccg:grok-verify` | 根据最新事实核验计划、diff、目标和依赖 |
 | `/ccg:gptpro-plan` | 必需 Grok 路由后，手动获取 GPT Pro 规划证据 |
 | `/ccg:gptpro-exc` | 手动进行 GPT Pro 执行路线审查 |
 | `/ccg:gptpro-review` | 使用规范 Grok 来源记录进行 GPT Pro 最终审查 |
+-->
 
 ### OpenSpec 集成
 

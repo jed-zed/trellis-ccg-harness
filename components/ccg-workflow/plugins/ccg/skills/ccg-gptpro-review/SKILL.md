@@ -13,6 +13,15 @@ Load and follow `skills/ccg-gptpro-bridge/SKILL.md`.
 ## Behavior
 
 - Gather review input: plan, diff, touched files, test summary, or user-provided target.
+## Research
+
+Use existing independent research agents with grok-search MCP. Search actively and
+verify key conclusions against original sources; check versions/licenses when
+reusing code and experiment conditions when adopting papers. Mark unverified findings.
+Archived instructions below are inactive: ordinary work does not run Grok CLI/ACP,
+wait for its gates, or require its manifests and hash packages.
+
+<!-- Legacy Grok CLI/ACP reference; inactive in ordinary research.
 - For a pure local code review, do not run Grok external-intelligence or apply an official-domain
   gate. Only when a conclusion depends on a current external fact, predeclare its authoritative
   domain, write the bounded subject, and run
@@ -23,6 +32,8 @@ Run this potentially long route with the host's tool-managed background executio
   the exact plan, diff, dependency locks, and test summary; require its canonical artifact, manifest,
   hashes, and active-task pointer. Exit `2`, `3`, or `4` stops the workflow, and raw Grok output is
   never embedded in the GPT Pro prompt.
+-->
+
 - Run ordinary `/ccg:review` semantics first. Preserve Codex as the final
   review authority and use the applicable frontend/backend/search review evidence from that
   workflow.
@@ -48,12 +59,18 @@ Run this potentially long route with the host's tool-managed background executio
 - Expected questions: 1.
 - Additional sequential follow-up questions have no fixed bridge limit.
 - Follow-up rounds are only after Codex fixes blocker findings.
+<!-- Legacy Grok CLI/ACP reference; inactive in ordinary research.
 - Use `scripts/gptpro_bridge.py --mode review --gemini-policy optional --gemini-evidence-role gate --routing-evidence-file <routing-evidence-file> --routing-summary-file <routing-summary-file> --require-routing-evidence [--gemini-response-file <CCG_GEMINI_RESPONSE_FILE> --gemini-summary-file <summary-file> when Gemini actually ran] [--require-external-intelligence --expected-intelligence-mode <route investigation_mode> --expected-intelligence-depth <route depth> when route status=verified or status=received_unverified and requirement=required]`; omit those three external-intelligence flags for `status=waived`.
+-->
+- Use `scripts/gptpro_bridge.py --mode review --gemini-policy optional --gemini-evidence-role gate --routing-evidence-file <routing-evidence-file> --routing-summary-file <routing-summary-file> --require-routing-evidence [--gemini-response-file <CCG_GEMINI_RESPONSE_FILE> --gemini-summary-file <summary-file> when Gemini actually ran]`.
 - Delegate, monitor, wake, and import through the installed `chatgpt-pro-sidebar` Skill exactly as defined by the shared bridge Skill.
 - After the sidebar response import succeeds, classify Critical/Major/Minor findings, false positives, required tests,
   and Codex actions.
+<!-- Legacy Grok CLI/ACP reference; inactive in ordinary research.
 - Report in Chinese and synthesize validated Grok external intelligence when that external-fact path ran, ordinary review evidence,
   optional Gemini evidence when present, and GPT Pro findings.
+-->
+- Synthesize available MCP research, ordinary role evidence, and GPT Pro findings in Chinese; the current orchestrator decides the outcome.
 - The current CCG orchestrator remains final owner.
 - Do not automate ChatGPT web login.
 - Do not read arbitrary ChatGPT DOM.

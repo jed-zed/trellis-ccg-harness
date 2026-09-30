@@ -9,6 +9,15 @@ Use `commands/go.md` as the authoritative routing contract for `/ccg:go`.
 
 ## Behavior
 
+## Research
+
+Use existing independent research agents with grok-search MCP. Search actively and
+verify key conclusions against original sources; check versions/licenses when
+reusing code and experiment conditions when adopting papers. Mark unverified findings.
+Archived instructions below are inactive: ordinary work does not run Grok CLI/ACP,
+wait for its gates, or require its manifests and hash packages.
+
+<!-- Legacy Grok CLI/ACP reference; inactive in ordinary research.
 Bootstrap contract: before invoking the route, create or reuse a safe `<task-id>`, create
 `.ccg/tasks/<task-id>/`, and write the original user request to
 `.ccg/tasks/<task-id>/intelligence-request.md` with a file-writing tool rather than shell interpolation.
@@ -22,6 +31,8 @@ Run this potentially long route with the host's tool-managed background executio
   judgment finds a material current-fact dependency even if the user did not ask to search. Supply
   plan/diff/dependency paths when present, re-run final external verification when their digests change,
   persist every skip reason, and stop on exit code `2`, `3`, or `4`.
+-->
+
 - Inspect the user's natural-language request, current project context, and git status before choosing a workflow.
 - Route explicit GPT Pro intents to `/ccg:gptpro-plan`, `/ccg:gptpro-review`, or `/ccg:gptpro-exc`.
 - If the user says `gptpro` without a precise subcommand, choose:

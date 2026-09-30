@@ -15,6 +15,15 @@ the execution route is worth local implementation before real code landing.
 
 - Treat input as an implementation request whose ordinary `/ccg:execute` preflight and routing must
   happen before the GPT Pro handoff.
+## Research
+
+Use existing independent research agents with grok-search MCP. Search actively and
+verify key conclusions against original sources; check versions/licenses when
+reusing code and experiment conditions when adopting papers. Mark unverified findings.
+Archived instructions below are inactive: ordinary work does not run Grok CLI/ACP,
+wait for its gates, or require its manifests and hash packages.
+
+<!-- Legacy Grok CLI/ACP reference; inactive in ordinary research.
 - Before ordinary execution or any Gemini or GPT Pro handoff, write the bounded subject and run
   `ccg route --workflow gptpro-exc --phase intake --task-file <request-file> --state-file <state-file>`.
 
@@ -25,7 +34,12 @@ Run this potentially long route with the host's tool-managed background executio
   pointer, and stop on exit `2`, `3`, or `4`. After implementation, run `/ccg:grok-verify` again when
   the plan, diff, dependencies, or external-evidence digest changed. Pass only validated summary,
   claims, and provenance to GPT Pro, never raw Grok output.
+-->
+
+<!-- Legacy Grok CLI/ACP reference; inactive in ordinary research.
 - Preserve the current CCG orchestrator as the ordinary execution owner after that route gate.
+-->
+- Preserve the current CCG orchestrator as the ordinary execution owner.
 - Preserve Codex as the CCG orchestrator and ordinary execution owner. Ordinary
   execution evidence follows the configured role providers.
 - Inherit the ordinary **Companion Role Contract**: frontend or backend may use
@@ -56,14 +70,20 @@ Run this potentially long route with the host's tool-managed background executio
 - Expected questions: 1.
 - Additional sequential follow-up questions have no fixed bridge limit.
 - Follow-up rounds should be converted into `/ccg:gptpro-review` whenever possible; use Gemini `--prompt-template review` and `--gemini-evidence-role frontend-review` for frontend review evidence over the applied diff.
+<!-- Legacy Grok CLI/ACP reference; inactive in ordinary research.
 - Use `scripts/gptpro_bridge.py --mode exc --gemini-policy optional --gemini-evidence-role frontend-prototype --routing-evidence-file <routing-evidence-file> --routing-summary-file <routing-summary-file> --require-routing-evidence [--require-external-intelligence --expected-intelligence-mode <route investigation_mode> --expected-intelligence-depth <route depth> when route status=verified or status=received_unverified and requirement=required]`; omit those three external-intelligence flags for `status=waived`.
+-->
+- Use `scripts/gptpro_bridge.py --mode exc --gemini-policy optional --gemini-evidence-role frontend-prototype --routing-evidence-file <routing-evidence-file> --routing-summary-file <routing-summary-file> --require-routing-evidence`.
 - When frontend/full-stack Gemini output is available, add `--gemini-response-file <CCG_GEMINI_RESPONSE_FILE> --gemini-summary-file <summary-file>`.
 - Delegate, monitor, wake, and import through the installed `chatgpt-pro-sidebar` Skill exactly as defined by the shared bridge Skill.
 - GPT Pro output must use sections: `Proceed`, `Revise Plan`, `Stop`, `Implementation Notes`,
   `Required Tests`, `Verification`.
+<!-- Legacy Grok CLI/ACP reference; inactive in ordinary research.
 - Report in Chinese and synthesize validated Grok external intelligence, ordinary execute evidence,
   Gemini frontend evidence when present, and GPT Pro sidebar second opinion. If Gemini frontend
   evidence was not used, say so from routing evidence rather than inventing a Gemini result.
+-->
+- Synthesize available MCP research, ordinary role evidence, and GPT Pro findings in Chinese; the current orchestrator decides the outcome.
 - The current CCG orchestrator remains final owner.
 - Do not automate ChatGPT web login.
 - Do not read arbitrary ChatGPT DOM.

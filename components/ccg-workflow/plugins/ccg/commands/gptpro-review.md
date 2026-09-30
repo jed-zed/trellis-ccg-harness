@@ -14,6 +14,15 @@ diffs, findings, and tests let it focus on missed risks instead of inventing imp
 
 ## Contract
 
+## Research
+
+Use existing independent research agents with grok-search MCP. Search actively and
+verify key conclusions against original sources; check versions/licenses when
+reusing code and experiment conditions when adopting papers. Mark unverified findings.
+Archived instructions below are inactive: ordinary work does not run Grok CLI/ACP,
+wait for its gates, or require its manifests and hash packages.
+
+<!-- Legacy Grok CLI/ACP reference; inactive in ordinary research.
 For a pure local code review, do not run Grok external-intelligence or apply an official-domain gate. Only when a conclusion depends on a current external fact, predeclare its authoritative domain, write the bounded review subject to the active task directory, then run
 `ccg route --workflow gptpro-review --phase final-verify --task-file <request-file> --state-file <state-file> --trigger final_diff_verify --plan <plan> --diff <diff> --dependency <lockfile>`
 
@@ -22,6 +31,8 @@ with repeated `--official-domain <domain>` chosen before Grok runs, over the exa
 ordinary `/ccg:review`. Required exit 2/3/4 stops GPT Pro bridge creation unless the user runs
 `ccg route waive --state-file <state-file> --reason "<user reason>"`; this records a route-state waiver without creating evidence or claiming verification passed. A waived route continues only through ordinary routing evidence and must omit the bridge's external-intelligence flags. Exit code `2`, `3`, or `4` stops before ordinary work. Add
 `--require-external-intelligence` together with `--expected-intelligence-mode <route investigation_mode>` and `--expected-intelligence-depth <route depth>` only when the inherited/re-evaluated route has `status=verified or status=received_unverified` and `requirement=required`.
+-->
+
 Then run ordinary `/ccg:review`. Preserve the current CCG orchestrator semantics and the normal
 cross-review/model routing for this installation, including any configured role providers that
 ordinary review would use. GPT Pro is additional evidence: it is appended as a sidebar review
@@ -59,8 +70,12 @@ fields into Trellis `task.json`.
 
 1. Locate the active task at `<task-dir>/task.json`.
 2. Resolve review scope from `$ARGUMENTS`, `git diff HEAD`, the active plan, or changed files.
+<!-- Legacy Grok CLI/ACP reference; inactive in ordinary research.
 3. Only for a current external-fact dependency, run `/ccg:grok-verify` with predeclared `--official-domain` values, the exact plan, diff, and every changed dependency/lock input.
    Validate the canonical Grok artifact and manifest hashes plus the task pointer. Never pass raw JSONL.
+-->
+
+3. Include useful MCP research findings and original source links when available.
 4. Run or verify the ordinary `/ccg:review` route first and write a concise routing evidence file,
    for example `<evidence-root>/evidence/routing.md`, plus a routing summary file.
    The routing evidence must identify the current orchestrator, the routed model evidence that
@@ -83,7 +98,10 @@ Create a concise prompt file with:
   status; pasted diffs and local evidence override repository contents when they differ;
 - Base CCG Routing Evidence summary and artifact path;
 - optional Gemini evidence summary and artifact path when Gemini actually ran;
+<!-- Legacy Grok CLI/ACP reference; inactive in ordinary research.
 - validated Grok diff-bound summary, claims, evidence/manifest paths and hashes only when the external-fact path ran; never raw events;
+-->
+- Relevant research findings, original source links, and unresolved uncertainty when available.
 - explicit request for hidden bugs, security risks, compatibility risks, edge cases, test gaps,
   likely false positives, and missed findings in ordinary model evidence;
 - required output sections: `Critical`, `Major`, `Minor`, `False Positives`, and `Required Tests`.
@@ -102,9 +120,13 @@ python "<installed-ccg-plugin>/skills/ccg-gptpro-bridge/scripts/gptpro_bridge.py
   --gemini-evidence-role gate \
   --routing-evidence-file "<routing-evidence-file>" \
   --routing-summary-file "<routing-summary-file>" \
-  --require-routing-evidence \
-  [--require-external-intelligence --expected-intelligence-mode <route investigation_mode> --expected-intelligence-depth <route depth> when route status=verified or status=received_unverified and requirement=required]
+  --require-routing-evidence
 ```
+
+<!-- Legacy Grok CLI/ACP reference; inactive in ordinary research.
+  [--require-external-intelligence --expected-intelligence-mode <route investigation_mode> --expected-intelligence-depth <route depth> when route status=verified or status=received_unverified and requirement=required]
+-->
+
 
 When ordinary review produced genuine Gemini evidence, also pass
 `--gemini-response-file` and `--gemini-summary-file`. Never invent them.
