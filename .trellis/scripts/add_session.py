@@ -33,7 +33,8 @@ Retry convergence:
     its own inputs, so re-running an interrupted command repairs the pending
     record instead of appending a second one, and a failed auto-commit exits
     non-zero with the checkpoint to resume from. A record that is already
-    committed is never reused: an identical later request is a new session
+    committed or finalized without Git is never reused: an identical later
+    request is a new session
     unless an explicit --idempotency-key says otherwise.
 
 Branch resolution order:
@@ -46,10 +47,15 @@ Branch resolution order:
 from __future__ import annotations
 
 import argparse
+import errno
 import hashlib
 import json
+import os
 import re
 import sys
+import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 
@@ -105,6 +111,9 @@ STATE_ABSENT = "absent"
 STATE_JOURNAL_RECORDED = "journal-recorded"
 STATE_INDEX_RECORDED = "index-recorded"
 STATE_COMMITTED = "committed"
+STATE_FINALIZED = "finalized"
+FINALIZED_MARKER = "<!-- trellis-session-finalized -->"
+FINISHED_STATES = (STATE_COMMITTED, STATE_FINALIZED)
 
 # Auto-commit outcomes.
 COMMIT_DONE = "committed"
@@ -117,11 +126,46 @@ GIT_PROBE_TIMEOUT = 15.0
 # Upper bound on the refs folded into session numbering. A repo with hundreds
 # of stale branches must not turn session recording into a tree walk.
 MAX_CONVERGENCE_REFS = 100
+SESSION_LOCK_TIMEOUT = 30.0
 
 
 # =============================================================================
 # Helper Functions
 # =============================================================================
+
+@contextmanager
+def workspace_session_lock(dev_dir: Path) -> Iterator[None]:
+    """Serialize recording for one developer; closing releases the OS lock.
+
+    Keep the lock file: unlinking it could give a waiting process and a new
+    process different lock objects. Runtime files are never auto-committed.
+    """
+    lock_dir = dev_dir.parent.parent / ".runtime" / "session-locks"
+    lock_dir.mkdir(parents=True, exist_ok=True)
+    with (lock_dir / f"{dev_dir.name}.lock").open("a+b") as handle:
+        if os.name == "nt":
+            import msvcrt
+        else:
+            import fcntl
+        deadline = time.monotonic() + SESSION_LOCK_TIMEOUT
+        handle.seek(0)
+        while True:
+            try:
+                if os.name == "nt":
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+                else:
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except OSError as exc:
+                if exc.errno not in (errno.EACCES, errno.EAGAIN):
+                    raise
+                if time.monotonic() >= deadline:
+                    raise TimeoutError(
+                        "another session holds the workspace lock; retry when it finishes"
+                    ) from exc
+                time.sleep(0.05)
+        yield
+
 
 def get_latest_journal_info(dev_dir: Path) -> tuple[Path | None, int, int]:
     """Get latest journal file info.
@@ -483,7 +527,7 @@ def compute_record_fingerprint(payload: dict) -> str:
 
     This is the retry key while the record is still pending in the worktree —
     not a global dedupe key. Two genuinely separate sessions with identical
-    prose differ only if the caller says so, which is why an already-committed
+    prose differ only if the caller says so, which is why an already-finished
     match is never adopted (see classify_record).
 
     Deliberately date-free (v2). v1 mixed in the calendar date, which made a
@@ -495,10 +539,10 @@ def compute_record_fingerprint(payload: dict) -> str:
     Dropping the date cannot over-collapse two same-day sessions, because the
     date was equal for both of them anyway. Across days it only ever separated
     records with byte-identical prose, commits, branch and package — and a
-    *committed* record of that shape is already refused for reuse by
+    *finished* record of that shape is already refused for reuse by
     cmd_add_session, which steps to the next `generation` of the payload
-    rather than reusing the committed marker. What is left
-    is exactly the question this key should answer: is there an uncommitted
+    rather than reusing the finished marker. What is left
+    is exactly the question this key should answer: is there an unfinished
     record in this worktree matching these inputs?
     """
     return _hash_payload(payload)
@@ -823,7 +867,7 @@ def classify_record(
     """Classify the current state of this exact record.
 
     Returns (state, journal_file, session_num, error). Only a unique, exact,
-    still-uncommitted match is ever adopted; anything ambiguous, malformed or
+    still-unfinished match is ever adopted; anything ambiguous, malformed or
     partially written comes back as an error so the caller fails safely.
     """
     hits = find_marker_entries(dev_dir, marker)
@@ -852,6 +896,17 @@ def classify_record(
         return STATE_COMMITTED, journal_file, session_num, None
 
     if index_has_session_row(index_file, session_num):
+        try:
+            lines = journal_file.read_text(encoding="utf-8").splitlines()
+        except (OSError, UnicodeDecodeError) as exc:
+            return "", None, None, f"cannot read {journal_file.name}: {exc}"
+        if any(
+            line.strip() == marker
+            and i + 1 < len(lines)
+            and lines[i + 1].strip() == FINALIZED_MARKER
+            for i, line in enumerate(lines)
+        ):
+            return STATE_FINALIZED, journal_file, session_num, None
         return STATE_INDEX_RECORDED, journal_file, session_num, None
 
     recorded_total = get_current_session(index_file)
@@ -863,6 +918,23 @@ def classify_record(
         )
 
     return STATE_JOURNAL_RECORDED, journal_file, session_num, None
+
+
+def finalize_record(journal_file: Path, marker: str) -> bool:
+    """Finish one indexed record while the caller holds its workspace lock."""
+    try:
+        lines = journal_file.read_text(encoding="utf-8").splitlines(keepends=True)
+    except (OSError, UnicodeDecodeError):
+        return False
+    matches = [i for i, line in enumerate(lines) if line.strip() == marker]
+    if len(matches) != 1:
+        return False
+    i = matches[0]
+    if i + 1 < len(lines) and lines[i + 1].strip() == FINALIZED_MARKER:
+        return True
+    lines[i] = lines[i].rstrip("\r\n") + "\n"
+    lines.insert(i + 1, FINALIZED_MARKER + "\n")
+    return write_text_atomic(journal_file, "".join(lines))
 
 
 # =============================================================================
@@ -1239,6 +1311,35 @@ def add_session(
         print(f"Error: {evidence_error}", file=sys.stderr)
         return 1
 
+    try:
+        with workspace_session_lock(dev_dir):
+            return _record_session(
+                repo_root, dev_dir, developer, title, summary, evidence,
+                changes, extra_content, tests, next_steps, auto_commit,
+                package, branch, idempotency_key,
+            )
+    except OSError as exc:
+        print(f"Error: workspace session transaction failed: {exc}", file=sys.stderr)
+        return 1
+
+
+def _record_session(
+    repo_root: Path,
+    dev_dir: Path,
+    developer: str,
+    title: str,
+    summary: str,
+    evidence: list[tuple[str, str]],
+    changes: list[str] | None,
+    extra_content: str | None,
+    tests: list[str] | None,
+    next_steps: list[str] | None,
+    auto_commit: bool,
+    package: str | None,
+    branch: str | None,
+    idempotency_key: str | None,
+) -> int:
+    """Read and update the session state under one workspace transaction lock."""
     max_lines = get_max_journal_lines(repo_root)
     index_file = dev_dir / "index.md"
     today = datetime.now().strftime("%Y-%m-%d")
@@ -1263,18 +1364,19 @@ def add_session(
         print(f"Error: {classify_error}", file=sys.stderr)
         return 1
 
-    if state == STATE_COMMITTED and idempotency_key:
+    if state in FINISHED_STATES and idempotency_key:
         print(
             f"[OK] Session {matched_num} with idempotency key "
-            f"'{idempotency_key}' is already recorded and committed in "
+            f"'{idempotency_key}' is already recorded and {state} in "
             f"{matched_file.name if matched_file else 'the journal'}; "
             "nothing to do.",
             file=sys.stderr,
         )
         return 0
 
-    # A committed record is finished, so an identical later request is a
-    # legitimately new session. It must not reuse the committed marker: two
+    # A committed or intentionally uncommitted finalized record is finished;
+    # an identical later request without an explicit key is a
+    # legitimately new session. It must not reuse the finished marker: two
     # entries carrying one marker make every later run ambiguous, and
     # classify_record refuses to guess between them. Step to the next
     # generation of this record instead. The marker stays a pure function of
@@ -1282,7 +1384,7 @@ def add_session(
     # marker and still resumes; generation 0 omits the field entirely, leaving
     # first-time markers byte-identical to what this scheme already writes.
     generation = 0
-    while state == STATE_COMMITTED:
+    while state in FINISHED_STATES:
         generation += 1
         marker = render_marker(
             compute_record_fingerprint({**payload, "generation": generation})
@@ -1421,19 +1523,29 @@ def add_session(
     print("  - index.md", file=sys.stderr)
 
     # -------------------------------------------------------------------
-    # Index-recorded → committed
+    # Index-recorded → committed or finalized without Git
     # -------------------------------------------------------------------
     if not auto_commit:
-        return 0
-
-    print("", file=sys.stderr)
-    outcome = _auto_commit_workspace(repo_root)
+        outcome = COMMIT_SKIPPED
+    else:
+        print("", file=sys.stderr)
+        outcome = _auto_commit_workspace(repo_root)
 
     if outcome == COMMIT_FAILED:
         _print_commit_checkpoint(
             new_session, target_file.name if target_file else "the journal"
         )
         return 1
+
+    if outcome in (COMMIT_SKIPPED, COMMIT_BLOCKED):
+        if target_file is None or not finalize_record(target_file, marker):
+            print(
+                f"[BLOCKED] Checkpoint: session {new_session} is indexed but "
+                "its completion could not be persisted. Re-run the identical "
+                "command to finalize it without adding a second session.",
+                file=sys.stderr,
+            )
+            return 1
 
     if outcome == COMMIT_DONE and target_file is not None:
         committed = content_at_head(repo_root, target_file)
@@ -1488,7 +1600,7 @@ def main() -> int:
         "--idempotency-key",
         help=(
             "Caller-supplied retry key ([A-Za-z0-9._-], 1-64 chars). Makes an "
-            "already-committed identical record a no-op instead of a new session."
+            "already-completed identical record a no-op instead of a new session."
         ),
     )
     parser.add_argument("--no-commit", action="store_true",
