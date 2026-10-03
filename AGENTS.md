@@ -80,24 +80,55 @@ Higher-priority rules win when layers conflict. Report the conflict, the
 overridden lower-priority rule, and the chosen action; never silently skip a
 requirement.
 
-Use this workflow unless a higher-priority artifact says otherwise:
+## Request triage and proportional workflow
 
-```text
-confirmed requirement
--> Trellis task artifact / PRD / Spec
--> minimal CCG plan
--> routed code search
--> Ponytail-minimal implementation
--> Trellis + CCG quality and security gates
--> concise Caveman-style update
--> Trellis finish and archive
-```
+Apply request triage before task-phase instructions. Upstream lifecycle steps
+apply to structured tasks; they do not require every request to become a task.
+Use the matching Request Triage and Planning Artifacts in
+`.trellis/workflow.md` when available; the portable Harness defaults are:
+
+- Simple conversation, read-only local inspection, and known local low-risk
+  edits use the fast lane: needed context -> answer/minimal edit -> applicable
+  quality checks -> report. Do not ask a task-creation question, create task/PRD/
+  design/plan/journal artifacts, or enter start/finish/archive/commit lifecycle.
+- Unknown impact or ambiguous requests use structured work. Authentication,
+  authorization, credentials, permissions, data migration/loss, Provider/network/
+  paid calls, install/sync/publish, destructive operations, shared core and
+  multiple modules also require structured work with the applicable gates.
+  File or line counts alone never establish low risk.
+- Reuse a matching Trellis task; obtain creation consent only when a new task
+  is needed and consent is missing. Keep task identity, accepted requirements,
+  one authoritative execution plan, implementation, verification and a
+  completion record. Complex tasks require `prd.md`, `design.md`, and
+  `implement.md`; a lightweight task may keep its short plan in `prd.md`.
+  Task creation and implementation require separate approval. Present completed
+  planning artifacts for review and wait for explicit implementation approval
+  before starting implementation; creation or planning consent alone is insufficient.
+- Run project lint, type-check and tests, including new-function unit tests,
+  bug regressions and updates for changed behavior. Final verification covers
+  the full affected task scope, not only the last edit. Preserve the quality
+  checklist in `trellis-check`.
+- Beyond required complex-task documents and quality checks, every extra
+  research artifact, search, Provider, sub-agent, review or broader test
+  needs a trigger fact -> required output -> stop condition in the existing
+  plan. Without a fact, skip it. Architecture uncertainty, a blocking question,
+  changed shared impact or an explicit gate can supply that fact; hypothetical
+  future needs cannot. Stop after sufficient evidence and reuse passing checks
+  for unchanged behavior.
+- Preserve required security, data protection, accessibility, ownership,
+  transaction and project/CI gates. Explicit implementation authorization remains
+  valid within its reviewed scope; unresolved material decisions and pending
+  hard user gates still require the user's answer.
+- Completion does not force a commit, archive commit or journal. Archive only
+  the current completed structured task with `--no-commit`; a journal needs an
+  actual handoff reason. Commit, publish, install and Provider actions retain
+  their separate authorization boundaries.
 
 Trellis owns task identity, lifecycle, accepted requirements, specifications,
-plans, acceptance criteria, and completion. CCG owns model orchestration and
-required quality, security, test, and review gates without creating a second
-task or plan authority. Reuse and update an applicable artifact or plan instead
-of creating a duplicate.
+plans, acceptance criteria, and completion. CCG supplies bounded evidence and
+applicable quality gates without creating a second task or plan authority.
+Reference the existing canonical artifact instead of copying its requirements
+or plan into another layer.
 
 ## Ponytail boundary
 
@@ -120,8 +151,13 @@ error handling, or quality gates.
 - Fix a failed gate at its root cause; never shrink or bypass the gate.
 - Prefer existing code, standard libraries, native capabilities, and installed
   dependencies.
-- Avoid abstractions, configuration, dependencies, or future scaffolding that
-  no accepted requirement supports.
+- Do not add speculative defensive branches, fallback, retries, compatibility
+  wrappers, caching, configuration or abstractions. Each must serve an accepted
+  requirement, reproduced fault or actual trust/data boundary. Fix the common
+  root cause instead of layering guards at every caller; report clear errors
+  rather than silently claiming success.
+- Preserve input validation at trust boundaries, data-loss prevention, security
+  and accessibility. Existing ownership/transaction safeguards are not optional.
 
 ## Caveman boundary
 

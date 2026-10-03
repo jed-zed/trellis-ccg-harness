@@ -76,6 +76,12 @@ installation concerns, not snapshot-update inputs.
 
 ## 6. Tests Required
 
+- Trellis updates must exercise the real project `task.py --help` in the
+  Harness suite. Syntax-only checks missed an actual 0.6.16 import failure when
+  `--skip-all` retained the locally repaired 0.6.9 `common/task_context.py`.
+  Merge the reviewed upstream module through the candidate transaction; do not
+  add a fake helper or bypass the gate.
+
 - `tests/ci-contract.test.mjs` must assert that CCG update calls the ordinary
   doctor and disables only the managed-runtime part of final update smoke.
 - `tests/harness-lifecycle.test.mjs` must keep target-version parsing,

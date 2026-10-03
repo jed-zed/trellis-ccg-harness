@@ -22,7 +22,9 @@ snapshot and is verified through root commands.
 
 ## Pre-Development Checklist
 
-- Read the active Trellis task's `prd.md`, `design.md`, and `implement.md`.
+- Read the accepted request and relevant task artifacts when present. Follow
+  Request Triage in `.trellis/workflow.md`; complex tasks require `prd.md`,
+  `design.md`, and `implement.md`, with completed planning reviewed before implementation.
 - Read `.harness/adapter.json`, `harness.sources.json`, and the relevant root
   script before changing lifecycle behavior.
 - Read [Harness Lifecycle Update](./harness-lifecycle.md) before changing CCG
@@ -33,7 +35,10 @@ snapshot and is verified through root commands.
 
 ## Quality Check
 
-Run the affected focused test first, then the complete offline gates:
+For code changes, follow the project checks and coverage checklist in
+`trellis-check`. For shared workflow, initializer, lifecycle, ownership or release changes, run the
+affected focused test first, then the complete offline gates below. Preserve
+clean-install and CI requirements. Final verification covers the full affected task scope.
 
 ```powershell
 node --test tests/harness-init-cli.test.mjs

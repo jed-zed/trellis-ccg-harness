@@ -21,7 +21,7 @@
 
 | 层 | 版本/来源 | 职责 |
 |---|---|---|
-| Trellis | `@mindfoldhq/trellis@0.6.9` | 任务、PRD、设计、实施计划、规范、上下文与完成闭环 |
+| Trellis | `@mindfoldhq/trellis@0.6.16` | 任务、PRD、设计、实施计划、规范、上下文与完成闭环 |
 | CCG | `jed-zed/ccg-gptpro-worflow` 个人源码快照（见来源清单） | 多模型编排、Grok 联网证据、GPT Pro、Codex 插件与质量门禁 |
 | 组合仓库 | 本仓库 | 把 Trellis + 个人 CCG 固化为一个 Harness，并提供分层适配器、来源锁定、诊断、验证、CI 与安全边界 |
 
@@ -30,8 +30,8 @@ CCG 的完整个人 tracked 源码位于 [`components/ccg-workflow`](components/
 ## 分层适配器
 
 ```text
-Trellis 生命周期层
-  ↓ canonical task / PRD / design / plan / spec
+Trellis 请求分流与结构化任务生命周期
+  ↓ canonical task / accepted requirements / one plan / applicable spec
 Harness 内部适配器
   ↓ context / policy / conflict audit / provider boundary
 CCG 智能层
@@ -386,19 +386,17 @@ pnpm --dir .\components\ccg-workflow build
 
 ## 工作流
 
-1. Trellis 创建任务并沉淀 `prd.md`、`design.md` 和 `implement.md`。
-2. Codex 作为主编排器在当前会话 inline 执行。
-3. CCG 可按项目策略调用只读 Gemini，或通过已批准的 `chatgpt-pro-sidebar` Skill
-   自动与用户已登录的侧边浏览器 GPT Pro 交接；Claude 仅可作为显式选择的只读产品经理
-   Provider。GPT Pro 证据直接写入 Trellis task 内的 `.ccg-evidence/`，不会创建第二套
-   `.ccg/tasks` 生命周期。
-4. Grok 当前是默认关闭的可选提供方，不阻塞普通工作；将来重新启用时，联网证据仍需 fail-closed。
-5. CCG 质量门禁与 Trellis check 共同验证。
-6. Trellis 更新规范、提交并归档任务。
+默认按 [Request Triage](.trellis/workflow.md#request-triage) 分流：简单咨询、只读本地检查和影响明确的低风险局部修改走快车道，执行必要读取、回答或最小修改、适用质量检查和汇报，不先询问建任务，也不生成 PRD、归档或 journal。
+
+风险或影响不明，以及认证、权限、凭据、数据迁移/丢失、外部调用、安装、同步、发布、破坏性操作、共享核心或多模块影响，进入结构化通道。复用一个 Trellis 任务；复杂任务必须具备 `prd.md`、`design.md`、`implement.md`。建任务与实施分开审批，规划完成后先展示文档供审核，获得明确实施批准后开始。
+
+恢复完整质量清单：运行项目 lint、类型检查和测试，新增函数补单测，修复问题补回归测试，行为变更同步测试；最终验证覆盖本任务全部受影响范围。必需文档与质量检查之外的研究、Provider、子代理、评审和额外测试，仍需要“触发事实 → 必需输出 → 停止条件”。Codex 继续 inline 执行，CCG 不创建第二套任务或计划。Grok 默认关闭，不阻塞普通工作。
+
+不为假设问题添加兜底、重试、兼容层、配置或抽象；保留真实信任边界、数据保护、基本可访问性和必需的项目/CI 检查。完成不强制提交，当前结构化任务可用 `archive --no-commit` 收尾；规范和 journal 仅在契约变化或实际交接需要时更新。
 
 产品经理 review 成功后，Harness 会把产品经理原话、findings、risks、process adjustments、
-唯一推荐下一步和 Provider 身份写入 tracked `latestAdvice`。Codex 必须先执行
-`pm present`、向用户复述这份意见并停止；只有展示后的新鲜显式回复才能进入 `pm respond`。
+唯一推荐下一步和 Provider 身份写入 tracked `latestAdvice`。Codex 必须展示当前意见；
+若产生待用户验收的硬门，必须先执行 `pm present`、复述这份意见并停止，只有展示后的新鲜显式回复才能进入 `pm respond`。里程碑和最终验收仍是硬门。
 关卡清除后，`pm status` 仍保留最近建议，通用 Trellis resume action 不会覆盖它。
 
 ## 模型与提供方边界

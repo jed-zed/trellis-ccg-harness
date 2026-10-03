@@ -1,64 +1,23 @@
 ---
 name: trellis-start
-description: "Initializes an AI development session by reading workflow guides, developer identity, git status, active tasks, and project guidelines from .trellis/. Classifies incoming tasks and routes to brainstorm, direct edit, or task workflow. Use when beginning a new coding session, resuming work, starting a new task, or re-establishing project context."
+description: "Start or resume a Trellis session by classifying the request, loading only relevant context, and routing to the fast lane or structured task workflow."
 ---
 
 # Start Session
 
-Initialize a Trellis-managed development session. This platform has no session-start hook, so manually load the equivalent compact context by following these steps.
+First use Request Triage in `.trellis/workflow.md`. Simple conversation, read-only local inspection, and known local low-risk edits default to the fast lane: needed context -> answer/minimal edit -> applicable quality checks -> report. Do not ask a task-creation question, create task artifacts or load the full lifecycle for these requests. Preserve an existing task and its pending gates.
 
----
-
-## Step 1: Current state
-Identity, git status, current task, active tasks, journal location.
+Unknown impact, ambiguous requests, or a risk boundary enter the structured lane. Load current state and the compact phase index once, unless already known:
 
 ```bash
 python ./.trellis/scripts/get_context.py
-```
-
-If this output includes a line beginning `Trellis update available:`, copy the full line verbatim when summarizing session context. Do not shorten operational command hints.
-
-## Step 2: Workflow overview
-Compact Phase Index, request triage rules, planning artifact contract, and the step-detail command.
-
-```bash
 python ./.trellis/scripts/get_context.py --mode phase
 ```
 
-Full guide in `.trellis/workflow.md` (read on demand).
+If context includes `Trellis update available:`, preserve that full operational hint when reporting it; an available update does not authorize an installation.
 
-## Step 3: Guideline indexes
-Discover packages + spec layers, then read each relevant index file.
+Reuse the matching task. Obtain creation consent only if a new task is needed and consent is missing. Route `planning` to requirements, design and execution planning. Complex tasks must have `prd.md`, `design.md`, and `implement.md`; lightweight structured tasks may be PRD-only. Present the completed plan for explicit user approval before `task.py start`. Route `in_progress` to the next unfinished implementation/check step.
 
-```bash
-python ./.trellis/scripts/get_context.py --mode packages
-cat .trellis/spec/guides/index.md
-cat .trellis/spec/<package>/<layer>/index.md   # for each relevant layer
-```
+Read relevant spec indexes before coding; discover packages only when their location is unknown. Load step detail only when needed with `get_context.py --mode phase --step <X.Y> --platform codex`.
 
-Index files list the specific guideline docs to read when you actually start coding.
-
-## Step 4: Decide next action
-From Step 1 you know the current task and status. Check the task directory:
-
-- **Active task status `planning` + no `prd.md`** → Phase 1.1. Load the `trellis-brainstorm` skill.
-- **Active task status `planning` + `prd.md` exists** → stay in Phase 1. Lightweight tasks can be PRD-only; complex tasks need `design.md` + `implement.md`. Load the relevant Phase 1 step detail before `task.py start`.
-- **Active task status `in_progress`** → Phase 2 step 2.1. Load the step detail:
-  ```bash
-  python ./.trellis/scripts/get_context.py --mode phase --step 2.1 --platform codex
-  ```
-- **No active task** → classify first. For simple conversation / small task, ask only whether this turn should create a Trellis task. For complex work, ask whether you may create a Trellis task and enter planning. If the user says no, skip Trellis for this session.
-
----
-
-## Skill routing (quick reference)
-
-| User intent | Skill |
-|---|---|
-| New feature / unclear requirements | `trellis-brainstorm` |
-| About to write code | `trellis-before-dev` |
-| Done coding / quality check | `trellis-check` |
-| Stuck / fixed same bug multiple times | `trellis-break-loop` |
-| Learned something worth capturing | `trellis-update-spec` |
-
-Full rules + anti-rationalization table in `.trellis/workflow.md`.
+Use `trellis-brainstorm` for unresolved decisions, `trellis-before-dev` before edits, `trellis-check` for verification, and `trellis-finish-work` for a structured task's completion. Extra steps follow the trigger fact -> required output -> stop condition contract in workflow.md.
