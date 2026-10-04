@@ -38,17 +38,16 @@ describe('companion add-on discovery', () => {
     expect(ponytail?.action.status).toBe('manual-pending')
   })
 
-  it('routes CCG-managed MCPs to existing commands instead of another installer', () => {
+  it('keeps optional MCP setup on Codex without exposing Claude setup commands', () => {
     const report = buildCompanionAddonReport()
-    const managed = new Map(report.candidates.map(candidate => [candidate.id, candidate]))
-
-    expect(managed.get('fast-context')?.action.command).toBe('ccg init')
-    expect(managed.get('context7')?.action.command).toBe('ccg config mcp')
-    expect(managed.get('playwright')?.action.command).toBe('ccg config mcp')
-    expect(managed.get('deepwiki')?.action.command).toBe('ccg config mcp')
-    expect(managed.get('exa')?.action.command).toBe('ccg config mcp')
-    expect(managed.get('codegraph')?.action.command).toBe('ccg init')
-    expect([...managed.values()].some(candidate => candidate.action.command?.includes('pnpm addons'))).toBe(false)
+    const candidates = new Map(report.candidates.map(candidate => [candidate.id, candidate]))
+    for (const id of ['fast-context', 'context7', 'playwright', 'deepwiki', 'exa', 'codegraph']) {
+      expect(candidates.get(id)?.action.status).toBe('manual-pending')
+      expect(candidates.get(id)?.action.command).toBeUndefined()
+      expect(candidates.get(id)?.action.guidance).toContain('Codex MCP settings')
+    }
+    expect(report.candidates.some(candidate => candidate.action.command?.includes('ccg init'))).toBe(false)
+    expect(report.candidates.some(candidate => candidate.action.command?.includes('ccg config'))).toBe(false)
   })
 
   it('publishes the four auxiliary MCPs with official latest or remote sources', () => {

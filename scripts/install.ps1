@@ -4,6 +4,7 @@ param(
   [string]$HomeDir = [Environment]::GetFolderPath(
     [Environment+SpecialFolder]::UserProfile
   ),
+  [string]$CodexHome,
   [switch]$NonInteractive,
   [switch]$Approved,
   [switch]$ApproveTrellis,
@@ -18,12 +19,22 @@ param(
   [string]$CatalogUrl,
   [string]$ProviderActions,
   [string]$CcgSourceCheckout,
+  [string]$CcgMigrationPlan,
+  [string]$CcgMigrationPlanSha256,
+  [string]$CcgPackageArchive,
+  [string]$CcgPackageArchiveSha256,
+  [string]$CcgWrapperFile,
+  [string]$AgentPreservationPlan,
+  [string]$AgentPreservationPlanSha256,
   [switch]$AllowCatalogNetwork,
   [switch]$AllowThirdPartyNetwork,
   [switch]$PreviewOnly
 )
 
 $ErrorActionPreference = "Stop"
+if ($env:CLAUDECODE -eq "1" -or $env:CCG_HOST -eq "claude") {
+  throw "Personal Harness mutations require the Codex host; explicit Claude host markers are rejected."
+}
 
 function Get-NormalizedPath {
   param([Parameter(Mandatory)][string]$Path)
@@ -131,6 +142,8 @@ function Get-ThirdPartySourceSha256 {
     "third-party-plan",
     "--home-dir",
     $ApprovedHomeDir,
+    "--codex-home",
+    $CodexHome,
     "--repo-root",
     $RepoRoot
   ) "Third-party source plan"
@@ -354,6 +367,14 @@ function Read-PluginOwnership {
   ) {
     throw "Existing Codex plugin ownership is not owned by this Harness."
   }
+  if ($ownership.codexHome) {
+    if (
+      -not [System.IO.Path]::IsPathFullyQualified([string]$ownership.codexHome) -or
+      -not (Test-SamePath ([string]$ownership.codexHome) $CodexHome)
+    ) {
+      throw "Existing Codex plugin ownership belongs to another physical CodexHome."
+    }
+  }
   $ownedMarketplaceRoot = [string]$ownership.marketplace.sourceRoot
   $ownedPluginBaseVersion = [string]$ownership.plugin.baseVersion
   $ownedPluginVersion = [string]$ownership.plugin.version
@@ -390,6 +411,7 @@ function Read-PluginOwnership {
   return [ordered]@{
     record = $ownership
     matchesTarget = $matchesTarget
+    needsRootBinding = -not [bool]$ownership.codexHome
     sha256 = $ownershipSha256
     identity = [ordered]@{
       marketplaceName = $MarketplaceName
@@ -619,6 +641,7 @@ function Write-PluginOwnership {
   $payload = [ordered]@{
     schemaVersion = 1
     owner = "trellis-ccg-harness"
+    codexHome = Get-NormalizedPath $CodexHome
     marketplace = [ordered]@{
       name = $MarketplaceName
       sourceRoot = Get-NormalizedPath $MarketplaceRoot
@@ -666,6 +689,44 @@ function Write-PluginOwnership {
   finally {
     Remove-Item -LiteralPath $temporary -Force -ErrorAction SilentlyContinue
   }
+}
+
+function Enter-InstallerTransactionLock {
+  $claimGuard = Join-Path $PSScriptRoot "lib/ccg-legacy-claim-guard.mjs"
+  & node $claimGuard --repo-root $RepoRoot --require-idle
+  if ($LASTEXITCODE -ne 0) { throw "Old management root is archived; refusing installer mutation." }
+  $stateDirectory = Join-Path $RepoRoot ".harness-cache"
+  if (-not (Test-Path -LiteralPath $stateDirectory)) {
+    New-Item -ItemType Directory -Path $stateDirectory | Out-Null
+  }
+  Assert-RealDirectory $stateDirectory "Harness state directory"
+  $installerLockPath = Join-Path $stateDirectory "transaction.lock"
+  $installerToken = [Guid]::NewGuid().ToString()
+  $installerLease = [IO.File]::Open($installerLockPath, [IO.FileMode]::CreateNew, [IO.FileAccess]::ReadWrite, [IO.FileShare]::Read)
+  try {
+    $record = @{ schemaVersion=2; pid=$PID; createdAt=[DateTime]::UtcNow.ToString('o'); token=$installerToken; repoRoot=$RepoRoot }
+    $bytes = [Text.UTF8Encoding]::new($false).GetBytes(($record | ConvertTo-Json -Compress) + "`n")
+    $installerLease.Write($bytes,0,$bytes.Length)
+    $installerLease.Flush($true)
+    & node $claimGuard --repo-root $RepoRoot --require-idle
+    if ($LASTEXITCODE -ne 0) { throw "Old management root became archived before installer mutation." }
+    return @{ lease=$installerLease; path=$installerLockPath; token=$installerToken }
+  }
+  catch {
+    $installerLease.Dispose()
+    $current = Get-Content -LiteralPath $installerLockPath -Raw | ConvertFrom-Json
+    if ($current.token -eq $installerToken) { Remove-Item -LiteralPath $installerLockPath }
+    throw
+  }
+}
+
+function Exit-InstallerTransactionLock {
+  param($Lock)
+  if ($null -eq $Lock) { return }
+  $Lock.lease.Dispose()
+  $current = Get-Content -LiteralPath $Lock.path -Raw | ConvertFrom-Json
+  if ($current.token -ne $Lock.token) { throw "Installer transaction lock changed; refusing cleanup." }
+  Remove-Item -LiteralPath $Lock.path
 }
 
 function Install-CodexPlugin {
@@ -779,7 +840,9 @@ function Install-CodexPlugin {
     }
     if (
       -not (Test-Path -LiteralPath $Identity.ownershipPath) -or
-      ($null -ne $OwnershipState -and -not $OwnershipState.matchesTarget)
+      ($null -ne $OwnershipState -and (
+        -not $OwnershipState.matchesTarget -or $OwnershipState.needsRootBinding
+      ))
     ) {
       $ownershipArguments = @{}
       foreach ($key in $Identity.Keys) {
@@ -943,7 +1006,7 @@ function Show-PendingProviderActions {
     )
     Write-Output (
       "    Review plan: node `"$RepoRoot/scripts/harness-init.mjs`" " +
-      "provider-action-plan --home-dir `"$HomeDir`" --repo-root `"$RepoRoot`" " +
+      "provider-action-plan --home-dir `"$HomeDir`" --codex-home `"$CodexHome`" --repo-root `"$RepoRoot`" " +
       "--provider $($action.provider) --action $($action.action)"
     )
     if (
@@ -953,7 +1016,7 @@ function Show-PendingProviderActions {
       Write-Output (
         "    After reviewing planSha256, show manual guidance with a second explicit approval: " +
         "node `"$RepoRoot/scripts/harness-init.mjs`" provider-action-run " +
-        "--home-dir `"$HomeDir`" --repo-root `"$RepoRoot`" " +
+        "--home-dir `"$HomeDir`" --codex-home `"$CodexHome`" --repo-root `"$RepoRoot`" " +
         "--provider $($action.provider) --action login " +
         "--plan-sha256 <planSha256> --approved"
       )
@@ -981,6 +1044,7 @@ function Show-PendingRecommendedAddons {
       & node (Join-Path $RepoRoot "scripts/harness-init.mjs") `
         "addons" "--status" `
         "--home-dir" $HomeDir `
+        "--codex-home" $CodexHome `
         "--repo-root" $RepoRoot 2>&1
     )
     if ($LASTEXITCODE -ne 0) {
@@ -1024,13 +1088,45 @@ function Show-PendingRecommendedAddons {
 
 $RepoRoot = Get-NormalizedPath $RepoRoot
 $HomeDir = Get-NormalizedPath $HomeDir
+foreach ($inputPath in @($CcgWrapperFile, $AgentPreservationPlan)) {
+  if ($inputPath) {
+    if (-not [System.IO.Path]::IsPathFullyQualified($inputPath)) {
+      throw "CCG wrapper and agent preservation inputs must be absolute files."
+    }
+    $inputItem = Get-Item -LiteralPath $inputPath -Force
+    if ($inputItem.PSIsContainer -or ($inputItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
+      throw "CCG wrapper and agent preservation inputs must be regular files."
+    }
+  }
+}
+if ($AgentPreservationPlan -or $AgentPreservationPlanSha256) {
+  if (-not $AgentPreservationPlan -or $AgentPreservationPlanSha256 -cnotmatch '^[a-f0-9]{64}$') {
+    throw "Agent preservation requires its exact plan file and SHA-256."
+  }
+  if ((Get-FileHash -LiteralPath $AgentPreservationPlan -Algorithm SHA256).Hash.ToLowerInvariant() -cne $AgentPreservationPlanSha256) {
+    throw "Agent preservation plan SHA-256 mismatch."
+  }
+}
+$codexModeInstallArguments = @("codex-mode", "install")
+if ($CcgWrapperFile) { $codexModeInstallArguments += @("--wrapper-file", $CcgWrapperFile) }
+if ($AgentPreservationPlan) { $codexModeInstallArguments += @("--agent-preservation-plan", $AgentPreservationPlan) }
 Assert-NotFilesystemRoot $RepoRoot "RepoRoot"
 Assert-NotFilesystemRoot $HomeDir "HomeDir"
 Assert-RealDirectory $RepoRoot "RepoRoot"
+if (-not $PreviewOnly) {
+  & node (Join-Path $PSScriptRoot "lib/ccg-legacy-claim-guard.mjs") --repo-root $RepoRoot
+  if ($LASTEXITCODE -ne 0) { throw "The fixed new control root refuses mutations of a retired legacy management root." }
+}
 Assert-RealDirectory $HomeDir "HomeDir"
 if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
   throw "Node.js 20+ is required."
 }
+$codexHomeHelper = Join-Path $RepoRoot ".agents/skills/harness-init/scripts/codex-home.mjs"
+$rootArguments = @("--input-type=module", "-e", 'import { pathToFileURL } from "node:url"; const { resolveCodexHome } = await import(pathToFileURL(process.argv[1])); console.log(await resolveCodexHome(process.argv[2], process.argv[3] || null));', $codexHomeHelper, $HomeDir)
+if ($CodexHome) { $rootArguments += $CodexHome }
+$rootOutput = @(& node @rootArguments 2>&1)
+if ($LASTEXITCODE -ne 0) { throw "Invalid physical CodexHome: $($rootOutput -join [Environment]::NewLine)" }
+$CodexHome = Get-NormalizedPath (($rootOutput -join [Environment]::NewLine).Trim())
 if (-not (Get-Command codex -ErrorAction SilentlyContinue)) {
   throw (
     "Codex CLI is required for the exact local plugin install. Provider CLI " +
@@ -1091,10 +1187,11 @@ $savedEnvironment = [ordered]@{
   USERPROFILE = $env:USERPROFILE
   CODEX_HOME = $env:CODEX_HOME
 }
+$installerTransactionLock = $null
 try {
   $env:HOME = $HomeDir
   $env:USERPROFILE = $HomeDir
-  $env:CODEX_HOME = Join-Path $HomeDir ".codex"
+  $env:CODEX_HOME = $CodexHome
   $claudeBaseline = Get-ClaudeBaseline
 
 $sourceManifestPath = Join-Path $RepoRoot "harness.sources.json"
@@ -1124,7 +1221,7 @@ $marketplace = Get-Content -LiteralPath (
 ) -Raw | ConvertFrom-Json
 $plugins = @($marketplace.plugins | Where-Object { $_.name -eq "ccg" })
 if (
-  [string]$sourceManifest.ccg.package -ne "ccg-workflow" -or
+  [string]$sourceManifest.ccg.package -notin @("ccg-workflow", "@jed-zed/ccg-codex-workflow") -or
   [string]$ccgPackage.name -ne [string]$sourceManifest.ccg.package -or
   [string]$ccgPackage.version -ne $requiredCcgVersion -or
   $plugins.Count -ne 1 -or
@@ -1135,6 +1232,23 @@ if (
     "version must match exactly."
   )
 }
+$ccgRuntime = Invoke-JsonCommand "node" @(
+  (Join-Path $PSScriptRoot "ccg-runtime.mjs"), "--repo-root", $RepoRoot
+) "Personal CCG runtime identity"
+if ($CcgPackageArchive -or $CcgPackageArchiveSha256) {
+  if (-not $CcgPackageArchive -or $CcgPackageArchiveSha256 -notmatch '^[a-fA-F0-9]{64}$') {
+    throw "CCG package archive requires a file and exact SHA-256."
+  }
+  if (-not [System.IO.Path]::IsPathFullyQualified($CcgPackageArchive)) {
+    throw "CCG package archive must use an absolute path."
+  }
+  $CcgPackageArchive = Get-NormalizedPath $CcgPackageArchive
+  Invoke-JsonCommand "node" @(
+    (Join-Path $PSScriptRoot "ccg-runtime.mjs"), "--repo-root", $RepoRoot,
+    "--archive", $CcgPackageArchive, "--sha256", $CcgPackageArchiveSha256
+  ) "Pinned CCG package archive identity" | Out-Null
+}
+$ccgCommand = [string]$ccgRuntime.command
 $marketplaceName = [string]$marketplace.name
 if ($marketplaceName -notmatch "^[A-Za-z0-9][A-Za-z0-9._-]*$") {
   throw "Codex marketplace name is not a safe plugin selector."
@@ -1205,7 +1319,7 @@ Assert-ClaudeUnchanged $claudeBaseline "Codex plugin preflight"
 $pluginIdentity.ownershipPath = $ownershipPath
 
 $currentTrellisVersion = Get-CommandVersion "trellis"
-$currentCcgVersion = Get-CommandVersion "ccg"
+$currentCcgVersion = Get-CommandVersion $ccgCommand
 Assert-ClaudeUnchanged $claudeBaseline "CLI version preflight"
 $catalogPreview = if ($CatalogMode) {
   $CatalogMode
@@ -1226,6 +1340,7 @@ Write-Output (
   $(if ($PluginOnly) { "Codex CCG plugin only" } else { "full global setup" })
 )
 Write-Output "  User home: $HomeDir"
+Write-Output "  Physical Codex home: $CodexHome"
 Write-Output (
   "  Trellis: install/verify $requiredTrellisVersion " +
   "(current: $($currentTrellisVersion ?? 'missing'))"
@@ -1244,7 +1359,7 @@ Write-Output (
   "active identity: $($pluginState.activeIdentity))"
 )
 Write-Output (
-  "  Codex mode: after plugin registration run 'ccg codex-mode install' " +
+  "  Codex mode: after plugin registration run '$ccgCommand codex-mode install' " +
   "(never legacy 'ccg init')"
 )
 Write-Output "  Platform Skills: Global Init will install/verify 15 bundled copies"
@@ -1280,20 +1395,21 @@ if (-not $NonInteractive) {
   if ($PluginOnly) {
     Confirm-SetupItem "Codex plugin $pluginId from the local snapshot" `
       $ApproveCcgPlugin.IsPresent
-    Confirm-SetupItem "ccg codex-mode install" $ApproveCodexMode.IsPresent
+    Confirm-SetupItem "$ccgCommand codex-mode install" $ApproveCodexMode.IsPresent
   }
   else {
     Confirm-SetupItem "Trellis $requiredTrellisVersion" $ApproveTrellis.IsPresent
     Confirm-SetupItem "CCG CLI $requiredCcgVersion" $ApproveCcgCli.IsPresent
     Confirm-SetupItem "Codex plugin $pluginId from the local snapshot" `
       $ApproveCcgPlugin.IsPresent
-    Confirm-SetupItem "ccg codex-mode install" $ApproveCodexMode.IsPresent
+    Confirm-SetupItem "$ccgCommand codex-mode install" $ApproveCodexMode.IsPresent
     Confirm-SetupItem "Global Init and 15 bundled platform Skills" `
       $ApproveGlobalInit.IsPresent
   }
 }
 
   if ($PluginOnly) {
+    $installerTransactionLock = Enter-InstallerTransactionLock
     $pluginFailure = $null
     try {
       Install-CodexPlugin `
@@ -1310,13 +1426,13 @@ if (-not $NonInteractive) {
     }
     $codexModeFailure = $null
     try {
-      Invoke-CheckedCommand "ccg" @("codex-mode", "install") `
+      Invoke-CheckedCommand $ccgCommand $codexModeInstallArguments `
         "CCG Codex mode installation"
     }
     catch {
       $codexModeFailure = $_
     }
-    Assert-ClaudeUnchanged $claudeBaseline "ccg codex-mode install"
+    Assert-ClaudeUnchanged $claudeBaseline "$ccgCommand codex-mode install"
     if ($null -ne $codexModeFailure) {
       throw $codexModeFailure
     }
@@ -1330,6 +1446,12 @@ if (-not $NonInteractive) {
 
   $bootstrapArguments = @{
     RepoRoot = $RepoRoot
+    HomeDir = $HomeDir
+    CodexHome = $CodexHome
+    CcgMigrationPlan = $CcgMigrationPlan
+    CcgMigrationPlanSha256 = $CcgMigrationPlanSha256
+    CcgPackageArchive = $CcgPackageArchive
+    CcgPackageArchiveSha256 = $CcgPackageArchiveSha256
     LinkCcg = $true
     CcgSetupTargetVersion = $requiredCcgVersion
     CcgSetupPreviousPluginVersion = if (
@@ -1354,7 +1476,7 @@ if (-not $NonInteractive) {
   Assert-ClaudeUnchanged $claudeBaseline "bootstrap"
 
   $installedTrellisVersion = Get-CommandVersion "trellis"
-  $installedCcgVersion = Get-CommandVersion "ccg"
+  $installedCcgVersion = Get-CommandVersion $ccgCommand
   if ($installedTrellisVersion -ne $requiredTrellisVersion) {
     throw (
       "Installed Trellis version mismatch: expected $requiredTrellisVersion, " +
@@ -1368,6 +1490,7 @@ if (-not $NonInteractive) {
     )
   }
 
+  $installerTransactionLock = Enter-InstallerTransactionLock
   $pluginFailure = $null
   try {
     Install-CodexPlugin `
@@ -1389,12 +1512,12 @@ if (-not $NonInteractive) {
   $codexModeFailure = $null
   $codexModeOwnershipPath = Join-Path $env:CODEX_HOME ".ccg/ownership.json"
   try {
-    if (Test-Path -LiteralPath $codexModeOwnershipPath) {
-      Invoke-CheckedCommand "ccg" @("doctor", "--platform", "codex") `
+    if ((Test-Path -LiteralPath $codexModeOwnershipPath) -and -not $AgentPreservationPlan -and -not $CcgWrapperFile) {
+      Invoke-CheckedCommand $ccgCommand @("doctor", "--platform", "codex") `
         "existing CCG Codex mode verification"
     }
     else {
-      Invoke-CheckedCommand "ccg" @("codex-mode", "install") `
+      Invoke-CheckedCommand $ccgCommand $codexModeInstallArguments `
         "CCG Codex mode installation"
     }
   }
@@ -1406,23 +1529,13 @@ if (-not $NonInteractive) {
     throw $codexModeFailure
   }
 
-  $finalDoctorArguments = @{
-    RepoRoot = $RepoRoot
-  }
-  if ($CcgSourceCheckout) {
-    $finalDoctorArguments.AuthoritativeCheckout = $CcgSourceCheckout
-  }
-  & (Join-Path $RepoRoot "scripts/doctor.ps1") @finalDoctorArguments
-  if ($LASTEXITCODE -ne 0) {
-    throw "Final Harness doctor failed with exit code $LASTEXITCODE."
-  }
-  Assert-ClaudeUnchanged $claudeBaseline "final Harness doctor"
-
   $globalArguments = @(
     (Join-Path $RepoRoot "scripts/harness-init.mjs"),
     "global-init",
     "--home-dir",
-    $HomeDir
+    $HomeDir,
+    "--codex-home",
+    $CodexHome
   )
   if ($CatalogMode) {
     $globalArguments += @("--catalog-mode", $CatalogMode)
@@ -1487,6 +1600,25 @@ if (-not $NonInteractive) {
   }
   Assert-ClaudeUnchanged $claudeBaseline "Global Init"
   $platformManifestPath = Assert-GlobalSkillProjection
+
+  # Keep the phase lease through all mutations and projection validation.
+  # Doctor checks for leftover transactions after this installer releases its
+  # own exact-token lock. Clear the handle only after successful release so
+  # finally cannot clean up a different transaction created during Doctor.
+  Exit-InstallerTransactionLock $installerTransactionLock
+  $installerTransactionLock = $null
+  $finalDoctorArguments = @{
+    RepoRoot = $RepoRoot
+  }
+  if ($CcgSourceCheckout) {
+    $finalDoctorArguments.AuthoritativeCheckout = $CcgSourceCheckout
+  }
+  & (Join-Path $RepoRoot "scripts/doctor.ps1") @finalDoctorArguments
+  if ($LASTEXITCODE -ne 0) {
+    throw "Final Harness doctor failed with exit code $LASTEXITCODE."
+  }
+  Assert-ClaudeUnchanged $claudeBaseline "final Harness doctor"
+
   Show-PendingProviderActions $globalResult $HomeDir $RepoRoot
   Show-PendingRecommendedAddons $HomeDir $RepoRoot
 
@@ -1497,7 +1629,10 @@ if (-not $NonInteractive) {
   Write-Output "  .claude state: unchanged"
 }
 finally {
-  $env:HOME = $savedEnvironment.HOME
-  $env:USERPROFILE = $savedEnvironment.USERPROFILE
-  $env:CODEX_HOME = $savedEnvironment.CODEX_HOME
+  try { Exit-InstallerTransactionLock $installerTransactionLock }
+  finally {
+    $env:HOME = $savedEnvironment.HOME
+    $env:USERPROFILE = $savedEnvironment.USERPROFILE
+    $env:CODEX_HOME = $savedEnvironment.CODEX_HOME
+  }
 }

@@ -3,7 +3,8 @@ import { createHash } from 'node:crypto'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
-import { afterAll, describe, expect, it } from 'vitest'
+import { setImmediate } from 'node:timers/promises'
+import { afterAll, afterEach, describe, expect, it } from 'vitest'
 import fs from 'fs-extra'
 
 function findPackageRoot(): string {
@@ -360,6 +361,11 @@ const TMP_ROOT = join(tmpdir(), `ccg-gptpro-bridge-${Date.now()}`)
 const PYTHON = findPython()
 const maybeIt = PYTHON ? it : it.skip
 
+// Consecutive synchronous Python fixtures can block the worker's IPC responses
+// past Vitest's RPC deadline on Windows. Yield after each case without changing
+// fixture assertions or suppressing runner errors.
+afterEach(() => setImmediate())
+
 afterAll(async () => {
   await fs.remove(TMP_ROOT)
   await fs.remove(join(PACKAGE_ROOT, 'templates', 'engine', 'tools', 'gptpro', '__pycache__'))
@@ -367,6 +373,87 @@ afterAll(async () => {
 })
 
 describe('GPT Pro sidebar bridge', () => {
+  maybeIt.each([BRIDGE, PLUGIN_BRIDGE].flatMap(bridge => ['plan', 'review', 'exc'].map(mode => ({ bridge, mode }))))(
+    'prints the assembled $mode scorecard as UTF-8 under cp1252 stdout ($bridge)',
+    ({ bridge, mode }) => {
+      const root = join(TMP_ROOT, `scorecard-${mode}-${bridge === BRIDGE ? 'engine' : 'plugin'}`)
+      fs.ensureDirSync(root)
+      const routingFile = join(root, 'routing.md')
+      const routing = [
+        `ordinary /ccg:${mode} fixture`,
+        'current orchestrator: codex',
+        'routed models: codex local fixture only; no external Provider invoked',
+        'searchStatus: not_applicable',
+        'productManagerStatus: authorization_required',
+      ].join('\n')
+      writeFileSync(routingFile, routing, 'utf-8')
+      const input = '本地评分回归：保留路由证据与审批边界。'
+      const output = execFileSync(PYTHON!.command, [
+        ...PYTHON!.prefixArgs,
+        bridge,
+        '--mode',
+        mode,
+        '--workdir',
+        root,
+        '--output-root',
+        join(root, 'sessions'),
+        '--slug',
+        'scorecard-utf8',
+        '--prompt',
+        input,
+        '--gemini-policy',
+        'none',
+        '--routing-evidence-file',
+        routingFile,
+        '--require-routing-evidence',
+        '--print-prompt',
+      ], {
+        cwd: root,
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+        env: { ...process.env, PYTHONIOENCODING: 'cp1252' },
+      })
+      const prompt = readFileSync(parseOutputPath(output, 'CCG_GPTPRO_PROMPT_FILE'), 'utf-8').replaceAll('\r\n', '\n')
+      expect(output.replaceAll('\r\n', '\n')).toContain(`CCG_GPTPRO_PROMPT_BEGIN\n${prompt}`)
+      expect(output).toContain('CCG_GPTPRO_PROMPT_END')
+      expect(prompt).toContain(input)
+      expect(prompt).toContain(`Routing evidence SHA-256: ${sha256(routing)}`)
+      expect(prompt).toContain('productManagerStatus: authorization_required')
+      expect(output).toContain('CCG_GPTPRO_MANUAL_BRIDGE=0')
+      expect(output).toContain('CCG_GPTPRO_SIDEBAR_TRANSPORT=1')
+      expect(prompt).toContain('XX/100')
+      if (mode === 'plan') {
+        expect(prompt).toContain('需求完整性评分（0-10）')
+        expect(prompt).toContain('Planning Readiness Scorecard')
+        expect(prompt).toContain('Plan-only boundary: Do not execute implementation.')
+      }
+      else if (mode === 'review') {
+        expect(prompt).toContain('VALIDATION REPORT')
+        expect(prompt).toContain('FRONTEND VALIDATION REPORT')
+        expect(prompt).toContain('more conservative score')
+      }
+      else {
+        expect(prompt).toContain('Implementation Readiness Scorecard')
+        expect(prompt).toContain('advisory / illustrative')
+      }
+    },
+  )
+
+  maybeIt.each([BRIDGE, PLUGIN_BRIDGE])('prints Unicode argument errors as UTF-8 under cp1252 stderr (%s)', (bridge) => {
+    try {
+      execFileSync(PYTHON!.command, [...PYTHON!.prefixArgs, bridge, '--mode', '无效模式'], {
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+        env: { ...process.env, PYTHONIOENCODING: 'cp1252' },
+      })
+      throw new Error('Expected argparse to reject the invalid mode')
+    }
+    catch (error: any) {
+      expect(error.status).toBe(2)
+      expect(String(error.stderr)).toContain('无效模式')
+    }
+  })
+
   maybeIt('passes Python syntax compilation', () => {
     runPython(PYTHON!, ['-m', 'py_compile', BRIDGE])
     runPython(PYTHON!, ['-m', 'py_compile', PLUGIN_BRIDGE])
@@ -837,7 +924,7 @@ describe('GPT Pro sidebar bridge', () => {
     expect(content).toContain('resend or deletion of idempotency and target claims')
   })
 
-  it('resolves the project sidebar Skill before the global fallback', () => {
+  it('resolves all supported sidebar locations in order without bypassing a broken installation', () => {
     for (const relativePath of [
       'docs/gptpro-manual-bridge.md',
       'plugins/ccg/skills/ccg-gptpro-bridge/SKILL.md',
@@ -845,9 +932,15 @@ describe('GPT Pro sidebar bridge', () => {
       const content = readFileSync(join(PACKAGE_ROOT, ...relativePath.split('/')), 'utf-8')
       const projectSkill = '<project-root>/.agents/skills/chatgpt-pro-sidebar/'
       const globalSkill = '~/.codex/skills/chatgpt-pro-sidebar/'
+      const agentsSkill = '~/.agents/skills/chatgpt-pro-sidebar/'
       expect(content, relativePath).toContain(projectSkill)
       expect(content, relativePath).toContain(globalSkill)
+      expect(content, relativePath).toContain(agentsSkill)
       expect(content.indexOf(projectSkill), relativePath).toBeLessThan(content.indexOf(globalSkill))
+      expect(content.indexOf(globalSkill), relativePath).toBeLessThan(content.indexOf(agentsSkill))
+      expect(content, relativePath).toContain('Continue to the next candidate only when `SKILL.md` is absent.')
+      expect(content, relativePath).toMatch(/unreadable Skill,[\s\S]*unavailable scripts must fail closed/)
+      expect(content, relativePath).toContain('never combine files from different installations')
     }
   })
 
@@ -872,7 +965,11 @@ describe('GPT Pro sidebar bridge', () => {
     const root = join(TMP_ROOT, 'sidebar-import')
     const taskDir = join(root, '.ccg', 'tasks', 'sidebar-task')
     fs.ensureDirSync(taskDir)
-    fs.writeJsonSync(join(taskDir, 'task.json'), { id: 'sidebar-task', status: 'in_progress' })
+    fs.writeJsonSync(join(taskDir, 'task.json'), {
+      id: 'sidebar-task',
+      status: 'in_progress',
+      intelligence: { requirement: 'required', status: 'failed', evidence_id: 'legacy-missing' },
+    })
     const createOutput = runPython(PYTHON!, [
       BRIDGE,
       '--mode',
@@ -891,6 +988,7 @@ describe('GPT Pro sidebar bridge', () => {
     const sessionDir = parseOutputPath(createOutput, 'CCG_GPTPRO_SESSION_DIR')
     const promptFile = parseOutputPath(createOutput, 'CCG_GPTPRO_PROMPT_FILE')
     const statusFile = parseOutputPath(createOutput, 'CCG_GPTPRO_STATUS_FILE')
+    expect(fs.readJsonSync(statusFile).external_intelligence).toEqual({})
     const sidebarDir = join(dirname(promptFile), 'sidebar')
     const prompt = readFileSync(promptFile, 'utf-8')
       .replace(/\r\n/g, '\n')
@@ -1272,7 +1370,7 @@ describe('GPT Pro sidebar bridge', () => {
     }
   })
 
-  it('keeps conditional Grok evidence ahead of ordinary GPT Pro workflow routing on every surface', () => {
+  it('archives conditional Grok evidence while ordinary GPT Pro workflows use MCP research', () => {
     const surfaces = [
       ['templates/commands/gptpro-plan.md', 'Run the Grok intelligence decision', 'Then run ordinary `/ccg:plan`'],
       ['templates/commands/gptpro-exc.md', 'Run the Grok intelligence decision', 'Then run ordinary'],
@@ -1295,6 +1393,14 @@ describe('GPT Pro sidebar bridge', () => {
       expect(content.indexOf(grokMarker), relativePath).toBeGreaterThanOrEqual(0)
       expect(content.indexOf(grokMarker), relativePath).toBeLessThan(content.indexOf(ordinaryMarker))
       expect(content, relativePath).toMatch(/exit `?2(?:`, `3`, or `4|\/3\/4)/i)
+      const active = content.replace(/<!--[\s\S]*?-->/g, '')
+      expect(active, relativePath).toContain('grok-search MCP')
+      expect(active, relativePath).toContain(ordinaryMarker)
+      expect(active, relativePath).toContain('--require-routing-evidence')
+      expect(active, relativePath).not.toContain('ccg route')
+      expect(active, relativePath).not.toContain('--require-external-intelligence')
+      expect(active, relativePath).not.toContain('--expected-intelligence-mode')
+      expect(active, relativePath).not.toContain('--expected-intelligence-depth')
     }
   })
 

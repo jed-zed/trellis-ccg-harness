@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "source": "Existing authorized chatgpt-pro-sidebar installation; snapshot only, no global modifications",
+  "sourceInstalledRoot": "~/.agents/skills/chatgpt-pro-sidebar/scripts",
+  "snapshotDate": "2026-10-03",
+  "files": [
+    {
+      "file": "chatgpt-pro-sidebar.ps1",
+      "sourceSha256": "19a163b207996ead4712b1396e79be9dd6c5baa7902eea29deb92db3d0083b0a",
+      "sourceBytes": 332244
+    },
+    {
+      "file": "chatgpt-pro-sidebar-watch.ps1",
+      "sourceSha256": "068882e419df7509c4c00ab3c86d0b524f9d9783d29fe785a70f35bbe28b7657",
+      "sourceBytes": 140282
+    },
+    {
+      "file": "chatgpt-pro-upload.ps1",
+      "sourceSha256": "01d785204762932c3dbcaaeb0f7ab530948ec41f9a46e36a7e5a1d15dda91c64",
+      "sourceBytes": 53837
+    },
+    {
+      "file": "chatgpt-pro-agent-browser-v2.js",
+      "sourceSha256": "f3fa89bd1abfa99d8945e5608d2c2c059d63b69dc194a79b4023b2d34d10a64f",
+      "sourceBytes": 25974
+    },
+    {
+      "file": "chatgpt-pro-agent-browser-select-pro.js",
+      "sourceSha256": "40019f28415ede5e454802b24401e0492514cd3e5cf50bd560411b081b51c53d",
+      "sourceBytes": 4304
+    },
+    {
+      "file": "chatgpt-pro-agent-browser-upload.js",
+      "sourceSha256": "a7762777c27d235070a76140ef349bb9940fbf5fe7bb93a55f033ed5445fcab0",
+      "sourceBytes": 20658
+    }
+  ],
+  "hostAdapterChanges": "Explicit host identity, namespaced legacy transport UUID, truthful host authority, RootWait-only Claude lifecycle, immutable attachment seals. Browser/upload fixed DOM logic is unchanged."
+}

@@ -146,6 +146,7 @@ function configureInstalledRuntime(value) {
   writeFileSync(
     path.join(value.repoRoot, ".harness", "adapter.json"),
     `${JSON.stringify({
+      runtime: { ccg: { command: "ccg" } },
       productManager: {
         allowedProviders: ["codex"],
       },
@@ -153,7 +154,7 @@ function configureInstalledRuntime(value) {
   );
   writeFileSync(
     path.join(value.repoRoot, "harness.sources.json"),
-    `${JSON.stringify({ ccg: { version: "3.4.1" } })}\n`,
+    `${JSON.stringify({ ccg: { package: "ccg-workflow", version: "3.4.1" } })}\n`,
   );
 }
 

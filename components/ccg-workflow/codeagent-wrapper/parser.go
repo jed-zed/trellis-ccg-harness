@@ -754,6 +754,374 @@ func parseJSONStreamInternalWithReview(r io.Reader, warnFn func(string), infoFn 
 	return message, threadID, terminalError
 }
 
+// walkProviderJSONLines is used only by explicitly selected new backends.
+// Unlike the legacy automatic classifier it never reinterprets a foreign
+// provider's event as assistant output. Protocol errors cannot become success.
+func walkProviderJSONLines(r io.Reader, name string, terminalSeen func() bool, consume func(json.RawMessage) string) string {
+	reader := bufio.NewReaderSize(r, jsonLineReaderSize)
+	for {
+		line, tooLong, err := readProviderJSONLine(reader)
+		if tooLong {
+			return fmt.Sprintf("%s event exceeds %d bytes", name, jsonLineMaxBytes)
+		}
+		line = bytes.TrimSpace(line)
+		if len(line) != 0 {
+			if !json.Valid(line) || line[0] != '{' {
+				return "parse " + name + " event: expected a JSON object"
+			}
+			if terminalError := consume(line); terminalError != "" {
+				return terminalError
+			}
+		}
+		if err != nil {
+			if errors.Is(err, io.EOF) || (terminalSeen() && (errors.Is(err, os.ErrClosed) || errors.Is(err, io.ErrClosedPipe))) {
+				return ""
+			}
+			return "read " + name + " stream: " + err.Error()
+		}
+	}
+}
+
+// ReadSlice preserves the final bytes alongside a read error. In particular,
+// a truncated line ending exactly at a buffer boundary must be checked before
+// an owned pipe close can be accepted after a terminal event. The legacy
+// classifier keeps its existing reader and behavior.
+func readProviderJSONLine(reader *bufio.Reader) (line []byte, tooLong bool, err error) {
+	for {
+		fragment, readErr := reader.ReadSlice('\n')
+		if readErr == nil {
+			fragment = fragment[:len(fragment)-1]
+		}
+		if len(line)+len(fragment) > jsonLineMaxBytes {
+			return nil, true, nil
+		}
+		line = append(line, fragment...)
+		if errors.Is(readErr, bufio.ErrBufferFull) {
+			continue
+		}
+		return line, false, readErr
+	}
+}
+
+// parseKimiStream implements the official @moonshot-ai/kimi-code 2.1.1
+// prompt-render JSONL protocol. The successful tail is session.resume_hint;
+// retries, tool results, and metadata are never included in the answer.
+func parseKimiStream(r io.Reader, warnFn func(string), infoFn func(string), onMessage func(), onComplete func(), onContent func(content, contentType string), onProgress func(line string), onSessionStarted func(id string)) (message, threadID, terminalError string) {
+	if warnFn == nil {
+		warnFn = func(string) {}
+	}
+	if infoFn == nil {
+		infoFn = func(string) {}
+	}
+	completeNotified := false
+	notifyComplete := func() {
+		if !completeNotified {
+			completeNotified = true
+			if onComplete != nil {
+				onComplete()
+			}
+		}
+	}
+	defer notifyComplete()
+	emitProgress := func(name string, fields map[string]string) {
+		if onProgress != nil {
+			onProgress("[PROGRESS] " + formatProgressLine(name, fields))
+		}
+	}
+	var answer strings.Builder
+	resumeHintSeen := false
+	unknownWarnings := 0
+	terminalError = walkProviderJSONLines(r, "Kimi", func() bool { return resumeHintSeen }, func(raw json.RawMessage) string {
+		var event struct {
+			Role      string          `json:"role"`
+			Type      string          `json:"type"`
+			Content   json.RawMessage `json:"content"`
+			SessionID string          `json:"session_id"`
+			ToolID    string          `json:"tool_call_id"`
+			ToolCalls []struct {
+				ID       string `json:"id"`
+				Function struct {
+					Name string `json:"name"`
+				} `json:"function"`
+			} `json:"tool_calls"`
+			NextAttempt int `json:"next_attempt"`
+			MaxAttempts int `json:"max_attempts"`
+			DelayMS     int `json:"delay_ms"`
+		}
+		if err := json.Unmarshal(raw, &event); err != nil {
+			return "parse Kimi event: " + err.Error()
+		}
+		switch {
+		case event.Role == "assistant" && event.Type == "":
+			if resumeHintSeen {
+				return "Kimi assistant message followed terminal resume hint"
+			}
+			var text string
+			if len(event.Content) > 0 && string(event.Content) != "null" {
+				if err := json.Unmarshal(event.Content, &text); err != nil {
+					return "Kimi assistant content must be a string (archived Python kimi-cli is unsupported)"
+				}
+			}
+			if text != "" {
+				answer.WriteString(text)
+				if onMessage != nil {
+					onMessage()
+				}
+				if onContent != nil {
+					onContent(text, "message")
+				}
+				emitProgress("message", map[string]string{"text": strconv.Quote(safeProgressSnippet(text, 120))})
+			}
+			for _, tool := range event.ToolCalls {
+				emitProgress("tool_started", map[string]string{"id": strconv.Quote(safeProgressSnippet(tool.ID, 80)), "name": strconv.Quote(safeProgressSnippet(tool.Function.Name, 80))})
+				if onContent != nil {
+					onContent("tool started: "+safeProgressSnippet(tool.Function.Name, 80), "command")
+				}
+			}
+		case event.Role == "tool" && event.Type == "":
+			if resumeHintSeen {
+				return "Kimi tool message followed terminal resume hint"
+			}
+			emitProgress("tool_done", map[string]string{"id": strconv.Quote(safeProgressSnippet(event.ToolID, 80))})
+		case event.Role == "meta":
+			switch event.Type {
+			case "system.version":
+				infoFn("Parsed Kimi version metadata")
+			case "turn.step.retrying":
+				emitProgress("api_retry", map[string]string{"attempt": strconv.Itoa(event.NextAttempt), "max": strconv.Itoa(event.MaxAttempts), "delay_ms": strconv.Itoa(event.DelayMS)})
+			case "session.resume_hint":
+				if strings.TrimSpace(event.SessionID) == "" {
+					return "Kimi terminal resume hint missing session_id"
+				}
+				if resumeHintSeen {
+					return "Kimi stream has duplicate terminal resume hints"
+				}
+				threadID = event.SessionID
+				resumeHintSeen = true
+				notifyComplete()
+				if onSessionStarted != nil {
+					onSessionStarted(threadID)
+				}
+				emitProgress("session_started", map[string]string{"id": threadID})
+			default:
+				if unknownWarnings < 3 {
+					warnFn("Ignored unknown Kimi metadata: " + safeProgressSnippet(event.Type, 80))
+					unknownWarnings++
+				}
+			}
+		default:
+			if unknownWarnings < 3 {
+				warnFn("Ignored foreign or unknown Kimi event: " + safeProgressSnippet(event.Type, 80))
+				unknownWarnings++
+			}
+		}
+		return ""
+	})
+	message = answer.String()
+	if terminalError == "" && !resumeHintSeen {
+		terminalError = "Kimi stream missing terminal resume hint"
+	}
+	if terminalError == "" && message == "" {
+		terminalError = "Kimi stream missing assistant response"
+	}
+	if terminalError == "" {
+		emitProgress("session_completed", nil)
+	}
+	return message, threadID, terminalError
+}
+
+type opencodeStreamPart struct {
+	ID        string `json:"id"`
+	SessionID string `json:"sessionID"`
+	Type      string `json:"type"`
+	Text      string `json:"text"`
+	Reason    string `json:"reason"`
+	Tool      string `json:"tool"`
+	State     struct {
+		Status string `json:"status"`
+	} `json:"state"`
+}
+
+// parseOpencodeStream is bound to the explicit OpenCode backend. Its uppercase
+// sessionID and part envelope cannot be confused with Grok/Gemini text events.
+func parseOpencodeStream(r io.Reader, warnFn func(string), infoFn func(string), onMessage func(), onComplete func(), onContent func(content, contentType string), onProgress func(line string), onSessionStarted func(id string)) (message, threadID, terminalError string) {
+	if warnFn == nil {
+		warnFn = func(string) {}
+	}
+	if infoFn == nil {
+		infoFn = func(string) {}
+	}
+	completeNotified := false
+	notifyComplete := func() {
+		if !completeNotified {
+			completeNotified = true
+			if onComplete != nil {
+				onComplete()
+			}
+		}
+	}
+	defer notifyComplete()
+	emitProgress := func(name string, fields map[string]string) {
+		if onProgress != nil {
+			onProgress("[PROGRESS] " + formatProgressLine(name, fields))
+		}
+	}
+	var answer strings.Builder
+	stopSeen := false
+	unknownWarnings := 0
+	seenText := map[string]string{}
+	terminalError = walkProviderJSONLines(r, "OpenCode", func() bool { return stopSeen }, func(raw json.RawMessage) string {
+		var event struct {
+			Type      string          `json:"type"`
+			SessionID string          `json:"sessionID"`
+			Part      json.RawMessage `json:"part"`
+			Error     json.RawMessage `json:"error"`
+		}
+		if err := json.Unmarshal(raw, &event); err != nil {
+			return "parse OpenCode event: " + err.Error()
+		}
+		// encoding/json matches struct tags case-insensitively. An explicit map
+		// lookup is required here: Grok/Gemini's sessionId is a different key.
+		var exactFields map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &exactFields); err != nil {
+			return "parse OpenCode event: " + err.Error()
+		}
+		event.SessionID = ""
+		if id, exists := exactFields["sessionID"]; exists {
+			if err := json.Unmarshal(id, &event.SessionID); err != nil {
+				return "parse OpenCode sessionID: " + err.Error()
+			}
+		}
+		known := event.Type == "step_start" || event.Type == "step_finish" || event.Type == "text" || event.Type == "reasoning" || event.Type == "tool_use" || event.Type == "error"
+		if !known || strings.TrimSpace(event.SessionID) == "" {
+			if unknownWarnings < 3 {
+				warnFn("Ignored foreign or unknown OpenCode event: " + safeProgressSnippet(event.Type, 80))
+				unknownWarnings++
+			}
+			return ""
+		}
+		if threadID == "" {
+			threadID = event.SessionID
+			if onSessionStarted != nil {
+				onSessionStarted(threadID)
+			}
+			emitProgress("session_started", map[string]string{"id": threadID})
+		} else if threadID != event.SessionID {
+			return "OpenCode stream changed sessionID"
+		}
+		if event.Type == "error" {
+			return extractOpencodeStreamError(event.Error)
+		}
+		var part opencodeStreamPart
+		if len(event.Part) == 0 || string(event.Part) == "null" {
+			return "OpenCode event missing part"
+		}
+		if err := json.Unmarshal(event.Part, &part); err != nil {
+			return "parse OpenCode part: " + err.Error()
+		}
+		if part.SessionID != "" && part.SessionID != threadID {
+			return "OpenCode part sessionID mismatch"
+		}
+		switch event.Type {
+		case "step_start":
+			if part.Type != "step-start" {
+				return "OpenCode step_start part type mismatch"
+			}
+			stopSeen = false
+			emitProgress("turn_started", nil)
+		case "text":
+			if part.Type != "text" {
+				return "OpenCode text part type mismatch"
+			}
+			if part.ID != "" {
+				if text, exists := seenText[part.ID]; exists {
+					if text != part.Text {
+						return "OpenCode completed text part changed"
+					}
+					return ""
+				}
+				seenText[part.ID] = part.Text
+			}
+			if part.Text != "" {
+				answer.WriteString(part.Text)
+				if onMessage != nil {
+					onMessage()
+				}
+				if onContent != nil {
+					onContent(part.Text, "message")
+				}
+				emitProgress("message", map[string]string{"text": strconv.Quote(safeProgressSnippet(part.Text, 120))})
+			}
+		case "reasoning":
+			if part.Type != "reasoning" {
+				return "OpenCode reasoning part type mismatch"
+			}
+			if onContent != nil && part.Text != "" {
+				onContent(part.Text, "reasoning")
+			}
+		case "tool_use":
+			if part.Type != "tool" {
+				return "OpenCode tool_use part type mismatch"
+			}
+			emitProgress("tool_done", map[string]string{"name": strconv.Quote(safeProgressSnippet(part.Tool, 80)), "status": strconv.Quote(safeProgressSnippet(part.State.Status, 40))})
+			if onContent != nil {
+				onContent("tool "+safeProgressSnippet(part.State.Status, 40)+": "+safeProgressSnippet(part.Tool, 80), "command")
+			}
+		case "step_finish":
+			if part.Type != "step-finish" {
+				return "OpenCode step_finish part type mismatch"
+			}
+			switch part.Reason {
+			case "stop":
+				stopSeen = true
+				notifyComplete()
+			case "tool-calls":
+				stopSeen = false
+			default:
+				return "OpenCode stopped with reason " + strconv.Quote(part.Reason)
+			}
+		}
+		return ""
+	})
+	message = answer.String()
+	if terminalError == "" && !stopSeen {
+		terminalError = "OpenCode stream missing terminal stop"
+	}
+	if terminalError == "" && message == "" {
+		terminalError = "OpenCode stream missing assistant response"
+	}
+	if terminalError == "" {
+		emitProgress("session_completed", nil)
+	}
+	return message, threadID, terminalError
+}
+
+func extractOpencodeStreamError(raw json.RawMessage) string {
+	var text string
+	if json.Unmarshal(raw, &text) == nil && strings.TrimSpace(text) != "" {
+		return "OpenCode error: " + text
+	}
+	var object struct {
+		Name    string `json:"name"`
+		Message string `json:"message"`
+		Data    struct {
+			Message string `json:"message"`
+		} `json:"data"`
+	}
+	if json.Unmarshal(raw, &object) == nil {
+		if object.Data.Message != "" {
+			return "OpenCode error: " + object.Data.Message
+		}
+		if object.Message != "" {
+			return "OpenCode error: " + object.Message
+		}
+		if object.Name != "" {
+			return "OpenCode error: " + object.Name
+		}
+	}
+	return "OpenCode reported an error"
+}
+
 type antigravityStreamEvent struct {
 	Event          string                     `json:"event"`
 	ConversationID string                     `json:"conversation_id,omitempty"`

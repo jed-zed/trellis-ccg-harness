@@ -1,3 +1,4 @@
+import { resolveCodexHome, sameCodexHome } from "./codex-home.mjs";
 import { execFile as execFileCallback } from "node:child_process";
 import {
   createHash,
@@ -101,6 +102,54 @@ async function sameExistingPath(left, right) {
   } catch {
     return false;
   }
+}
+
+// A rollback preserves the original receipt bytes, including its historical
+// alias. A signed transaction's actual physical observation can explain that
+// alias after it disappears; a lexical match alone never establishes ownership.
+async function matchesRecordedCodexProjection({ home, codex, manifestState, agentsState, entry }) {
+  if (await sameExistingPath(entry?.path ?? "", path.join(codex, "AGENTS.md"))) return true;
+  if (normalizePath(entry?.path ?? "") !== normalizePath(path.join(home, ".codex", "AGENTS.md")) ||
+      entry?.installedFileSha256 !== agentsState.sha256) return false;
+  return hasRecordedPlatformRootObservation({ homeDir: home, codexHome: codex, manifestBytes: manifestState.bytes });
+}
+
+export async function hasRecordedPlatformRootObservation({ homeDir, codexHome, manifestBytes }) {
+  const home = path.resolve(homeDir);
+  const codex = await resolveCodexHome(home, codexHome);
+  const manifest = JSON.parse(manifestBytes.toString("utf8"));
+  if ((manifest.codexHome && normalizePath(manifest.codexHome) !== normalizePath(path.join(home, ".codex"))) ||
+      await pathExists(path.join(home, ".codex"))) return false;
+  const legacyBlock = manifest.managedBlocks?.find((entry) =>
+    normalizePath(entry.path) === normalizePath(path.join(home, ".codex", "AGENTS.md")));
+  const agentsState = legacyBlock ? await readFileState(path.join(codex, "AGENTS.md"), "Physical global AGENTS.md") : null;
+  if (legacyBlock && legacyBlock.installedFileSha256 !== agentsState.sha256) return false;
+  const updatesRoot = path.join(home, ".agents", "harness", "source-updates");
+  if (!(await pathExists(updatesRoot))) return false;
+  await assertRealDirectory(path.join(home, ".agents"), "Global Agents directory");
+  await assertRealDirectory(path.dirname(updatesRoot), "Global Harness directory");
+  await assertRealDirectory(updatesRoot, "Platform source update directory");
+  const key = (await readFileState(provenancePathFor(home), "Platform source provenance key")).bytes;
+  if (!key) return false;
+  const receiptSha256 = sha256(manifestBytes);
+  for (const backupId of await readdir(updatesRoot)) {
+    if (!/^[a-f0-9-]{36}$/.test(backupId)) continue;
+    const backupRoot = path.join(updatesRoot, backupId);
+    await assertRealDirectory(backupRoot, "Platform source backup");
+    const journal = await readFileState(path.join(backupRoot, "journal.json"), "Platform source journal");
+    if (!journal.exists) continue;
+    const record = verifySignedRecord(JSON.parse(journal.bytes.toString("utf8")), key,
+      "Platform source physical observation");
+    if (record.schemaVersion !== 1 || record.owner !== OWNER || record.status !== "rolled-back" ||
+        record.operation !== "platform-source-update" || record.backupId !== backupId ||
+        normalizePath(record.homeDir) !== normalizePath(home) || normalizePath(record.codexHome) !== normalizePath(codex)) continue;
+    const receipt = record.controls.find((control) => normalizePath(control.path) === normalizePath(globalManifestPathFor(home)));
+    const agents = record.controls.find((control) => normalizePath(control.path) === normalizePath(path.join(codex, "AGENTS.md")));
+    if (receipt?.beforeSha256 !== receiptSha256 || (agentsState && agents?.beforeSha256 !== agentsState.sha256)) continue;
+    assertInside(backupRoot, receipt.backupPath, "Physical observation receipt backup");
+    if ((await readFileState(receipt.backupPath, "Physical observation receipt backup")).sha256 === receiptSha256) return true;
+  }
+  return false;
 }
 
 function isInside(root, target) {
@@ -525,6 +574,7 @@ function assertUniqueCaseFolded(names, label) {
 export async function planSkillPlatformMigration({
   repoRoot,
   homeDir = homedir(),
+  codexHome = null,
   repositoryPath,
   projectSkills = PROJECT_SKILLS,
   preservedPaths,
@@ -533,6 +583,7 @@ export async function planSkillPlatformMigration({
     path.resolve(homeDir),
     "User home",
   );
+  const codex = await resolveCodexHome(canonicalHome, codexHome);
   const canonicalRepo = await assertRealDirectory(
     path.resolve(repoRoot),
     "Harness repository",
@@ -548,6 +599,7 @@ export async function planSkillPlatformMigration({
   const repository = await readSkillRepositoryIdentity(catalogRepository);
   const agentsRoot = path.join(canonicalHome, ".agents", "skills");
   const harnessRoot = path.join(canonicalRepo, ".agents", "skills");
+  await assertRealDirectory(path.dirname(agentsRoot), "Global Agents directory");
   await assertRealDirectory(agentsRoot, "Global Agents Skill root");
   await assertRealDirectory(harnessRoot, "Harness Skill source root");
 
@@ -589,14 +641,14 @@ export async function planSkillPlatformMigration({
   }
   const untouched = [];
   for (const target of [
-    path.join(canonicalHome, ".codex", "skills", ".system"),
-    path.join(canonicalHome, ".codex", "skills", "lib"),
+    path.join(codex, "skills", ".system"),
+    path.join(codex, "skills", "lib"),
   ]) {
     untouched.push(await snapshotOptionalTree(target));
   }
   untouched.push(
     await snapshotDirectoryListing(
-      path.join(canonicalHome, ".codex", "plugins"),
+      path.join(codex, "plugins"),
     ),
   );
 
@@ -605,6 +657,7 @@ export async function planSkillPlatformMigration({
     owner: OWNER,
     repoRoot: canonicalRepo,
     homeDir: canonicalHome,
+    codexHome: codex,
     repositoryPath: catalogRepository,
     repository,
     globalEssentialSkills: [...GLOBAL_PLATFORM_SKILLS],
@@ -795,6 +848,7 @@ function isPreviousPlatformSkillSet(values) {
 export async function upgradeLegacySkillPlatformDefaults({
   approved,
   homeDir = homedir(),
+  codexHome = null,
   platformSkillsRoot,
   now = () => new Date(),
 }) {
@@ -802,13 +856,14 @@ export async function upgradeLegacySkillPlatformDefaults({
     throw new Error("Legacy Skill platform upgrade requires explicit approval.");
   }
   const home = await assertRealDirectory(path.resolve(homeDir), "User home");
+  const codex = await resolveCodexHome(home, codexHome);
   const sourceRoot = await assertRealDirectory(
     path.resolve(platformSkillsRoot),
     "Harness Skill source root",
   );
   const manifestPath = globalManifestPathFor(home);
   const profilePath = profilePathFor(home);
-  const agentsPath = path.join(home, ".codex", "AGENTS.md");
+  const agentsPath = path.join(codex, "AGENTS.md");
   const [manifestState, profileState, agentsState] = await Promise.all([
     readFileState(manifestPath, "Global Skill ownership manifest"),
     readFileState(profilePath, "Skill repository profile"),
@@ -828,10 +883,10 @@ export async function upgradeLegacySkillPlatformDefaults({
     ![1, 2].includes(manifest.schemaVersion) ||
     manifest.owner !== OWNER ||
     manifest.installMode !== undefined ||
-    !isPreviousPlatformSkillSet(managedNames) ||
+    (!isPreviousPlatformSkillSet(managedNames) && !matchesPlatformSkillSet(managedNames, GLOBAL_PLATFORM_SKILLS)) ||
     manifest.profileSha256 !== profileState.sha256 ||
     profile.schemaVersion !== 1 ||
-    !isPreviousPlatformSkillSet(profile.globalEssentialSkills ?? []) ||
+    (!isPreviousPlatformSkillSet(profile.globalEssentialSkills ?? []) && !matchesPlatformSkillSet(profile.globalEssentialSkills ?? [], GLOBAL_PLATFORM_SKILLS)) ||
     normalizePath(profile.repositoryPath ?? "") !==
       normalizePath(manifest.repository?.path ?? "")
   ) {
@@ -899,7 +954,7 @@ export async function upgradeLegacySkillPlatformDefaults({
     if (
       entry.startMarker === GLOBAL_BLOCK_START &&
       entry.endMarker === GLOBAL_BLOCK_END &&
-      (await sameExistingPath(entry?.path ?? "", agentsPath))
+      (await matchesRecordedCodexProjection({ home, codex, manifestState, agentsState, entry }))
     ) {
       blockOwnership = entry;
       break;
@@ -952,6 +1007,7 @@ export async function upgradeLegacySkillPlatformDefaults({
   );
   const manifestCandidate = {
     ...manifest,
+    codexHome: codex,
     profileSha256: sha256(profileBytes),
     managedPlatformSkills: [
       ...manifest.managedPlatformSkills.map((entry) => {
@@ -980,6 +1036,7 @@ export async function upgradeLegacySkillPlatformDefaults({
       entry === blockOwnership
         ? {
             ...entry,
+            path: agentsPath,
             renderedBlockSha256: sha256(findGlobalBlock(agentsCandidate)),
             installedFileSha256: sha256(agentsBytes),
           }
@@ -1002,6 +1059,18 @@ export async function upgradeLegacySkillPlatformDefaults({
   let profileReplaced = false;
   let agentsReplaced = false;
   let manifestReplaced = false;
+  const sourceUpdate = await preparePlatformSourceUpdate({
+    homeDir: home, codexHome: codex,
+    controls: [
+      { path: manifestPath, before: manifestState, after: manifestBytes },
+      { path: profilePath, before: profileState, after: profileBytes },
+      { path: agentsPath, before: agentsState, after: agentsBytes },
+    ],
+    skills: changes.map((entry) => ({ name: entry.name, path: entry.targetPath,
+      beforeSha256: entry.owned?.treeSha256 ?? null, afterSha256: entry.treeSha256,
+      fromSource: { path: entry.owned?.sourcePath ?? null, treeSha256: entry.owned?.treeSha256 ?? null },
+      toSource: { path: entry.sourcePath, treeSha256: entry.treeSha256 } })),
+  });
   try {
     for (const entry of changes) {
       const staged = path.join(stagedRoot, entry.name);
@@ -1065,6 +1134,7 @@ export async function upgradeLegacySkillPlatformDefaults({
       manifestState.mode,
     );
     manifestReplaced = true;
+    await sourceUpdate.complete();
   } catch (error) {
     const rollbackErrors = [];
     for (const [target, expected, original, mode, active] of [
@@ -1115,16 +1185,19 @@ export async function upgradeLegacySkillPlatformDefaults({
         `Legacy Skill platform upgrade failed and recovery data remains at ${stageRoot}.`,
       );
     }
+    await sourceUpdate.complete("rolled-back");
     throw error;
   } finally {
     if (!retainStage) {
       await rm(stageRoot, { recursive: true, force: true });
     }
+    await sourceUpdate.release();
   }
   return {
     status: "upgraded",
     manifestPath,
     installedSkills: [...GLOBAL_PLATFORM_SKILLS],
+    sourceUpdateBackupId: sourceUpdate.backupId,
     ownershipMode: "skill-platform-migration",
   };
 }
@@ -1226,6 +1299,12 @@ async function writeSignedJournal(target, journal, key) {
 
 async function acquireGlobalLock(homeDir, transactionId) {
   const root = path.join(homeDir, ".agents", "harness");
+  let current = path.resolve(homeDir);
+  for (const segment of [".agents", "harness"]) {
+    current = path.join(current, segment);
+    if (!(await pathExists(current))) await mkdir(current, { mode: 0o700 });
+    await assertRealDirectory(current, "Global Skill transaction directory");
+  }
   await mkdir(root, { recursive: true, mode: 0o700 });
   const target = path.join(root, "skill-platform.lock");
   try {
@@ -1258,7 +1337,13 @@ async function acquireGlobalLock(homeDir, transactionId) {
   };
 }
 
-async function restoreFileState(target, state) {
+async function restoreFileState(target, state, expectedAfter = null) {
+  if (expectedAfter !== null) {
+    const current = await readFileState(target, "Migration rollback target");
+    if (current.sha256 !== state.sha256 && current.sha256 !== sha256(expectedAfter)) {
+      throw new Error(`Migration target changed before rollback: ${target}`);
+    }
+  }
   if (state.exists) {
     await atomicWrite(target, state.bytes, state.mode);
   } else {
@@ -1327,6 +1412,7 @@ export async function applySkillPlatformMigration({
   expectedInventorySha256,
   repoRoot,
   homeDir = homedir(),
+  codexHome = null,
   repositoryPath,
   projectSkills = PROJECT_SKILLS,
   preservedPaths,
@@ -1344,11 +1430,13 @@ export async function applySkillPlatformMigration({
   }
   const root = path.resolve(repoRoot);
   const home = path.resolve(homeDir);
+  const codex = await resolveCodexHome(home, codexHome);
   const existingManifestPath = globalManifestPathFor(home);
   if (await pathExists(existingManifestPath)) {
     const audit = await auditSkillPlatformMigration({
       repoRoot: root,
       homeDir: home,
+      codexHome: codex,
       repositoryPath,
       gitEnv,
       execFileImpl,
@@ -1362,6 +1450,7 @@ export async function applySkillPlatformMigration({
   const inventory = await planSkillPlatformMigration({
     repoRoot: root,
     homeDir: home,
+    codexHome: codex,
     repositoryPath,
     projectSkills,
     preservedPaths,
@@ -1412,6 +1501,7 @@ export async function applySkillPlatformMigration({
     inventorySha256: inventory.inventorySha256,
     repoRoot: root,
     homeDir: home,
+    codexHome: codex,
     repositoryPath: repository.path,
     completedOperations: [],
     createdAt: now().toISOString(),
@@ -1419,11 +1509,19 @@ export async function applySkillPlatformMigration({
   await writeSignedJournal(journalPath, journal, provenanceKey);
 
   const profilePath = profilePathFor(home);
-  const agentsPath = path.join(home, ".codex", "AGENTS.md");
+  const agentsPath = path.join(codex, "AGENTS.md");
   const globalManifestPath = globalManifestPathFor(home);
   const originalProfile = await readFileState(profilePath, "Skill repository profile");
   const originalAgents = await readFileState(agentsPath, "Global AGENTS.md");
   const projectBefore = await captureProjectState(root, projectSkills);
+  for (const [name, original] of [["original-profile.json", originalProfile], ["original-AGENTS.md", originalAgents]]) {
+    if (original.exists) await writeFile(path.join(backupRoot, name), original.bytes, { flag: "wx", mode: 0o600 });
+  }
+  journal = { ...journal, originalControls: [
+    { path: profilePath, sha256: originalProfile.sha256, backupPath: originalProfile.exists ? path.join(backupRoot, "original-profile.json") : null },
+    { path: agentsPath, sha256: originalAgents.sha256, backupPath: originalAgents.exists ? path.join(backupRoot, "original-AGENTS.md") : null },
+  ] };
+  await writeSignedJournal(journalPath, journal, provenanceKey);
   const replacedPlatform = [];
   const addedPlatform = [];
   const stagedPlatform = new Map();
@@ -1503,6 +1601,7 @@ export async function applySkillPlatformMigration({
       approved: true,
       repoRoot: root,
       homeDir: home,
+      codexHome: codex,
       selectedSkills: projectSkills,
       globalEssentialSkills: GLOBAL_PLATFORM_SKILLS,
       repositoryIdentity: repository,
@@ -1548,6 +1647,8 @@ export async function applySkillPlatformMigration({
       owner: OWNER,
       backupId,
       inventorySha256: inventory.inventorySha256,
+      homeDir: home,
+      codexHome: codex,
       repository,
       catalogSkills: inventory.catalogSkills.map((entry) => ({
         name: entry.name,
@@ -1621,14 +1722,14 @@ export async function applySkillPlatformMigration({
       },
       completedAt: now().toISOString(),
     };
-    if (originalProfile.exists) {
+    if (originalProfile.exists && !(await pathExists(path.join(backupRoot, "original-profile.json")))) {
       await writeFile(
         path.join(backupRoot, "original-profile.json"),
         originalProfile.bytes,
         { flag: "wx", mode: 0o600 },
       );
     }
-    if (originalAgents.exists) {
+    if (originalAgents.exists && !(await pathExists(path.join(backupRoot, "original-AGENTS.md")))) {
       await writeFile(
         path.join(backupRoot, "original-AGENTS.md"),
         originalAgents.bytes,
@@ -1642,15 +1743,17 @@ export async function applySkillPlatformMigration({
       await mkdir(path.dirname(backupPath), { recursive: true, mode: 0o700 });
       await writeFile(backupPath, state.bytes, { flag: "wx", mode: 0o600 });
     }
+    const backupManifestBytes = Buffer.from(canonicalJson(signRecord(backupManifest, provenanceKey)));
     await atomicWrite(
       path.join(backupRoot, "manifest.json"),
-      Buffer.from(canonicalJson(backupManifest)),
+      backupManifestBytes,
       0o600,
     );
 
     const ownership = {
       schemaVersion: 2,
       owner: OWNER,
+      codexHome: codex,
       profileSha256: sha256(canonicalJson(profileCandidate)),
       repository,
       managedPlatformSkills: inventory.platform.map((entry) => ({
@@ -1681,6 +1784,7 @@ export async function applySkillPlatformMigration({
       ],
       project: backupManifest.projectAfter,
       backupId,
+      backupManifestSha256: sha256(backupManifestBytes),
       completedAt: backupManifest.completedAt,
     };
     await atomicWrite(globalManifestPath, Buffer.from(canonicalJson(ownership)), 0o600);
@@ -1695,6 +1799,8 @@ export async function applySkillPlatformMigration({
     return {
       status: "migrated",
       inventorySha256: inventory.inventorySha256,
+      homeDir: home,
+      codexHome: codex,
       repository,
       backupId,
       projectRevision,
@@ -1729,8 +1835,8 @@ export async function applySkillPlatformMigration({
         projectBefore,
         await readProjectSkillManifest(root),
       );
-      await restoreFileState(profilePath, originalProfile);
-      await restoreFileState(agentsPath, originalAgents);
+      await restoreFileState(profilePath, originalProfile, profileCandidate ? Buffer.from(canonicalJson(profileCandidate)) : null);
+      await restoreFileState(agentsPath, originalAgents, agentsCandidate === null ? null : Buffer.from(agentsCandidate));
       await rm(globalManifestPath, { force: true });
       journal = {
         ...journal,
@@ -1758,18 +1864,25 @@ export async function applySkillPlatformMigration({
 export async function auditSkillPlatformMigration({
   repoRoot,
   homeDir = homedir(),
+  codexHome = null,
   repositoryPath,
   gitEnv = process.env,
   execFileImpl = execFile,
 }) {
   const home = path.resolve(homeDir);
+  const codex = await resolveCodexHome(home, codexHome);
   const root = path.resolve(repoRoot);
   const manifestPath = globalManifestPathFor(home);
   if (!(await pathExists(manifestPath))) {
     return { status: "unmanaged", issues: ["Global Skill ownership manifest is absent."] };
   }
-  const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+  const manifestState = await readFileState(manifestPath, "Global Skill ownership manifest");
+  const manifest = JSON.parse(manifestState.bytes.toString("utf8"));
   const issues = [];
+  if (manifest.codexHome && !(await sameCodexHome(manifest.codexHome, codex)) &&
+      !(await hasRecordedPlatformRootObservation({ homeDir: home, codexHome: codex, manifestBytes: manifestState.bytes }))) {
+    issues.push("Global Skill ownership Codex home differs from the selected root.");
+  }
   if (manifest.schemaVersion !== 2 || manifest.owner !== OWNER) {
     issues.push("Global Skill ownership manifest schema or owner is invalid.");
   }
@@ -1848,9 +1961,12 @@ export async function auditSkillPlatformMigration({
     }
   }
   const agentsState = await readFileState(
-    path.join(home, ".codex", "AGENTS.md"),
+    path.join(codex, "AGENTS.md"),
     "Global AGENTS.md",
   );
+  if (!(await matchesRecordedCodexProjection({ home, codex, manifestState, agentsState, entry: manifest.managedBlocks?.[0] }))) {
+    issues.push("Global Skill repository block belongs to a different Codex root.");
+  }
   try {
     const block = agentsState.exists
       ? findGlobalBlock(agentsState.bytes.toString("utf8"))
@@ -1909,6 +2025,7 @@ export async function rollbackSkillPlatformMigration({
   backupId,
   repoRoot,
   homeDir = homedir(),
+  codexHome = null,
 }) {
   if (approved !== true) {
     throw new Error("Skill platform rollback requires explicit approval.");
@@ -1917,10 +2034,12 @@ export async function rollbackSkillPlatformMigration({
     throw new Error("Skill platform rollback backup id is invalid.");
   }
   const home = path.resolve(homeDir);
+  const codex = await resolveCodexHome(home, codexHome);
   const root = path.resolve(repoRoot);
   const audit = await auditSkillPlatformMigration({
     repoRoot: root,
     homeDir: home,
+    codexHome: codex,
   });
   if (audit.status !== "ready") {
     throw new Error(`Skill platform rollback requires intact current ownership: ${audit.issues.join("; ")}`);
@@ -1933,9 +2052,19 @@ export async function rollbackSkillPlatformMigration({
   const backupRoot = path.join(home, ".agents", "harness", "backups", backupId);
   assertInside(path.join(home, ".agents", "harness", "backups"), backupRoot, "Skill backup");
   const backupManifestPath = path.join(backupRoot, "manifest.json");
-  const backup = JSON.parse(await readFile(backupManifestPath, "utf8"));
+  const backupBytes = await readFile(backupManifestPath);
+  if (ownership.backupManifestSha256 && sha256(backupBytes) !== ownership.backupManifestSha256) {
+    throw new Error("Skill platform backup manifest drifted from ownership.");
+  }
+  const backupRecord = JSON.parse(backupBytes.toString("utf8"));
+  const backup = backupRecord.provenance
+    ? verifySignedRecord(backupRecord, (await readFileState(provenancePathFor(home), "Skill platform provenance key")).bytes, "Skill platform backup")
+    : backupRecord;
   if (backup.schemaVersion !== 2 || backup.backupId !== backupId || backup.owner !== OWNER) {
     throw new Error("Skill platform backup manifest is invalid.");
+  }
+  if (backup.codexHome && normalizePath(backup.codexHome) !== normalizePath(codex)) {
+    throw new Error("Skill platform backup Codex root differs from the selected root.");
   }
   const transactionId = randomUUID();
   const lock = await acquireGlobalLock(home, transactionId);
@@ -1971,7 +2100,7 @@ export async function rollbackSkillPlatformMigration({
     await restoreProjectState(root, before, currentProjectManifest);
     for (const [target, original] of [
       [profilePathFor(home), backup.originals.profile],
-      [path.join(home, ".codex", "AGENTS.md"), backup.originals.agents],
+      [path.join(codex, "AGENTS.md"), backup.originals.agents],
     ]) {
       const state = original.exists
         ? {
@@ -2000,6 +2129,125 @@ export async function rollbackSkillPlatformMigration({
   } finally {
     await lock.release();
   }
+}
+
+export async function preparePlatformSourceUpdate({ homeDir, codexHome, controls, skills }) {
+  const home = await assertRealDirectory(homeDir, "User home");
+  const codex = await resolveCodexHome(home, codexHome);
+  const backupId = randomUUID();
+  const lock = await acquireGlobalLock(home, backupId);
+  try {
+  const updatesRoot = path.join(home, ".agents", "harness", "source-updates");
+  if (!(await pathExists(updatesRoot))) await mkdir(updatesRoot, { mode: 0o700 });
+  await assertRealDirectory(updatesRoot, "Platform source update directory");
+  const backupRoot = path.join(updatesRoot, backupId);
+  await mkdir(backupRoot, { mode: 0o700 });
+  await mkdir(path.join(backupRoot, "skills"), { mode: 0o700 });
+  const key = await loadOrCreateProvenanceKey(home);
+  const controlRecords = [];
+  for (const [index, control] of controls.entries()) {
+    if (![globalManifestPathFor(home), profilePathFor(home), path.join(codex, "AGENTS.md")]
+      .some((target) => normalizePath(target) === normalizePath(control.path))) {
+      throw new Error("Platform source update control is outside its owned contract.");
+    }
+    const liveControl = await readFileState(control.path, "Platform source control");
+    if (liveControl.sha256 !== control.before.sha256 || liveControl.mode !== control.before.mode) {
+      throw new Error("Platform source control changed before update.");
+    }
+    const backupPath = path.join(backupRoot, `control-${index}.bak`);
+    if (control.before.exists) {
+      await writeFile(backupPath, control.before.bytes, { flag: "wx", mode: 0o600 });
+    }
+    controlRecords.push({ path: control.path, mode: control.before.mode,
+      afterMode: control.before.mode,
+      beforeSha256: control.before.sha256, afterSha256: sha256(control.after),
+      backupPath: control.before.exists ? backupPath : null });
+  }
+  for (const skill of skills) {
+    if (!SKILL_NAME.test(skill.name) || normalizePath(skill.path) !== normalizePath(path.join(home, ".agents", "skills", skill.name))) {
+      throw new Error("Platform source update Skill is outside its owned contract.");
+    }
+    if (skill.beforeSha256) {
+      const snapshot = await snapshotTree(skill.path, { copyTo: path.join(backupRoot, "skills", skill.name) });
+      if (snapshot.treeSha256 !== skill.beforeSha256) throw new Error(`Platform Skill changed before source backup: ${skill.name}`);
+    } else if (await pathExists(skill.path)) throw new Error(`Unowned platform source update target: ${skill.name}`);
+  }
+  const record = { schemaVersion: 1, owner: OWNER, operation: "platform-source-update",
+    backupId, homeDir: home, codexHome: codex, status: "prepared",
+    controls: controlRecords, skills, createdAt: new Date().toISOString() };
+  const journalPath = path.join(backupRoot, "journal.json");
+  await writeSignedJournal(journalPath, record, key);
+  return { backupId, backupRoot, release: () => lock.release(), complete: async (status = "completed") => writeSignedJournal(journalPath,
+    { ...record, status, completedAt: new Date().toISOString() }, key) };
+  } catch (error) { await lock.release(); throw error; }
+}
+
+export async function rollbackPlatformSourceUpdate({ approved, homeDir = homedir(), codexHome = null, backupId }) {
+  if (approved !== true) throw new Error("Platform source rollback requires explicit approval.");
+  if (!/^[a-f0-9-]{36}$/.test(String(backupId ?? ""))) throw new Error("Invalid platform source update backup id.");
+  const home = await assertRealDirectory(homeDir, "User home");
+  const codex = await resolveCodexHome(home, codexHome);
+  await assertRealDirectory(path.join(home, ".agents"), "Global Agents directory");
+  await assertRealDirectory(path.join(home, ".agents", "harness"), "Global Harness directory");
+  const backupRoot = path.join(home, ".agents", "harness", "source-updates", backupId);
+  await assertRealDirectory(path.dirname(backupRoot), "Platform source update directory");
+  await assertRealDirectory(backupRoot, "Platform source backup");
+  const key = (await readFileState(provenancePathFor(home), "Platform source provenance key")).bytes;
+  if (!key) throw new Error("Platform source provenance key is absent.");
+  const journalState = await readFileState(path.join(backupRoot, "journal.json"), "Platform source rollback journal");
+  const signed = JSON.parse(journalState.bytes.toString("utf8"));
+  const record = verifySignedRecord(signed, key, "Platform source rollback journal");
+  if (record.status !== "completed" || record.operation !== "platform-source-update" ||
+      record.backupId !== backupId || normalizePath(record.homeDir) !== normalizePath(home) ||
+      normalizePath(record.codexHome) !== normalizePath(codex)) {
+    throw new Error("Platform source rollback journal or selected roots differ.");
+  }
+  const lock = await acquireGlobalLock(home, randomUUID());
+  try {
+    // Preflight every current target and every backup before the first mutation.
+    const restoredControls = [];
+    for (const control of record.controls) {
+      if (![globalManifestPathFor(home), profilePathFor(home), path.join(codex, "AGENTS.md")]
+        .some((target) => normalizePath(target) === normalizePath(control.path))) {
+        throw new Error("Platform source rollback control path is invalid.");
+      }
+      const current = await readFileState(control.path, "Platform source control");
+      if (current.sha256 !== control.afterSha256 || current.mode !== control.afterMode) throw new Error(`Platform source target changed after update: ${control.path}`);
+      let bytes = null;
+      if (control.backupPath) {
+        assertInside(backupRoot, control.backupPath, "Platform source control backup");
+        const original = await readFileState(control.backupPath, "Platform source backup");
+        if (original.sha256 !== control.beforeSha256) throw new Error("Platform source control backup drifted.");
+        bytes = original.bytes;
+      }
+      restoredControls.push({ ...control, current: current.bytes, bytes });
+    }
+    for (const skill of record.skills) {
+      if (!SKILL_NAME.test(skill.name) || normalizePath(skill.path) !== normalizePath(path.join(home, ".agents", "skills", skill.name))) {
+        throw new Error("Platform source rollback Skill target is invalid.");
+      }
+      if ((await snapshotTree(skill.path)).treeSha256 !== skill.afterSha256) {
+        throw new Error(`Platform Skill changed after source update: ${skill.name}`);
+      }
+      if (skill.beforeSha256 && (await snapshotTree(path.join(backupRoot, "skills", skill.name))).treeSha256 !== skill.beforeSha256) {
+        throw new Error(`Platform Skill source backup drifted: ${skill.name}`);
+      }
+    }
+    for (const skill of [...record.skills].reverse()) {
+      if ((await snapshotTree(skill.path)).treeSha256 !== skill.afterSha256) throw new Error(`Platform Skill changed concurrently: ${skill.name}`);
+      await rm(skill.path, { recursive: true });
+      if (skill.beforeSha256) await rename(path.join(backupRoot, "skills", skill.name), skill.path);
+    }
+    for (const control of restoredControls) {
+      if (control.bytes) await replaceRegularFileCas(control.path, control.current, control.bytes, control.mode);
+      else {
+        if ((await readFileState(control.path, "Platform source control")).sha256 !== control.afterSha256) throw new Error("Platform source control changed concurrently.");
+        await rm(control.path);
+      }
+    }
+    await writeSignedJournal(path.join(backupRoot, "journal.json"), { ...record, status: "rolled-back", rolledBackAt: new Date().toISOString() }, key);
+    return { status: "rolled-back", backupId };
+  } finally { await lock.release(); }
 }
 
 export const SKILL_PLATFORM_MARKERS = Object.freeze({

@@ -33,6 +33,36 @@ Use exactly these sections:
 
 ## Required Tests
 
+Include this mandatory code review score block within this section in the same response; keep all existing output sections:
+
+```text
+VALIDATION REPORT
+=================
+Task / Root Cause Coverage: XX/20 - [reason]
+Code Quality: XX/20 - [reason]
+Side Effects: XX/20 - [reason]
+Edge Cases: XX/20 - [reason]
+Test Coverage: XX/20 - [reason]
+
+TOTAL SCORE: XX/100
+```
+
+For frontend/UI-heavy input, also include this mandatory score block:
+
+```text
+FRONTEND VALIDATION REPORT
+==========================
+User Experience: XX/20 - [reason]
+Visual Consistency: XX/20 - [reason]
+Accessibility: XX/20 - [reason]
+Performance: XX/20 - [reason]
+Browser Compatibility: XX/20 - [reason]
+
+TOTAL SCORE: XX/100
+```
+
+Cross-score the ordinary Codex review and actual routed provider findings, including Gemini only when present. If evidence conflicts, use the more conservative score and blocker judgment. Cite visible evidence for every dimension; missing evidence lowers the score and unresolved blockers remain blocking. Scores are read-only advisory evidence and do not authorize execution or Provider calls.
+
 Review is the highest-value GPT Pro use case. Prioritize hidden bugs, security risks, compatibility risks, edge cases, test gaps, and likely false positives or misses in ordinary model evidence.
 
 Do not invent files. Do not assume hidden state.

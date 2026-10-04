@@ -1,3 +1,4 @@
+import { codexHomePath, resolveCodexHome } from "./codex-home.mjs";
 import {
   createHash,
   createHmac,
@@ -38,6 +39,7 @@ import {
   planSkillPlatformMigration,
   PREVIOUS_GLOBAL_PLATFORM_SKILL_SETS,
   rollbackSkillPlatformMigration,
+  rollbackPlatformSourceUpdate as rollbackPlatformSourceUpdateCore,
   seedPersonalSkillRepository,
 } from "./skill-platform-migration.mjs";
 import {
@@ -68,6 +70,7 @@ import {
   resolveThirdPartyApprovals,
 } from "./third-party-approval.mjs";
 import { applyThirdPartyGlobalActions } from "./third-party-global-actions.mjs";
+import { assertCodexMutationHost } from "./codex-host-boundary.mjs";
 
 export {
   inspectProviderCliStatuses,
@@ -110,7 +113,7 @@ const PROJECT_SKILL_MAX_FILE_BYTES = 16 * 1024 * 1024;
 const PROJECT_SKILL_MAX_TOTAL_BYTES = 64 * 1024 * 1024;
 const COLLABORATION_BLOCK_START = "<!-- HARNESS-COLLABORATION:START -->";
 const COLLABORATION_BLOCK_END = "<!-- HARNESS-COLLABORATION:END -->";
-const PROJECT_POLICY_VERSION = 10;
+const PROJECT_POLICY_VERSION = 12;
 const COLLABORATION_MARKER_FORMAT_VERSION = 1;
 const PROJECT_OWNERSHIP_SCHEMA_VERSION = 2;
 const PROJECT_SKILL_OWNERSHIP_SCHEMA_VERSION = 3;
@@ -374,12 +377,13 @@ function isSameOrInside(root, target) {
   );
 }
 
-function assertDedicatedSkillRepository(repositoryPath, homeDir) {
+function assertDedicatedSkillRepository(repositoryPath, homeDir, codexHome) {
   const repository = path.resolve(repositoryPath);
   const userRoot = path.resolve(homeDir);
   for (const activeRoot of [
     path.join(userRoot, ".agents", "skills"),
     path.join(userRoot, ".codex", "skills"),
+    path.join(codexHomePath(homeDir, codexHome), "skills"),
   ]) {
     if (
       isSameOrInside(activeRoot, repository) ||
@@ -492,6 +496,7 @@ function validateSkillRepositoryProfile(
 export async function loadSkillRepositoryProfile({
   allowPreviousGlobalSkills = false,
   homeDir = homedir(),
+  codexHome = null,
 } = {}) {
   const canonicalHome = await realpath(path.resolve(homeDir));
   const target = skillRepositoryProfilePath(homeDir);
@@ -513,7 +518,7 @@ export async function loadSkillRepositoryProfile({
   const profile = validateSkillRepositoryProfile(await readJson(target), {
     allowPreviousGlobalSkills,
   });
-  assertDedicatedSkillRepository(profile.repositoryPath, canonicalHome);
+  assertDedicatedSkillRepository(profile.repositoryPath, canonicalHome, codexHome);
   return profile;
 }
 
@@ -523,10 +528,12 @@ export async function saveSkillRepositoryProfile({
   excludedSkills = [],
   globalEssentialSkills,
   homeDir = homedir(),
+  codexHome = null,
   now = () => new Date(),
   repositoryPath,
   selectionGuidance = [],
 }) {
+  assertCodexMutationHost();
   if (approved !== true) {
     throw new Error(
       "Saving the Skill repository profile requires explicit approval.",
@@ -541,7 +548,7 @@ export async function saveSkillRepositoryProfile({
       `Skill repository path is not a directory: ${canonicalRepository}`,
     );
   }
-  assertDedicatedSkillRepository(canonicalRepository, canonicalHome);
+  assertDedicatedSkillRepository(canonicalRepository, canonicalHome, codexHome);
   const profile = {
     schemaVersion: 1,
     repositoryPath: canonicalRepository,
@@ -1040,10 +1047,12 @@ async function replaceFileAtomically(root, target, value, label) {
 export async function installProjectSkills({
   approved,
   homeDir = homedir(),
+  codexHome = null,
   now = () => new Date(),
   repoRoot,
   selectedSkills,
 }) {
+  assertCodexMutationHost();
   if (approved !== true) {
     throw new Error("Project Skill installation requires explicit approval.");
   }
@@ -1071,7 +1080,7 @@ export async function installProjectSkills({
   );
   const projectContract = await readJson(projectContractPath);
   validateProjectContract(projectContract, { requireApproved: true });
-  const profile = await loadSkillRepositoryProfile({ homeDir });
+  const profile = await loadSkillRepositoryProfile({ homeDir, codexHome });
   if (!profile) {
     throw new Error(
       "Skill repository is not configured; complete first-run refinement.",
@@ -1437,6 +1446,7 @@ export async function reviseReadyProjectSkills({
   approved,
   repoRoot,
   homeDir = homedir(),
+  codexHome = null,
   selectedSkills,
   globalEssentialSkills,
   repositoryIdentity = null,
@@ -1448,6 +1458,7 @@ export async function reviseReadyProjectSkills({
   provenanceKeyPath,
   replaceExisting = false,
 }) {
+  assertCodexMutationHost();
   if (approved !== true) {
     throw new Error("Ready project Skill revision requires explicit approval.");
   }
@@ -1467,7 +1478,7 @@ export async function reviseReadyProjectSkills({
     harnessDir,
     "product-manager.schema.json",
   );
-  const profile = await loadSkillRepositoryProfile({ homeDir });
+  const profile = await loadSkillRepositoryProfile({ homeDir, codexHome });
   if (!profile) {
     throw new Error(
       "Ready project Skill revision requires a saved Skill repository profile.",
@@ -1952,11 +1963,17 @@ export {
 };
 
 export async function applySkillPlatformMigration(options) {
+  assertCodexMutationHost();
   return applySkillPlatformMigrationCore({
     ...options,
     reviseProjectSkills:
       options?.reviseProjectSkills ?? reviseReadyProjectSkills,
   });
+}
+
+export async function rollbackPlatformSourceUpdate(options) {
+  assertCodexMutationHost();
+  return rollbackPlatformSourceUpdateCore(options);
 }
 
 export async function auditSkillPlatformMigration(options) {
@@ -4159,6 +4176,7 @@ export async function applyProjectContract({
   readProcessIdentity,
   provenanceKeyPath,
 }) {
+  assertCodexMutationHost();
   const root = path.resolve(repoRoot);
   const sourceSkill = path.resolve(skillRoot);
   const resolvedContractPath = path.resolve(contractPath);
@@ -4818,6 +4836,7 @@ export async function migrateProjectProductManager({
   readProcessIdentity,
   provenanceKeyPath,
 }) {
+  assertCodexMutationHost();
   if (approved !== true) {
     throw new Error(
       "Product-manager contract migration requires explicit approval.",
@@ -4938,6 +4957,7 @@ export async function markProjectReady({
   readProcessIdentity,
   provenanceKeyPath,
 }) {
+  assertCodexMutationHost();
   const root = path.resolve(repoRoot);
   const sourceSkill = path.resolve(skillRoot);
   const harnessDir = path.join(root, ".harness");
@@ -5218,7 +5238,7 @@ export async function markProjectReady({
 
 export async function inspectProject(
   repoRoot,
-  { homeDir = homedir() } = {},
+  { homeDir = homedir(), codexHome = null } = {},
 ) {
   const root = path.resolve(repoRoot);
   const rootStat = await stat(root);
@@ -5232,7 +5252,7 @@ export async function inspectProject(
   const harnessDir = path.join(root, ".harness");
   const harnessExists = await exists(harnessDir);
   const projectExists = await exists(path.join(harnessDir, "project.json"));
-  const skillProfile = await loadSkillRepositoryProfile({ homeDir });
+  const skillProfile = await loadSkillRepositoryProfile({ homeDir, codexHome });
   const skillRepositoryAvailable = skillProfile
     ? await isDirectory(skillProfile.repositoryPath)
     : false;
@@ -5267,6 +5287,7 @@ export async function inspectProject(
 
 async function prepareThirdPartyGlobalOperation({
   homeDir,
+  codexHome,
   repoRoot,
   skillRoot,
   strictDataBoundary,
@@ -5284,6 +5305,7 @@ async function prepareThirdPartyGlobalOperation({
     thirdPartyApprovalPlan ??
     (await thirdPartyPlanBuilder({
       homeDir,
+      codexHome,
       repoRoot,
       skillRoot,
       strictDataBoundary,
@@ -5340,6 +5362,7 @@ async function applyPreparedThirdPartyGlobals({
   approved,
   execFileImpl,
   homeDir,
+  codexHome,
   prepared,
   repoRoot,
   strictDataBoundary,
@@ -5354,6 +5377,7 @@ async function applyPreparedThirdPartyGlobals({
     approvalPlan,
     approvals,
     homeDir,
+    codexHome,
     manifest: loadedSource.manifest,
     repoRoot,
     strictDataBoundary,
@@ -5362,6 +5386,7 @@ async function applyPreparedThirdPartyGlobals({
     approvalPlan,
     approvals,
     homeDir,
+    codexHome,
     manifest: loadedSource.manifest,
     repoRoot,
     strictDataBoundary,
@@ -5377,6 +5402,7 @@ async function applyPreparedThirdPartyGlobals({
       return acquirePinnedGitSource({
         approvalPlan,
         homeDir,
+        codexHome,
         source,
         execFileImpl: execFileImpl ?? execFile,
       });
@@ -5386,6 +5412,7 @@ async function applyPreparedThirdPartyGlobals({
     approvalPlan,
     approvals,
     homeDir,
+    codexHome,
     manifest: loadedSource.manifest,
     repoRoot,
     sourceResolver,
@@ -5396,6 +5423,7 @@ async function applyPreparedThirdPartyGlobals({
     approvalPlan,
     approvals,
     homeDir,
+    codexHome,
     manifest: loadedSource.manifest,
     repoRoot,
     runCommand: thirdPartyRunCommand,
@@ -5422,6 +5450,7 @@ export async function runGlobalInit({
   catalogUrl = null,
   execFileImpl,
   homeDir = homedir(),
+  codexHome = null,
   now = () => new Date(),
   providerActions,
   providerRunCommand,
@@ -5439,9 +5468,11 @@ export async function runGlobalInit({
   thirdPartySourceResolver,
   thirdPartySourceSha256 = null,
 }) {
+  assertCodexMutationHost();
   if (approved !== true) {
     throw new Error("Global Init requires --approved.");
   }
+  await resolveCodexHome(homeDir, codexHome ?? null);
   const actions = validateProviderActions(providerActions);
   const catalogNetworkApproved =
     allowCatalogNetwork === null ? allowNetwork : allowCatalogNetwork;
@@ -5450,6 +5481,7 @@ export async function runGlobalInit({
   const sourceSkillRoot = path.resolve(skillRoot ?? DEFAULT_SKILL_ROOT);
   const preparedThirdParty = await prepareThirdPartyGlobalOperation({
     homeDir,
+    codexHome,
     repoRoot,
     skillRoot: sourceSkillRoot,
     strictDataBoundary,
@@ -5464,6 +5496,8 @@ export async function runGlobalInit({
   const thirdPartyPlan = preparedThirdParty.approvalPlan;
   const thirdPartyApprovals = preparedThirdParty.approvals;
   const providers = await inspectProviderCliStatuses({
+    homeDir,
+    codexHome,
     runCommand: providerRunCommand,
     statusOverrides: providerStatusOverrides,
   });
@@ -5480,8 +5514,9 @@ export async function runGlobalInit({
   const existingProfile = await loadSkillRepositoryProfile({
     allowPreviousGlobalSkills: true,
     homeDir,
+    codexHome,
   });
-  const existingGlobalState = await loadGlobalInitState({ homeDir });
+  const existingGlobalState = await loadGlobalInitState({ homeDir, codexHome });
   let requestedCatalogPath = null;
   if (existingGlobalState) {
     if (existingGlobalState.catalog.mode !== catalogMode) {
@@ -5526,6 +5561,7 @@ export async function runGlobalInit({
   const platform = await installBundledPlatformSkills({
     approved,
     homeDir,
+    codexHome,
     now,
     platformSkillsRoot: path.dirname(sourceSkillRoot),
   });
@@ -5534,6 +5570,7 @@ export async function runGlobalInit({
     approved,
     execFileImpl,
     homeDir,
+    codexHome,
     prepared: preparedThirdParty,
     repoRoot,
     strictDataBoundary,
@@ -5575,6 +5612,7 @@ export async function runGlobalInit({
           excludedSkills: existingProfile.selection.excludedSkills,
           globalEssentialSkills: GLOBAL_PLATFORM_SKILLS,
           homeDir,
+          codexHome,
           now,
           repositoryPath: canonicalRepository,
           selectionGuidance: existingProfile.selection.guidance,
@@ -5609,6 +5647,7 @@ export async function runGlobalInit({
         createOnly: true,
         globalEssentialSkills: GLOBAL_PLATFORM_SKILLS,
         homeDir,
+        codexHome,
         now,
         repositoryPath: canonicalRepository,
         selectionGuidance: [
@@ -5641,6 +5680,7 @@ export async function runGlobalInit({
   const state = await recordGlobalInitState({
     catalog,
     homeDir,
+    codexHome,
     pendingProviderActions,
     platformManifestPath: platform.manifestPath,
     providerActions: actions,
@@ -5686,6 +5726,7 @@ export async function runGlobalInit({
 
 export async function recommendProjectSkills({
   homeDir = homedir(),
+  codexHome = null,
   repoRoot,
 }) {
   const facts = await inspectProject(repoRoot, { homeDir });
@@ -5703,7 +5744,7 @@ export async function recommendProjectSkills({
     facts.manifests,
     packageManifest,
   );
-  const profile = await loadSkillRepositoryProfile({ homeDir });
+  const profile = await loadSkillRepositoryProfile({ homeDir, codexHome });
   const catalog = profile
     ? await discoverSkillCatalog({ repositoryPath: profile.repositoryPath })
     : [];
@@ -5912,6 +5953,7 @@ export async function runProjectInit({
   approved,
   contractPath,
   homeDir = homedir(),
+  codexHome = null,
   now = () => new Date(),
   repoRoot,
   selectedSkills,
@@ -5924,6 +5966,7 @@ export async function runProjectInit({
   thirdPartySourceResolver,
   thirdPartySourceSha256 = null,
 }) {
+  assertCodexMutationHost();
   if (approved !== true) {
     throw new Error("Project Init requires --approved.");
   }
@@ -5948,6 +5991,7 @@ export async function runProjectInit({
     thirdPartyApprovalPlan ??
     (await thirdPartyPlanBuilder({
       homeDir,
+      codexHome,
       repoRoot,
       skillRoot: sourceSkillRoot,
       strictDataBoundary: effectiveStrictDataBoundary,
@@ -6070,7 +6114,7 @@ export async function runProjectInit({
       ? (
           await discoverSkillCatalog({
             repositoryPath: (
-              await loadSkillRepositoryProfile({ homeDir })
+              await loadSkillRepositoryProfile({ homeDir, codexHome })
             ).repositoryPath,
           })
         ).map((entry) => entry.name)
@@ -6091,6 +6135,7 @@ export async function runProjectInit({
       ? await installProjectSkills({
           approved,
           homeDir,
+          codexHome,
           now,
           repoRoot,
           selectedSkills: requested,
@@ -6113,6 +6158,7 @@ export async function runProjectInit({
       return acquirePinnedGitSource({
         approvalPlan: thirdPartyPlan,
         homeDir,
+        codexHome,
         source,
       });
     });
@@ -6121,6 +6167,7 @@ export async function runProjectInit({
     approvalPlan: thirdPartyPlan,
     approvals: thirdPartyApprovals,
     homeDir,
+    codexHome,
     manifest: loadedThirdPartySource.manifest,
     repoRoot,
     sourceResolver: resolveThirdPartySource,
@@ -6171,6 +6218,7 @@ export async function exportHarnessInitSkill({
   sourceSkillRoot,
   targetRepo,
 }) {
+  assertCodexMutationHost();
   const source = path.resolve(sourceSkillRoot);
   const root = path.resolve(targetRepo);
   const targetParent = path.join(root, ".agents", "skills");
@@ -6284,6 +6332,7 @@ function parseCliArgs(argv) {
       "skill-migration-apply",
       "skill-migration-status",
       "skill-migration-rollback",
+      "skill-source-rollback",
     ].includes(command)
   ) {
     throw new Error(
@@ -6295,6 +6344,7 @@ function parseCliArgs(argv) {
     repoRoot: process.cwd(),
     repoRootExplicit: false,
     homeDir: null,
+    codexHome: null,
     contractPath: null,
     targetRepo: null,
     repositoryPath: null,
@@ -6335,6 +6385,9 @@ function parseCliArgs(argv) {
       index++;
     } else if (option === "--home-dir") {
       result.homeDir = path.resolve(requireOption(args, index, option));
+      index++;
+    } else if (option === "--codex-home") {
+      result.codexHome = path.resolve(requireOption(args, index, option));
       index++;
     } else if (option === "--contract") {
       result.contractPath = path.resolve(requireOption(args, index, option));
@@ -6910,6 +6963,7 @@ function thirdPartyExecutionApprovalSummary(plan) {
 
 async function prepareThirdPartyPlan({
   homeDir,
+  codexHome,
   repoRoot,
   skillRoot,
   strictDataBoundary,
@@ -6917,6 +6971,7 @@ async function prepareThirdPartyPlan({
   return buildThirdPartyApprovalPlan({
     discoverCommandRoots: true,
     homeDir,
+    codexHome,
     manifestPath: thirdPartyManifestPathForSkillRoot(skillRoot),
     repoRoot,
     strictDataBoundary,
@@ -7075,6 +7130,7 @@ async function runAddons({
   args,
   execFileImpl,
   homeDir,
+  codexHome,
   promptChoice,
   skillRoot,
   stdin,
@@ -7094,6 +7150,7 @@ async function runAddons({
   const sourceSkillRoot = path.resolve(skillRoot ?? DEFAULT_SKILL_ROOT);
   const initialPlan = await thirdPartyPlanBuilder({
     homeDir,
+    codexHome,
     repoRoot: args.repoRoot,
     skillRoot: sourceSkillRoot,
     strictDataBoundary: args.strictDataBoundary,
@@ -7138,6 +7195,7 @@ async function runAddons({
   let selections = addonSelectionsFromArgs(args);
   let prepared = await prepareThirdPartyGlobalOperation({
     homeDir,
+    codexHome,
     repoRoot: args.repoRoot,
     skillRoot: sourceSkillRoot,
     strictDataBoundary: args.strictDataBoundary,
@@ -7194,6 +7252,7 @@ async function runAddons({
       selections = addonSelectionsFromArgs(args);
       prepared = await prepareThirdPartyGlobalOperation({
         homeDir,
+        codexHome,
         repoRoot: args.repoRoot,
         skillRoot: sourceSkillRoot,
         strictDataBoundary: args.strictDataBoundary,
@@ -7234,6 +7293,7 @@ async function runAddons({
 
   const executionPlan = await thirdPartyPlanBuilder({
     homeDir,
+    codexHome,
     repoRoot: args.repoRoot,
     skillRoot: sourceSkillRoot,
     strictDataBoundary: args.strictDataBoundary,
@@ -7248,6 +7308,7 @@ async function runAddons({
   }
   prepared = await prepareThirdPartyGlobalOperation({
     homeDir,
+    codexHome,
     repoRoot: args.repoRoot,
     skillRoot: sourceSkillRoot,
     strictDataBoundary: args.strictDataBoundary,
@@ -7276,6 +7337,7 @@ async function runAddons({
     approved: true,
     execFileImpl,
     homeDir,
+    codexHome,
     prepared,
     repoRoot: args.repoRoot,
     strictDataBoundary: args.strictDataBoundary,
@@ -7340,6 +7402,7 @@ async function resolveInteractiveGlobalArgs(
   args,
   {
     homeDir,
+    codexHome,
     promptChoice,
     providerRunCommand,
     skillRoot,
@@ -7365,6 +7428,8 @@ async function resolveInteractiveGlobalArgs(
   }
   const providers = await inspectProviderCliStatuses({
     runCommand: providerRunCommand,
+    homeDir,
+    codexHome,
   });
   if (!args.providerActions) {
     args.providerActions = {};
@@ -7509,13 +7574,26 @@ export async function runHarnessInitCli(
     thirdPartySourceResolver,
   } = {},
 ) {
+  const readonlyCommands = new Set([
+    "inspect", "validate", "catalog-skills", "third-party-plan",
+    "provider-action-plan", "skill-migration-plan", "skill-migration-status",
+  ]);
+  if (!readonlyCommands.has(argv[0])) assertCodexMutationHost();
   const args = parseCliArgs(argv);
   const effectiveHomeDir = args.homeDir ?? homeDir;
+  const effectiveCodexHome = args.codexHome;
   let result;
-  if (args.command === "addons") {
+  if (args.command === "skill-source-rollback") {
+    if (!args.approved || !args.homeDir || !args.backupId) {
+      throw new Error("skill-source-rollback requires --approved, --home-dir and --backup-id.");
+    }
+    result = await rollbackPlatformSourceUpdate({ approved: args.approved,
+      homeDir: effectiveHomeDir, codexHome: effectiveCodexHome, backupId: args.backupId });
+  } else if (args.command === "addons") {
     result = await runAddons({
       args,
       homeDir: effectiveHomeDir,
+      codexHome: effectiveCodexHome,
       promptChoice,
       skillRoot,
       stdin,
@@ -7530,6 +7608,7 @@ export async function runHarnessInitCli(
     if (!args.nonInteractive) {
       const resolved = await resolveInteractiveGlobalArgs(args, {
         homeDir: effectiveHomeDir,
+      codexHome: effectiveCodexHome,
         promptChoice,
         providerRunCommand,
         skillRoot,
@@ -7553,6 +7632,7 @@ export async function runHarnessInitCli(
       catalogPath: args.repositoryPath,
       catalogUrl: args.catalogUrl,
       homeDir: effectiveHomeDir,
+      codexHome: effectiveCodexHome,
       now,
       providerActions: args.providerActions,
       providerRunCommand,
@@ -7598,6 +7678,7 @@ export async function runHarnessInitCli(
       suppliedContract.security.strictDataBoundary === true;
     const projectThirdPartyPlan = await thirdPartyPlanBuilder({
       homeDir: effectiveHomeDir,
+      codexHome: effectiveCodexHome,
       repoRoot: args.repoRoot,
       skillRoot,
       strictDataBoundary: effectiveStrictDataBoundary,
@@ -7640,10 +7721,12 @@ export async function runHarnessInitCli(
     if (!args.nonInteractive && suppliedContract.status === "draft") {
       const discovery = await recommendProjectSkills({
         homeDir: effectiveHomeDir,
+      codexHome: effectiveCodexHome,
         repoRoot: args.repoRoot,
       });
       const profile = await loadSkillRepositoryProfile({
         homeDir: effectiveHomeDir,
+      codexHome: effectiveCodexHome,
       });
       const catalog = profile
         ? await discoverSkillCatalog({ repositoryPath: profile.repositoryPath })
@@ -7827,6 +7910,7 @@ export async function runHarnessInitCli(
       approved: args.approved,
       contractPath: args.contractPath,
       homeDir: effectiveHomeDir,
+      codexHome: effectiveCodexHome,
       now,
       repoRoot: args.repoRoot,
       selectedSkills: args.selectedSkills,
@@ -7842,6 +7926,7 @@ export async function runHarnessInitCli(
   } else if (args.command === "third-party-plan") {
     result = await thirdPartyPlanBuilder({
       homeDir: effectiveHomeDir,
+      codexHome: effectiveCodexHome,
       repoRoot: args.repoRoot,
       skillRoot,
       strictDataBoundary: args.strictDataBoundary,
@@ -7849,6 +7934,7 @@ export async function runHarnessInitCli(
   } else if (args.command === "provider-action-plan") {
     result = await planProviderAction({
       homeDir: effectiveHomeDir,
+      codexHome: effectiveCodexHome,
       provider: args.provider,
       action: args.providerAction,
       repoRoot: args.repoRoot,
@@ -7877,6 +7963,7 @@ export async function runHarnessInitCli(
     }
     result = await executeProviderAction({
       homeDir: effectiveHomeDir,
+      codexHome: effectiveCodexHome,
       provider: args.provider,
       action: args.providerAction,
       planSha256: args.planSha256,
@@ -7885,7 +7972,7 @@ export async function runHarnessInitCli(
       resolveCommand: providerActionResolveCommand,
     });
   } else if (args.command === "inspect") {
-    result = await inspectProject(args.repoRoot, { homeDir: effectiveHomeDir });
+    result = await inspectProject(args.repoRoot, { homeDir: effectiveHomeDir, codexHome: effectiveCodexHome });
   } else if (args.command === "validate") {
     const contract = await readJson(args.contractPath);
     validateProjectContract(contract);
@@ -7916,6 +8003,7 @@ export async function runHarnessInitCli(
       excludedSkills: args.excludedSkills,
       globalEssentialSkills: args.globalEssentialSkills,
       homeDir: effectiveHomeDir,
+      codexHome: effectiveCodexHome,
       now,
       repositoryPath: args.repositoryPath,
       selectionGuidance: args.selectionGuidance,
@@ -7928,6 +8016,7 @@ export async function runHarnessInitCli(
   } else if (args.command === "catalog-skills") {
     const profile = await loadSkillRepositoryProfile({
       homeDir: effectiveHomeDir,
+      codexHome: effectiveCodexHome,
     });
     const repositoryPath =
       args.repositoryPath ?? profile?.repositoryPath ?? null;
@@ -7956,6 +8045,7 @@ export async function runHarnessInitCli(
     result = await installProjectSkills({
       approved: args.approved,
       homeDir: effectiveHomeDir,
+      codexHome: effectiveCodexHome,
       now,
       repoRoot: args.repoRoot,
       selectedSkills: args.selectedSkills,
@@ -7963,6 +8053,7 @@ export async function runHarnessInitCli(
   } else if (args.command === "revise-project-skills") {
     const profile = await loadSkillRepositoryProfile({
       homeDir: effectiveHomeDir,
+      codexHome: effectiveCodexHome,
     });
     if (!profile) {
       throw new Error(
@@ -7973,6 +8064,7 @@ export async function runHarnessInitCli(
       approved: args.approved,
       repoRoot: args.repoRoot,
       homeDir: effectiveHomeDir,
+      codexHome: effectiveCodexHome,
       now,
       skillRoot,
       selectedSkills: args.selectedSkills,
@@ -7986,6 +8078,7 @@ export async function runHarnessInitCli(
     result = await planSkillPlatformMigration({
       repoRoot: args.repoRoot,
       homeDir: effectiveHomeDir,
+      codexHome: effectiveCodexHome,
       repositoryPath: args.repositoryPath,
       projectSkills:
         args.selectedSkills.length > 0 ? args.selectedSkills : undefined,
@@ -7996,6 +8089,7 @@ export async function runHarnessInitCli(
       expectedInventorySha256: args.inventorySha256,
       repoRoot: args.repoRoot,
       homeDir: effectiveHomeDir,
+      codexHome: effectiveCodexHome,
       repositoryPath: args.repositoryPath,
       projectSkills: args.selectedSkills,
       now,
@@ -8004,6 +8098,7 @@ export async function runHarnessInitCli(
     result = await auditSkillPlatformMigration({
       repoRoot: args.repoRoot,
       homeDir: effectiveHomeDir,
+      codexHome: effectiveCodexHome,
       repositoryPath: args.repositoryPath,
     });
   } else {
@@ -8012,6 +8107,7 @@ export async function runHarnessInitCli(
       backupId: args.backupId,
       repoRoot: args.repoRoot,
       homeDir: effectiveHomeDir,
+      codexHome: effectiveCodexHome,
     });
   }
   stdout.write(canonicalJson(result));

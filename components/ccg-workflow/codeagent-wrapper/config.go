@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,21 +14,29 @@ import (
 
 // Config holds CLI configuration
 type Config struct {
-	Mode               string // "new" or "resume"
-	Task               string
-	SessionID          string
-	WorkDir            string
-	ExplicitStdin      bool
-	Timeout            int
-	Backend            string
-	SkipPermissions    bool
-	MaxParallelWorkers int
-	GeminiModel        string // Gemini model name (empty = use default)
-	GrokModel          string // Grok model name (empty = use default)
-	GrokReviewTargets  []string
-	AntigravityReview  bool
-	ReadOnly           bool
-	Progress           bool // Emit compact progress lines to stderr
+	Mode                    string // "new" or "resume"
+	Task                    string
+	SessionID               string
+	WorkDir                 string
+	ExplicitStdin           bool
+	Timeout                 int
+	Backend                 string
+	SkipPermissions         bool
+	MaxParallelWorkers      int
+	GeminiModel             string // Gemini model name (empty = use default)
+	GrokModel               string // Grok model name (empty = use default)
+	KimiModel               string `json:"-"` // Kimi model name (empty = use native default)
+	OpencodeModel           string `json:"-"` // OpenCode provider/model (empty = use native default)
+	GrokReviewTargets       []string
+	AntigravityReview       bool
+	ReadOnly                bool
+	AllowNativeAutoApproval bool     `json:"-"` // Explicit acknowledgement for native noninteractive backends
+	AllowChildPluginDisable bool     `json:"-"` // Explicit acknowledgement that Codex MCP opt-out disables child plugin skills
+	Progress                bool     // Emit compact progress lines to stderr
+	DisableMCP              bool     // Explicit child-only opt-out; default inherits approved MCP
+	MCPAllowlistName        string   // Random per-invocation name, prepared before building opt-out args
+	CodexMCPOverrides       []string // Prepared, child-only Codex configuration overlays
+	CodexMCPPrepared        bool
 }
 
 // ParallelConfig defines the JSON schema for parallel execution
@@ -37,22 +47,32 @@ type ParallelConfig struct {
 
 // TaskSpec describes an individual task entry in the parallel config
 type TaskSpec struct {
-	ID                string          `json:"id"`
-	Task              string          `json:"task"`
-	WorkDir           string          `json:"workdir,omitempty"`
-	Dependencies      []string        `json:"dependencies,omitempty"`
-	SessionID         string          `json:"session_id,omitempty"`
-	Backend           string          `json:"backend,omitempty"`
-	SkipPermissions   bool            `json:"-"`
-	Progress          bool            `json:"-"`
-	Mode              string          `json:"-"`
-	UseStdin          bool            `json:"-"`
-	GeminiModel       string          `json:"-"`
-	GrokModel         string          `json:"-"`
-	GrokReviewTargets []string        `json:"-"`
-	AntigravityReview bool            `json:"-"`
-	ReadOnly          bool            `json:"-"`
-	Context           context.Context `json:"-"`
+	ID                      string          `json:"id"`
+	Task                    string          `json:"task"`
+	WorkDir                 string          `json:"workdir,omitempty"`
+	Dependencies            []string        `json:"dependencies,omitempty"`
+	SessionID               string          `json:"session_id,omitempty"`
+	Backend                 string          `json:"backend,omitempty"`
+	SkipPermissions         bool            `json:"-"`
+	Progress                bool            `json:"-"`
+	Mode                    string          `json:"-"`
+	UseStdin                bool            `json:"-"`
+	GeminiModel             string          `json:"-"`
+	GrokModel               string          `json:"-"`
+	KimiModel               string          `json:"-"`
+	OpencodeModel           string          `json:"-"`
+	GrokReviewTargets       []string        `json:"-"`
+	AntigravityReview       bool            `json:"-"`
+	ReadOnly                bool            `json:"-"`
+	AllowNativeAutoApproval bool            `json:"-"`
+	NativeAutoApprovalSet   bool            `json:"-"`
+	AllowChildPluginDisable bool            `json:"-"`
+	ChildPluginDisableSet   bool            `json:"-"`
+	MCPMode                 string          `json:"mcp,omitempty"` // "inherit" or "off"; empty uses the CLI default
+	DisableMCP              bool            `json:"-"`
+	CodexMCPOverrides       []string        `json:"-"`
+	CodexMCPPrepared        bool            `json:"-"`
+	Context                 context.Context `json:"-"`
 }
 
 // TaskResult captures the execution outcome of a task
@@ -82,6 +102,8 @@ var backendRegistry = map[string]Backend{
 	"agy":         AntigravityBackend{},
 	"grok":        GrokBackend{},
 	"pi":          PiBackend{},
+	"kimi":        KimiBackend{},
+	"opencode":    OpencodeBackend{},
 }
 
 func selectBackend(name string) (Backend, error) {
@@ -170,6 +192,34 @@ func parseParallelConfig(data []byte) (*ParallelConfig, error) {
 				task.Mode = "resume"
 			case "backend":
 				task.Backend = value
+			case "mcp":
+				if value != "inherit" && value != "off" {
+					return nil, fmt.Errorf("task block #%d: mcp must be inherit or off", taskIndex)
+				}
+				if task.MCPMode != "" && task.MCPMode != value {
+					return nil, fmt.Errorf("task block #%d: conflicting mcp headers", taskIndex)
+				}
+				task.MCPMode = value
+			case "native_auto_approval":
+				if value != "true" && value != "false" {
+					return nil, fmt.Errorf("task block #%d: native_auto_approval must be true or false", taskIndex)
+				}
+				parsed := value == "true"
+				if task.NativeAutoApprovalSet && task.AllowNativeAutoApproval != parsed {
+					return nil, fmt.Errorf("task block #%d: conflicting native_auto_approval headers", taskIndex)
+				}
+				task.AllowNativeAutoApproval = parsed
+				task.NativeAutoApprovalSet = true
+			case "allow_child_plugin_disable":
+				if value != "true" && value != "false" {
+					return nil, fmt.Errorf("task block #%d: allow_child_plugin_disable must be true or false", taskIndex)
+				}
+				parsed := value == "true"
+				if task.ChildPluginDisableSet && task.AllowChildPluginDisable != parsed {
+					return nil, fmt.Errorf("task block #%d: conflicting allow_child_plugin_disable headers", taskIndex)
+				}
+				task.AllowChildPluginDisable = parsed
+				task.ChildPluginDisableSet = true
 			case "dependencies":
 				for _, dep := range strings.Split(value, ",") {
 					dep = strings.TrimSpace(dep)
@@ -218,13 +268,18 @@ func parseArgs() (*Config, error) {
 	// Read environment variables (lowest precedence)
 	geminiModel := strings.TrimSpace(os.Getenv("GEMINI_MODEL"))
 	grokModel := strings.TrimSpace(os.Getenv("GROK_MODEL"))
+	kimiModel := strings.TrimSpace(os.Getenv("KIMI_MODEL"))
+	opencodeModel := strings.TrimSpace(os.Getenv("OPENCODE_MODEL"))
 	var grokReviewTargets []string
 	antigravityReview := false
 	readOnly := false
+	allowNativeAutoApproval := false
+	allowChildPluginDisable := false
 
 	backendName := defaultBackendName
 	skipPermissions := envFlagEnabled("CODEAGENT_SKIP_PERMISSIONS")
 	progress := false
+	mcpMode := ""
 	filtered := make([]string, 0, len(args))
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
@@ -282,6 +337,30 @@ func parseArgs() (*Config, error) {
 			}
 			grokModel = value
 			continue
+		case arg == "--kimi-model", arg == "--opencode-model":
+			if i+1 >= len(args) || strings.TrimSpace(args[i+1]) == "" || strings.HasPrefix(args[i+1], "--") {
+				return nil, fmt.Errorf("%s flag requires a non-empty model name", arg)
+			}
+			value := strings.TrimSpace(args[i+1])
+			if arg == "--kimi-model" {
+				kimiModel = value
+			} else {
+				opencodeModel = value
+			}
+			i++
+			continue
+		case strings.HasPrefix(arg, "--kimi-model="), strings.HasPrefix(arg, "--opencode-model="):
+			flag, value, _ := strings.Cut(arg, "=")
+			value = strings.TrimSpace(value)
+			if value == "" {
+				return nil, fmt.Errorf("%s flag requires a non-empty model name", flag)
+			}
+			if flag == "--kimi-model" {
+				kimiModel = value
+			} else {
+				opencodeModel = value
+			}
+			continue
 		case arg == "--grok-review-target":
 			if i+1 >= len(args) || strings.TrimSpace(args[i+1]) == "" || strings.HasPrefix(args[i+1], "--") {
 				return nil, fmt.Errorf("--grok-review-target flag requires a workspace-relative file")
@@ -302,11 +381,27 @@ func parseArgs() (*Config, error) {
 		case arg == "--read-only":
 			readOnly = true
 			continue
+		case arg == "--allow-native-auto-approval":
+			allowNativeAutoApproval = true
+			continue
+		case arg == "--allow-child-plugin-disable":
+			allowChildPluginDisable = true
+			continue
 		case arg == "--skip-permissions", arg == "--dangerously-skip-permissions":
 			skipPermissions = true
 			continue
 		case arg == "--progress":
 			progress = true
+			continue
+		case arg == "--with-mcp", arg == "--without-mcp":
+			mode := "inherit"
+			if arg == "--without-mcp" {
+				mode = "off"
+			}
+			if mcpMode != "" && mcpMode != mode {
+				return nil, fmt.Errorf("--with-mcp and --without-mcp cannot be combined")
+			}
+			mcpMode = mode
 			continue
 		case strings.HasPrefix(arg, "--skip-permissions="):
 			skipPermissions = parseBoolFlag(strings.TrimPrefix(arg, "--skip-permissions="), skipPermissions)
@@ -326,7 +421,10 @@ func parseArgs() (*Config, error) {
 	if antigravityReview && !strings.EqualFold(strings.TrimSpace(backendName), "antigravity") && !strings.EqualFold(strings.TrimSpace(backendName), "agy") {
 		return nil, fmt.Errorf("--antigravity-review requires --backend antigravity")
 	}
-	cfg := &Config{WorkDir: defaultWorkdir, Backend: backendName, SkipPermissions: skipPermissions, GeminiModel: geminiModel, GrokModel: grokModel, GrokReviewTargets: grokReviewTargets, AntigravityReview: antigravityReview, ReadOnly: readOnly, Progress: progress}
+	cfg := &Config{WorkDir: defaultWorkdir, Backend: backendName, SkipPermissions: skipPermissions, GeminiModel: geminiModel, GrokModel: grokModel, KimiModel: kimiModel, OpencodeModel: opencodeModel, GrokReviewTargets: grokReviewTargets, AntigravityReview: antigravityReview, ReadOnly: readOnly, Progress: progress}
+	cfg.DisableMCP = mcpMode == "off"
+	cfg.AllowNativeAutoApproval = allowNativeAutoApproval
+	cfg.AllowChildPluginDisable = allowChildPluginDisable
 	cfg.MaxParallelWorkers = resolveMaxParallelWorkers()
 
 	if args[0] == "resume" {
@@ -353,6 +451,37 @@ func parseArgs() (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// validateMCPMode refuses an unsupported opt-out before starting a provider.
+func validateMCPMode(backend string, disabled bool) error {
+	if disabled && backend != "gemini" && backend != "codex" {
+		return fmt.Errorf("MCP opt-out is only supported for Codex and Gemini; use --with-mcp (or mcp: inherit) for %s", backend)
+	}
+	return nil
+}
+
+func prepareMCPMode(cfg *Config) error {
+	if cfg.AllowChildPluginDisable && (cfg.Backend != "codex" || !cfg.DisableMCP) {
+		return fmt.Errorf("--allow-child-plugin-disable (or allow_child_plugin_disable: true) requires Codex MCP opt-out")
+	}
+	if err := validateMCPMode(cfg.Backend, cfg.DisableMCP); err != nil {
+		return err
+	}
+	if !cfg.DisableMCP {
+		cfg.CodexMCPOverrides = nil
+		cfg.CodexMCPPrepared = false
+		return nil
+	}
+	if cfg.Backend == "codex" {
+		return prepareCodexMCP(cfg)
+	}
+	var nonce [16]byte
+	if _, err := rand.Read(nonce[:]); err != nil {
+		return fmt.Errorf("cannot prepare child MCP allowlist: %w", err)
+	}
+	cfg.MCPAllowlistName = "__ccg_none_" + hex.EncodeToString(nonce[:])
+	return nil
 }
 
 func normalizeGrokReviewTargets(workDir string, targets []string) ([]string, error) {

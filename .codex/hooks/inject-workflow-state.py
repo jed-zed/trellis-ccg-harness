@@ -97,6 +97,8 @@ def find_trellis_root(start: Path) -> Optional[Path]:
 # ---------------------------------------------------------------------------
 
 def _detect_platform(input_data: dict) -> str | None:
+    if os.environ.get("CLAUDECODE") == "1" or os.environ.get("CCG_HOST", "").strip().lower() == "claude":
+        return "claude"
     if isinstance(input_data.get("cursor_version"), str):
         return "cursor"
     env_map = {
@@ -347,7 +349,8 @@ def _codex_mode_banner(config: dict) -> str:
     injection with a child-side fallback. This does not rely on inherited
     parent transcripts: `fork_turns` remains caller-controlled, and
     fresh-history sub-agents still receive their explicit delegated task and
-    inherited session configuration. `inline` is an explicit opt-out; the
+    inherited session configuration. `inline` keeps root coordination and
+    permits bounded Codex native leaves under the project leaf policy; the
     legacy `sub-agent` value is an alias for `auto`. Invalid explicit values
     fall back to `inline` without per-turn warnings. The banner makes the
     active mode explicit to Codex AI per turn, complementing the workflow-state
@@ -363,8 +366,9 @@ def _codex_mode_banner(config: dict) -> str:
         )
     else:
         meaning = (
-            "inline: the main session implements/checks directly; "
-            "do not dispatch implement/check sub-agents."
+            "inline: the Codex coordinator owns task state and final integration; "
+            "native research, implementation and verification leaves follow the "
+            "Codex native leaf workers policy with one writer per path."
         )
     return f"<codex-mode>{meaning}</codex-mode>"
 

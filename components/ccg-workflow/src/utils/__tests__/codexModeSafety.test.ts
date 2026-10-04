@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import fs from 'fs-extra'
 import { afterEach, describe, expect, it } from 'vitest'
+import { version as packageVersion } from '../../../package.json'
 import * as codexMode from '../codex-mode'
 import { readCcgConfigAt } from '../config'
 
@@ -73,6 +74,79 @@ async function hardTerminateCodexMode(
 }
 
 describe('Codex mode ownership and reversibility', () => {
+  it.each([1, 2])('removes a CCG-created hooks file after %i install(s)', async (installs) => {
+    const codexHome = await makeCodexHome()
+    const hooksPath = join(codexHome, 'hooks.json')
+    for (let count = 0; count < installs; count++) {
+      expect((await installCodexModeAt({ codexHome, pythonCommand: 'python' })).success).toBe(true)
+      const ownership = await fs.readJSON(join(codexHome, '.ccg', 'ownership.json'))
+      expect(ownership.hookGroup.fileCreated).toBe(true)
+      expect(ownership.hookGroup.backup).toBeUndefined()
+    }
+    expect((await codexMode.uninstallCodexModeAt({ codexHome })).success).toBe(true)
+    expect(await fs.pathExists(hooksPath)).toBe(false)
+  })
+
+  it.each([
+    '{}\r\n',
+    '{"userSetting":true,"hooks":{"UserPromptSubmit":[]}}\n',
+    '{"hooks":{"UserPromptSubmit":[{"hooks":[{"type":"command","command":"node user-hook.js"}]}]}}\n',
+  ])('preserves an original user hooks file through repeated install: %s', async (original) => {
+    const codexHome = await makeCodexHome()
+    const hooksPath = join(codexHome, 'hooks.json')
+    await writeFile(hooksPath, original)
+    let originalBackup
+    for (let count = 0; count < 2; count++) {
+      expect((await installCodexModeAt({ codexHome, pythonCommand: 'python' })).success).toBe(true)
+      const ownership = await fs.readJSON(join(codexHome, '.ccg', 'ownership.json'))
+      expect(ownership.hookGroup.fileCreated).toBe(false)
+      if (count === 0)
+        originalBackup = ownership.hookGroup.backup
+      expect(ownership.hookGroup.backup).toEqual(originalBackup)
+    }
+    expect((await codexMode.uninstallCodexModeAt({ codexHome })).success).toBe(true)
+    expect(await readFile(hooksPath, 'utf8')).toBe(original)
+  })
+
+  it('retains user content added to a CCG-created hooks file across reinstall and uninstall', async () => {
+    const codexHome = await makeCodexHome()
+    const hooksPath = join(codexHome, 'hooks.json')
+    expect((await installCodexModeAt({ codexHome, pythonCommand: 'python' })).success).toBe(true)
+    const hooks = await fs.readJSON(hooksPath)
+    hooks.userSetting = { enabled: true }
+    await writeFile(hooksPath, `${JSON.stringify(hooks)}\n`)
+    expect((await installCodexModeAt({ codexHome, pythonCommand: 'python' })).success).toBe(true)
+    expect((await fs.readJSON(join(codexHome, '.ccg', 'ownership.json'))).hookGroup.fileCreated).toBe(true)
+    expect((await codexMode.uninstallCodexModeAt({ codexHome })).success).toBe(true)
+    expect(await fs.readJSON(hooksPath)).toEqual({ userSetting: { enabled: true } })
+  })
+
+  it('retains user changes made before reinstall instead of restoring an older hooks backup', async () => {
+    const codexHome = await makeCodexHome()
+    const hooksPath = join(codexHome, 'hooks.json')
+    await writeFile(hooksPath, '{"originalSetting":true}\n')
+    expect((await installCodexModeAt({ codexHome, pythonCommand: 'python' })).success).toBe(true)
+    const originalBackup = (await fs.readJSON(join(codexHome, '.ccg', 'ownership.json'))).hookGroup.backup
+    const hooks = await fs.readJSON(hooksPath)
+    const userHook = { hooks: [{ type: 'command', command: 'node later-user-hook.js' }] }
+    hooks.hooks.UserPromptSubmit.push(userHook)
+    hooks.userSetting = { addedAfterFirstInstall: true }
+    await writeFile(hooksPath, `${JSON.stringify(hooks)}\n`)
+    for (let count = 0; count < 2; count++) {
+      expect((await installCodexModeAt({ codexHome, pythonCommand: 'python' })).success).toBe(true)
+      const ownership = await fs.readJSON(join(codexHome, '.ccg', 'ownership.json'))
+      expect(ownership.hookGroup.fileCreated).toBe(false)
+      expect(ownership.hookGroup.backup).toEqual(originalBackup)
+      expect(ownership.hookGroup.installedFileSha256).toBeUndefined()
+    }
+    expect((await codexMode.uninstallCodexModeAt({ codexHome })).success).toBe(true)
+    expect(await fs.readJSON(hooksPath)).toEqual({
+      originalSetting: true,
+      hooks: { UserPromptSubmit: [userHook] },
+      userSetting: { addedAfterFirstInstall: true },
+    })
+  })
+
   it('owns the wrapper and restores a pre-existing binary on uninstall', async () => {
     const codexHome = await makeCodexHome()
     const wrapperName = process.platform === 'win32' ? 'codeagent-wrapper.exe' : 'codeagent-wrapper'
@@ -328,7 +402,7 @@ describe('Codex mode ownership and reversibility', () => {
     expect(installed).toContain('enabled = true')
     expect(installed).not.toMatch(/\[product_manager\][\s\S]*provider\s*=/)
     const nextOwnership = await fs.readJSON(ownershipPath)
-    expect(nextOwnership.version).toBe('3.4.15')
+    expect(nextOwnership.version).toBe(packageVersion)
     expect(nextOwnership.files.find(
       (file: { relativePath: string }) => file.relativePath === 'ccg/config.toml',
     ).installedSha256).toBe(

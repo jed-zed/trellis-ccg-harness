@@ -1,6 +1,10 @@
 import type { InstallResult } from '../types'
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
+import { constants } from 'node:fs'
+import { open } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { dirname, isAbsolute, resolve } from 'node:path'
 import ansis from 'ansis'
 import fs from 'fs-extra'
 import { basename, join } from 'pathe'
@@ -67,22 +71,23 @@ export type { SkillMeta } from './skill-registry'
  * Must match the `version` constant in codeagent-wrapper/main.go.
  * When this differs from the installed binary, update triggers re-download.
  */
-export const EXPECTED_BINARY_VERSION = '5.12.13'
+export const EXPECTED_BINARY_VERSION = '5.12.14-personal.20261003.1'
 export const BINARY_INSTALL_FAILURE_POLICY = 'fatal' as const
 
 /**
- * Trusted digests published by the authoritative personal fork's `preset`
- * release. A candidate must match before it is made executable or started.
- * Generated from the authoritative GitHub Actions LF checkout with Go 1.21.13,
+ * Digests measured from this local personal build. These assets have not been
+ * published; the distinct release tag must be approved before remote installs.
+ * A candidate must match before it is made executable or started.
+ * Generated from the reviewed source checkout with Go 1.26.2,
  * CGO disabled, and `-buildvcs=false -trimpath -ldflags="-s -w"`.
  */
 export const EXPECTED_BINARY_SHA256: Readonly<Record<string, string>> = Object.freeze({
-  'codeagent-wrapper-darwin-amd64': '3d08da9d7876682979410f841cf6bb84905871a8eba96ae2390d4fdf8fcb938c',
-  'codeagent-wrapper-darwin-arm64': '929478a94339526526e3ce1e61986721f4652fa61f9f3afd841a43e04df94dee',
-  'codeagent-wrapper-linux-amd64': '943923a7a96c23d56db2bff91433cb88c29525ca1d549b286100c821c80c92ad',
-  'codeagent-wrapper-linux-arm64': '878319f0f7f2e865168ca7140f83f6d31e661e6b0b840637487ed5aa14e65d91',
-  'codeagent-wrapper-windows-amd64.exe': 'f97bfffbe9b55935c11103829c81ab5d0e0520eee1977ed6508a11a6293166cd',
-  'codeagent-wrapper-windows-arm64.exe': 'a33cddd4dd3a22bf7c136ac1e0fc89025a39cda4fbb681d4fa6671f3b9882472',
+  'codeagent-wrapper-darwin-amd64': '2ac1b9b265c29f0e4b27a3c83a3e4fbfba64516d88ece08271e02095cfba0bb2',
+  'codeagent-wrapper-darwin-arm64': '1d8396f5d366d0ed67d0dd99e1108c23a0050530ec1bbd02d23e8bc507b3144a',
+  'codeagent-wrapper-linux-amd64': '5df62166e87f5472e73cc7cc6b2c4a7b4c373900bd0f230d6a017f9ee564d5c8',
+  'codeagent-wrapper-linux-arm64': '8237c59cd669c0434b289bdf5f7003c895ff7fb0b1d6c9995c5833ac6f0d422c',
+  'codeagent-wrapper-windows-amd64.exe': 'a5e95212e83117f0c17cb54d7b1a55c58a07590bd3ede0ceac774f4d7b321f1b',
+  'codeagent-wrapper-windows-arm64.exe': '91bbf77642964294aba1bdaf5c51e9d4c81d34422cabaa8ec1b0de9a9dc6a21b',
 })
 
 // ═══════════════════════════════════════════════════════
@@ -98,6 +103,8 @@ interface InstallConfig {
     review?: { models: string[] }
     geminiModel?: string
     grokModel?: string
+    kimiModel?: string
+    opencodeModel?: string
   }
   liteMode: boolean
   mcpProvider: string
@@ -121,7 +128,7 @@ function normalizeTemplateContent(content: string): string {
 // ═══════════════════════════════════════════════════════
 
 const GITHUB_REPO = 'jed-zed/ccg-gptpro-worflow'
-const RELEASE_TAG = 'preset'
+const RELEASE_TAG = 'wrapper-5.12.13-personal.20261002.1'
 
 /** Only the user's authoritative personal release is an executable source. */
 const BINARY_SOURCES = [
@@ -193,9 +200,11 @@ async function sha256File(filePath: string): Promise<string> {
   return createHash('sha256').update(bytes).digest('hex')
 }
 
-async function readBinaryVersion(binaryPath: string): Promise<string | null> {
+async function readBinaryVersion(binaryPath: string, timeout?: number): Promise<string | null> {
   try {
-    const output = execFileSync(binaryPath, ['--version'], { stdio: 'pipe' }).toString().trim()
+    const output = execFileSync(binaryPath, ['--version'], timeout === undefined
+      ? { stdio: 'pipe' }
+      : { stdio: 'pipe', timeout, windowsHide: true, maxBuffer: 65536 }).toString().trim()
     const versionMatch = output.match(/\bversion\s+(\S+)/i)
     return versionMatch?.[1] ?? output
   }
@@ -426,7 +435,7 @@ async function installPromptFiles(ctx: InstallContext): Promise<void> {
     return
   }
 
-  for (const model of ['codex', 'gemini', 'claude', 'antigravity', 'grok']) {
+  for (const model of ['codex', 'gemini', 'claude', 'antigravity', 'grok', 'kimi', 'opencode']) {
     try {
       const installed = await copyMdTemplates(
         ctx,
@@ -624,8 +633,8 @@ async function installSkillGeneratedCommands(ctx: InstallContext): Promise<void>
  * These enable Codex CLI as an alternative lead orchestrator (Codex-led multi-model mode).
  * Files are installed to ~/.codex/ (global) and user copies AGENTS.md to project root.
  */
-export async function installCodexMode(): Promise<{ success: boolean, message: string }> {
-  return installCodexModeAt()
+export async function installCodexMode(options: { wrapperFile?: string, agentPreservationPlan?: string } = {}): Promise<{ success: boolean, message: string }> {
+  return installCodexModeAt(options)
 }
 
 /**
@@ -668,6 +677,62 @@ function getBinaryName(): string | null {
   const arch = process.arch === 'arm64' ? 'arm64' : 'amd64'
   const ext = process.platform === 'win32' ? '.exe' : ''
   return `codeagent-wrapper-${os}-${arch}${ext}`
+}
+
+/** Read one explicitly selected local artifact using this build's fixed native pin. */
+export async function readPinnedLocalWrapper(filePath: string): Promise<Buffer> {
+  if (typeof filePath !== 'string' || !isAbsolute(filePath))
+    throw new Error('--wrapper-file requires an absolute local file path.')
+  if (filePath.includes('\0'))
+    throw new Error('Local wrapper source cannot contain NUL.')
+  if (process.platform === 'win32'
+    && (!/^[a-z]:[\\/]/i.test(filePath) || filePath.slice(2).includes(':')))
+    throw new Error('Local wrapper source cannot use a network, device, or alternate-stream path.')
+  if (!['x64', 'arm64'].includes(process.arch))
+    throw new Error('Local wrapper installation is unsupported on this architecture.')
+  const binaryName = getBinaryName()
+  const expectedSha256 = binaryName ? EXPECTED_BINARY_SHA256[binaryName] : null
+  if (!expectedSha256)
+    throw new Error('No pinned local wrapper exists for this platform.')
+  // Refuse links and Windows junctions throughout the caller-selected source path.
+  const absolute = resolve(filePath)
+  let current = absolute
+  while (true) {
+    const stat = await fs.lstat(current)
+    if (stat.isSymbolicLink() || (current === absolute ? !stat.isFile() : !stat.isDirectory()))
+      throw new Error('Local wrapper source must be a regular file under real directories.')
+    const parent = dirname(current)
+    if (parent === current)
+      break
+    current = parent
+  }
+  const handle = await open(absolute, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0))
+  let bytes: Buffer
+  try {
+    const stat = await handle.stat()
+    if (!stat.isFile() || stat.size === 0 || stat.size > 32 * 1024 * 1024)
+      throw new Error('Local wrapper source is not a regular file.')
+    bytes = await handle.readFile()
+  }
+  finally {
+    await handle.close()
+  }
+  if (createHash('sha256').update(bytes).digest('hex') !== expectedSha256)
+    throw new Error(`Local wrapper integrity mismatch for ${binaryName}.`)
+  // Execute a private snapshot, never the mutable caller path. Only pinned bytes
+  // are made executable; the same verified buffer enters the owned transaction.
+  const staging = await fs.mkdtemp(join(tmpdir(), 'ccg-local-wrapper-'))
+  try {
+    const candidate = join(staging, process.platform === 'win32' ? 'codeagent-wrapper.exe' : 'codeagent-wrapper')
+    await fs.writeFile(candidate, bytes, { flag: 'wx', mode: 0o700 })
+    if (await sha256File(candidate) !== expectedSha256
+      || await readBinaryVersion(candidate, 10_000) !== EXPECTED_BINARY_VERSION)
+      throw new Error('Pinned local wrapper failed its native version check.')
+    return bytes
+  }
+  finally {
+    await fs.remove(staging)
+  }
 }
 
 /**
@@ -1087,6 +1152,8 @@ export async function installWorkflows(
       review?: { models?: string[] }
       geminiModel?: string
       grokModel?: string
+      kimiModel?: string
+      opencodeModel?: string
     }
     liteMode?: boolean
     mcpProvider?: string

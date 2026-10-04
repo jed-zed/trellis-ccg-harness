@@ -38,7 +38,7 @@ describe('Codex-native CCG route CLI', () => {
     )
 
     expect(result.status, result.stderr).toBe(0)
-    expect(result.stdout).toContain('Usage:\n  ccg codex-mode <install|uninstall|recover>')
+    expect(result.stdout).toContain('Usage:\n  ccg-codex codex-mode <install|uninstall|recover>')
     expect(result.stdout).toContain('only manages Codex-owned paths')
     expect(result.stdout).not.toContain('ccg init')
     expect(await fs.pathExists(join(home, '.claude'))).toBe(false)
@@ -252,13 +252,14 @@ describe('Codex-native CCG route CLI', () => {
       provider: 'gemini',
     })
     let document = parse(await readFile(configPath, 'utf8')) as any
-    expect(document.product_manager).not.toHaveProperty('provider')
+    expect(document.product_manager).toHaveProperty('provider', 'gemini')
 
     for (const provider of ['claude', 'codex', 'gemini']) {
       const changed = run(['routing', 'set', 'product-manager', provider])
       expect(changed.status, changed.stderr).toBe(0)
       document = parse(await readFile(configPath, 'utf8')) as any
       expect(document.routing['product-manager'].primary).toBe(provider)
+      expect(document.product_manager).not.toHaveProperty('provider')
       expect(document.routing.frontend.primary).toBe('gemini')
       expect(document.routing.backend.primary).toBe('codex')
       expect(document.routing.search.primary).toBe('grok')

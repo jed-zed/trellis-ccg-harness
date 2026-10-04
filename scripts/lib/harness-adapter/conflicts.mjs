@@ -23,6 +23,7 @@ import {
   readJson,
 } from "./process.mjs";
 import { redactString, redactValue } from "./redaction.mjs";
+import { resolveCodexHome } from "../../../.agents/skills/harness-init/scripts/codex-home.mjs";
 
 function createAddFinding(findings) {
   return (...args) => {
@@ -114,6 +115,7 @@ export async function auditConflicts(
     runtimeRunner,
     env = process.env,
     homeDir = homedir(),
+    codexHome = env.CODEX_HOME ?? null,
     includeRuntimeState = true,
     includeUserState = true,
     treeish = "HEAD",
@@ -141,6 +143,7 @@ export async function auditConflicts(
   runUserStateChecks({
     ...shared,
     homeDir,
+    codexHome: includeUserState ? await resolveCodexHome(homeDir, codexHome) : null,
     includeUserState,
   });
   runInformationalChecks(shared);

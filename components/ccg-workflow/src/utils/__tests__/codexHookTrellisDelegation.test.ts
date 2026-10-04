@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
@@ -31,14 +31,14 @@ async function makeFixture(worktree: boolean): Promise<{ root: string, cwd: stri
   return { root, cwd }
 }
 
-function runHook(cwd: string) {
+function runHook(cwd: string, payload: Record<string, unknown> = { cwd }) {
   const python = resolvePythonInvocation()
   return spawnSync(
     python.command,
     [...python.argsPrefix, hookPath],
     {
       cwd,
-      input: JSON.stringify({ cwd }),
+      input: JSON.stringify(payload),
       encoding: 'utf8',
       timeout: 15_000,
       windowsHide: true,
@@ -61,6 +61,43 @@ describe('CCG global Codex hook delegates Trellis lifecycle', () => {
       expect(result.stderr).toBe('')
     }, 35_000)
   }
+
+  it('forwards session identity and project approval guidance without rewriting task metadata', async () => {
+    const { root, cwd } = await makeFixture(true)
+    const taskDir = join(root, '.trellis', 'tasks', 'approved-task')
+    await mkdir(taskDir, { recursive: true })
+    const taskPath = join(taskDir, 'task.json')
+    const taskState = JSON.stringify({
+      id: 'approved-task',
+      status: 'planning',
+      meta: { planApproval: { status: 'approved', version: 'v1', source: { quote: '批准' } } },
+    })
+    await writeFile(taskPath, taskState)
+    const context = '<workflow-state>Read .trellis/workflow.md#shared-plan-approval; retain the current PM presentation gate.</workflow-state>'
+    await writeFile(
+      join(root, '.codex', 'hooks', 'inject-workflow-state.py'),
+      [
+        'import json, os, sys',
+        'payload = json.load(sys.stdin)',
+        `print(json.dumps({"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": ${JSON.stringify(context)}}, "payload": payload, "delegated": os.environ.get("CCG_TRELLIS_DELEGATED")}))`,
+        '',
+      ].join('\n'),
+    )
+    const payload = { cwd, thread_id: 'approved-thread', session_id: 'approved-session', task_dir: taskDir }
+    const result = runHook(cwd, payload)
+    expect(result.status).toBe(0)
+    expect(result.stderr).toBe('')
+    expect(JSON.parse(result.stdout)).toEqual({
+      hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: context },
+      payload,
+      delegated: '1',
+    })
+    expect(await readFile(taskPath, 'utf8')).toBe(taskState)
+    expect(JSON.parse(await readFile(join(root, '.ccg', 'tasks', 'must-not-win', 'task.json'), 'utf8'))).toEqual({
+      id: 'must-not-win',
+      status: 'in_progress',
+    })
+  }, 35_000)
 
   it('fails closed to Trellis-only guidance when the project hook is missing', async () => {
     const { root, cwd } = await makeFixture(true)

@@ -64,9 +64,13 @@ FINAL_VERIFICATION.md
 *.tgz
 .codegraph/
 coverage/
+/.vitest-cache/
 
 # Local Grok external-intelligence bundles (sanitized exports are explicit)
 /.ccg/
 /.codex/ccg/
 /output/
 /tmp/
+
+# Local addon execution evidence is delivered separately from clean Git source.
+/plugins/ccg-gptpro-bridge/tests/results/

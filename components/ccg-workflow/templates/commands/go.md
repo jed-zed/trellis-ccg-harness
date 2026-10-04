@@ -16,6 +16,15 @@ $ARGUMENTS
 
 ---
 
+## Research
+
+Use existing independent research agents with grok-search MCP. Search actively and
+verify key conclusions against original sources; check versions/licenses when
+reusing code and experiment conditions when adopting papers. Mark unverified findings.
+Archived instructions below are inactive: ordinary work does not run Grok CLI/ACP,
+wait for its gates, or require its manifests and hash packages.
+
+<!-- Legacy Grok CLI/ACP reference; inactive in ordinary research.
 ## Phase -1: 外部情报自动判定 [required]
 
 即使用户没有说“搜索”，主编排器也必须先判断当前任务是否依赖最新外部事实。把原始请求写入
@@ -39,6 +48,7 @@ exit code `2`, `3`, or `4` 必须停止后续工作，exit `0` 才能进入 Phas
 得到可审计 skip reason，但不会调用 Grok 模型。
 
 ---
+-->
 
 ## Phase 0: 逃生舱检测
 
@@ -182,8 +192,12 @@ mkdir -p .ccg/tasks/{task-name}
 - 第一行写种子示例：`{"_example": "Fill with {\"file\": \"path\", \"reason\": \"why\"}. Seed rows are skipped."}`
 - 如果 `.ccg/spec/` 存在 → 追加 spec 文件条目
 
+<!-- Legacy Grok CLI/ACP reference; inactive in ordinary research.
 **复杂度 S 或 git-action → 跳过 `task.json` / `context.jsonl` 创建**（保持轻量），但不得删除
 Phase -1 已持久化的 `intelligence-request.md` 与 `intelligence-route.json`。
+-->
+
+**复杂度 S 或 git-action → 跳过 `task.json` / `context.jsonl` 创建**（保持轻量）。
 
 **确认任务已创建后**，输出：
 ```

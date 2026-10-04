@@ -66,6 +66,21 @@ unresolved decision per turn. Each question must
 
 ## Guided Entry Points
 
+For a split installation, pass `--home-dir <AgentsHome>` and
+`--codex-home <physical .codex directory>` together. The default remains
+`HomeDir/.codex`; a linked default requires its explicit physical root.
+Skills, journals and backups remain in AgentsHome. Global Codex projections
+and subprocess `CODEX_HOME` use the selected physical root, which is bound into
+approval and rollback digests. Keep existing profile junctions in place.
+
+An approved Global Init may transactionally update unchanged owned platform
+Skills from a new exact source even when the 15-Skill set is unchanged. It
+keeps the original receipt and source tree in an authenticated backup.
+`skill-source-rollback --home-dir <AgentsHome> --codex-home <physical-root>
+--backup-id <id> --approved` restores that update only while every current
+target and original backup still matches the recorded bytes. User drift is
+held for explicit recovery and never adopted into ownership.
+
 Initialization has three explicit, independently resumable commands:
 
 - `addons` is the global-only third-party re-entry point. Interactive mode

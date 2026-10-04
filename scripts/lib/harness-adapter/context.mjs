@@ -16,6 +16,18 @@ import {
   redactValue,
 } from "./redaction.mjs";
 import { resolvePython } from "../python-resolver.mjs";
+import { isClaudeHost } from "../../../.agents/skills/harness-init/scripts/codex-host-boundary.mjs";
+
+function collectCodexLeafPolicy(repoRoot, env) {
+  if (isClaudeHost(env)) return null;
+  const policyPath = ".harness/policies/collaboration-policy.md";
+  const policy = readTextIfPresent(path.join(repoRoot, policyPath));
+  const instructions = policy?.match(
+    /^## Codex native leaf workers\r?\n([\s\S]*?)(?=^## |$(?![\s\S]))/m,
+  )?.[1].trim();
+  if (!instructions) return null;
+  return { path: policyPath, sha256: sha256(policy), instructions };
+}
 
 function runCurrentTaskCommand(
   repoRoot,
@@ -205,6 +217,7 @@ export function buildCanonicalContext(
     env,
     platform: pythonPlatform,
   });
+  const codexLeafPolicy = collectCodexLeafPolicy(repoRoot, env);
   const context = {
     schemaVersion: contract.schemaVersion,
     harness: contract.harness.definition,
@@ -239,6 +252,7 @@ export function buildCanonicalContext(
     models: contract.models,
     routing: contract.routing,
     providers: summarizeProviders(contract.providers),
+    ...(codexLeafPolicy ? { codexLeafPolicy } : {}),
   };
 
   return redactValue(context);

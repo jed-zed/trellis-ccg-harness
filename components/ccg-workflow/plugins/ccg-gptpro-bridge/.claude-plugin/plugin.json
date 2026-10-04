@@ -1,0 +1,7 @@
+{
+  "name": "ccg-gptpro-bridge",
+  "version": "0.1.1-local.20261003",
+  "description": "Optional GPT Pro evidence bridge for the original Claude CCG workflow. No Harness hooks, routing, MCP registration, or PATH commands.",
+  "author": { "name": "jed-zed" },
+  "license": "MIT"
+}

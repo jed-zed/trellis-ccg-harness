@@ -32,6 +32,18 @@ Rollback omits the option and therefore retains
 
 ## 3. Contracts
 
+- The personal scoped package is `@jed-zed/ccg-codex-workflow` with the single
+  `ccg-codex` bin. Package/bin/version and authoritative commit/tree are one
+  identity. A legacy `ccg-link` requires an explicit hash-bound namespace
+  migration plan; retain its old entry and bytes until a separate stock
+  recipient plan formally releases ownership. No automatic takeover occurs.
+- Pinned local archive setup validates the TGZ hash and package/bin/version
+  before opening its transaction, then installs offline with scripts disabled.
+  Default local-directory setup remains a separate compatibility path.
+- Global Setup forwards an explicit hash-bound agent preservation plan and
+  local wrapper to Codex mode. Existing ownership uses read-only verification
+  unless one of these reviewed migration inputs explicitly requests install.
+
 - Before mutation, update requires a clean Harness worktree, no pending
   transaction, an exact clean personal CCG checkout, and an ordinary doctor
   pass against the currently published manifest and installed baseline.
@@ -105,3 +117,72 @@ inside the snapshot transaction and install it only after publication.
 readTargetCcgVersion(resolved, source, manifest)
 runHarnessDoctor(repoRoot)
 ```
+
+
+## Explicit Codex package identity
+
+Runtime resolution binds an allowlisted package name to its declared single bin:
+`ccg-workflow` -> `ccg`, or `@jed-zed/ccg-codex-workflow` -> `ccg-codex`.
+Source package, version and bin must agree before installer mutation. Scoped
+package paths include their namespace; owned uninstall uses the recorded exact
+package and never falls back to the old alias. Ownership continuity refuses
+implicit cross-namespace migration. CLI version parsing preserves prerelease/build suffixes.
+
+### Reviewed legacy namespace migration
+
+`ccg-runtime-migration-plan --repo-root <repo>` requires an explicit absolute
+`NPM_CONFIG_PREFIX`, an intact owned packaged `ccg-workflow`, its existing npm
+aliases, the promoted scoped source identity, and an absent scoped package and
+aliases. It prints deterministic JSON binding repository, prefix, source and
+ownership digests, exact legacy runtime, and both sets of command files.
+`bootstrap-begin --manage-ccg --ccg-migration-plan <file>
+--ccg-migration-plan-sha256 <sha256>` rebuilds that exact plan before writing.
+Source, receipt, package, or alias drift rejects the migration; a foreign scoped
+target is never adopted.
+
+After the real package installation, `bootstrap-runtime-checkpoint` pins the
+installed runtime and aliases before later setup steps. Namespace completion
+requires that unchanged checkpoint. Its atomic ownership projection retains the
+old entry as `ccg-legacy-retained` and creates the new scoped `ccg-link` without
+rewriting the old installed fingerprint or claiming the old package as scoped.
+An abort holds uncheckpointed or user-edited scoped state. Ordinary bootstrap
+also supports checkpoints; callers without a namespace transition remain
+compatible. Uninstall removes only matching active owned runtime and aliases;
+the legacy slot remains a separately managed handoff baseline.
+
+Before the separate stock-Claude npm file transaction, create
+`ccg-legacy-disposition-plan --recipient-plan <stock-plan.json>
+--recipient-plan-sha256 <sha256>`. The recipient must be the exact
+`ccg-stock-npm-prefix-file-plan` for the same prefix, with immutable stage and
+baseline hashes. Apply with `ccg-legacy-disposition --ccg-migration-plan <file>
+--ccg-migration-plan-sha256 <sha256>`. This verifies the retained package and
+aliases, then atomically records `released-for-stock-claude` and both plan hashes.
+It changes no runtime bytes and makes no claim that stock is already installed.
+The historical slot is excluded from subsequent personal-runtime observations,
+so a separately receipted stock takeover cannot make scoped reinitialization
+fail. Reapplying the exact disposition is unchanged.
+
+### Pinned package archive bootstrap
+
+`install.ps1` and `bootstrap.ps1` may accept `-CcgPackageArchive <absolute.tgz>`
+and `-CcgPackageArchiveSha256 <sha256>`. Before any ownership transaction,
+`ccg-runtime.mjs --repo-root <repo> --archive <path> --sha256 <digest>` verifies
+the bounded regular archive, hash, traversal/link/duplicate-safe entries, CLI
+entrypoint, and exact source package/bin/version. The archive branch installs
+with offline npm, ignored scripts, no audit/funding, and nested dependency
+layout. It uses built archive bytes rather than requiring `dist` in the clean
+Git snapshot. The existing directory bootstrap remains available when no
+archive is supplied.
+
+Personal mutation entry points reject explicit `CLAUDECODE=1` or
+`CCG_HOST=claude` before initialization, migration, bootstrap or lifecycle writes.
+This is a host boundary, not a filesystem sandbox. Existing `.claude` byte guards
+remain required. Read-only inspection/audit paths remain available.
+
+The explicit local candidate acceptance recipe in `recipes/` pins the source
+positive receipt, CLI archive, native Codex plugin/marketplace and wrapper. Missing
+or mismatched pins fail before temporary installation. Its dry-isolated-init uses
+actual scoped package bytes, a fresh private prefix/home and copied existing
+dependency cache with offline npm and ignored scripts. Historical component
+provenance is retained; acceptance does not imply automatic installed ownership
+migration or full Harness source promotion.

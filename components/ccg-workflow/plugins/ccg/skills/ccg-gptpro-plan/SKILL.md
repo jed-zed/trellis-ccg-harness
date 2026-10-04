@@ -14,14 +14,25 @@ Load and follow `skills/ccg-gptpro-bridge/SKILL.md`.
 ## Behavior
 
 - Treat the argument as a planning task or plan-review input.
-- Before ordinary planning or any Gemini or GPT Pro handoff, write the bounded subject and run
-  `ccg route --workflow gptpro-plan --phase intake --task-file <request-file> --state-file <state-file>`.
+## Research
 
-Run this potentially long route with the host's tool-managed background execution and wait mechanism; never put it under a foreground timeout shorter than the runner's 10-minute timeout. If the host cancels or terminates the job before a terminal state is written, run `ccg route recover --state-file <state-file> --status cancelled --reason "<reason>"` (or use `--status failed`); recovery refuses to overwrite a live owner.
+Use existing independent research agents with grok-search MCP. Search actively and
+verify key conclusions against original sources; check versions/licenses when
+reusing code and experiment conditions when adopting papers. Mark unverified findings.
+Archived instructions below are inactive: ordinary work does not run Grok CLI/ACP,
+wait for its gates, or require its manifests and hash packages.
+
+<!-- Legacy Grok CLI/ACP reference; inactive in ordinary research.
+- Before ordinary planning or any Gemini or GPT Pro handoff, write the bounded subject and run
+  `ccg-codex route --workflow gptpro-plan --phase intake --task-file <request-file> --state-file <state-file>`.
+
+Run this potentially long route with the host's tool-managed background execution and wait mechanism; never put it under a foreground timeout shorter than the runner's 10-minute timeout. If the host cancels or terminates the job before a terminal state is written, run `ccg-codex route recover --state-file <state-file> --status cancelled --reason "<reason>"` (or use `--status failed`); recovery refuses to overwrite a live owner.
   Let the current orchestrator add a semantic mode/reason whenever external evidence is materially
   useful even if the user did not request search. When required, the shared route runs Grok contract evidence
   and require its canonical artifact, manifest, hashes, and active-task pointer. Exit `2`, `3`, or `4`
   stops the workflow; pass only the validated summary, claims, and provenance, never raw Grok output.
+-->
+
 - Run ordinary `/ccg:plan` semantics first. Preserve Codex as the planning
   authority and use the applicable frontend/backend/search planning evidence from that
   workflow.
@@ -43,16 +54,25 @@ Run this potentially long route with the host's tool-managed background executio
 - Ask GPT Pro to focus on requirement ambiguity, wrong assumptions, architecture risk, missing
   constraints, test gaps, and whether the plan is worth continuing.
 - Require output sections: `Blockers`, `Risks`, `Missing Evidence`, `Plan Adjustments`, `Go-NoGo`.
+- Require `Requirement Completeness` and `Planning Readiness Scorecard` as mandatory parts of `Go-NoGo` in the same response. Completeness uses `需求完整性评分（0-10）` with `目标明确性（0-3）`, `预期结果（0-3）`, `边界范围（0-2）`, `约束条件（0-2）`, `总分：X/10`, and `判定：>=7 继续；<7 停止并提出补充问题`.
+- Score planning readiness across requirement clarity, scope boundaries, implementation sequencing, risk handling, and verification strategy, each out of 20 with evidence and `TOTAL SCORE` out of 100. Missing evidence lowers scores; disagreements use the more conservative score and blocker judgment.
+- If completeness is `<7`, ask for missing details instead of creating or revising a plan. Readiness scores preserve the Plan-only Boundary and do not authorize execution or Provider calls.
 - Build a single-round planning prompt by default.
 - Expected questions: 1.
 - Additional sequential follow-up questions have no fixed bridge limit.
 - Follow-up rounds are only for blocker re-check or revised plan comparison.
+<!-- Legacy Grok CLI/ACP reference; inactive in ordinary research.
 - Use `scripts/gptpro_bridge.py --mode plan --gemini-policy optional --gemini-evidence-role gate --routing-evidence-file <routing-evidence-file> --routing-summary-file <routing-summary-file> --require-routing-evidence [--gemini-response-file <CCG_GEMINI_RESPONSE_FILE> --gemini-summary-file <summary-file> when Gemini actually ran] [--require-external-intelligence --expected-intelligence-mode <route investigation_mode> --expected-intelligence-depth <route depth> when route status=verified or status=received_unverified and requirement=required]`; omit those three external-intelligence flags for `status=waived`.
+-->
+- Use `scripts/gptpro_bridge.py --mode plan --gemini-policy optional --gemini-evidence-role gate --routing-evidence-file <routing-evidence-file> --routing-summary-file <routing-summary-file> --require-routing-evidence [--gemini-response-file <CCG_GEMINI_RESPONSE_FILE> --gemini-summary-file <summary-file> when Gemini actually ran]`.
 - Delegate, monitor, wake, and import through the installed `chatgpt-pro-sidebar` Skill exactly as defined by the shared bridge Skill.
 - Read the response only after `CCG_GPTPRO_SIDEBAR_IMPORTED=1`.
+<!-- Legacy Grok CLI/ACP reference; inactive in ordinary research.
 - Summarize and synthesize validated Grok external intelligence, ordinary planning evidence,
   optional Gemini evidence when present, and GPT Pro findings in Chinese; the current orchestrator
   decides final plan edits.
+-->
+- Synthesize available MCP research, ordinary role evidence, and GPT Pro findings in Chinese; the current orchestrator decides the outcome.
 - The current CCG orchestrator remains final owner.
 - Do not automate ChatGPT web login.
 - Do not read arbitrary ChatGPT DOM.

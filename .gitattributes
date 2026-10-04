@@ -24,4 +24,6 @@ AGENTS.md text eol=lf
 .agents/skills/harness-init/scripts/*.mjs text eol=lf
 scripts/*.ps1 text eol=lf
 tests/*.mjs text eol=lf
-components/ccg-workflow/** text=auto eol=lf
+# Preserve the authoritative CCG Git blobs, including its reviewed CRLF files.
+# The imported component must round-trip to its recorded upstream tree exactly.
+components/ccg-workflow/** -text

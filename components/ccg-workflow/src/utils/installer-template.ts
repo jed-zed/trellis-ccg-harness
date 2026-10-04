@@ -70,6 +70,8 @@ export function injectConfigVariables(content: string, config: {
     review?: { models?: string[] }
     geminiModel?: string
     grokModel?: string
+    kimiModel?: string
+    opencodeModel?: string
   }
   liteMode?: boolean
   mcpProvider?: string
@@ -179,6 +181,26 @@ export function injectConfigVariables(content: string, config: {
         return line.replace(/\{\{GROK_MODEL_FLAG\}\}/g, '')
       }
       return line.replace(/\{\{GROK_MODEL_FLAG\}\}/g, grokModelFlagValue)
+    }).join('\n')
+  }
+
+  for (const provider of ['kimi', 'opencode'] as const) {
+    const placeholder = `{{${provider.toUpperCase()}_MODEL_FLAG}}`
+    const configured = routing[provider === 'kimi' ? 'kimiModel' : 'opencodeModel']
+    if (configured != null && (typeof configured !== 'string' || /[\u0000-\u001F\u007F]/.test(configured)))
+      throw new TypeError(`${provider} model must be a single-line identifier`)
+    const model = configured?.trim() || ''
+    // Restrict generated shell examples to identifiers safe in POSIX and PowerShell.
+    // Rich identifiers remain supported by CLI/env argv, never interpolated as shell code.
+    if (model && !/^[a-z0-9][a-z0-9._/:@+-]*$/i.test(model))
+      throw new TypeError(`${provider} template model contains shell metacharacters; use a CLI flag or environment variable`)
+    const used = providerUsageRoutes.some(route => route.primary === provider || route.models.includes(provider))
+    processed = processed.split('\n').map((line) => {
+      if (!line.includes(placeholder))
+        return line
+      const backend = line.match(/--backend\s+([a-z0-9-]+)(?:\s|$)/)?.[1]
+      const value = used && model && (!backend || backend === provider) ? `--${provider}-model ${model} ` : ''
+      return line.split(placeholder).join(value)
     }).join('\n')
   }
 

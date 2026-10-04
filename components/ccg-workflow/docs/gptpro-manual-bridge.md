@@ -22,17 +22,52 @@ The Codex plugin copy is:
 plugins/ccg/skills/ccg-gptpro-bridge/
 ```
 
-Resolve the required personal Skill from the active project first:
+Resolve the required personal Skill in this order:
 
 ```text
 <project-root>/.agents/skills/chatgpt-pro-sidebar/
+~/.codex/skills/chatgpt-pro-sidebar/
+~/.agents/skills/chatgpt-pro-sidebar/
 ```
 
-Only when the project copy is absent, fall back to:
+When `CODEX_HOME` is configured, use `<CODEX_HOME>/skills/chatgpt-pro-sidebar/` for the second candidate.
+Continue to the next candidate only when `SKILL.md` is absent. An existing but unreadable Skill,
+an incomplete installation, or unavailable scripts must fail closed. Derive both scripts from the
+same resolved Skill directory; never combine files from different installations.
+
+The independent `chatgpt-pro-sidebar` Skill is bundled and deployed by Harness, not by the CCG
+npm package or CCG plugin. Use your existing approved Harness Global Init
+(`scripts/harness-init.mjs global-init`), or your approved Skill installer, to install
+the complete Skill directory into one of the locations above. Repair an existing higher-priority
+installation before relying on a lower-priority copy. Reinstalling CCG does not install this dependency.
+
+In the approved Harness checkout, follow `scripts/README.md` for the Global Init contract. Its
+non-interactive path first produces a third-party source plan, then applies the reviewed source digest:
 
 ```text
-~/.codex/skills/chatgpt-pro-sidebar/
+node scripts/harness-init.mjs third-party-plan --home-dir <absolute-user-home>
+node scripts/harness-init.mjs global-init --non-interactive --home-dir <absolute-user-home> --catalog-mode skip --provider-actions "codex=later,gemini=later,grok=later,claude=skip" --third-party-global-skills none --third-party-global-plugins none --third-party-mcp-cli none --third-party-source-sha256 <reviewed-sha256-from-plan> --approved
 ```
+
+Substitute the actual user home and reviewed digest, and preserve the user's existing approval scope.
+Global Init projects the bundled platform Skills, including sidebar, to the user's global Skills
+directory. The full `scripts/install.ps1` setup performs broader installation; its plugin-only mode
+skips Global Init and therefore does not deploy sidebar. If Harness reports owned source drift, follow
+its repair guidance before retrying.
+
+Run `ccg doctor --gptpro` for a read-only local dependency check. Without `--platform`, this checks
+only sidebar files and does not load or migrate CCG configuration. With `--platform codex` or
+`--platform claude`, it also checks that platform and makes missing or broken sidebar files a failure.
+Ordinary doctor reports an unavailable sidebar as an optional warning. The plugin equivalent is
+`plugins/ccg/scripts/doctor.ps1 -GptPro -Json`; `-ProjectRoot`, `-CodexHome`, and `-UserHome` can select
+explicit roots for local checks.
+
+The file contract covers readable, nonempty `SKILL.md`, `scripts/chatgpt-pro-sidebar.ps1`,
+`scripts/chatgpt-pro-sidebar-watch.ps1`, and the two JavaScript files directly referenced by the
+adapter: `scripts/chatgpt-pro-agent-browser-v2.js` and `scripts/chatgpt-pro-agent-browser-select-pro.js`.
+`installed` means these local files are complete. It does not verify the external `agent-browser-cli`
+backend, browser extension, approved tab, Pro login, or a live response. Doctor does not launch or
+install those components.
 
 Native CCG task evidence:
 
@@ -114,6 +149,20 @@ inside `run-root` until terminal evidence is available; no Hook or model watcher
 - Fixture tests do not prove a live ChatGPT Pro interaction.
 - The legacy localhost preview remains only for backward-compatible diagnostics; CCG GPT Pro Skills
   do not use it for normal handoffs.
+
+## Scorecard Output Contracts
+
+Each GPT Pro mode requires scoring in the same automated sidebar response, within its existing output sections:
+
+| Mode | Required score output |
+| --- | --- |
+| `plan` | `Requirement Completeness` with `需求完整性评分（0-10）` using the 3/3/2/2 dimensions and `Planning Readiness Scorecard` with five 20-point dimensions, inside `Go-NoGo`. |
+| `review` | `VALIDATION REPORT` with `TOTAL SCORE: XX/100` inside `Required Tests`; frontend/UI-heavy reviews also require `FRONTEND VALIDATION REPORT`. |
+| `exc` | Mandatory `Implementation Readiness Scorecard` inside `Verification` for plan fit, implementation completeness, verification readiness, risk handling, and adoption recommendation, each out of 20 with a total out of 100, even for weak evidence. |
+
+Scores cite visible task context, actual routed evidence, diffs, and verification summaries. Missing evidence lowers scores. GPT Pro cross-scores ordinary Codex findings and available routed provider findings; Gemini is included only when it actually ran. Codex uses the more conservative score and blocker judgment when evidence disagrees.
+
+Requirement completeness below 7 asks for missing details before plan creation or revision; 7 or above continues planning only. GPT Pro scores remain read-only advisory second-opinion evidence and do not authorize execution or Provider calls, override Codex verification, or bypass existing approval gates.
 
 ## Evidence Item
 

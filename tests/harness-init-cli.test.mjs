@@ -30,6 +30,7 @@ import {
   runHarnessInitCli,
   validateProjectContract,
 } from "../.agents/skills/harness-init/scripts/harness-init-core.mjs";
+import { buildCanonicalContext } from "../scripts/lib/harness-adapter/context.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const SKILL_ROOT = path.join(ROOT, ".agents", "skills", "harness-init");
@@ -100,6 +101,66 @@ function approvedContract() {
   );
   return contract;
 }
+
+test("Codex leaf policy reaches a real project projection and context without changing task or role authority", async () => {
+  const value = fixture();
+  const keyRoot = mkdtempSync(path.join(tmpdir(), "harness-leaf-key-"));
+  const taskPath = ".trellis/tasks/leaf-fixture";
+  const preserved = {
+    [`${taskPath}/task.json`]: '{"id":"leaf-fixture","status":"in_progress"}\n',
+    ".codex/agents/worker.toml": 'model = "user-choice"\nmodel_reasoning_effort = "xhigh"\nsandbox_mode = "workspace-write"\napproval_policy = "on-request"\n',
+    ".claude/settings.json": '{"userOwned":true}\n',
+  };
+  try {
+    for (const [relative, bytes] of Object.entries(preserved)) {
+      mkdirSync(path.dirname(path.join(value.repoRoot, relative)), { recursive: true });
+      writeFileSync(path.join(value.repoRoot, relative), bytes);
+    }
+    writeFileSync(path.join(value.repoRoot, "AGENTS.md"), "User project rules\n");
+    mkdirSync(path.join(value.repoRoot, ".harness"), { recursive: true });
+    for (const relative of [".harness/adapter.json", "harness.sources.json"]) {
+      cpSync(path.join(ROOT, relative), path.join(value.repoRoot, relative));
+    }
+    const contract = approvedContract();
+    const options = {
+      repoRoot: value.repoRoot,
+      contractPath: writeContract(value.repoRoot, contract),
+      skillRoot: SKILL_ROOT,
+      provenanceKeyPath: path.join(keyRoot, "fixture-transaction.key"),
+    };
+    assert.equal((await applyProjectContract(options)).status, "applied");
+    const policy = readFileSync(path.join(value.repoRoot, PROJECT_POLICY_PATH), "utf8");
+    assert.equal(policy, readFileSync(POLICY_PATH, "utf8"));
+    assert.ok(readFileSync(path.join(value.repoRoot, "AGENTS.md"), "utf8").startsWith("User project rules\n"));
+    const installed = JSON.parse(readFileSync(path.join(value.repoRoot, ".harness/project.json"), "utf8"));
+    assert.deepEqual(installed, contract);
+    assert.equal(installed.workflow.dispatchMode, "inline");
+    assert.equal(installed.authorities.workspaceWriter, "codex");
+    assert.equal(installed.providers.claude.workspaceWrite, false);
+    const taskResolver = () => ({
+      directory: path.join(value.repoRoot, taskPath),
+      relativeDirectory: taskPath,
+      metadata: JSON.parse(preserved[`${taskPath}/task.json`]),
+    });
+    const context = buildCanonicalContext(value.repoRoot, { env: { CCG_HOST: "codex" }, taskResolver });
+    assert.equal(context.codexLeafPolicy.path, PROJECT_POLICY_PATH.split(path.sep).join("/"));
+    assert.equal(context.codexLeafPolicy.sha256, sha256(policy));
+    assert.match(context.codexLeafPolicy.instructions, /only to the Codex host/);
+    assert.match(context.codexLeafPolicy.instructions, /independent research, bounded implementation and verification/);
+    assert.match(context.codexLeafPolicy.instructions, /zero workers is valid/);
+    for (const env of [{ CLAUDECODE: "1" }, { CCG_HOST: " CLAUDE " }]) {
+      const claude = buildCanonicalContext(value.repoRoot, { env, taskResolver });
+      assert.equal(Object.hasOwn(claude, "codexLeafPolicy"), false);
+    }
+    assert.equal((await applyProjectContract(options)).status, "unchanged");
+    for (const [relative, bytes] of Object.entries(preserved)) {
+      assert.equal(readFileSync(path.join(value.repoRoot, relative), "utf8"), bytes, relative);
+    }
+  } finally {
+    value.cleanup();
+    rmSync(keyRoot, { recursive: true, force: true });
+  }
+});
 
 function writeContract(repoRoot, contract) {
   const contractPath = path.join(repoRoot, "approved-contract.json");
@@ -381,7 +442,7 @@ test("approved contracts atomically create the owned Harness contract", async ()
       },
     ]);
     assert.deepEqual(ownership.policy, {
-      policyVersion: 10,
+      policyVersion: 12,
       markerFormatVersion: 1,
       sourcePath: ".harness/policies/collaboration-policy.md",
       sourceSha256: sha256(readFileSync(POLICY_PATH)),
@@ -1688,7 +1749,7 @@ test("policy content cannot change without a policy version bump", async () => {
       "# Harness Collaboration Policy",
       "# Harness Collaboration Policy without version bump",
     );
-    setOwnedPolicyProjection(value.repoRoot, differentPolicy, 10);
+    setOwnedPolicyProjection(value.repoRoot, differentPolicy, 12);
     const before = {
       agents: readFileSync(path.join(value.repoRoot, "AGENTS.md"), "utf8"),
       policy: readFileSync(

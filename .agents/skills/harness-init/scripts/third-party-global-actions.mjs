@@ -1731,6 +1731,7 @@ export async function applyThirdPartyGlobalActions({
   approvals,
   approvalPlan,
   homeDir = os.homedir(),
+  codexHome = null,
   repoRoot,
   strictDataBoundary = false,
   allowNetwork = false,
@@ -1758,6 +1759,7 @@ export async function applyThirdPartyGlobalActions({
   await verifyThirdPartyApprovalPlanForOperation({
     approvalPlan,
     homeDir,
+    codexHome,
     manifest,
     manifestSha256: manifestDigest,
     repoRoot,
@@ -1853,6 +1855,7 @@ export async function applyThirdPartyGlobalActions({
     candidates,
     manifest,
     homeDir,
+    codexHome,
     env: baseCommandEnvironment,
     platform,
     assetPlatform,
@@ -1863,6 +1866,7 @@ export async function applyThirdPartyGlobalActions({
   const key = await actionJournalKey(homeDir);
   const transaction = await acquireActionTransaction({
     homeDir,
+    codexHome,
     key,
     manifestDigest,
     approvals,
@@ -1950,6 +1954,7 @@ export async function applyThirdPartyGlobalActions({
               source,
               step,
               homeDir,
+              codexHome,
               env: baseCommandEnvironment,
               platform,
               assetPlatform,
@@ -1970,6 +1975,7 @@ export async function applyThirdPartyGlobalActions({
           } else if (id === "ponytail.default-full") {
             result = await casPonytailDefault({
               homeDir,
+              codexHome,
               env: baseCommandEnvironment,
               platform,
               ownership,

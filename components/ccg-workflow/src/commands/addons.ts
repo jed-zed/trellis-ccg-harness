@@ -219,9 +219,8 @@ const CANDIDATES: readonly CompanionAddonCandidate[] = [
       dataEgress: 'Repository search queries and selected repository context may be sent to Windsurf.',
     },
     action: {
-      status: 'ccg-managed',
-      command: 'ccg init',
-      guidance: 'Select fast-context in the existing CCG MCP step after reviewing its data-egress behavior.',
+      status: 'manual-pending',
+      guidance: 'Configure this optional MCP through Codex MCP settings after reviewing its source and data-egress behavior. Personal CCG does not manage Claude MCP settings.',
     },
   },
   {
@@ -242,9 +241,8 @@ const CANDIDATES: readonly CompanionAddonCandidate[] = [
       dataEgress: 'Documentation queries and library identifiers are sent to the Context7 service.',
     },
     action: {
-      status: 'ccg-managed',
-      command: 'ccg config mcp',
-      guidance: 'Select Context7 after reviewing that documentation queries and library identifiers leave the machine.',
+      status: 'manual-pending',
+      guidance: 'Configure this optional MCP through Codex MCP settings after reviewing its source and data-egress behavior. Personal CCG does not manage Claude MCP settings.',
     },
   },
   {
@@ -265,9 +263,8 @@ const CANDIDATES: readonly CompanionAddonCandidate[] = [
       dataEgress: 'Browser pages, interactions, and selected local browser state may be exposed; browser downloads require separate approval.',
     },
     action: {
-      status: 'ccg-managed',
-      command: 'ccg config mcp',
-      guidance: 'Select Playwright only after reviewing browser, file, site, and download permissions.',
+      status: 'manual-pending',
+      guidance: 'Configure this optional MCP through Codex MCP settings after reviewing its source and data-egress behavior. Personal CCG does not manage Claude MCP settings.',
     },
   },
   {
@@ -291,9 +288,8 @@ const CANDIDATES: readonly CompanionAddonCandidate[] = [
       dataEgress: 'Repository identifiers and DeepWiki queries are sent to the official public DeepWiki service.',
     },
     action: {
-      status: 'ccg-managed',
-      command: 'ccg config mcp',
-      guidance: 'Configure the official free, no-auth Streamable HTTP endpoint; the legacy SSE endpoint is not used.',
+      status: 'manual-pending',
+      guidance: 'Configure this optional MCP through Codex MCP settings after reviewing its source and data-egress behavior. Personal CCG does not manage Claude MCP settings.',
     },
   },
   {
@@ -319,9 +315,8 @@ const CANDIDATES: readonly CompanionAddonCandidate[] = [
       dataEgress: 'Search queries and requested URLs are sent to Exa; local key mode stores only a secret-backed launcher reference.',
     },
     action: {
-      status: 'ccg-managed',
-      command: 'ccg config mcp',
-      guidance: 'Use the hosted free tier without a key, or obtain a key from the official dashboard for the local production mode.',
+      status: 'manual-pending',
+      guidance: 'Configure this optional MCP through Codex MCP settings after reviewing its source and data-egress behavior. Personal CCG does not manage Claude MCP settings.',
     },
   },
   {
@@ -342,9 +337,8 @@ const CANDIDATES: readonly CompanionAddonCandidate[] = [
       dataEgress: 'Package acquisition uses the npm registry; indexing and queries are local.',
     },
     action: {
-      status: 'ccg-managed',
-      command: 'ccg init',
-      guidance: 'Select CodeGraph in the existing CCG MCP step; project indexing remains a separate user action.',
+      status: 'manual-pending',
+      guidance: 'Configure this optional MCP through Codex MCP settings after reviewing its source and data-egress behavior. Personal CCG does not manage Claude MCP settings.',
     },
   },
 ]

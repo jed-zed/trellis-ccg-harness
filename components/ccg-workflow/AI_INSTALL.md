@@ -1,3 +1,9 @@
+# Codex-only personal installation contract
+
+Use the separate `@jed-zed/ccg-codex-workflow` package and `ccg-codex` command. Read [HOST_ISOLATION.md](./HOST_ISOLATION.md). Lifecycle uses `ccg-codex codex-mode install|uninstall|recover` and only managed Codex paths. Preserve upstream Claude CCG and model/permission settings. Install Claude GPTPro only from the independent `plugins/ccg-gptpro-bridge` addon after reviewing its own ownership manifest. Do not apply the historical Claude setup instructions below to this personal candidate. No global installation is performed by this source delivery.
+
+---
+
 # Installing CCG with an AI agent
 
 This file defines the safe, provider-neutral contract for users who give this

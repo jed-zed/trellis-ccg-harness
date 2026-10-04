@@ -71,21 +71,39 @@ type processHandle interface {
 
 // realCmd implements commandRunner using exec.Cmd
 type realCmd struct {
-	cmd *exec.Cmd
+	cmd                     *exec.Cmd
+	contextCancellationSent atomic.Bool
 }
 
 func (r *realCmd) Start() error {
 	if r.cmd == nil {
 		return errors.New("command is nil")
 	}
-	return r.cmd.Start()
+	configureCommandProcessGroup(r.cmd)
+	if r.cmd.Cancel != nil {
+		cancel := r.cmd.Cancel
+		r.cmd.Cancel = func() error {
+			err := cancel()
+			if err == nil {
+				r.contextCancellationSent.Store(true)
+			}
+			return err
+		}
+	}
+	err := r.cmd.Start()
+	if err == nil {
+		recordCommandProcessGroupStart(r.cmd)
+	}
+	return err
 }
 
 func (r *realCmd) Wait() error {
 	if r.cmd == nil {
 		return errors.New("command is nil")
 	}
-	return r.cmd.Wait()
+	err := r.cmd.Wait()
+	completeCommandProcessGroupWait(r.cmd)
+	return err
 }
 
 func (r *realCmd) StdoutPipe() (io.ReadCloser, error) {
@@ -770,7 +788,7 @@ func buildCodexArgs(cfg *Config, targetArg string) []string {
 		}
 	}
 
-	args := []string{"e"}
+	args := appendCodexMCPArgs(cfg, []string{"e"})
 
 	// Default: auto-approve all operations (consistent with Gemini's -y behavior)
 	// Users can disable this by setting CODEX_REQUIRE_APPROVAL=true
@@ -817,22 +835,42 @@ func runCodexTaskWithContext(parentCtx context.Context, taskSpec TaskSpec, backe
 	}
 
 	result := TaskResult{TaskID: taskSpec.ID}
+	if taskSpec.MCPMode != "" {
+		if taskSpec.MCPMode != "inherit" && taskSpec.MCPMode != "off" {
+			result.ExitCode = 1
+			result.Error = "mcp must be inherit or off"
+			return result
+		}
+		taskSpec.DisableMCP = taskSpec.MCPMode == "off"
+	}
 	injectedLogger := taskLoggerFromContext(parentCtx)
 	logger := injectedLogger
 
 	cfg := &Config{
-		Mode:              taskSpec.Mode,
-		Task:              taskSpec.Task,
-		SessionID:         taskSpec.SessionID,
-		WorkDir:           taskSpec.WorkDir,
-		Backend:           defaultBackendName,
-		SkipPermissions:   taskSpec.SkipPermissions,
-		Progress:          taskSpec.Progress,
-		GeminiModel:       taskSpec.GeminiModel,
-		GrokModel:         taskSpec.GrokModel,
-		GrokReviewTargets: taskSpec.GrokReviewTargets,
-		AntigravityReview: taskSpec.AntigravityReview,
-		ReadOnly:          taskSpec.ReadOnly,
+		Mode:                    taskSpec.Mode,
+		Task:                    taskSpec.Task,
+		SessionID:               taskSpec.SessionID,
+		WorkDir:                 taskSpec.WorkDir,
+		Backend:                 defaultBackendName,
+		SkipPermissions:         taskSpec.SkipPermissions,
+		AllowNativeAutoApproval: taskSpec.AllowNativeAutoApproval,
+		AllowChildPluginDisable: taskSpec.AllowChildPluginDisable,
+		Progress:                taskSpec.Progress,
+		GeminiModel:             taskSpec.GeminiModel,
+		GrokModel:               taskSpec.GrokModel,
+		KimiModel:               taskSpec.KimiModel,
+		OpencodeModel:           taskSpec.OpencodeModel,
+		GrokReviewTargets:       taskSpec.GrokReviewTargets,
+		AntigravityReview:       taskSpec.AntigravityReview,
+		ReadOnly:                taskSpec.ReadOnly,
+		DisableMCP:              taskSpec.DisableMCP,
+		CodexMCPOverrides:       taskSpec.CodexMCPOverrides,
+		CodexMCPPrepared:        taskSpec.CodexMCPPrepared,
+	}
+	if useCustomArgs && cfg.DisableMCP {
+		result.ExitCode = 1
+		result.Error = "MCP opt-out cannot be used with custom provider arguments"
+		return result
 	}
 
 	commandName := codexCommand
@@ -849,6 +887,24 @@ func runCodexTaskWithContext(parentCtx context.Context, taskSpec TaskSpec, backe
 
 	if cfg.Mode == "" {
 		cfg.Mode = "new"
+	}
+	if (cfg.Backend == "kimi" || cfg.Backend == "opencode") && !cfg.AllowNativeAutoApproval {
+		result.ExitCode = 1
+		result.Error = cfg.Backend + " noninteractive mode uses native permission handling; review its permissions and explicitly pass --allow-native-auto-approval"
+		return result
+	}
+	if (cfg.Backend == "kimi" || cfg.Backend == "opencode") && cfg.ReadOnly {
+		result.ExitCode = 1
+		result.Error = cfg.Backend + " has no verified native read-only execution contract; use an approved read-only backend"
+		return result
+	}
+	if err := prepareMCPMode(cfg); err != nil {
+		result.ExitCode = 1
+		result.Error = err.Error()
+		return result
+	}
+	if cfg.DisableMCP {
+		logInfo("Child configured MCP mode: explicitly disabled for this provider invocation")
 	}
 	if cfg.WorkDir == "" {
 		cfg.WorkDir = defaultWorkdir
@@ -883,7 +939,7 @@ func runCodexTaskWithContext(parentCtx context.Context, taskSpec TaskSpec, backe
 		return result
 	}
 
-	useStdin := taskSpec.UseStdin || cfg.Backend == "pi"
+	useStdin := taskSpec.UseStdin || cfg.Backend == "pi" || cfg.Backend == "opencode"
 	targetArg := taskSpec.Task
 	if grokSnapshot != nil {
 		useStdin = false
@@ -901,8 +957,8 @@ func runCodexTaskWithContext(parentCtx context.Context, taskSpec TaskSpec, backe
 	// Grok is a native binary (no .cmd shim), so -p is safe on every platform.
 	// Pi JSON mode reads piped stdin on every platform; use it to avoid Windows
 	// npm shim argument truncation and keep multiline prompts intact.
-	promptDirect := useStdin && ((cfg.Backend == "gemini" && !isWindows()) || cfg.Backend == "antigravity" || cfg.Backend == "grok")
-	promptStdinPipe := useStdin && ((cfg.Backend == "gemini" && isWindows()) || cfg.Backend == "claude" || cfg.Backend == "pi")
+	promptDirect := useStdin && ((cfg.Backend == "gemini" && !isWindows()) || cfg.Backend == "antigravity" || cfg.Backend == "grok" || cfg.Backend == "kimi")
+	promptStdinPipe := useStdin && ((cfg.Backend == "gemini" && isWindows()) || cfg.Backend == "claude" || cfg.Backend == "pi" || cfg.Backend == "opencode")
 	if useStdin && !promptDirect && !promptStdinPipe {
 		targetArg = "-"
 	}
@@ -1028,7 +1084,16 @@ func runCodexTaskWithContext(parentCtx context.Context, taskSpec TaskSpec, backe
 		return fmt.Sprintf("%s; stderr: %s", msg, stderrBuf.String())
 	}
 
-	cmd := newCommandRunner(ctx, commandName, codexArgs...)
+	invocationName, invocationArgs, invocationErr := resolveProviderCommandInvocation(cfg.Backend, commandName, codexArgs)
+	if invocationErr != nil {
+		result.ExitCode = 1
+		if strings.Contains(invocationErr.Error(), "command not found in PATH") {
+			result.ExitCode = 127
+		}
+		result.Error = attachStderr(invocationErr.Error())
+		return result
+	}
+	cmd := newCommandRunner(ctx, invocationName, invocationArgs...)
 
 	// 统一处理所有后端的环境变量
 	// 修复 Windows Git Bash 后台进程 PATH 继承问题
@@ -1043,7 +1108,7 @@ func runCodexTaskWithContext(parentCtx context.Context, taskSpec TaskSpec, backe
 	//   API keys are already protected via cmd.SetEnv() from loadMinimalEnvSettings().
 	//   Project dir is also passed via --include-directories in buildGeminiArgs().
 	// - Claude: uses cmd.Dir as project context (no .env loading issue).
-	if cfg.WorkDir != "" && (cfg.Mode != "resume" || cfg.Backend == "pi") {
+	if cfg.WorkDir != "" && (cfg.Mode != "resume" || cfg.Backend == "pi" || cfg.Backend == "kimi" || cfg.Backend == "opencode") {
 		switch commandName {
 		case "codex":
 			// Codex uses -C flag, don't set cmd.Dir
@@ -1172,6 +1237,10 @@ func runCodexTaskWithContext(parentCtx context.Context, taskSpec TaskSpec, backe
 		var msg, tid, terminalError string
 		if cfg.Backend == "antigravity" {
 			msg, tid, terminalError = parseAntigravityStream(stdoutReader, logWarnFn, logInfoFn, onMessage, onComplete, onContentCallback, onProgressCallback, onSessionStartedCallback)
+		} else if cfg.Backend == "kimi" {
+			msg, tid, terminalError = parseKimiStream(stdoutReader, logWarnFn, logInfoFn, onMessage, onComplete, onContentCallback, onProgressCallback, onSessionStartedCallback)
+		} else if cfg.Backend == "opencode" {
+			msg, tid, terminalError = parseOpencodeStream(stdoutReader, logWarnFn, logInfoFn, onMessage, onComplete, onContentCallback, onProgressCallback, onSessionStartedCallback)
 		} else {
 			msg, tid, terminalError = parseJSONStreamInternalWithReview(stdoutReader, logWarnFn, logInfoFn, onMessage, onComplete, onContentCallback, onProgressCallback, onSessionStartedCallback, grokReview)
 		}
@@ -1323,6 +1392,17 @@ waitLoop:
 		}
 	}
 
+	// Wait may win the select after CommandContext delivered cancellation.
+	// Record only cancellation actually sent to a real child; a later deadline
+	// must not reclassify a process that already finished successfully.
+	if !ctxCancelled && waitErr != nil && ctx.Err() != nil {
+		if errors.Is(waitErr, ctx.Err()) {
+			ctxCancelled = true
+		} else if real, ok := cmd.(*realCmd); ok && real.contextCancellationSent.Load() {
+			ctxCancelled = true
+		}
+	}
+
 	// Clean up fallback exit timer
 	if fallbackExitTimer != nil {
 		if !fallbackExitTimer.Stop() {
@@ -1342,9 +1422,13 @@ waitLoop:
 		}
 	}
 
+	if ctxCancelled || terminated || commandProcessGroupNeedsCleanup(cmd) {
+		finishCommandProcessGroup(cmd)
+	}
 	if forceKillTimer != nil {
 		forceKillTimer.Stop()
 	}
+	releaseCommandProcessGroup(cmd)
 
 	var parsed parseResult
 	switch {
@@ -1568,7 +1652,9 @@ func terminateCommand(cmd commandRunner) *forceKillTimer {
 			_ = proc.Kill()
 		}
 	} else {
-		_ = proc.Signal(syscall.SIGTERM)
+		if !signalOwnedCommandProcessGroup(cmd, syscall.SIGTERM) {
+			_ = proc.Signal(syscall.SIGTERM)
+		}
 	}
 
 	done := make(chan struct{}, 1)
@@ -1577,7 +1663,9 @@ func terminateCommand(cmd commandRunner) *forceKillTimer {
 			if isWindows() {
 				_ = killProcessTree(p.Pid())
 			} else {
-				_ = p.Kill()
+				if !signalOwnedCommandProcessGroup(cmd, syscall.SIGKILL) {
+					_ = p.Kill()
+				}
 			}
 		}
 		close(done)

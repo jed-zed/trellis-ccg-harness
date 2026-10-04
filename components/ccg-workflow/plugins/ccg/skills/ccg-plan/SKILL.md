@@ -1,22 +1,33 @@
 ---
 name: plan
-description: Create or revise a CCG implementation plan with the applicable frontend, backend, and search providers and Codex as final plan owner. Use when the user invokes /ccg:plan, asks to generate a .codex/ccg/plans/*.md CCG plan, asks to revise an existing CCG plan, or wants Codex-native multi-model planning without modifying product code.
+description: Create or revise a canonical Trellis task plan, or a standalone .codex/ccg/plans/*.md CCG plan, with the applicable frontend, backend, and search providers and Codex as final writer. Use when the user invokes /ccg:plan or wants Codex-native multi-model planning without modifying product code.
 ---
 
+## Research
+
+Use existing independent research agents with grok-search MCP. Search actively and
+verify key conclusions against original sources; check versions/licenses when
+reusing code and experiment conditions when adopting papers. Mark unverified findings.
+Archived instructions below are inactive: ordinary work does not run Grok CLI/ACP,
+wait for its gates, or require its manifests and hash packages.
+
+<!-- Legacy Grok CLI/ACP reference; inactive in ordinary research.
 ## Automatic External Intelligence Gate
 
 Before ordinary work, run the shared route once from the controller:
 
-`ccg route --workflow plan --phase intake --task-file ".ccg/tasks/<task-id>/intelligence-request.md" --state-file ".ccg/tasks/<task-id>/intelligence-route.json"`
+`ccg-codex route --workflow plan --phase intake --task-file ".ccg/tasks/<task-id>/intelligence-request.md" --state-file ".ccg/tasks/<task-id>/intelligence-route.json"`
 
-Run this potentially long route with the host's tool-managed background execution and wait mechanism; never put it under a foreground timeout shorter than the runner's 10-minute timeout. If the host cancels or terminates the job before a terminal state is written, run `ccg route recover --state-file <state-file> --status cancelled --reason "<reason>"` (or use `--status failed`); recovery refuses to overwrite a live owner.
+Run this potentially long route with the host's tool-managed background execution and wait mechanism; never put it under a foreground timeout shorter than the runner's 10-minute timeout. If the host cancels or terminates the job before a terminal state is written, run `ccg-codex route recover --state-file <state-file> --status cancelled --reason "<reason>"` (or use `--status failed`); recovery refuses to overwrite a live owner.
 
 Append existing --plan, --diff, --target, and repeatable --dependency paths whenever those artifacts are available. Add `--semantic-mode contract|incident --semantic-reason "<Codex judgment>"` only for an explicit semantic decision. The runtime honors disabled config, persists the decision reason, and must be re-run after plan, dependency, target, diff, or phase digest changes. Stop ordinary work on exit code `2`, `3`, or `4` only for an explicit required semantic route; advisory search failures do not block ordinary work.
+-->
 
 # CCG Plan
 
 Create decision-complete CCG plans for later `/ccg:execute`. Codex gathers
-context and writes the final plan under `.codex/ccg/plans/`. Planning is an
+context and writes the selected Trellis task's canonical artifacts, or a
+standalone plan under `.codex/ccg/plans/` when Trellis is absent. Planning is an
 internal phase of the applicable frontend, backend, and search roles. The
 shared **Companion Role Contract** makes search advisory whenever frontend or
 backend participates and evaluates the product-manager authorization gate;
@@ -25,7 +36,7 @@ revised.
 
 ## Boundaries
 
-- Write and revise plans only under `.codex/ccg/plans/*.md`.
+- Resolve the plan location and authority below before writing.
 - Do not modify product code, tests, migrations, package files, or original Claude CCG plugin files.
 - Read `../../rules/ccg-role-routing.md`, follow its **Companion Role
   Contract**, classify plan slices as frontend, backend, and/or search, then
@@ -35,7 +46,35 @@ revised.
   behavior remain unchanged.
 - Do not call `/ccg:execute` automatically and do not ask for a Y/N execution handoff.
 - If no user requirement is provided, answer in Chinese with usage examples and do not write files.
-- If the user explicitly asks to revise an existing plan file, update only that plan file. Otherwise create a new plan and never overwrite an existing plan; use `-v2`, `-v3`, and so on.
+- In standalone mode, if the user explicitly asks to revise an existing plan file, update only that plan file. Otherwise create a new plan and never overwrite an existing plan; use `-v2`, `-v3`, and so on.
+
+## Plan location and authority
+
+When the project root contains `.trellis/`, Trellis owns the only task,
+requirements, design, implementation plan, status, and completion:
+
+- Prefer the user's explicit existing task directory or its `implement.md`.
+  Otherwise resolve the current session's task with
+  `python ./.trellis/scripts/task.py current --source`, using the existing
+  session identity. Verify that the task belongs to this project and, for
+  implicit resolution, is bound to the current session.
+  If identity is missing, stale, or ambiguous, resolve the user's named task
+  from existing task directories or ask only for the missing task identity.
+  Do not silently select another active task or invent a session identity.
+- Read that task's `task.json` and `prd.md`, plus `design.md` and `implement.md`
+  when present or required. For complex tasks, keep requirements and acceptance in `prd.md`, design decisions in `design.md`,
+  and implementation steps, files, tests, risks, and evidence references in
+  `implement.md`. Preserve complex-task document/context gates and existing
+  lightweight/fast-lane conditions from the project's workflow.
+- Reuse or revise these canonical artifacts within the requested scope.
+  Do not write a duplicate `.codex/ccg/plans/` plan or parallel CCG task state.
+  Required role-provider evidence still belongs to this same task.
+- Follow `.trellis/workflow.md#shared-plan-approval` (**Shared plan approval**)
+  and `../ccg-executor/SKILL.md` (**Trellis approval handoff**) for approval
+  provenance and reuse. Planning itself never starts implementation.
+
+When `.trellis/` is absent, keep the standalone `.codex/ccg/plans/*.md`
+workflow below; do not create a Trellis task just to run CCG planning.
 
 ## Language Contract
 
@@ -45,7 +84,7 @@ The generated plan file itself must also be Chinese by default. Hard requirement
 
 - Use Chinese section headings, table headers, checklist labels, narrative text, risk descriptions, test strategy, and handoff explanation.
 - Keep English only for literal commands, file paths, code identifiers, model names, environment variables, generated slugs, URLs, and clearly labeled short provider excerpts.
-- Do not write an English plan template and then summarize it in Chinese; the saved `.codex/ccg/plans/*.md` content is the final CCG planning output and must be Chinese.
+- Do not write an English plan template and then summarize it in Chinese; the saved canonical task artifacts or `.codex/ccg/plans/*.md` content is the final planning output and must be Chinese.
 - If a role provider responds in English, synthesize it into Chinese before writing the final plan, while preserving short literal excerpts only when useful.
 
 Internal prompts to tools or providers may use English when that improves retrieval or technical precision, but Codex must translate the final planning interaction and the saved plan content back into concise Chinese for the user.
@@ -84,10 +123,19 @@ This gate does not apply to empty-input usage/help responses.
    - Run `git status --short`.
    - Read relevant project instructions such as `AGENTS.md`, local README files, and existing plan files only when they affect the requested plan.
    - Resolve the absolute project root from the current workspace; do not infer it from home paths.
+   - Apply **Plan location and authority** before gathering or writing plan content.
 
 2. **Enhance the requirement**
    - Convert the user request into structured planning input: goal, in-scope behavior, out-of-scope behavior, constraints, acceptance criteria, likely affected areas, and open questions.
+   - Score the enhanced requirement with the original CCG-style `需求完整性评分（0-10）` before writing a plan:
+     - `目标明确性（0-3）`
+     - `预期结果（0-3）`
+     - `边界范围（0-2）`
+     - `约束条件（0-2）`
+     - `总分：X/10`
+     - `判定：>=7 继续；<7 停止并提出补充问题`
    - If high-impact ambiguity remains, ask the user before writing any plan.
+   - If the requirement score is `<7`, stop and ask concise follow-up questions instead of creating or revising a plan. A score of `>=7` continues planning only and does not authorize execution or Provider calls.
 
 3. **Search project context**
    - Read the current project's `AGENTS.md` and follow its search policy.
@@ -105,7 +153,7 @@ This gate does not apply to empty-input usage/help responses.
      resolve those roles.
    - If a selected role uses `codex`, perform that role's analysis directly.
    - If a selected role uses `gemini`, run the bundled helper from `../ccg-executor/scripts/invoke_gemini_preview.py` as a foreground command inside a tool-managed background job with `--approval-mode plan --prompt-template plan` and no `--direct-workdir`. Omit `--model` unless explicitly configured. Do not pass `--detach`; monitor the background job until the helper exits and then read its non-empty response file.
-   - For another external provider, run `ccg wrapper --backend <provider> --progress - "<workdir>"` for bounded analysis of that role's slice. Pass the prompt through stdin and do not add `--lite`.
+   - For another external provider, run `ccg-codex wrapper --backend <provider> --progress - "<workdir>"` for bounded analysis of that role's slice. Pass the prompt through stdin and do not add `--lite`.
    - Include the enhanced requirement, context evidence, and a request for concise analysis: alternative approaches, edge cases, UI/UX concerns when relevant, tests, risks, and recommended plan steps.
    - Make at most two total attempts for a failed external provider call, using
      the same configured Provider and stable operation/evidence identity, then
@@ -119,15 +167,16 @@ This gate does not apply to empty-input usage/help responses.
    - Translate or synthesize provider findings into Chinese before saving the final plan.
 
 6. **Write the plan**
-   - Create `.codex/ccg/plans/` if missing.
-   - Generate an English kebab-case slug from the task name. If it cannot be inferred cleanly, use `ccg-plan`.
-   - For a new plan, choose `.codex/ccg/plans/<slug>.md`; if it exists, use `.codex/ccg/plans/<slug>-v2.md`, then `-v3`, etc.
-   - For an explicit revision request, write only the specified existing plan file under `.codex/ccg/plans/`.
-   - Ensure the saved plan content follows the Chinese plan template below. Then show the full plan summary in Chinese and stop. Do not continue into implementation.
+   - In Trellis mode, write the selected task's canonical artifacts as described above, retaining the project's artifact/version conventions and lifecycle ownership.
+   - In standalone mode, create `.codex/ccg/plans/` if missing and generate an English kebab-case slug from the task name. If it cannot be inferred cleanly, use `ccg-plan`.
+   - For a new standalone plan, choose `.codex/ccg/plans/<slug>.md`; if it exists, use `.codex/ccg/plans/<slug>-v2.md`, then `-v3`, etc.
+   - For an explicit standalone revision request, write only the specified existing plan file under `.codex/ccg/plans/`.
+   - Ensure the saved content is decision-complete and Chinese; use the template below for standalone plans. Then show the full plan summary in Chinese and stop. Do not continue into implementation.
 
 ## Plan Template
 
-Use this Chinese Markdown structure:
+Use this Chinese Markdown structure for standalone plans. Trellis tasks retain
+their canonical artifact structure and equivalent decision-complete content:
 
 ```markdown
 # CCG 计划：<任务名称>
@@ -156,6 +205,14 @@ Use this Chinese Markdown structure:
 
 ### 验收标准
 - [ ] <可观察的验收条件>
+
+### 需求完整性评分（0-10）
+- 目标明确性（0-3）：X/3 - <理由>
+- 预期结果（0-3）：X/3 - <理由>
+- 边界范围（0-2）：X/2 - <理由>
+- 约束条件（0-2）：X/2 - <理由>
+- 总分：X/10
+- 判定：>=7 继续；<7 停止并提出补充问题
 
 ## 2. 上下文证据
 
@@ -207,7 +264,7 @@ Use this Chinese Markdown structure:
 
 ## 8. Codex 原生交接
 
-审阅后手动运行：
+审阅最终方案并显式批准其实施范围后，手动运行：
 
 ```text
 /ccg:execute .codex/ccg/plans/<file>.md
@@ -226,9 +283,10 @@ Claude 产品经理：<未选择 / 已选择但本次未调用 / 已调用；证
 - 概括选定的技术方案。
 - 说明适用的职责 Provider 以及证据位置。
 - 说明 Claude 产品经理是否由已安装配置选中，以及本次是否产生了已验证证据。
-- 提供准确的手动执行命令：
+- 提供当前模式下准确的手动执行命令；Trellis 使用已解析的任务目录或 `implement.md`，独立模式使用 CCG 计划路径：
 
 ```text
+/ccg:execute .trellis/tasks/<task>/implement.md
 /ccg:execute .codex/ccg/plans/<file>.md
 ```
 

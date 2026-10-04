@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createDefaultConfig, createDefaultRouting, migrateLegacyProductManagerProviderDocument, normalizeIntelligenceConfig, normalizeProductManagerConfig, resolveCliIntelligenceFlag, resolveNonInteractiveIntelligenceConsent } from '../config'
+import { createDefaultConfig, createDefaultRouting, getCcgDir, migrateLegacyProductManagerProviderDocument, normalizeIntelligenceConfig, normalizeProductManagerConfig, resolveCliIntelligenceFlag, resolveNonInteractiveIntelligenceConsent } from '../config'
 
 describe('createDefaultRouting', () => {
   it('returns gemini as frontend primary', () => {
@@ -79,9 +79,9 @@ describe('createDefaultConfig', () => {
 
   it('sets paths with home directory', () => {
     const config = createDefaultConfig(baseOptions)
-    expect(config.paths.commands).toContain('.claude')
-    expect(config.paths.prompts).toContain('.ccg')
-    expect(config.paths.backup).toContain('.ccg')
+    expect(config.paths.commands).toBe(`${getCcgDir()}/commands`)
+    expect(config.paths.prompts).toBe(`${getCcgDir()}/prompts`)
+    expect(config.paths.backup).toBe(`${getCcgDir()}/backup`)
   })
 
   it('preserves routing config exactly', () => {

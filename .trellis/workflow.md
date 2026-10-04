@@ -73,7 +73,7 @@ Fast lane does not ask whether to create a task and does not create task artifac
 
 Fast lane never bypasses applicable input validation, security, data protection, basic accessibility, or explicit project/CI checks. File count and line count alone cannot prove low risk. An active task does not force unrelated simple questions into its lifecycle; preserve its status and any pending gate.
 
-For structured work, reuse the matching task. If a new task is needed, obtain task-creation consent unless already given. Task creation and implementation are separate approvals. Present the completed planning artifacts for review and obtain implementation approval before starting. If task creation is declined, clarify or narrow the request instead of hiding broad work in the fast lane.
+For structured work, reuse the matching task. If a new task is needed, obtain task-creation consent unless already given. Task creation and implementation are separate approvals. Apply Shared plan approval: present the final plan for its first explicit implementation approval, then reuse verified approval for the same covered plan without asking again. If task creation is declined, clarify or narrow the request instead of hiding broad work in the fast lane.
 
 ### Planning Artifacts
 
@@ -85,12 +85,26 @@ The minimum skeleton is task identity, accepted requirements, one authoritative 
 | `implement.md` | Complex task -> one ordered execution plan -> each stage has an action, verification and rollback point |
 | Research/search | A specific unanswered question blocks correctness -> source-backed answer -> that question is answered |
 | Provider or product-manager evidence | A required external capability or explicitly requested review -> bounded evidence -> answer/review returned or its failure reported; obtain network/paid authorization first |
-| Sub-agent | An independently bounded task benefits from delegation and dispatch is authorized -> specified result -> assigned question/action is complete; Codex inline remains the writer |
+| Sub-agent | An independently bounded task benefits from authorized delegation -> specified result -> assigned question/action is complete; Codex inline keeps root coordination and permits native leaves under the Codex native leaf workers policy |
 | Review | A changed risk boundary or explicit review requirement -> actionable findings against that boundary -> findings resolved or explicitly accepted |
 | Broader tests | Final structured-task verification, shared impact, a failure, or project/CI requirement -> full affected-scope evidence -> checks pass |
 | Spec/journal | A durable contract changed or an actual handoff needs missing context -> concise update/link -> future work can proceed without duplicating the task |
 
 Complex-task documents and the project quality checklist are required. For other extra steps, record the trigger fact, output and stop condition in the existing plan; hypothetical future needs do not count. Required security, data, ownership, transaction, and project/CI gates remain mandatory. Do not create a second CCG task or plan authority.
+
+### Shared plan approval
+
+This is the common approval contract for Trellis start, brainstorm, continue, and CCG handoffs. Trellis owns the selected task's canonical `prd.md`, `design.md`, and `implement.md`; CCG evidence references that task instead of creating another plan or approval authority.
+
+- Before first implementation approval, present the complete final plan with its task identity, version, scope, acceptance criteria, decisions, risks, actions, and artifact status, then stop for a subsequent explicit user approval. Task-creation consent, an initial implementation request, or an ambiguous "continue" does not approve an unseen plan.
+- The current Codex coordinator may reuse an explicit approval obtained through CCG, Trellis, or a prior session only after checking its actual user source against the same already-presented final plan, task, version, scope, risks, and actions. Record and reference that approval; do not ask again just because the entry point changed or the approved summary was repeated. Required artifacts and context readiness still apply before step 1.4.
+- Record the source in the existing `task.json.meta.planApproval` object: `status` (`pending`, `approved`, `rejected`, `withdrawn`, or `superseded`), `taskId`, `version`, `reviewedArtifacts` (file references and their reviewed `sha256` values), `scope`, `actions`, `source` (verbatim user quote or message reference, with its thread/session context), and `recordedAtUtc`. Mark absent approval as `pending` and record rejection, withdrawal, or supersession without copying an old approval as valid. Keep the original reviewed references and source; never invent them. A source-less `approved` field is not approval. Use the existing task JSON write path for structured metadata; `task.py set-meta` stores CLI values as strings.
+- SHA256 identifies the reviewed bytes; it does not decide approval by itself. Compare changes with the reviewed plan and record the basis for reuse. Formatting, spelling, line endings, path display, checklist completion, and an equivalent summary do not automatically invalidate approval. If the reviewed plan or source cannot be recovered well enough to check coverage, stay in or return to planning and explain the gap.
+- Missing or ambiguous approval, rejection, withdrawal, a different plan version, or material changes to requirements, scope, architecture, implementation, risk, or acceptance block the affected implementation. Show the differences, update the plan version for material changes, and request approval for the uncovered decision. Separable work still covered by a valid approval may continue.
+- Ordinary plan approval does not answer a product-manager presentation-bound hard gate. Run `pm present`, show that exact review and the allowed responses, and stop; `pm respond` requires that presentation revision and a fresh explicit user response. Provider/network/payment calls, installation, commits, push, PR, merge, publication, and destructive actions retain their own applicable authorization requirements; check the actual source and covered actions rather than requesting an already-covered approval again.
+
+These are workflow and Skill instructions, not a new runtime validator. `task.py start` does not validate approval. Existing lightweight and fast-lane boundaries, quality/security/test/documentation gates, and independent user gates still apply.
+
 
 ### Phase 1: Plan
 
@@ -104,7 +118,7 @@ Complex-task documents and the project quality checklist are required. For other
 [workflow-state:no_task]
 No active task. Default fast lane for simple conversation, read-only local inspection, or known local low-risk edits: needed context -> answer/minimal edit -> applicable quality checks -> report. Do not ask a task-creation question or create task artifacts, journal, start/finish/archive, or commit lifecycle for these requests.
 Unknown impact or ambiguous requests enter the structured lane. Authentication/authorization, credentials, permissions, data migration/loss, Provider/network/paid calls, install/sync/publish, destructive operations, shared core or multiple modules also enter the structured lane. Preserve applicable security, data protection, accessibility, authorization, and project/CI gates.
-Structured work reuses a matching task; obtain creation consent only if a new task is needed and not already authorized. Complex tasks require prd.md, design.md and implement.md, followed by planning review and separate implementation approval. Other extra steps require a trigger fact -> required output -> stop condition. See Request Triage and Planning Artifacts in workflow.md.
+Structured work reuses a matching task; obtain creation consent only if a new task is needed and not already authorized. If already authorized, create the planning record without asking again; creation does not approve implementation. Complex tasks require prd.md, design.md and implement.md, followed by first final-plan review and explicit implementation approval under Shared plan approval. Other extra steps require a trigger fact -> required output -> stop condition. See Request Triage and Planning Artifacts in workflow.md.
 [/workflow-state:no_task]
 
 [workflow-state:task_error]
@@ -114,13 +128,13 @@ Preserve existing task fields and artifacts. If the correct status cannot be det
 [/workflow-state:task_error]
 
 [workflow-state:planning]
-Lightweight structured tasks may be PRD-only. Complex tasks must finish prd.md, design.md and implement.md before task.py start. Present the completed plan and wait for explicit user approval; task-creation consent does not authorize implementation.
-Curate context only for authorized sub-agent dispatch. Research, Providers and other extras need a trigger fact -> required output -> stop condition.
+Lightweight structured tasks may be PRD-only. Complex tasks must finish prd.md, design.md and implement.md before task.py start. Apply workflow.md "Shared plan approval": reuse verified approval for the same presented plan without asking again; otherwise stay in planning for final review and explicit approval before task.py start. Task-creation consent does not authorize implementation.
+Sub-agent mode: curate context only for authorized dispatch. Research, Providers and other extras need a trigger fact -> required output -> stop condition.
 [/workflow-state:planning]
 
 [workflow-state:planning-inline]
-Lightweight structured tasks may be PRD-only. Complex tasks must finish prd.md, design.md and implement.md before task.py start. Present the completed plan and wait for explicit user approval; task-creation consent does not authorize implementation.
-Inline mode skips JSONL curation and loads task artifacts/specs directly. Research, Providers and other extras need a trigger fact -> required output -> stop condition.
+Lightweight structured tasks may be PRD-only. Complex tasks must finish prd.md, design.md and implement.md before task.py start. Apply workflow.md "Shared plan approval": reuse verified approval for the same presented plan without asking again; otherwise stay in planning for final review and explicit approval before task.py start. Task-creation consent does not authorize implementation.
+Inline mode: skip jsonl curation and load task artifacts/specs directly. In the Codex host, apply the Codex native leaf workers section of .harness/policies/collaboration-policy.md: dispatch useful independent research when ready with bounded context; the coordinator retains task state. Research, Providers and other extras need a trigger fact -> required output -> stop condition.
 Product-manager gate: if currentGate.status=awaiting_user_acceptance, present that exact review and stop; only pm respond with a fresh explicit response may clear it. Resume the same task afterward.
 [/workflow-state:planning-inline]
 
@@ -136,7 +150,7 @@ Final verification covers the full affected task scope. Spec, journal, additiona
 [/workflow-state:in_progress]
 
 [workflow-state:in_progress-inline]
-Read requirements, design, execution plan and specs -> minimal edit -> project lint/typecheck/tests and coverage checklist -> completion record. Codex implements/checks directly; do not dispatch implement/check sub-agents. Research, Providers and other extras require a trigger fact -> required output -> stop condition. Preserve required safety/project gates.
+Read requirements, design, execution plan and specs -> minimal edit -> project lint/typecheck/tests and coverage checklist -> completion record. In the Codex host, inline permits independent research, bounded implementation and verification under the Codex native leaf workers section of .harness/policies/collaboration-policy.md. Dispatch ready packages early, usually 1–2 then 3–4 only when useful; zero is valid. Each write path has one owner; the coordinator retains task state, shared control files, final integration and full-scope verification. Research, Providers and other extras require a trigger fact -> required output -> stop condition. Preserve required safety/project gates.
 Update specs only for a changed durable contract; commit only when requested/authorized. Completion does not require a commit, archive commit, or journal bundle.
 Product-manager gate: if currentGate.status=awaiting_user_acceptance, present that exact review and stop; only pm respond with a fresh explicit response may clear it. Resume the same task afterward.
 [/workflow-state:in_progress-inline]
@@ -162,7 +176,7 @@ Load step details only when needed with `get_context.py --mode phase --step <X.Y
 
 #### 1.0 Create task `[required · once]`
 
-Structured lane only. Reuse a matching task before creating another. Obtain creation consent if not already given. Use `task.py create "<title>" --slug <name>` without a date prefix; it creates planning state. Do not automatically start before the requirements and plan are ready. Parent/child tasks are optional only for independently delivered work needing separate ownership; record real dependency ordering in the owning plan.
+Structured lane only. Reuse a matching task before creating another. Explicit creation consent already given satisfies this step without another question; obtain it only when missing. Use `task.py create "<title>" --slug <name>` without a date prefix; it creates planning state. Do not automatically start before the requirements and plan are ready. Parent/child tasks are optional only for independently delivered work needing separate ownership; record real dependency ordering in the owning plan.
 
 #### 1.1 Requirement exploration `[required · repeatable]`
 
@@ -174,25 +188,25 @@ Name the unanswered question first. Use the repository's search router and exist
 
 #### 1.3 Configure context `[on authorized sub-agent dispatch]`
 
-Inline mode loads relevant specs directly through `trellis-before-dev`; skip JSONL curation. When `task.py start` sees seed-only manifests, use its supported `--allow-empty-context` option for this inline contract, not for a delegated task lacking context.
+Inline mode loads relevant specs directly through `trellis-before-dev`; skip JSONL curation. Codex native leaves receive a bounded work packet with task/spec references, needed context, mode and exact write ownership, following `Codex native leaf workers` in `.harness/policies/collaboration-policy.md`; they do not create a separate task. When `task.py start` sees seed-only manifests, use its supported `--allow-empty-context` option for this inline contract, not for a formally delegated task lacking context.
 
-For authorized sub-agent work, curate `implement.jsonl` / `check.jsonl` with actual needed specs/research: `{"file":"<repo-relative path>","reason":"<why>"}`. Seed `_example` rows do not count. Read task artifacts in addition to these references. Manifests supply context, not a second plan. Every dispatch starts with `Active task: <task path>` and a bounded assignment; an implement/check child never recursively dispatches implement/check.
+For authorized Trellis implement/check task dispatch outside Codex native inline leaves, curate `implement.jsonl` / `check.jsonl` with actual needed specs/research: `{"file":"<repo-relative path>","reason":"<why>"}`. Seed `_example` rows do not count. Read task artifacts in addition to these references. Manifests supply context, not a second plan. Structured-task dispatch identifies `Active task: <task path>` and a bounded assignment; an implement/check child never recursively dispatches implement/check. Fast-lane native leaves reference their work packet without creating a task.
 
 #### 1.4 Activate task `[required · once]`
 
-Review accepted requirements, design, execution plan and applicable gates. Task-creation or planning consent does not authorize coding. After presenting the completed plan, wait for explicit user approval before `task.py start`. Unresolved material decisions and pending hard gates still require the user's response.
+Review accepted requirements, design, execution plan and applicable gates. Task-creation or planning consent does not authorize coding. Apply Shared plan approval: reuse verified approval for the same presented final plan without another start-review question. Otherwise present the completed plan, stop for a subsequent explicit user approval, and only then run `task.py start`. Unresolved material decisions and pending hard gates still require the user's response.
 
 Run `task.py start <task-dir>` (inline seed-only context: add `--allow-empty-context`). Follow any actual session-identity error; do not manufacture an identity or use another task's state.
 
 #### 1.5 Completion criteria
 
-Task identity, accepted requirements, reviewed planning artifacts, separate implementation approval and `in_progress` status are required. Complex tasks require prd.md, design.md and implement.md. A delegated task also needs its curated context.
+Task identity, accepted requirements, reviewed planning artifacts, verified explicit implementation approval under Shared plan approval (new or reused), and `in_progress` status are required. Complex tasks require prd.md, design.md and implement.md. A delegated task also needs its curated context.
 
 ## Phase 2: Execute
 
 #### 2.1 Implement `[required · repeatable]`
 
-Read the owning task artifacts and applicable specs via `trellis-before-dev`. Trace callers and the changed boundary, reuse existing mechanisms, then implement the minimum accepted behavior. Codex inline writes directly. Other dispatch modes use their native context protocol only when delegation is authorized and triggered.
+Read the owning task artifacts and applicable specs via `trellis-before-dev`. Trace callers and the changed boundary, reuse existing mechanisms, then implement the minimum accepted behavior. Codex inline permits the coordinator and explicitly scoped native write leaves, with one writer per path. The coordinator retains task state, shared control files, integration and final verification; apply `Codex native leaf workers` in `.harness/policies/collaboration-policy.md` for early results, follow-ups and failure handoff. This Codex-only policy does not change the official Claude workflow. Other dispatch modes use their native context protocol only when delegation is authorized and triggered.
 
 Do not add fallback, retry, caching, compatibility wrappers, defensive branches, configuration or abstractions for hypothetical failures. A reproduced fault, accepted contract, or actual trust/data boundary must justify each one. Fix the shared root cause instead of layering guards at every caller; return clear errors rather than silently claiming success. Preserve security, input validation at trust boundaries, data-loss prevention and accessibility.
 

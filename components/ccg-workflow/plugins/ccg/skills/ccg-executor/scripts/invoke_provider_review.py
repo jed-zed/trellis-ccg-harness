@@ -106,9 +106,9 @@ def main(argv: list[str] | None = None) -> int:
         raise ValueError("review prompt is required on stdin")
     workdir = resolve_workdir(args.workdir)
     targets = normalize_targets(workdir, args.target)
-    ccg = shutil.which("ccg")
+    ccg = shutil.which("ccg-codex")
     if not ccg:
-        raise RuntimeError("ccg CLI not found in PATH")
+        raise RuntimeError("ccg-codex CLI not found in PATH; upstream Claude ccg is not a fallback")
 
     with tempfile.TemporaryDirectory(prefix="ccg-provider-review-") as temp:
         snapshot, stats = build_snapshot(workdir, targets, Path(temp))

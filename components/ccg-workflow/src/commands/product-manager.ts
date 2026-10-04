@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto'
 import { existsSync, lstatSync, realpathSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
-import { homedir, tmpdir } from 'node:os'
+import { tmpdir } from 'node:os'
 import { basename, delimiter, dirname, isAbsolute, join, resolve } from 'node:path'
 import {
   PRODUCT_MANAGER_CONTRACT_VERSION,
@@ -40,7 +40,8 @@ import {
   createClaudeSshProductManagerExecution,
 } from '../product-manager/providers/claude'
 import { createGeminiProductManagerExecution } from '../product-manager/providers/gemini'
-import { normalizeProductManagerConfig, readCcgConfigAt } from '../utils/config'
+import { getConfigPath, normalizeProductManagerConfig, readCcgConfigAt } from '../utils/config'
+import { assertCodexHostPath } from '../utils/host-boundary'
 import { normalizeModelRouting } from '../utils/model-routing'
 
 export interface ProductManagerCommandOptions {
@@ -58,7 +59,9 @@ export interface ProductManagerCommandOptions {
 }
 
 function resolveCodexProductManagerConfigPath(explicit?: string): string {
-  return resolve(explicit || join(homedir(), '.codex', 'ccg', 'config.toml'))
+  const path = resolve(explicit || getConfigPath())
+  assertCodexHostPath(path)
+  return path
 }
 
 export interface ProductManagerRuntimeConfig {
@@ -77,7 +80,7 @@ export function resolveClaudeProductManagerModel(
 
 export async function readCodexProductManagerConfig(configPath?: string): Promise<ProductManagerRuntimeConfig> {
   const file = resolveCodexProductManagerConfigPath(configPath)
-  const parsed = existsSync(file) ? await readCcgConfigAt(file) : null
+  const parsed = existsSync(file) ? await readCcgConfigAt(file, { persistMigration: false }) : null
   const routing = normalizeModelRouting(parsed?.routing)
   return {
     behavior: normalizeProductManagerConfig(parsed?.product_manager, { existingInstall: true }),

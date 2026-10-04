@@ -63,7 +63,8 @@ test("doctor natively verifies CCG before skipping only the duplicate adapter pr
     path.join(ROOT, "scripts", "doctor.ps1"),
     "utf8",
   )
-  assert.match(doctor, /Read-Version\s+"ccg"/)
+  assert.match(doctor, /ccg-runtime\.mjs/)
+  assert.match(doctor, /Read-Version\s+\(\[string\]\$ccgTarget\.command\)/)
   assert.match(doctor, /conflicts",\s*"--skip-runtime"/)
 })
 

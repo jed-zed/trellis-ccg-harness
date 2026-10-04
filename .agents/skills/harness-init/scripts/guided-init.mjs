@@ -1,3 +1,4 @@
+import { resolveCodexHome, sameCodexHome } from "./codex-home.mjs";
 import { execFile as execFileCallback } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import {
@@ -19,6 +20,8 @@ import {
   GLOBAL_PLATFORM_SKILLS,
   PREVIOUS_GLOBAL_PLATFORM_SKILL_SETS,
   upgradeLegacySkillPlatformDefaults,
+  preparePlatformSourceUpdate,
+  hasRecordedPlatformRootObservation,
 } from "./skill-platform-migration.mjs";
 import {
   assertTrustedCommandUnchanged,
@@ -275,11 +278,13 @@ function validateGlobalManifest(manifest) {
 }
 
 async function replaceGlobalManifestCas(target, originalBytes, nextBytes) {
+  const details = await lstat(target);
+  if (details.isSymbolicLink() || !details.isFile()) throw new Error("Global Skill ownership manifest is not a regular file.");
   const temporary = path.join(
     path.dirname(target),
     `.global-skills-${randomUUID()}.tmp`,
   );
-  await writeFile(temporary, nextBytes, { flag: "wx", mode: 0o600 });
+  await writeFile(temporary, nextBytes, { flag: "wx", mode: details.mode & 0o777 });
   try {
     const current = await readFile(target);
     if (!current.equals(originalBytes)) {
@@ -298,8 +303,12 @@ async function upgradeDirectPlatformSkills({
   manifest,
   manifestPath,
   originalManifestBytes,
+  originalManifestMode,
   sources,
   targetRoot,
+  homeDir,
+  codexHome,
+  faultInjector,
 }) {
   const ownedByName = new Map(
     manifest.managedPlatformSkills.map((entry) => [entry.name, entry]),
@@ -328,6 +337,37 @@ async function upgradeDirectPlatformSkills({
   await mkdir(previousRoot, { recursive: true, mode: 0o700 });
   const mutations = [];
   let retainStage = false;
+  let manifestCommitted = false;
+  let sourceUpdate;
+  const sourceNames = new Set(sources.skills.map((source) => source.name));
+    const upgradedManifest = {
+      ...manifest,
+      codexHome,
+      managedPlatformSkills: [
+        ...sources.skills.map((source) => ({
+          ...(ownedByName.get(source.name) ?? {}),
+          name: source.name,
+          sourcePath: source.sourcePath,
+          targetPath: path.join(targetRoot, source.name),
+          treeSha256: source.treeSha256,
+          fileCount: source.fileCount,
+          totalBytes: source.totalBytes,
+        })),
+        ...manifest.managedPlatformSkills.filter(
+          (entry) => !sourceNames.has(entry.name),
+        ),
+      ],
+    };
+    const nextBytes = Buffer.from(canonicalJson(upgradedManifest));
+    sourceUpdate = await preparePlatformSourceUpdate({
+      homeDir, codexHome,
+      controls: [{ path: manifestPath, before: { exists: true, bytes: originalManifestBytes,
+        sha256: createHash("sha256").update(originalManifestBytes).digest("hex"), mode: originalManifestMode }, after: nextBytes }],
+      skills: changedSources.map((source) => ({ name: source.name, path: path.join(targetRoot, source.name),
+        beforeSha256: ownedByName.get(source.name)?.treeSha256 ?? null, afterSha256: source.treeSha256,
+        fromSource: { path: ownedByName.get(source.name)?.sourcePath ?? null, treeSha256: ownedByName.get(source.name)?.treeSha256 ?? null },
+        toSource: { path: source.sourcePath, treeSha256: source.treeSha256 } })),
+    });
   try {
     for (const source of changedSources) {
       const staged = path.join(stagedRoot, source.name);
@@ -377,32 +417,24 @@ async function upgradeDirectPlatformSkills({
         throw error;
       }
       mutations.push({ kind: "replaced", source, target, previous });
+      if (faultInjector) await faultInjector(`platform-source-installed:${source.name}`);
     }
 
-    const sourceNames = new Set(sources.skills.map((source) => source.name));
-    const upgradedManifest = {
-      ...manifest,
-      managedPlatformSkills: [
-        ...sources.skills.map((source) => ({
-          ...(ownedByName.get(source.name) ?? {}),
-          name: source.name,
-          targetPath: path.join(targetRoot, source.name),
-          treeSha256: source.treeSha256,
-          fileCount: source.fileCount,
-          totalBytes: source.totalBytes,
-        })),
-        ...manifest.managedPlatformSkills.filter(
-          (entry) => !sourceNames.has(entry.name),
-        ),
-      ],
-    };
     await replaceGlobalManifestCas(
       manifestPath,
       originalManifestBytes,
-      Buffer.from(canonicalJson(upgradedManifest)),
+      nextBytes,
     );
+    manifestCommitted = true;
+    if (faultInjector) await faultInjector("platform-source-ownership-committed");
+    await sourceUpdate.complete();
+    return sourceUpdate.backupId;
   } catch (error) {
     const rollbackErrors = [];
+    if (manifestCommitted) {
+      try { await replaceGlobalManifestCas(manifestPath, nextBytes, originalManifestBytes); }
+      catch (rollbackError) { rollbackErrors.push(rollbackError); }
+    }
     for (const mutation of mutations.reverse()) {
       try {
         const current = await snapshotTree(mutation.target);
@@ -426,19 +458,23 @@ async function upgradeDirectPlatformSkills({
         `Global Skill upgrade failed and recovery data remains at ${stageRoot}.`,
       );
     }
+    await sourceUpdate.complete("rolled-back");
     throw error;
   } finally {
     if (!retainStage) {
       await rm(stageRoot, { recursive: true, force: true });
     }
+    await sourceUpdate.release();
   }
 }
 
 export async function installBundledPlatformSkills({
   approved,
   homeDir,
+  codexHome,
   platformSkillsRoot,
   now = () => new Date(),
+  faultInjector,
 }) {
   if (approved !== true) {
     throw new Error("Global platform Skill installation requires --approved.");
@@ -447,16 +483,22 @@ export async function installBundledPlatformSkills({
     path.resolve(homeDir),
     "User home",
   );
+  const codex = await resolveCodexHome(home, codexHome ?? null);
   const targetRoot = path.join(home, ".agents", "skills");
   const manifestPath = globalManifestPath(home);
   const sources = await describePlatformSources(platformSkillsRoot);
 
   if (await pathExists(manifestPath)) {
+    await ensureDirectoryChain(home, targetRoot, { create: false });
     const originalManifestBytes = await readFile(manifestPath);
     const validated = validateGlobalManifest(
       await readRegularJson(manifestPath, "Global Skill ownership manifest"),
     );
     const { manifest, upgradeRequired } = validated;
+    if (manifest.codexHome && !(await sameCodexHome(manifest.codexHome, codex)) &&
+        !(await hasRecordedPlatformRootObservation({ homeDir: home, codexHome: codex, manifestBytes: originalManifestBytes }))) {
+      throw new Error("Global platform Skill ownership belongs to a different Codex home.");
+    }
     for (const source of sources.skills) {
       const owned = manifest.managedPlatformSkills.find(
         (entry) => entry.name === source.name,
@@ -470,12 +512,7 @@ export async function installBundledPlatformSkills({
         !Number.isInteger(owned?.fileCount) ||
         owned.fileCount < 1 ||
         !Number.isInteger(owned?.totalBytes) ||
-        owned.totalBytes < 1 ||
-        (
-          validated.mode === "global-init" &&
-          !upgradeRequired &&
-          owned.treeSha256 !== source.treeSha256
-        )
+        owned.totalBytes < 1
       ) {
         throw new Error(
           `Bundled platform Skill source or ownership changed: ${source.name}`,
@@ -488,27 +525,35 @@ export async function installBundledPlatformSkills({
         );
       }
     }
-    if (upgradeRequired) {
+    const sourceChanged = sources.skills.some((source) =>
+      manifest.managedPlatformSkills.find((entry) => entry.name === source.name)?.treeSha256 !== source.treeSha256);
+    if (upgradeRequired || sourceChanged) {
       if (validated.mode !== "global-init") {
         return upgradeLegacySkillPlatformDefaults({
           approved,
           homeDir: home,
+          codexHome: codex,
           now,
           platformSkillsRoot,
         });
       }
-      await upgradeDirectPlatformSkills({
+      const sourceUpdateBackupId = await upgradeDirectPlatformSkills({
         manifest,
         manifestPath,
         originalManifestBytes,
+        originalManifestMode: (await lstat(manifestPath)).mode & 0o777,
         sources,
         targetRoot,
+        homeDir: home,
+        codexHome: codex,
+        faultInjector,
       });
       return {
         status: "upgraded",
         manifestPath,
         installedSkills: [...GLOBAL_PLATFORM_SKILLS],
         ownershipMode: validated.mode,
+        sourceUpdateBackupId,
       };
     }
     return {
@@ -560,9 +605,11 @@ export async function installBundledPlatformSkills({
       schemaVersion: 1,
       owner: OWNER,
       installMode: "copy",
+      codexHome: codex,
       installedAt: now().toISOString(),
       managedPlatformSkills: sources.skills.map((source) => ({
         name: source.name,
+        sourcePath: source.sourcePath,
         targetPath: path.join(targetRoot, source.name),
         treeSha256: source.treeSha256,
         fileCount: source.fileCount,
@@ -837,9 +884,15 @@ function normalizeOverrideStatuses(overrides) {
 export async function inspectProviderCliStatuses({
   runCommand = runProviderStatusCommand,
   statusOverrides = null,
+  homeDir,
+  codexHome = null,
 } = {}) {
   const overridden = normalizeOverrideStatuses(statusOverrides);
   if (overridden) return overridden;
+  const environment = homeDir ? {
+    ...process.env, HOME: path.resolve(homeDir), USERPROFILE: path.resolve(homeDir),
+    CODEX_HOME: await resolveCodexHome(homeDir, codexHome),
+  } : process.env;
   const statuses = {};
   for (const name of PROVIDER_NAMES) {
     if (name === "claude") {
@@ -856,6 +909,7 @@ export async function inspectProviderCliStatuses({
     const version = await runCommand(
       definition.command,
       definition.versionArgs,
+      { environment },
     );
     if (version.exitCode !== 0) {
       const status = "not-installed";
@@ -880,6 +934,7 @@ export async function inspectProviderCliStatuses({
     const auth = await runCommand(
       definition.command,
       definition.authProbeArgs,
+      { environment },
     );
     const output = `${auth.stdout ?? ""}\n${auth.stderr ?? ""}`;
     let status = "authentication-unknown";
@@ -1104,11 +1159,13 @@ async function replaceGlobalStateCas(target, originalBytes, nextBytes) {
 export async function recordGlobalInitState({
   catalog,
   homeDir,
+  codexHome,
   pendingProviderActions,
   platformManifestPath,
   providerActions,
 }) {
   const home = await assertRealDirectory(homeDir, "User home");
+  const codex = await resolveCodexHome(home, codexHome ?? null);
   const target = globalStatePath(home);
   const parent = path.dirname(target);
   await ensureDirectoryChain(home, parent, { create: true });
@@ -1126,6 +1183,7 @@ export async function recordGlobalInitState({
       JSON.parse(existingBytes.toString("utf8")),
     );
     if (
+      (existing.codexHome && !(await sameCodexHome(existing.codexHome, codex))) ||
       existing.platformManifestPath !== platformManifestPath ||
       canonicalJson(existing.catalog) !==
         canonicalJson({
@@ -1150,6 +1208,7 @@ export async function recordGlobalInitState({
     schemaVersion: 1,
     owner: OWNER,
     platformManifestPath,
+    codexHome: codex,
     catalog: {
       mode: catalog.mode,
       repositoryPath: catalog.repositoryPath,
@@ -1174,12 +1233,17 @@ export async function recordGlobalInitState({
   return { status: "recorded", statePath: target, state };
 }
 
-export async function loadGlobalInitState({ homeDir }) {
+export async function loadGlobalInitState({ homeDir, codexHome = null }) {
   const home = await assertRealDirectory(homeDir, "User home");
+  const codex = await resolveCodexHome(home, codexHome ?? null);
   const target = globalStatePath(home);
   if (!(await pathExists(target))) return null;
   const state = await readRegularJson(target, "Global Init state");
-  return validateGlobalInitState(state);
+  validateGlobalInitState(state);
+  if (state.codexHome && !(await sameCodexHome(state.codexHome, codex))) {
+    throw new Error("Global Init Codex home differs from the selected root.");
+  }
+  return state;
 }
 
 export function detectTechnologyStack(manifests, packageManifest = null) {
