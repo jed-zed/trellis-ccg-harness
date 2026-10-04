@@ -126,6 +126,19 @@ BeforeAll {
         }
         return $walker
     }
+
+    # Fixture adapter only: adds the fields emitted by the actual schema-1 DOM
+    # parser. Original scenarios, clocks, failures and safety assertions remain.
+    function Complete-FixturePreparedSendSnapshot {
+        param([Parameter(Mandatory=$true)]$Snapshot)
+        $scope = 'form:has(#prompt-textarea)'
+        $selector = $scope + ' > button[data-testid="send-button"]:nth-child(1):not(:disabled, [aria-disabled="true"], [hidden], [aria-hidden="true"])'
+        $Snapshot | Add-Member -NotePropertyName ComposerSelector -NotePropertyValue '#prompt-textarea'
+        $Snapshot | Add-Member -NotePropertyName SendSelector -NotePropertyValue $(if ($Snapshot.SendCount -eq 1) {$selector} else {''})
+        $Snapshot | Add-Member -NotePropertyName SendFormScope -NotePropertyValue $(if ($Snapshot.SendCount -eq 1) {$scope} else {''})
+        $Snapshot | Add-Member -NotePropertyName SendSelectorMatchCount -NotePropertyValue $(if ($Snapshot.SendCount -eq 1) {1} else {0})
+        return $Snapshot
+    }
 }
 
 Describe 'Codex top-level window selection' {
@@ -2568,16 +2581,16 @@ Describe 'agent-browser-cli V2 transport' {
     }
 
     It 'switches one unique thinking-mode control to Pro and verifies it before send preparation' {
-        $extreme = [pscustomobject]@{
+        $extreme = (Complete-FixturePreparedSendSnapshot -Snapshot ([pscustomobject]@{
             Url = 'https://chatgpt.com/'; UrlExact = $false; ComposerCount = 1; ComposerValue = ''; SendCount = 0
             LoginCount = 0; ProCount = 0; SelectedModeControlCount = 1; SelectedModeLabel = '极高'; SelectedModeIsPro = $false
             SecurityChallengeCount = 0; Generating = $false; UserTurns = @(); Responses = @(); Target = $script:v2Target
-        }
-        $pro = [pscustomobject]@{
+        }))
+        $pro = (Complete-FixturePreparedSendSnapshot -Snapshot ([pscustomobject]@{
             Url = 'https://chatgpt.com/'; UrlExact = $false; ComposerCount = 1; ComposerValue = ''; SendCount = 0
             LoginCount = 0; ProCount = 1; SelectedModeControlCount = 1; SelectedModeLabel = 'Pro'; SelectedModeIsPro = $true
             SecurityChallengeCount = 0; Generating = $false; UserTurns = @(); Responses = @(); Target = $script:v2Target
-        }
+        }))
         $script:v2ModelActions = [System.Collections.Queue]::new()
         $script:v2ModelActions.Enqueue([pscustomobject]@{ ok = $true; phase = 'open-menu' })
         $script:v2ModelActions.Enqueue([pscustomobject]@{ ok = $true; phase = 'open-submenu' })
@@ -2611,17 +2624,17 @@ Describe 'agent-browser-cli V2 transport' {
         Mock Get-AgentBrowserPageSnapshot {
             $script:v2PageCalls++
             if ($script:v2PageCalls -eq 1) {
-                return [pscustomobject]@{
+                return (Complete-FixturePreparedSendSnapshot -Snapshot ([pscustomobject]@{
                     Url = 'https://chatgpt.com/'; UrlExact = $false; ComposerCount = 1; ComposerValue = ''; SendCount = 0
                     LoginCount = 0; ProCount = 1; SelectedModeControlCount = 1; SelectedModeLabel = 'Pro'; SelectedModeIsPro = $true
                     SecurityChallengeCount = 0; Generating = $false; UserTurns = @(); Responses = @(); Target = $script:v2Target
-                }
+                }))
             }
-            [pscustomobject]@{
+            (Complete-FixturePreparedSendSnapshot -Snapshot ([pscustomobject]@{
                 Url = 'https://chatgpt.com/'; UrlExact = $false; ComposerCount = 1; ComposerValue = $prompt; SendCount = 1
                 LoginCount = 0; ProCount = 0; SelectedModeControlCount = 1; SelectedModeLabel = '极高'; SelectedModeIsPro = $false
                 SecurityChallengeCount = 0; Generating = $false; UserTurns = @(); Responses = @(); Target = $script:v2Target
-            }
+            }))
         }
         Mock Invoke-AgentBrowserCliJson {
             param($Arguments)
@@ -2664,12 +2677,12 @@ Describe 'agent-browser-cli V2 transport' {
         Mock Get-AgentBrowserPageSnapshot {
             $script:v2PageCalls++
             $composer = if ($script:v2PageCalls -eq 1) { '' } else { 'expected prompt' }
-            [pscustomobject]@{
+            (Complete-FixturePreparedSendSnapshot -Snapshot ([pscustomobject]@{
                 Url = 'https://chatgpt.com/'; UrlExact = $false; ComposerCount = 1; ComposerValue = $composer
                 SendCount = if ($script:v2PageCalls -eq 1) { 0 } else { 1 }
                 LoginCount = 0; ProCount = 1; SelectedModeControlCount = 1; SelectedModeLabel = 'Pro'; SelectedModeIsPro = $true; SecurityChallengeCount = 0; Generating = $false
                 UserTurns = @(); Responses = @(); Target = $script:v2Target
-            }
+            }))
         }
         Mock Invoke-AgentBrowserCliJson {
             param($Arguments)
@@ -2693,11 +2706,11 @@ Describe 'agent-browser-cli V2 transport' {
         $null = New-Item -ItemType Directory -Path $directory
         Mock Resolve-AgentBrowserTarget { $script:v2Target }
         Mock Get-AgentBrowserPageSnapshot {
-            [pscustomobject]@{
+            (Complete-FixturePreparedSendSnapshot -Snapshot ([pscustomobject]@{
                 Url = 'https://chatgpt.com/'; UrlExact = $false; ComposerCount = 1; ComposerValue = ''; SendCount = 0
                 LoginCount = 0; ProCount = 1; SelectedModeControlCount = 1; SelectedModeLabel = 'Pro'; SelectedModeIsPro = $true
                 SecurityChallengeCount = 0; Generating = $false; UserTurns = @(); Responses = @(); Target = $script:v2Target
-            }
+            }))
         }
         Mock Reserve-GlobalIdempotencyKey {
             throw (New-SidebarException -ExitCode 30 -Category 'IdempotencyReservationFailed' -Message 'injected reservation failure')
@@ -2724,11 +2737,11 @@ Describe 'agent-browser-cli V2 transport' {
         $script:v2MutationCalls = 0
         Mock Resolve-AgentBrowserTarget { $script:v2Target }
         Mock Get-AgentBrowserPageSnapshot {
-            [pscustomobject]@{
+            (Complete-FixturePreparedSendSnapshot -Snapshot ([pscustomobject]@{
                 Url = 'https://chatgpt.com/'; UrlExact = $false; ComposerCount = 1; ComposerValue = ''; SendCount = 0
                 LoginCount = 0; ProCount = 1; SelectedModeControlCount = 1; SelectedModeLabel = 'Pro'; SelectedModeIsPro = $true
                 SecurityChallengeCount = 0; Generating = $false; UserTurns = @(); Responses = @(); Target = $script:v2Target
-            }
+            }))
         }
         Mock Reserve-GlobalIdempotencyKey { throw 'reservation must not run' }
         Mock Invoke-AgentBrowserCliJson { $script:v2MutationCalls++; throw 'browser mutation must not run' }
@@ -2786,11 +2799,11 @@ Describe 'agent-browser-cli V2 transport' {
         $null = New-Item -ItemType Directory -Path $directory
         Mock Resolve-AgentBrowserTarget { $script:v2Target }
         Mock Get-AgentBrowserPageSnapshot {
-            [pscustomobject]@{
+            (Complete-FixturePreparedSendSnapshot -Snapshot ([pscustomobject]@{
                 Url = 'https://chatgpt.com/'; UrlExact = $false; ComposerCount = 1; ComposerValue = ''; SendCount = 0
                 LoginCount = 0; ProCount = 1; SelectedModeControlCount = 1; SelectedModeLabel = 'Pro'; SelectedModeIsPro = $true
                 SecurityChallengeCount = 0; Generating = $false; UserTurns = @(); Responses = @(); Target = $script:v2Target
-            }
+            }))
         }
         Mock Reserve-GlobalIdempotencyKey {
             [pscustomobject]@{ KeySha256 = ('a' * 64); ReservedAtUtc = [DateTime]::UtcNow.ToString('o') }
@@ -2825,13 +2838,13 @@ Describe 'agent-browser-cli V2 transport' {
         Mock Resolve-AgentBrowserTarget { $target }
         Mock Get-AgentBrowserPageSnapshot {
             $script:v2PageCalls++
-            [pscustomobject]@{
+            (Complete-FixturePreparedSendSnapshot -Snapshot ([pscustomobject]@{
                 Url = $conversationUrl; UrlExact = $true; ComposerCount = 1
                 ComposerValue = if ($script:v2PageCalls -eq 1) { '' } else { $prompt }
                 SendCount = if ($script:v2PageCalls -eq 1) { 0 } else { 1 }
                 LoginCount = 0; ProCount = 1; SelectedModeControlCount = 1; SelectedModeLabel = 'Pro'; SelectedModeIsPro = $true
                 SecurityChallengeCount = 0; Generating = $false; UserTurns = @($oldUser); Responses = @(); Target = $target
-            }
+            }))
         }
         Mock Invoke-AgentBrowserCliJson {
             param($Arguments)
@@ -2860,13 +2873,13 @@ Describe 'agent-browser-cli V2 transport' {
         Mock Resolve-AgentBrowserTarget { $script:v2Target }
         Mock Get-AgentBrowserPageSnapshot {
             $script:v2PageCalls++
-            [pscustomobject]@{
+            (Complete-FixturePreparedSendSnapshot -Snapshot ([pscustomobject]@{
                 Url = 'https://chatgpt.com/'; UrlExact = $false; ComposerCount = 1
                 ComposerValue = if ($script:v2PageCalls -eq 1) { '' } else { $prompt }
                 SendCount = if ($script:v2PageCalls -eq 1) { 0 } else { 1 }
                 LoginCount = 0; ProCount = 1; SelectedModeControlCount = 1; SelectedModeLabel = 'Pro'; SelectedModeIsPro = $true
                 SecurityChallengeCount = 0; Generating = $false; UserTurns = @(); Responses = @(); Target = $script:v2Target
-            }
+            }))
         }
         Mock Invoke-AgentBrowserCliJson {
             param($Arguments)
@@ -2921,13 +2934,13 @@ Describe 'agent-browser-cli V2 transport' {
         Mock Get-AgentBrowserPageSnapshot {
             param($Target)
             $tab = [string]$Target.TabId
-            [pscustomobject]@{
+            (Complete-FixturePreparedSendSnapshot -Snapshot ([pscustomobject]@{
                 Url = 'https://chatgpt.com/'; UrlExact = $false; ComposerCount = 1
                 ComposerValue = if ($script:v2Filled[$tab]) { $prompt } else { '' }
                 SendCount = if ($script:v2Filled[$tab]) { 1 } else { 0 }
                 LoginCount = 0; ProCount = 1; SelectedModeControlCount = 1; SelectedModeLabel = 'Pro'; SelectedModeIsPro = $true
                 SecurityChallengeCount = 0; Generating = $false; UserTurns = @(); Responses = @(); Target = $Target
-            }
+            }))
         }
         Mock Invoke-AgentBrowserCliJson {
             param($Arguments)
@@ -2973,13 +2986,13 @@ Describe 'agent-browser-cli V2 transport' {
         Mock Resolve-AgentBrowserTarget { $script:v2Target }
         Mock Get-AgentBrowserPageSnapshot {
             $script:v2PageCalls++
-            [pscustomobject]@{
+            (Complete-FixturePreparedSendSnapshot -Snapshot ([pscustomobject]@{
                 Url = 'https://chatgpt.com/'; UrlExact = $false; ComposerCount = 1
                 ComposerValue = if ($script:v2PageCalls -eq 1) { '' } else { $prompt }
                 SendCount = if ($script:v2PageCalls -eq 1) { 0 } else { 1 }
                 LoginCount = 0; ProCount = 1; SelectedModeControlCount = 1; SelectedModeLabel = 'Pro'; SelectedModeIsPro = $true
                 SecurityChallengeCount = 0; Generating = $false; UserTurns = @(); Responses = @(); Target = $script:v2Target
-            }
+            }))
         }
         Mock Invoke-AgentBrowserCliJson {
             param($Arguments)
@@ -3025,7 +3038,7 @@ Describe 'agent-browser-cli V2 transport' {
         Mock Get-AgentBrowserPageSnapshot {
             $script:v2PageCalls++
             $isObservation = $script:v2PageCalls -ge 4
-            [pscustomobject]@{
+            (Complete-FixturePreparedSendSnapshot -Snapshot ([pscustomobject]@{
                 Url = 'https://chatgpt.com/'; UrlExact = $false; ComposerCount = 1
                 ComposerValue = if ($script:v2PageCalls -eq 1) { '' } elseif ($isObservation) { '' } else { $prompt }
                 SendCount = if ($script:v2PageCalls -eq 1 -or $isObservation) { 0 } else { 1 }
@@ -3033,7 +3046,7 @@ Describe 'agent-browser-cli V2 transport' {
                 SecurityChallengeCount = 0; Generating = ($isObservation -and $Generating)
                 UserTurns = if ($isObservation -and $AppendUserTurn) { @($newUserTurn) } else { @() }
                 Responses = @(); Target = $script:v2Target
-            }
+            }))
         }
         Mock Invoke-AgentBrowserCliJson {
             param($Arguments)
@@ -3132,24 +3145,24 @@ Describe 'agent-browser-cli V2 transport' {
         Mock Get-AgentBrowserPageSnapshot {
             $script:v2PageCalls++
             if ($script:v2PageCalls -eq 1) {
-                return [pscustomobject]@{
+                return (Complete-FixturePreparedSendSnapshot -Snapshot ([pscustomobject]@{
                     Url = 'https://chatgpt.com/'; UrlExact = $false; ComposerCount = 1; ComposerValue = ''; SendCount = 0
                     LoginCount = 0; ProCount = 1; SelectedModeControlCount = 1; SelectedModeLabel = 'Pro'; SelectedModeIsPro = $true; SecurityChallengeCount = 0; Generating = $false
                     UserTurns = @(); Responses = @(); Target = $script:v2Target
-                }
+                }))
             }
             if ($script:v2PageCalls -le 3) {
-                return [pscustomobject]@{
+                return (Complete-FixturePreparedSendSnapshot -Snapshot ([pscustomobject]@{
                     Url = 'https://chatgpt.com/'; UrlExact = $false; ComposerCount = 1; ComposerValue = $prompt; SendCount = 1
                     LoginCount = 0; ProCount = 0; SelectedModeControlCount = 0; SelectedModeLabel = ''; SelectedModeIsPro = $false; SecurityChallengeCount = 0; Generating = $false
                     UserTurns = @(); Responses = @(); Target = $script:v2Target
-                }
+                }))
             }
-            return [pscustomobject]@{
+            return (Complete-FixturePreparedSendSnapshot -Snapshot ([pscustomobject]@{
                 Url = $conversationUrl; UrlExact = $true; ComposerCount = 1; ComposerValue = ''; SendCount = 0
                 LoginCount = 0; ProCount = 0; SelectedModeControlCount = 0; SelectedModeLabel = ''; SelectedModeIsPro = $false; SecurityChallengeCount = 0; Generating = $true
                 UserTurns = @(); Responses = @(); Target = $exactTarget
-            }
+            }))
         }
         Mock Invoke-AgentBrowserCliJson {
             param($Arguments)
@@ -3178,11 +3191,11 @@ Describe 'agent-browser-cli V2 transport' {
         }
         Mock Resolve-AgentBrowserTarget { $exactTarget }
         Mock Get-AgentBrowserPageSnapshot {
-            [pscustomobject]@{
+            (Complete-FixturePreparedSendSnapshot -Snapshot ([pscustomobject]@{
                 Url = $conversationUrl; UrlExact = $true; ComposerCount = 1; ComposerValue = ''; SendCount = 0
                 LoginCount = 0; ProCount = 0; SelectedModeControlCount = 0; SelectedModeLabel = ''; SelectedModeIsPro = $false
                 SecurityChallengeCount = 0; Generating = $true; UserTurns = @(); Responses = @(); Target = $exactTarget
-            }
+            }))
         }
 
         $observation = Get-AgentBrowserWaitObservation -Binding (ConvertTo-AgentBrowserTargetBinding -Target $exactTarget) -ExpectedConversationUrl $conversationUrl
@@ -3199,11 +3212,11 @@ Describe 'agent-browser-cli V2 transport' {
             SessionKey = $script:v2Target.SessionKey; Origin = $script:v2Target.Origin
             Url = $conversationUrl; UrlExact = $true
         }
-        $snapshot = [pscustomobject]@{
+        $snapshot = (Complete-FixturePreparedSendSnapshot -Snapshot ([pscustomobject]@{
             Url = $conversationUrl; UrlExact = $true; ComposerCount = 1; ComposerValue = ''; SendCount = 0
             LoginCount = 0; ProCount = 0; SelectedModeControlCount = 0; SelectedModeLabel = ''; SelectedModeIsPro = $false
             SecurityChallengeCount = 0; Generating = $false; UserTurns = @(); Responses = @(); Target = $exactTarget
-        }
+        }))
         $Command = 'status'
         $ExpectedConversationUrl = $conversationUrl
         Mock Resolve-AgentBrowserCommandTarget { $exactTarget }
@@ -3234,13 +3247,13 @@ Describe 'agent-browser-cli V2 transport' {
             $script:v2PageCalls++
             $isFirst = $script:v2PageCalls -eq 1
             $isSecondObservation = $script:v2PageCalls -ge 5
-            [pscustomobject]@{
+            (Complete-FixturePreparedSendSnapshot -Snapshot ([pscustomobject]@{
                 Url = 'https://chatgpt.com/'; UrlExact = $false; ComposerCount = 1
                 ComposerValue = if ($isFirst) { '' } elseif ($isSecondObservation) { '' } else { $prompt }
                 SendCount = if ($isFirst -or $isSecondObservation) { 0 } else { 1 }
                 LoginCount = 0; ProCount = 1; SelectedModeControlCount = 1; SelectedModeLabel = 'Pro'; SelectedModeIsPro = $true
                 SecurityChallengeCount = 0; Generating = $isSecondObservation; UserTurns = @(); Responses = @(); Target = $script:v2Target
-            }
+            }))
         }
         Mock Invoke-AgentBrowserCliJson {
             param($Arguments)
@@ -3298,32 +3311,32 @@ Describe 'agent-browser-cli V2 transport' {
         Mock Get-AgentBrowserPageSnapshot {
             $script:v2PageCalls++
             if ($script:v2PageCalls -eq 1) {
-                return [pscustomobject]@{
+                return (Complete-FixturePreparedSendSnapshot -Snapshot ([pscustomobject]@{
                     Url = 'https://chatgpt.com/'; UrlExact = $false; ComposerCount = 1; ComposerValue = ''; SendCount = 0
                     LoginCount = 0; ProCount = 1; SelectedModeControlCount = 1; SelectedModeLabel = 'Pro'; SelectedModeIsPro = $true; SecurityChallengeCount = 0; Generating = $false
                     UserTurns = @(); Responses = @(); Target = $script:v2Target
-                }
+                }))
             }
             if ($script:v2PageCalls -le 3) {
-                return [pscustomobject]@{
+                return (Complete-FixturePreparedSendSnapshot -Snapshot ([pscustomobject]@{
                     Url = 'https://chatgpt.com/'; UrlExact = $false; ComposerCount = 1; ComposerValue = $prompt; SendCount = 1
                     LoginCount = 0; ProCount = 1; SelectedModeControlCount = 1; SelectedModeLabel = 'Pro'; SelectedModeIsPro = $true; SecurityChallengeCount = 0; Generating = $false
                     UserTurns = @(); Responses = @(); Target = $script:v2Target
-                }
+                }))
             }
             if ($script:v2PageCalls -eq 4) {
-                return [pscustomobject]@{
+                return (Complete-FixturePreparedSendSnapshot -Snapshot ([pscustomobject]@{
                     Url = 'https://chatgpt.com/'; UrlExact = $false; ComposerCount = 1; ComposerValue = ''; SendCount = 0
                     LoginCount = 0; ProCount = 1; SelectedModeControlCount = 1; SelectedModeLabel = 'Pro'; SelectedModeIsPro = $true; SecurityChallengeCount = 0; Generating = $false
                     UserTurns = @((New-TestResponse -Text 'transitional a'), (New-TestResponse -Text 'transitional b' -Ordinal 1))
                     Responses = @(); Target = $script:v2Target
-                }
+                }))
             }
-            [pscustomobject]@{
+            (Complete-FixturePreparedSendSnapshot -Snapshot ([pscustomobject]@{
                 Url = $conversationUrl; UrlExact = $true; ComposerCount = 1; ComposerValue = ''; SendCount = 0
                 LoginCount = 0; ProCount = 1; SelectedModeControlCount = 1; SelectedModeLabel = 'Pro'; SelectedModeIsPro = $true; SecurityChallengeCount = 0; Generating = $true
                 UserTurns = @(); Responses = @(); Target = $exactTarget
-            }
+            }))
         }
         Mock Invoke-AgentBrowserCliJson {
             param($Arguments)
@@ -3372,25 +3385,25 @@ Describe 'agent-browser-cli V2 transport' {
             $tab = [string]$Target.TabId
             if ($script:v2Clicked[$tab]) {
                 if ($tab -eq '202') {
-                    return [pscustomobject]@{
+                    return (Complete-FixturePreparedSendSnapshot -Snapshot ([pscustomobject]@{
                         Url = $conversationUrl; UrlExact = $true; ComposerCount = 1; ComposerValue = ''; SendCount = 0
                         LoginCount = 0; ProCount = 1; SelectedModeControlCount = 1; SelectedModeLabel = 'Pro'; SelectedModeIsPro = $true; SecurityChallengeCount = 0; Generating = $true
                         UserTurns = @(); Responses = @(); Target = $exactRetryTarget
-                    }
+                    }))
                 }
-                return [pscustomobject]@{
+                return (Complete-FixturePreparedSendSnapshot -Snapshot ([pscustomobject]@{
                     Url = 'https://chatgpt.com/'; UrlExact = $false; ComposerCount = 1; ComposerValue = $prompt; SendCount = 1
                     LoginCount = 0; ProCount = 1; SelectedModeControlCount = 1; SelectedModeLabel = 'Pro'; SelectedModeIsPro = $true; SecurityChallengeCount = 0; Generating = $false
                     UserTurns = @(); Responses = @(); Target = $script:v2Target
-                }
+                }))
             }
-            [pscustomobject]@{
+            (Complete-FixturePreparedSendSnapshot -Snapshot ([pscustomobject]@{
                 Url = 'https://chatgpt.com/'; UrlExact = $false; ComposerCount = 1
                 ComposerValue = if ($script:v2Filled[$tab]) { $prompt } else { '' }
                 SendCount = if ($script:v2Filled[$tab]) { 1 } else { 0 }
                 LoginCount = 0; ProCount = 1; SelectedModeControlCount = 1; SelectedModeLabel = 'Pro'; SelectedModeIsPro = $true; SecurityChallengeCount = 0; Generating = $false
                 UserTurns = @(); Responses = @(); Target = $Target
-            }
+            }))
         }
         Mock Invoke-AgentBrowserCliJson {
             param($Arguments)
@@ -3431,13 +3444,13 @@ Describe 'agent-browser-cli V2 transport' {
         Mock Get-AgentBrowserPageSnapshot {
             param($Target)
             $tab = [string]$Target.TabId
-            [pscustomobject]@{
+            (Complete-FixturePreparedSendSnapshot -Snapshot ([pscustomobject]@{
                 Url = 'https://chatgpt.com/'; UrlExact = $false; ComposerCount = 1
                 ComposerValue = if ($script:v2Filled[$tab]) { $prompt } else { '' }
                 SendCount = if ($script:v2Filled[$tab]) { 1 } else { 0 }
                 LoginCount = 0; ProCount = 1; SelectedModeControlCount = 1; SelectedModeLabel = 'Pro'; SelectedModeIsPro = $true; SecurityChallengeCount = 0; Generating = $false
                 UserTurns = @(); Responses = @(); Target = $Target
-            }
+            }))
         }
         Mock Invoke-AgentBrowserCliJson {
             param($Arguments)
@@ -3468,12 +3481,12 @@ Describe 'agent-browser-cli V2 transport' {
         Mock Resolve-AgentBrowserTarget { $script:v2Target }
         Mock Get-AgentBrowserPageSnapshot {
             $composer = if (-not $script:v2Filled) { '' } elseif ($script:v2Clicked) { 'changed draft' } else { $prompt }
-            [pscustomobject]@{
+            (Complete-FixturePreparedSendSnapshot -Snapshot ([pscustomobject]@{
                 Url = 'https://chatgpt.com/'; UrlExact = $false; ComposerCount = 1; ComposerValue = $composer
                 SendCount = if ($script:v2Filled) { 1 } else { 0 }
                 LoginCount = 0; ProCount = 1; SelectedModeControlCount = 1; SelectedModeLabel = 'Pro'; SelectedModeIsPro = $true; SecurityChallengeCount = 0; Generating = $false
                 UserTurns = @(); Responses = @(); Target = $script:v2Target
-            }
+            }))
         }
         Mock Invoke-AgentBrowserCliJson {
             param($Arguments)
@@ -3519,12 +3532,12 @@ Describe 'agent-browser-cli V2 transport' {
         }
         Mock Resolve-AgentBrowserTarget { $exactTarget }
         Mock Get-AgentBrowserPageSnapshot {
-            [pscustomobject]@{
+            (Complete-FixturePreparedSendSnapshot -Snapshot ([pscustomobject]@{
                 Url = $conversationUrl; UrlExact = $true; ComposerCount = 1; ComposerValue = ''; SendCount = 0
                 LoginCount = 0; ProCount = 1; SelectedModeControlCount = 1; SelectedModeLabel = 'Pro'; SelectedModeIsPro = $true; SecurityChallengeCount = 0; Generating = $false
                 UserTurns = @(New-TestResponse -Text $prompt); Responses = @(New-TestResponse -Text 'observed answer')
                 Target = $exactTarget
-            }
+            }))
         }
         Mock Start-Sleep {}
 
@@ -3625,6 +3638,8 @@ Describe 'agent-browser-cli V2 transport' {
         $modelSource | Should -Match "label\(element\) === 'Pro'"
         $modelSource | Should -Match "text === 'Pro' \|\| text === '极高'"
         $modelSource | Should -Match 'verticalGap <= 40'
-        $modelSource | Should -Not -Match 'data-message-author-role|document\.cookie|localStorage|sessionStorage|fetch\(|XMLHttpRequest|promptText'
+        # Conversation ancestry exclusions are structural; content reads are
+        # checked by the adjacent portable DOM getter/canary behavior tests.
+        $modelSource | Should -Not -Match 'document\.cookie|localStorage|sessionStorage|fetch\(|XMLHttpRequest|promptText'
     }
 }

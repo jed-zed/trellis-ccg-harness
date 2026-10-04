@@ -313,36 +313,44 @@ $watchState = [ordered]@{
 Describe 'Atomic watcher JSON state' {
     It 'retries a transient sharing violation during an atomic replacement' {
         $path = Join-Path $TestDrive 'transient-watch-state.json'
-        $ready = Join-Path $TestDrive 'transient-watch-state.ready'
-        $childPath = Join-Path $TestDrive 'hold-watch-state.ps1'
         [System.IO.File]::WriteAllText($path, '{"phase":"completed"}', $Script:Utf8NoBom)
-        [System.IO.File]::WriteAllText($childPath, @'
-param([string]$Path, [string]$Ready)
-$stream = [System.IO.File]::Open($Path, 'Open', 'Read', 'None')
-try {
-    [System.IO.File]::WriteAllText($Ready, 'ready')
-    Start-Sleep -Milliseconds 55
-}
-finally {
-    $stream.Dispose()
-}
-'@, [System.Text.UTF8Encoding]::new($true))
-        $process = Start-Process powershell.exe -ArgumentList @(
-            '-NoProfile', '-NonInteractive', '-File', ('"' + $childPath + '"'),
-            '-Path', ('"' + $path + '"'), '-Ready', ('"' + $ready + '"')
-        ) -PassThru -WindowStyle Hidden
+        $script:atomicSharingLease = $null
+        $script:atomicRetrySleepCount = 0
+        $actualSharingCause = $null
         try {
-            $deadline = [datetime]::UtcNow.AddSeconds(2)
-            while (-not [System.IO.File]::Exists($ready) -and [datetime]::UtcNow -lt $deadline) {
-                Start-Sleep -Milliseconds 10
+            $script:atomicSharingLease = [System.IO.File]::Open(
+                $path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::None
+            )
+            try {
+                $null = [System.IO.File]::ReadAllText($path, $Script:Utf8NoBom)
             }
-            [System.IO.File]::Exists($ready) | Should -BeTrue
+            catch {
+                $actualSharingCause = $_.Exception
+                while ($null -ne $actualSharingCause.InnerException) {
+                    $actualSharingCause = $actualSharingCause.InnerException
+                }
+            }
+            $actualSharingCause | Should -BeOfType ([System.IO.IOException])
+            $actualSharingCause.HResult | Should -Be -2147024864 # 0x80070020: ERROR_SHARING_VIOLATION
+
+            Mock Start-Sleep {
+                param([int]$Milliseconds)
+                $script:atomicRetrySleepCount++
+                if ($script:atomicRetrySleepCount -eq 2) {
+                    $script:atomicSharingLease.Dispose()
+                    $script:atomicSharingLease = $null
+                }
+            } -ParameterFilter { $Milliseconds -eq 25 }
+
             (Read-WatchJson -Path $path -Required).phase | Should -Be 'completed'
+            $script:atomicRetrySleepCount | Should -Be 2
+            Should -Invoke Start-Sleep -Times 2 -Exactly -Scope It -ParameterFilter { $Milliseconds -eq 25 }
         }
         finally {
-            $process.WaitForExit(2000) | Out-Null
-            if (-not $process.HasExited) { $process.Kill() }
-            $process.Dispose()
+            if ($null -ne $script:atomicSharingLease) {
+                $script:atomicSharingLease.Dispose()
+                $script:atomicSharingLease = $null
+            }
         }
     }
 
