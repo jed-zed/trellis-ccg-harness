@@ -1,5 +1,17 @@
 # ChatGPT Pro Agent Browser V2
 
+The fixed DOM extractor accepts the observed current ChatGPT composer and
+message structures. It derives one bounded selector for the proved visible
+composer and keeps the Send selector on that exact form, including when hidden
+duplicates exist. Ambiguous message ownership or multiple raw selector matches
+fail before sending. Sanitized detached reply extraction preserves `<br>`
+newlines using the existing node traversal.
+
+Initial `status` is read-only and may report non-Pro. `new-chat` opens its own
+background homepage and waits within the existing ten-second loading window for
+the composer and mode control; `new-chat` and `send` select and re-verify Pro
+before filling. The source tab's draft and mode remain unchanged.
+
 ## Scope
 
 This is the active transport contract for the logical `chatgpt-pro-sidebar`

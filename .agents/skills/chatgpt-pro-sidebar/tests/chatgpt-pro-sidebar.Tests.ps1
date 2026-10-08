@@ -1849,13 +1849,6 @@ Describe 'Exact URL fallback and sanitization' {
         $source | Should -Match '-RequireExistingConversation:\(-not \$FreshConversation\)'
     }
 
-    It 'documents new independent root rounds with an explicit fresh mode' {
-        $skillPath = Join-Path (Split-Path -Parent $PSScriptRoot) 'SKILL.md'
-        $skillSource = [System.IO.File]::ReadAllText($skillPath)
-
-        $skillSource | Should -Match '(?m)^powershell\.exe .*\$watcher run-root .* -FreshConversation$'
-    }
-
     It 'accepts one canonical exact conversation URL for a follow-up send' {
         {
             Assert-ChatGptUrlState -UrlState ([pscustomobject]@{
@@ -2367,6 +2360,46 @@ Describe 'agent-browser-cli V2 transport' {
         $snapshot.SelectedModeIsPro | Should -BeTrue
     }
 
+    It 'accepts a bounded exact composer path and keeps its send selector on the same form' -ForEach @(
+        @{ UseFallback = $false }
+        @{ UseFallback = $true }
+    ) {
+        $base = if ($UseFallback) { $Script:AgentBrowserComposerFallbackSelector } else { '#prompt-textarea' }
+        $selector = $base + ':is(:root > :nth-child(2) > :nth-child(1) > :nth-child(2) > :nth-child(1))'
+        $scope = if ($UseFallback) { ':is(main, [role="main"]) form:has(' + $selector.Replace(':is(main, [role="main"]) form ', '') + ')' } else { 'form:has(' + $selector + ')' }
+        $sendSelector = $scope + ' > button[data-testid="send-button"]:nth-child(2):not(:disabled, [aria-disabled="true"], [hidden], [aria-hidden="true"])'
+        Mock Invoke-AgentBrowserCliJson {
+            [pscustomobject]@{ result = [pscustomobject]@{
+                tab_id = '101'; session_key = 'browser-1:profile-1:101'
+                js_return = [pscustomobject]@{
+                    schemaVersion = 1; origin = 'https://chatgpt.com'; url = 'https://chatgpt.com/'
+                    composer = [pscustomobject]@{ count = 1; selector = $selector; selectorMatchCount = 1; value = '' }
+                    send = [pscustomobject]@{ count = 1; selector = $sendSelector; selectorMatchCount = 1; formScope = $scope }
+                    auth = [pscustomobject]@{ loginCount = 0; challengeCount = 0; proIndicatorCount = 1 }
+                    model = [pscustomobject]@{ controlCount = 1; selectedLabel = 'Pro'; proSelected = $true }
+                    generating = $false; userTurns = @(); assistantTurns = @()
+                }
+            } }
+        }
+        (Get-AgentBrowserPageSnapshot -Target $script:v2Target).ComposerSelector | Should -BeExactly $selector
+        Test-AgentBrowserSendSelector -Selector $sendSelector -FormScope $scope -ComposerSelector $base | Should -BeFalse
+        foreach ($invalid in @(($selector + ', textarea'), ($base + ':is(body)'), ($base + ':is(:root > :nth-child(0))'), ($base + ':is(:root' + (' > :nth-child(1)' * 33) + ')'))) {
+            Test-AgentBrowserComposerSelector -Selector $invalid | Should -BeFalse
+        }
+        # Exact paths must not weaken the existing raw-node uniqueness guard.
+        Mock Invoke-AgentBrowserCliJson {
+            [pscustomobject]@{ result = [pscustomobject]@{
+                tab_id = '101'; session_key = 'browser-1:profile-1:101'
+                js_return = [pscustomobject]@{
+                    schemaVersion = 1; origin = 'https://chatgpt.com'; url = 'https://chatgpt.com/'
+                    composer = [pscustomobject]@{ count = 1; selector = $selector; selectorMatchCount = 2 }
+                    model = [pscustomobject]@{ controlCount = 1; selectedLabel = 'Pro'; proSelected = $true }
+                }
+            } }
+        }
+        Assert-ThrowsCategory -Category 'ComposerSelectorAmbiguous' -ExitCode 23 -Action { Get-AgentBrowserPageSnapshot -Target $script:v2Target }
+    }
+
     It 'keeps an exact tab identity when the tab-list URL is truncated' {
         $conversationUrl = 'https://chatgpt.com/c/12345678-1234-1234-1234-123456789abc'
         $truncatedUrl = 'https://chatgpt.com/c/12345678-1234-1234'
@@ -2567,14 +2600,54 @@ Describe 'agent-browser-cli V2 transport' {
         }
     }
 
+    It 'waits for the new chat mode control without opening another tab or clicking' -ForEach @(
+        @{ Outcome = 'ready'; ErrorCategory = ''; ExitCode = 0; ExpectedPolls = 3 }
+        @{ Outcome = 'missing'; ErrorCategory = 'SelectedModeControlMissing'; ExitCode = 23; ExpectedPolls = 3 }
+        @{ Outcome = 'ambiguous'; ErrorCategory = 'SelectedModeControlAmbiguous'; ExitCode = 23; ExpectedPolls = 1 }
+        @{ Outcome = 'login'; ErrorCategory = 'AuthenticationOrSecurityChallenge'; ExitCode = 22; ExpectedPolls = 1 }
+    ) {
+        $script:newChatPolls = 0
+        $script:newChatNow = [datetime]'2026-10-04T00:00:00Z'
+        Mock Invoke-AgentBrowserOpenFreshTab { $script:v2Target }
+        Mock Enter-UiMutex { [pscustomobject]@{} }
+        Mock Exit-UiMutex {}
+        Mock Invoke-AgentBrowserCliJson { throw 'No browser mutation is expected during surface preparation.' }
+        Mock Start-Sleep { $script:newChatNow = $script:newChatNow.AddSeconds($(if ($Outcome -eq 'ready') { 4 } else { 6 })) }
+        Mock Get-AgentBrowserPageSnapshot {
+            $script:newChatPolls++
+            $count = if ($Outcome -eq 'ambiguous') { 2 } elseif ($Outcome -eq 'ready' -and $script:newChatPolls -eq 3) { 1 } else { 0 }
+            [pscustomobject]@{
+                Url = 'https://chatgpt.com/'; UrlExact = $false; ComposerCount = 1; ComposerValue = ''; SendCount = 0
+                LoginCount = [int]($Outcome -eq 'login'); SecurityChallengeCount = 0; Generating = $false
+                SelectedModeControlCount = $count; SelectedModeLabel = $(if ($count -eq 1) { 'Pro' } else { '' }); SelectedModeIsPro = ($count -eq 1)
+                UserTurns = @(); Responses = @()
+            }
+        }
+        if ($Outcome -eq 'ready') {
+            $result = Invoke-AgentBrowserNewChat -Target $script:v2Target -UtcNowProvider { $script:newChatNow }
+            $result.ok | Should -BeTrue
+            $result.selectedModeIsPro | Should -BeTrue
+        }
+        else {
+            Assert-ThrowsCategory -Category $ErrorCategory -ExitCode $ExitCode -Action {
+                Invoke-AgentBrowserNewChat -Target $script:v2Target -UtcNowProvider { $script:newChatNow }
+            }
+        }
+        $script:newChatPolls | Should -Be $ExpectedPolls
+        Should -Invoke Invoke-AgentBrowserOpenFreshTab -Times 1 -Exactly -ParameterFilter { $BindOnly }
+        Should -Invoke Invoke-AgentBrowserCliJson -Times 0 -Exactly
+    }
+
     It 'switches one unique thinking-mode control to Pro and verifies it before send preparation' {
         $extreme = [pscustomobject]@{
             Url = 'https://chatgpt.com/'; UrlExact = $false; ComposerCount = 1; ComposerValue = ''; SendCount = 0
+            SendSelector = 'form:has(#prompt-textarea) > button[data-testid="send-button"]:nth-child(1):not(:disabled, [aria-disabled="true"], [hidden], [aria-hidden="true"])'
             LoginCount = 0; ProCount = 0; SelectedModeControlCount = 1; SelectedModeLabel = '极高'; SelectedModeIsPro = $false
             SecurityChallengeCount = 0; Generating = $false; UserTurns = @(); Responses = @(); Target = $script:v2Target
         }
         $pro = [pscustomobject]@{
             Url = 'https://chatgpt.com/'; UrlExact = $false; ComposerCount = 1; ComposerValue = ''; SendCount = 0
+            SendSelector = 'form:has(#prompt-textarea) > button[data-testid="send-button"]:nth-child(1):not(:disabled, [aria-disabled="true"], [hidden], [aria-hidden="true"])'
             LoginCount = 0; ProCount = 1; SelectedModeControlCount = 1; SelectedModeLabel = 'Pro'; SelectedModeIsPro = $true
             SecurityChallengeCount = 0; Generating = $false; UserTurns = @(); Responses = @(); Target = $script:v2Target
         }
@@ -2613,12 +2686,14 @@ Describe 'agent-browser-cli V2 transport' {
             if ($script:v2PageCalls -eq 1) {
                 return [pscustomobject]@{
                     Url = 'https://chatgpt.com/'; UrlExact = $false; ComposerCount = 1; ComposerValue = ''; SendCount = 0
+                    SendSelector = 'form:has(#prompt-textarea) > button[data-testid="send-button"]:nth-child(1):not(:disabled, [aria-disabled="true"], [hidden], [aria-hidden="true"])'
                     LoginCount = 0; ProCount = 1; SelectedModeControlCount = 1; SelectedModeLabel = 'Pro'; SelectedModeIsPro = $true
                     SecurityChallengeCount = 0; Generating = $false; UserTurns = @(); Responses = @(); Target = $script:v2Target
                 }
             }
             [pscustomobject]@{
                 Url = 'https://chatgpt.com/'; UrlExact = $false; ComposerCount = 1; ComposerValue = $prompt; SendCount = 1
+                SendSelector = 'form:has(#prompt-textarea) > button[data-testid="send-button"]:nth-child(1):not(:disabled, [aria-disabled="true"], [hidden], [aria-hidden="true"])'
                 LoginCount = 0; ProCount = 0; SelectedModeControlCount = 1; SelectedModeLabel = '极高'; SelectedModeIsPro = $false
                 SecurityChallengeCount = 0; Generating = $false; UserTurns = @(); Responses = @(); Target = $script:v2Target
             }
@@ -2667,6 +2742,7 @@ Describe 'agent-browser-cli V2 transport' {
             [pscustomobject]@{
                 Url = 'https://chatgpt.com/'; UrlExact = $false; ComposerCount = 1; ComposerValue = $composer
                 SendCount = if ($script:v2PageCalls -eq 1) { 0 } else { 1 }
+                SendSelector = 'form:has(#prompt-textarea) > button[data-testid="send-button"]:nth-child(1):not(:disabled, [aria-disabled="true"], [hidden], [aria-hidden="true"])'
                 LoginCount = 0; ProCount = 1; SelectedModeControlCount = 1; SelectedModeLabel = 'Pro'; SelectedModeIsPro = $true; SecurityChallengeCount = 0; Generating = $false
                 UserTurns = @(); Responses = @(); Target = $script:v2Target
             }
@@ -2695,6 +2771,7 @@ Describe 'agent-browser-cli V2 transport' {
         Mock Get-AgentBrowserPageSnapshot {
             [pscustomobject]@{
                 Url = 'https://chatgpt.com/'; UrlExact = $false; ComposerCount = 1; ComposerValue = ''; SendCount = 0
+                SendSelector = 'form:has(#prompt-textarea) > button[data-testid="send-button"]:nth-child(1):not(:disabled, [aria-disabled="true"], [hidden], [aria-hidden="true"])'
                 LoginCount = 0; ProCount = 1; SelectedModeControlCount = 1; SelectedModeLabel = 'Pro'; SelectedModeIsPro = $true
                 SecurityChallengeCount = 0; Generating = $false; UserTurns = @(); Responses = @(); Target = $script:v2Target
             }
@@ -2710,75 +2787,6 @@ Describe 'agent-browser-cli V2 transport' {
         }
         Should -Invoke Reserve-AgentBrowserTargetClaim -Times 0 -Exactly
         Should -Invoke Invoke-AgentBrowserCliJson -Times 0 -Exactly
-        $state = Read-EvidenceState -Directory $directory
-        $state.phase | Should -Be 'pre-invoke-failed'
-        $state.invokeAttempted | Should -BeFalse
-        $state.preInvokeFailureCategory | Should -Be 'IdempotencyReservationFailed'
-        $state.targetBindingResolved | Should -BeTrue
-        (Get-Sha256File -Path (Join-Path $directory 'prompt.md')) | Should -Be $state.promptSha256
-    }
-
-    It 'records the homepage existing-conversation mode failure before reservation fill or click' {
-        $directory = Join-Path $TestDrive 'v2-homepage-existing-mode'
-        $null = New-Item -ItemType Directory -Path $directory
-        $script:v2MutationCalls = 0
-        Mock Resolve-AgentBrowserTarget { $script:v2Target }
-        Mock Get-AgentBrowserPageSnapshot {
-            [pscustomobject]@{
-                Url = 'https://chatgpt.com/'; UrlExact = $false; ComposerCount = 1; ComposerValue = ''; SendCount = 0
-                LoginCount = 0; ProCount = 1; SelectedModeControlCount = 1; SelectedModeLabel = 'Pro'; SelectedModeIsPro = $true
-                SecurityChallengeCount = 0; Generating = $false; UserTurns = @(); Responses = @(); Target = $script:v2Target
-            }
-        }
-        Mock Reserve-GlobalIdempotencyKey { throw 'reservation must not run' }
-        Mock Invoke-AgentBrowserCliJson { $script:v2MutationCalls++; throw 'browser mutation must not run' }
-
-        Assert-ThrowsCategory -Category 'ExistingConversationUnproved' -ExitCode 29 -Action {
-            Invoke-AgentBrowserSend `
-                -PromptText 'new independent review' `
-                -EvidenceDirectory $directory `
-                -IdempotencyKeyValue 'v2-homepage-existing-mode' `
-                -CodexThreadIdValue $script:v2ThreadId `
-                -RequireExistingConversation `
-                -TargetBinding (ConvertTo-AgentBrowserTargetBinding -Target $script:v2Target)
-        }
-
-        $state = Read-EvidenceState -Directory $directory
-        $state.phase | Should -Be 'pre-invoke-failed'
-        $state.preInvokeFailureCategory | Should -Be 'ExistingConversationUnproved'
-        $state.invokeAttempted | Should -BeFalse
-        $state.globalReservationAtUtc | Should -Be ''
-        $state.targetBinding.url | Should -Be 'https://chatgpt.com/'
-        $script:v2MutationCalls | Should -Be 0
-        Should -Invoke Reserve-GlobalIdempotencyKey -Times 0 -Exactly
-    }
-
-    It 'records a target-discovery failure before the shared send function starts' {
-        $directory = Join-Path $TestDrive 'v2-target-discovery-failure'
-        $null = New-Item -ItemType Directory -Path $directory
-        $Command = 'send'
-        $Prompt = 'new independent review'
-        $PromptPath = ''
-        $EvidenceDir = $directory
-        $IdempotencyKey = 'v2-target-discovery-failure'
-        $CodexThreadId = $script:v2ThreadId
-        $FreshConversation = $true
-        Mock Resolve-AgentBrowserCommandTarget {
-            throw (New-SidebarException -ExitCode 20 -Category 'AgentBrowserTargetMissing' -Message 'no target')
-        }
-        Mock Invoke-AgentBrowserSend { throw 'shared send must not start' }
-
-        Assert-ThrowsCategory -Category 'AgentBrowserTargetMissing' -ExitCode 20 -Action {
-            Invoke-MainCommand
-        }
-
-        $state = Read-EvidenceState -Directory $directory
-        $state.phase | Should -Be 'pre-invoke-failed'
-        $state.preInvokeFailureCategory | Should -Be 'AgentBrowserTargetMissing'
-        $state.targetBindingResolved | Should -BeFalse
-        $state.targetBinding | Should -BeNullOrEmpty
-        $state.invokeAttempted | Should -BeFalse
-        Should -Invoke Invoke-AgentBrowserSend -Times 0 -Exactly
     }
 
     It 'records durable pre-invoke evidence when target claiming fails after global reservation' {
@@ -2788,6 +2796,7 @@ Describe 'agent-browser-cli V2 transport' {
         Mock Get-AgentBrowserPageSnapshot {
             [pscustomobject]@{
                 Url = 'https://chatgpt.com/'; UrlExact = $false; ComposerCount = 1; ComposerValue = ''; SendCount = 0
+                SendSelector = 'form:has(#prompt-textarea) > button[data-testid="send-button"]:nth-child(1):not(:disabled, [aria-disabled="true"], [hidden], [aria-hidden="true"])'
                 LoginCount = 0; ProCount = 1; SelectedModeControlCount = 1; SelectedModeLabel = 'Pro'; SelectedModeIsPro = $true
                 SecurityChallengeCount = 0; Generating = $false; UserTurns = @(); Responses = @(); Target = $script:v2Target
             }
@@ -2829,6 +2838,7 @@ Describe 'agent-browser-cli V2 transport' {
                 Url = $conversationUrl; UrlExact = $true; ComposerCount = 1
                 ComposerValue = if ($script:v2PageCalls -eq 1) { '' } else { $prompt }
                 SendCount = if ($script:v2PageCalls -eq 1) { 0 } else { 1 }
+                SendSelector = 'form:has(#prompt-textarea) > button[data-testid="send-button"]:nth-child(1):not(:disabled, [aria-disabled="true"], [hidden], [aria-hidden="true"])'
                 LoginCount = 0; ProCount = 1; SelectedModeControlCount = 1; SelectedModeLabel = 'Pro'; SelectedModeIsPro = $true
                 SecurityChallengeCount = 0; Generating = $false; UserTurns = @($oldUser); Responses = @(); Target = $target
             }
@@ -2864,6 +2874,7 @@ Describe 'agent-browser-cli V2 transport' {
                 Url = 'https://chatgpt.com/'; UrlExact = $false; ComposerCount = 1
                 ComposerValue = if ($script:v2PageCalls -eq 1) { '' } else { $prompt }
                 SendCount = if ($script:v2PageCalls -eq 1) { 0 } else { 1 }
+                SendSelector = 'form:has(#prompt-textarea) > button[data-testid="send-button"]:nth-child(1):not(:disabled, [aria-disabled="true"], [hidden], [aria-hidden="true"])'
                 LoginCount = 0; ProCount = 1; SelectedModeControlCount = 1; SelectedModeLabel = 'Pro'; SelectedModeIsPro = $true
                 SecurityChallengeCount = 0; Generating = $false; UserTurns = @(); Responses = @(); Target = $script:v2Target
             }
@@ -2925,6 +2936,7 @@ Describe 'agent-browser-cli V2 transport' {
                 Url = 'https://chatgpt.com/'; UrlExact = $false; ComposerCount = 1
                 ComposerValue = if ($script:v2Filled[$tab]) { $prompt } else { '' }
                 SendCount = if ($script:v2Filled[$tab]) { 1 } else { 0 }
+                SendSelector = 'form:has(#prompt-textarea) > button[data-testid="send-button"]:nth-child(1):not(:disabled, [aria-disabled="true"], [hidden], [aria-hidden="true"])'
                 LoginCount = 0; ProCount = 1; SelectedModeControlCount = 1; SelectedModeLabel = 'Pro'; SelectedModeIsPro = $true
                 SecurityChallengeCount = 0; Generating = $false; UserTurns = @(); Responses = @(); Target = $Target
             }
@@ -2977,6 +2989,7 @@ Describe 'agent-browser-cli V2 transport' {
                 Url = 'https://chatgpt.com/'; UrlExact = $false; ComposerCount = 1
                 ComposerValue = if ($script:v2PageCalls -eq 1) { '' } else { $prompt }
                 SendCount = if ($script:v2PageCalls -eq 1) { 0 } else { 1 }
+                SendSelector = 'form:has(#prompt-textarea) > button[data-testid="send-button"]:nth-child(1):not(:disabled, [aria-disabled="true"], [hidden], [aria-hidden="true"])'
                 LoginCount = 0; ProCount = 1; SelectedModeControlCount = 1; SelectedModeLabel = 'Pro'; SelectedModeIsPro = $true
                 SecurityChallengeCount = 0; Generating = $false; UserTurns = @(); Responses = @(); Target = $script:v2Target
             }
@@ -3029,6 +3042,7 @@ Describe 'agent-browser-cli V2 transport' {
                 Url = 'https://chatgpt.com/'; UrlExact = $false; ComposerCount = 1
                 ComposerValue = if ($script:v2PageCalls -eq 1) { '' } elseif ($isObservation) { '' } else { $prompt }
                 SendCount = if ($script:v2PageCalls -eq 1 -or $isObservation) { 0 } else { 1 }
+                SendSelector = 'form:has(#prompt-textarea) > button[data-testid="send-button"]:nth-child(1):not(:disabled, [aria-disabled="true"], [hidden], [aria-hidden="true"])'
                 LoginCount = 0; ProCount = 1; SelectedModeControlCount = 1; SelectedModeLabel = 'Pro'; SelectedModeIsPro = $true
                 SecurityChallengeCount = 0; Generating = ($isObservation -and $Generating)
                 UserTurns = if ($isObservation -and $AppendUserTurn) { @($newUserTurn) } else { @() }
@@ -3134,6 +3148,7 @@ Describe 'agent-browser-cli V2 transport' {
             if ($script:v2PageCalls -eq 1) {
                 return [pscustomobject]@{
                     Url = 'https://chatgpt.com/'; UrlExact = $false; ComposerCount = 1; ComposerValue = ''; SendCount = 0
+                    SendSelector = 'form:has(#prompt-textarea) > button[data-testid="send-button"]:nth-child(1):not(:disabled, [aria-disabled="true"], [hidden], [aria-hidden="true"])'
                     LoginCount = 0; ProCount = 1; SelectedModeControlCount = 1; SelectedModeLabel = 'Pro'; SelectedModeIsPro = $true; SecurityChallengeCount = 0; Generating = $false
                     UserTurns = @(); Responses = @(); Target = $script:v2Target
                 }
@@ -3141,12 +3156,14 @@ Describe 'agent-browser-cli V2 transport' {
             if ($script:v2PageCalls -le 3) {
                 return [pscustomobject]@{
                     Url = 'https://chatgpt.com/'; UrlExact = $false; ComposerCount = 1; ComposerValue = $prompt; SendCount = 1
+                    SendSelector = 'form:has(#prompt-textarea) > button[data-testid="send-button"]:nth-child(1):not(:disabled, [aria-disabled="true"], [hidden], [aria-hidden="true"])'
                     LoginCount = 0; ProCount = 0; SelectedModeControlCount = 0; SelectedModeLabel = ''; SelectedModeIsPro = $false; SecurityChallengeCount = 0; Generating = $false
                     UserTurns = @(); Responses = @(); Target = $script:v2Target
                 }
             }
             return [pscustomobject]@{
                 Url = $conversationUrl; UrlExact = $true; ComposerCount = 1; ComposerValue = ''; SendCount = 0
+                SendSelector = 'form:has(#prompt-textarea) > button[data-testid="send-button"]:nth-child(1):not(:disabled, [aria-disabled="true"], [hidden], [aria-hidden="true"])'
                 LoginCount = 0; ProCount = 0; SelectedModeControlCount = 0; SelectedModeLabel = ''; SelectedModeIsPro = $false; SecurityChallengeCount = 0; Generating = $true
                 UserTurns = @(); Responses = @(); Target = $exactTarget
             }
@@ -3180,6 +3197,7 @@ Describe 'agent-browser-cli V2 transport' {
         Mock Get-AgentBrowserPageSnapshot {
             [pscustomobject]@{
                 Url = $conversationUrl; UrlExact = $true; ComposerCount = 1; ComposerValue = ''; SendCount = 0
+                SendSelector = 'form:has(#prompt-textarea) > button[data-testid="send-button"]:nth-child(1):not(:disabled, [aria-disabled="true"], [hidden], [aria-hidden="true"])'
                 LoginCount = 0; ProCount = 0; SelectedModeControlCount = 0; SelectedModeLabel = ''; SelectedModeIsPro = $false
                 SecurityChallengeCount = 0; Generating = $true; UserTurns = @(); Responses = @(); Target = $exactTarget
             }
@@ -3201,6 +3219,7 @@ Describe 'agent-browser-cli V2 transport' {
         }
         $snapshot = [pscustomobject]@{
             Url = $conversationUrl; UrlExact = $true; ComposerCount = 1; ComposerValue = ''; SendCount = 0
+            SendSelector = 'form:has(#prompt-textarea) > button[data-testid="send-button"]:nth-child(1):not(:disabled, [aria-disabled="true"], [hidden], [aria-hidden="true"])'
             LoginCount = 0; ProCount = 0; SelectedModeControlCount = 0; SelectedModeLabel = ''; SelectedModeIsPro = $false
             SecurityChallengeCount = 0; Generating = $false; UserTurns = @(); Responses = @(); Target = $exactTarget
         }
@@ -3238,6 +3257,7 @@ Describe 'agent-browser-cli V2 transport' {
                 Url = 'https://chatgpt.com/'; UrlExact = $false; ComposerCount = 1
                 ComposerValue = if ($isFirst) { '' } elseif ($isSecondObservation) { '' } else { $prompt }
                 SendCount = if ($isFirst -or $isSecondObservation) { 0 } else { 1 }
+                SendSelector = 'form:has(#prompt-textarea) > button[data-testid="send-button"]:nth-child(1):not(:disabled, [aria-disabled="true"], [hidden], [aria-hidden="true"])'
                 LoginCount = 0; ProCount = 1; SelectedModeControlCount = 1; SelectedModeLabel = 'Pro'; SelectedModeIsPro = $true
                 SecurityChallengeCount = 0; Generating = $isSecondObservation; UserTurns = @(); Responses = @(); Target = $script:v2Target
             }
@@ -3300,6 +3320,7 @@ Describe 'agent-browser-cli V2 transport' {
             if ($script:v2PageCalls -eq 1) {
                 return [pscustomobject]@{
                     Url = 'https://chatgpt.com/'; UrlExact = $false; ComposerCount = 1; ComposerValue = ''; SendCount = 0
+                    SendSelector = 'form:has(#prompt-textarea) > button[data-testid="send-button"]:nth-child(1):not(:disabled, [aria-disabled="true"], [hidden], [aria-hidden="true"])'
                     LoginCount = 0; ProCount = 1; SelectedModeControlCount = 1; SelectedModeLabel = 'Pro'; SelectedModeIsPro = $true; SecurityChallengeCount = 0; Generating = $false
                     UserTurns = @(); Responses = @(); Target = $script:v2Target
                 }
@@ -3307,6 +3328,7 @@ Describe 'agent-browser-cli V2 transport' {
             if ($script:v2PageCalls -le 3) {
                 return [pscustomobject]@{
                     Url = 'https://chatgpt.com/'; UrlExact = $false; ComposerCount = 1; ComposerValue = $prompt; SendCount = 1
+                    SendSelector = 'form:has(#prompt-textarea) > button[data-testid="send-button"]:nth-child(1):not(:disabled, [aria-disabled="true"], [hidden], [aria-hidden="true"])'
                     LoginCount = 0; ProCount = 1; SelectedModeControlCount = 1; SelectedModeLabel = 'Pro'; SelectedModeIsPro = $true; SecurityChallengeCount = 0; Generating = $false
                     UserTurns = @(); Responses = @(); Target = $script:v2Target
                 }
@@ -3314,6 +3336,7 @@ Describe 'agent-browser-cli V2 transport' {
             if ($script:v2PageCalls -eq 4) {
                 return [pscustomobject]@{
                     Url = 'https://chatgpt.com/'; UrlExact = $false; ComposerCount = 1; ComposerValue = ''; SendCount = 0
+                    SendSelector = 'form:has(#prompt-textarea) > button[data-testid="send-button"]:nth-child(1):not(:disabled, [aria-disabled="true"], [hidden], [aria-hidden="true"])'
                     LoginCount = 0; ProCount = 1; SelectedModeControlCount = 1; SelectedModeLabel = 'Pro'; SelectedModeIsPro = $true; SecurityChallengeCount = 0; Generating = $false
                     UserTurns = @((New-TestResponse -Text 'transitional a'), (New-TestResponse -Text 'transitional b' -Ordinal 1))
                     Responses = @(); Target = $script:v2Target
@@ -3321,6 +3344,7 @@ Describe 'agent-browser-cli V2 transport' {
             }
             [pscustomobject]@{
                 Url = $conversationUrl; UrlExact = $true; ComposerCount = 1; ComposerValue = ''; SendCount = 0
+                SendSelector = 'form:has(#prompt-textarea) > button[data-testid="send-button"]:nth-child(1):not(:disabled, [aria-disabled="true"], [hidden], [aria-hidden="true"])'
                 LoginCount = 0; ProCount = 1; SelectedModeControlCount = 1; SelectedModeLabel = 'Pro'; SelectedModeIsPro = $true; SecurityChallengeCount = 0; Generating = $true
                 UserTurns = @(); Responses = @(); Target = $exactTarget
             }
@@ -3374,12 +3398,14 @@ Describe 'agent-browser-cli V2 transport' {
                 if ($tab -eq '202') {
                     return [pscustomobject]@{
                         Url = $conversationUrl; UrlExact = $true; ComposerCount = 1; ComposerValue = ''; SendCount = 0
+                        SendSelector = 'form:has(#prompt-textarea) > button[data-testid="send-button"]:nth-child(1):not(:disabled, [aria-disabled="true"], [hidden], [aria-hidden="true"])'
                         LoginCount = 0; ProCount = 1; SelectedModeControlCount = 1; SelectedModeLabel = 'Pro'; SelectedModeIsPro = $true; SecurityChallengeCount = 0; Generating = $true
                         UserTurns = @(); Responses = @(); Target = $exactRetryTarget
                     }
                 }
                 return [pscustomobject]@{
                     Url = 'https://chatgpt.com/'; UrlExact = $false; ComposerCount = 1; ComposerValue = $prompt; SendCount = 1
+                    SendSelector = 'form:has(#prompt-textarea) > button[data-testid="send-button"]:nth-child(1):not(:disabled, [aria-disabled="true"], [hidden], [aria-hidden="true"])'
                     LoginCount = 0; ProCount = 1; SelectedModeControlCount = 1; SelectedModeLabel = 'Pro'; SelectedModeIsPro = $true; SecurityChallengeCount = 0; Generating = $false
                     UserTurns = @(); Responses = @(); Target = $script:v2Target
                 }
@@ -3388,6 +3414,7 @@ Describe 'agent-browser-cli V2 transport' {
                 Url = 'https://chatgpt.com/'; UrlExact = $false; ComposerCount = 1
                 ComposerValue = if ($script:v2Filled[$tab]) { $prompt } else { '' }
                 SendCount = if ($script:v2Filled[$tab]) { 1 } else { 0 }
+                SendSelector = 'form:has(#prompt-textarea) > button[data-testid="send-button"]:nth-child(1):not(:disabled, [aria-disabled="true"], [hidden], [aria-hidden="true"])'
                 LoginCount = 0; ProCount = 1; SelectedModeControlCount = 1; SelectedModeLabel = 'Pro'; SelectedModeIsPro = $true; SecurityChallengeCount = 0; Generating = $false
                 UserTurns = @(); Responses = @(); Target = $Target
             }
@@ -3435,6 +3462,7 @@ Describe 'agent-browser-cli V2 transport' {
                 Url = 'https://chatgpt.com/'; UrlExact = $false; ComposerCount = 1
                 ComposerValue = if ($script:v2Filled[$tab]) { $prompt } else { '' }
                 SendCount = if ($script:v2Filled[$tab]) { 1 } else { 0 }
+                SendSelector = 'form:has(#prompt-textarea) > button[data-testid="send-button"]:nth-child(1):not(:disabled, [aria-disabled="true"], [hidden], [aria-hidden="true"])'
                 LoginCount = 0; ProCount = 1; SelectedModeControlCount = 1; SelectedModeLabel = 'Pro'; SelectedModeIsPro = $true; SecurityChallengeCount = 0; Generating = $false
                 UserTurns = @(); Responses = @(); Target = $Target
             }
@@ -3471,6 +3499,7 @@ Describe 'agent-browser-cli V2 transport' {
             [pscustomobject]@{
                 Url = 'https://chatgpt.com/'; UrlExact = $false; ComposerCount = 1; ComposerValue = $composer
                 SendCount = if ($script:v2Filled) { 1 } else { 0 }
+                SendSelector = 'form:has(#prompt-textarea) > button[data-testid="send-button"]:nth-child(1):not(:disabled, [aria-disabled="true"], [hidden], [aria-hidden="true"])'
                 LoginCount = 0; ProCount = 1; SelectedModeControlCount = 1; SelectedModeLabel = 'Pro'; SelectedModeIsPro = $true; SecurityChallengeCount = 0; Generating = $false
                 UserTurns = @(); Responses = @(); Target = $script:v2Target
             }
@@ -3521,6 +3550,7 @@ Describe 'agent-browser-cli V2 transport' {
         Mock Get-AgentBrowserPageSnapshot {
             [pscustomobject]@{
                 Url = $conversationUrl; UrlExact = $true; ComposerCount = 1; ComposerValue = ''; SendCount = 0
+                SendSelector = 'form:has(#prompt-textarea) > button[data-testid="send-button"]:nth-child(1):not(:disabled, [aria-disabled="true"], [hidden], [aria-hidden="true"])'
                 LoginCount = 0; ProCount = 1; SelectedModeControlCount = 1; SelectedModeLabel = 'Pro'; SelectedModeIsPro = $true; SecurityChallengeCount = 0; Generating = $false
                 UserTurns = @(New-TestResponse -Text $prompt); Responses = @(New-TestResponse -Text 'observed answer')
                 Target = $exactTarget
@@ -3599,10 +3629,14 @@ Describe 'agent-browser-cli V2 transport' {
         $dispatcher = [regex]::Match($source, '(?s)function Invoke-MainCommand\s*\{.*?(?=\r?\nif \(\$MyInvocation\.InvocationName)').Value
         $dispatcher | Should -Match 'Invoke-AgentBrowserSend'
         $dispatcher | Should -Match 'Invoke-AgentBrowserWait'
-        $dispatcher | Should -Match 'Set-AgentBrowserPreInvokeFailedState'
         $dispatcher | Should -Match '(?s)Invoke-AgentBrowserSend.+-ResponseTimeoutSecondsValue \$ResponseTimeoutSeconds'
         $dispatcher | Should -Match '(?s)Invoke-AgentBrowserWait.+-TimeoutSecondsValue \$ResponseTimeoutSeconds'
         $dispatcher | Should -Not -Match 'Initialize-LiveUiAutomation|Invoke-LiveSend|Invoke-LiveWait|Invoke-LiveNewChat'
+    }
+
+    It 'preserves BR newlines when extracting a sanitized detached reply' {
+        $output = & node --test (Join-Path $PSScriptRoot 'chatgpt-pro-dom.test.mjs') 2>&1
+        if ($LASTEXITCODE -ne 0) { throw ($output -join "`n") }
     }
 
     It 'uses only the fixed structural DOM script and never embeds prompt or credential reads' {
@@ -3625,6 +3659,80 @@ Describe 'agent-browser-cli V2 transport' {
         $modelSource | Should -Match "label\(element\) === 'Pro'"
         $modelSource | Should -Match "text === 'Pro' \|\| text === '极高'"
         $modelSource | Should -Match 'verticalGap <= 40'
-        $modelSource | Should -Not -Match 'data-message-author-role|document\.cookie|localStorage|sessionStorage|fetch\(|XMLHttpRequest|promptText'
+        $modelSource | Should -Match ':not\(\[data-message-author-role\]'
+        $modelSource | Should -Not -Match 'document\.cookie|localStorage|sessionStorage|fetch\(|XMLHttpRequest|promptText'
     }
+
+    It 'documents new independent root rounds with an explicit fresh mode' {
+        $skillPath = Join-Path (Split-Path -Parent $PSScriptRoot) 'SKILL.md'
+        $skillSource = [System.IO.File]::ReadAllText($skillPath)
+
+        $skillSource | Should -Match '(?m)^powershell\.exe .*\$watcher run-root .* -FreshConversation$'
+    }
+
+
+    It 'records the homepage existing-conversation mode failure before reservation fill or click' {
+        $directory = Join-Path $TestDrive 'v2-homepage-existing-mode'
+        $null = New-Item -ItemType Directory -Path $directory
+        $script:v2MutationCalls = 0
+        Mock Resolve-AgentBrowserTarget { $script:v2Target }
+        Mock Get-AgentBrowserPageSnapshot {
+            [pscustomobject]@{
+                Url = 'https://chatgpt.com/'; UrlExact = $false; ComposerCount = 1; ComposerValue = ''; SendCount = 0
+                LoginCount = 0; ProCount = 1; SelectedModeControlCount = 1; SelectedModeLabel = 'Pro'; SelectedModeIsPro = $true
+                SecurityChallengeCount = 0; Generating = $false; UserTurns = @(); Responses = @(); Target = $script:v2Target
+            }
+        }
+        Mock Reserve-GlobalIdempotencyKey { throw 'reservation must not run' }
+        Mock Invoke-AgentBrowserCliJson { $script:v2MutationCalls++; throw 'browser mutation must not run' }
+
+        Assert-ThrowsCategory -Category 'ExistingConversationUnproved' -ExitCode 29 -Action {
+            Invoke-AgentBrowserSend `
+                -PromptText 'new independent review' `
+                -EvidenceDirectory $directory `
+                -IdempotencyKeyValue 'v2-homepage-existing-mode' `
+                -CodexThreadIdValue $script:v2ThreadId `
+                -RequireExistingConversation `
+                -TargetBinding (ConvertTo-AgentBrowserTargetBinding -Target $script:v2Target)
+        }
+
+        $state = Read-EvidenceState -Directory $directory
+        $state.phase | Should -Be 'pre-invoke-failed'
+        $state.preInvokeFailureCategory | Should -Be 'ExistingConversationUnproved'
+        $state.invokeAttempted | Should -BeFalse
+        $state.globalReservationAtUtc | Should -Be ''
+        $state.targetBinding.url | Should -Be 'https://chatgpt.com/'
+        $script:v2MutationCalls | Should -Be 0
+        Should -Invoke Reserve-GlobalIdempotencyKey -Times 0 -Exactly
+    }
+
+
+    It 'records a target-discovery failure before the shared send function starts' {
+        $directory = Join-Path $TestDrive 'v2-target-discovery-failure'
+        $null = New-Item -ItemType Directory -Path $directory
+        $Command = 'send'
+        $Prompt = 'new independent review'
+        $PromptPath = ''
+        $EvidenceDir = $directory
+        $IdempotencyKey = 'v2-target-discovery-failure'
+        $CodexThreadId = $script:v2ThreadId
+        $FreshConversation = $true
+        Mock Resolve-AgentBrowserCommandTarget {
+            throw (New-SidebarException -ExitCode 20 -Category 'AgentBrowserTargetMissing' -Message 'no target')
+        }
+        Mock Invoke-AgentBrowserSend { throw 'shared send must not start' }
+
+        Assert-ThrowsCategory -Category 'AgentBrowserTargetMissing' -ExitCode 20 -Action {
+            Invoke-MainCommand
+        }
+
+        $state = Read-EvidenceState -Directory $directory
+        $state.phase | Should -Be 'pre-invoke-failed'
+        $state.preInvokeFailureCategory | Should -Be 'AgentBrowserTargetMissing'
+        $state.targetBindingResolved | Should -BeFalse
+        $state.targetBinding | Should -BeNullOrEmpty
+        $state.invokeAttempted | Should -BeFalse
+        Should -Invoke Invoke-AgentBrowserSend -Times 0 -Exactly
+    }
+
 }

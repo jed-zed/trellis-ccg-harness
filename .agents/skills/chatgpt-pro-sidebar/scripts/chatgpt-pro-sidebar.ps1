@@ -4721,6 +4721,85 @@ function ConvertTo-AgentBrowserTurnRecords {
     return $records
 }
 
+$Script:AgentBrowserComposerFallbackSelector = ':is(main, [role="main"]) form div.ProseMirror[role="textbox"][contenteditable="true"]:not([data-message-author-role], [data-message-author-role] *, article[data-testid^="conversation-turn-"] *)'
+
+function Test-AgentBrowserComposerSelector {
+    param([AllowEmptyString()][string]$Selector)
+
+    $base = '(?:' + [regex]::Escape('#prompt-textarea') + '|' + [regex]::Escape($Script:AgentBrowserComposerFallbackSelector) + ')'
+    $path = '(?::is\(:root(?: > :nth-child\([1-9][0-9]{0,3}\)){1,32}\))?'
+    return [regex]::IsMatch($Selector, '\A' + $base + $path + '\z', [System.Text.RegularExpressions.RegexOptions]::CultureInvariant)
+}
+
+function Test-AgentBrowserSendSelector {
+    param(
+        [AllowEmptyString()][string]$Selector,
+        [AllowEmptyString()][string]$FormScope,
+        [AllowEmptyString()][string]$ComposerSelector
+    )
+
+    if (-not (Test-AgentBrowserComposerSelector -Selector $ComposerSelector)) { return $false }
+    $expectedScope = if ($ComposerSelector.StartsWith('#prompt-textarea', [StringComparison]::Ordinal)) {
+        'form:has(' + $ComposerSelector + ')'
+    }
+    else {
+        $localComposer = $ComposerSelector.Replace(':is(main, [role="main"]) form ', '')
+        ':is(main, [role="main"]) form:has(' + $localComposer + ')'
+    }
+    if ($FormScope -cne $expectedScope) { return $false }
+    $prefix = $expectedScope + ' > '
+    if (-not $Selector.StartsWith($prefix, [StringComparison]::Ordinal)) { return $false }
+    $relative = $Selector.Substring($prefix.Length)
+    $index = '[1-9][0-9]{0,3}'
+    $legacy = [regex]::Escape('button[data-testid="send-button"]')
+    $fallback = [regex]::Escape('button[type="submit"][aria-label="发送"]')
+    $suffix = [regex]::Escape(':not(:disabled, [aria-disabled="true"], [hidden], [aria-hidden="true"])')
+    $pattern = '^(?::nth-child\(' + $index + '\) > ){0,31}(?:' + $legacy + '|' + $fallback + '):nth-child\(' + $index + '\)' + $suffix + '$'
+    return [regex]::IsMatch($relative, $pattern, [System.Text.RegularExpressions.RegexOptions]::CultureInvariant)
+}
+
+function ConvertTo-AgentBrowserOwnershipNodeMetadata {
+    param([object]$Node)
+    if ($null -eq $Node) { return $null }
+    $result = [ordered]@{}
+    $limits = [ordered]@{ tag=30; id=100; testId=100; role=40; className=220; authorRole=30; markdownStyle=60; selectionConversationId=128; selectionMessageId=128; dataTurn=100 }
+    foreach ($key in $limits.Keys) {
+        $value = Get-ObjectProperty $Node $key ''
+        if ($value -is [string]) { $result[$key] = $value.Substring(0, [Math]::Min($value.Length, [int]$limits[$key])) } else { $result[$key] = '' }
+    }
+    foreach ($key in @('overlayTarget','inMain','visible','safeTranscript')) {
+        $value = Get-ObjectProperty $Node $key $false
+        $result[$key] = if ($value -is [bool]) { $value } else { $false }
+    }
+    $result.attributeNames = @(@(Get-ObjectProperty $Node 'attributeNames' @()) | Select-Object -First 20 | Where-Object { $_ -is [string] -and $_ -match '^[A-Za-z_:][A-Za-z0-9:_.-]{0,79}$' })
+    return $result
+}
+
+function ConvertTo-AgentBrowserOwnershipInspection {
+    param([object]$Inspection)
+    if ($null -eq $Inspection) { return $null }
+    $result = [ordered]@{}
+    foreach ($key in @('mainCount','legacyUserMarkerCount','legacyAssistantMarkerCount','newUserMarkerCount','assistantMarkerCount','assistantSafeMarkerCount','assistantOwnerPresentCount','assistantOwnerSafeCount')) {
+        $value = Get-ObjectProperty $Inspection $key $null
+        $result[$key] = if (($value -is [int] -or $value -is [long]) -and $value -ge 0 -and $value -le 1000000) { $value } else { $null }
+    }
+    $flag = Get-ObjectProperty $Inspection 'recordsTruncated' $false
+    $result.recordsTruncated = if ($flag -is [bool]) { $flag } else { $false }
+    $result.assistantMarkers = @(@(Get-ObjectProperty $Inspection 'assistantMarkers' @()) | Select-Object -First 8 | ForEach-Object {
+        $record = $_; $item = [ordered]@{}
+        foreach ($key in @('marker','requiredOwner','closestArticle','closestAuthor','conversationOnlyAncestor','messageOnlyAncestor')) {
+            $item[$key] = ConvertTo-AgentBrowserOwnershipNodeMetadata -Node (Get-ObjectProperty $record $key $null)
+        }
+        foreach ($key in @('requiredOwnerPresent','requiredOwnerSafe','ancestryTruncated')) {
+            $value = Get-ObjectProperty $record $key $false
+            $item[$key] = if ($value -is [bool]) { $value } else { $false }
+        }
+        $item.ancestry = @(@(Get-ObjectProperty $record 'ancestry' @()) | Select-Object -First 10 | ForEach-Object { ConvertTo-AgentBrowserOwnershipNodeMetadata -Node $_ })
+        $item
+    })
+    return $result
+}
+
 function Get-AgentBrowserPageSnapshot {
     param([Parameter(Mandatory = $true)]$Target)
 
@@ -4768,14 +4847,52 @@ function Get-AgentBrowserPageSnapshot {
         $proSelected -ne ($selectedModeControlCount -eq 1 -and $selectedModeLabel -ceq 'Pro')) {
         Throw-SidebarError -ExitCode $Script:ExitCodes.DocumentSelection -Category 'AgentBrowserPageStateInvalid' -Message 'The fixed DOM script returned inconsistent selected-mode evidence.'
     }
+    $composerCount = [int](Get-ObjectProperty $composer 'count' 0)
+    $composerSelector = [string](Get-ObjectProperty $composer 'selector' '#prompt-textarea')
+    $composerSelectorMatchCount = [int](Get-ObjectProperty $composer 'selectorMatchCount' 1)
+    if (($composerSelector -cne '' -and -not (Test-AgentBrowserComposerSelector -Selector $composerSelector)) -or
+        ($composerCount -eq 1 -and [string]::IsNullOrWhiteSpace($composerSelector))) {
+        Throw-SidebarError -ExitCode $Script:ExitCodes.ControlSelection -Category 'ComposerSelectorInvalid' -Message 'The fixed DOM script did not prove an approved composer selector.'
+    }
+    if ($composerCount -eq 1 -and $composerSelectorMatchCount -ne 1) {
+        Throw-SidebarError -ExitCode $Script:ExitCodes.ControlSelection -Category 'ComposerSelectorAmbiguous' -Message 'The approved composer selector did not match exactly one DOM node.'
+    }
+    $turnExtractionIssue = [string](Get-ObjectProperty $page 'turnExtractionIssue' '')
+    if (-not [string]::IsNullOrWhiteSpace($turnExtractionIssue)) {
+        $turnInspection = Get-ObjectProperty $page 'turnInspection' $null
+        $ownershipInspection = ConvertTo-AgentBrowserOwnershipInspection -Inspection (Get-ObjectProperty $turnInspection 'ownershipInspection' $null)
+        Throw-SidebarError -ExitCode $Script:ExitCodes.ResponseIsolation -Category 'MessageOwnershipAmbiguous' -Message 'The fixed DOM did not prove isolated message ownership.' -Details ([ordered]@{ reason = $turnExtractionIssue; ownershipInspection = $ownershipInspection; generating = $(if ((Get-ObjectProperty $page 'generating' $null) -is [bool]) { $page.generating } else { $null }); url = [string]$canonical.Url })
+    }
     $userTurns = @(ConvertTo-AgentBrowserTurnRecords -Turns @((Get-ObjectProperty $page 'userTurns' @())) -Role 'user')
     $assistantTurns = @(ConvertTo-AgentBrowserTurnRecords -Turns @((Get-ObjectProperty $page 'assistantTurns' @())) -Role 'assistant')
+    $sendCount = [int](Get-ObjectProperty $send 'count' 0)
+    $sendSelector = [string](Get-ObjectProperty $send 'selector' '')
+    $sendSelectorMatchCount = [int](Get-ObjectProperty $send 'selectorMatchCount' 0)
+    $sendFormScope = [string](Get-ObjectProperty $send 'formScope' '')
+    if ($sendCount -eq 1) {
+        if (-not (Test-AgentBrowserSendSelector -Selector $sendSelector -FormScope $sendFormScope -ComposerSelector $composerSelector)) {
+            Throw-SidebarError -ExitCode $Script:ExitCodes.ControlSelection -Category 'SendSelectorInvalid' -Message 'The fixed DOM did not prove a permitted send selector anchored to the current composer form.'
+        }
+        if ($sendSelectorMatchCount -ne 1) {
+            Throw-SidebarError -ExitCode $Script:ExitCodes.ControlSelection -Category 'SendSelectorAmbiguous' -Message 'The final form-scoped send selector did not identify exactly one raw DOM node.'
+        }
+    }
+    elseif (-not [string]::IsNullOrWhiteSpace($sendSelector) -or $sendSelectorMatchCount -ne 0) {
+        Throw-SidebarError -ExitCode $Script:ExitCodes.ControlSelection -Category 'SendSelectorInvalid' -Message 'An unselected or ambiguous send set must not carry a click selector.'
+    }
+
     return [pscustomobject]@{
         Url = [string]$canonical.Url
         UrlExact = [bool]$canonical.Exact
-        ComposerCount = [int](Get-ObjectProperty $composer 'count' 0)
+        DomInspection = Get-ObjectProperty $page 'inspection' $null
+        TurnInspection = Get-ObjectProperty $page 'turnInspection' $null
+        ComposerCount = $composerCount
+        ComposerSelector = $composerSelector
         ComposerValue = Normalize-TextForHash -Text ([string](Get-ObjectProperty $composer 'value' ''))
-        SendCount = [int](Get-ObjectProperty $send 'count' 0)
+        SendCount = $sendCount
+        SendSelector = $sendSelector
+        SendSelectorMatchCount = $sendSelectorMatchCount
+        SendFormScope = $sendFormScope
         LoginCount = [int](Get-ObjectProperty $auth 'loginCount' 0)
         ProCount = [int](Get-ObjectProperty $auth 'proIndicatorCount' 0)
         SelectedModeControlCount = $selectedModeControlCount
@@ -4964,7 +5081,7 @@ function New-AgentBrowserStatusPayload {
 }
 
 function Invoke-AgentBrowserOpenFreshTab {
-    param([Parameter(Mandatory = $true)]$CurrentTarget)
+    param([Parameter(Mandatory = $true)]$CurrentTarget, [switch]$BindOnly)
 
     $openEnvelope = Invoke-AgentBrowserCliJson -Arguments @(
         'open', 'https://chatgpt.com/', '--background',
@@ -5002,6 +5119,7 @@ function Invoke-AgentBrowserOpenFreshTab {
     }
 
     $openedTarget = $targets[0]
+    if ($BindOnly) { return $openedTarget }
     $surfaceDeadline = [DateTime]::UtcNow.AddSeconds(10)
     while ([DateTime]::UtcNow -lt $surfaceDeadline) {
         $snapshot = Get-AgentBrowserPageSnapshot -Target $openedTarget
@@ -5024,51 +5142,66 @@ function Invoke-AgentBrowserOpenFreshTab {
 }
 
 function Invoke-AgentBrowserNewChat {
-    param($Target = $null)
+    param($Target = $null, [scriptblock]$UtcNowProvider = { [DateTime]::UtcNow })
 
-    if ($null -eq $Target) {
-        $Target = Resolve-AgentBrowserTarget
-    }
-    $snapshot = Get-AgentBrowserPageSnapshot -Target $Target
-    $snapshot = Ensure-AgentBrowserProMode -Target $Target -Snapshot $snapshot
-    Assert-AgentBrowserPageReady -Snapshot $snapshot
-    $alreadyFresh = [string]$snapshot.Url -ceq 'https://chatgpt.com/' -and -not $snapshot.UrlExact -and
-        $snapshot.UserTurns.Count -eq 0 -and
-        $snapshot.Responses.Count -eq 0 -and
-        (Test-ComposerValueEmpty -Value $snapshot.ComposerValue)
-    $opened = $false
-    if (-not $alreadyFresh) {
-        $Target = Invoke-AgentBrowserOpenFreshTab -CurrentTarget $Target
-        $opened = $true
-        $snapshot = Get-AgentBrowserPageSnapshot -Target $Target
+    if ($null -eq $Target) { $Target = Resolve-AgentBrowserTarget }
+    # new-chat owns a separate blank tab; the source tab/draft/model are untouched.
+    $Target = Invoke-AgentBrowserOpenFreshTab -CurrentTarget $Target -BindOnly
+    $newBinding = ConvertTo-AgentBrowserTargetBinding -Target $Target
+    $newLease = Enter-UiMutex -TargetBinding $newBinding
+    $snapshot = $null
+    try {
+        $surfaceDeadline = (& $UtcNowProvider).AddSeconds(10)
+        while ($true) {
+            $snapshot = Get-AgentBrowserPageSnapshot -Target $Target
+            try {
+                Assert-AgentBrowserBaseReady -Snapshot $snapshot
+                # Wait for the mode control in the same pre-action loading window.
+                if ([int](Get-ObjectProperty $snapshot 'SelectedModeControlCount' 0) -eq 0) {
+                    Assert-AgentBrowserSelectedPro -Snapshot $snapshot
+                }
+                break
+            }
+            catch {
+                if ((Get-ExceptionCategory -Exception $_.Exception) -notin @('ComposerMissing', 'SelectedModeControlMissing') -or
+                    (& $UtcNowProvider) -ge $surfaceDeadline) { throw }
+            }
+            Start-Sleep -Milliseconds 250
+        }
+        if ([string]$snapshot.Url -cne 'https://chatgpt.com/' -or $snapshot.UrlExact -or
+            $snapshot.UserTurns.Count -ne 0 -or $snapshot.Responses.Count -ne 0 -or
+            -not (Test-ComposerValueEmpty -Value $snapshot.ComposerValue)) {
+            Throw-SidebarError -ExitCode $Script:ExitCodes.SendUncertain -Category 'NewChatUncertain' -Message 'The independent homepage is not empty; mode selection will not touch its draft.'
+        }
         $snapshot = Ensure-AgentBrowserProMode -Target $Target -Snapshot $snapshot
         Assert-AgentBrowserPageReady -Snapshot $snapshot
         if ([string]$snapshot.Url -cne 'https://chatgpt.com/' -or $snapshot.UrlExact -or
             $snapshot.UserTurns.Count -ne 0 -or $snapshot.Responses.Count -ne 0 -or
             -not (Test-ComposerValueEmpty -Value $snapshot.ComposerValue)) {
-            Throw-SidebarError -ExitCode $Script:ExitCodes.SendUncertain -Category 'NewChatUncertain' -Message 'The background homepage tab was opened, but an empty fresh conversation was not proved.' -Details ([ordered]@{
-                targetBinding = ConvertTo-AgentBrowserTargetBinding -Target $Target
-                url = $snapshot.Url
-                urlExact = $snapshot.UrlExact
-                userTurnCount = $snapshot.UserTurns.Count
-                responseCount = $snapshot.Responses.Count
-                composerEmpty = Test-ComposerValueEmpty -Value $snapshot.ComposerValue
-            })
+            Throw-SidebarError -ExitCode $Script:ExitCodes.SendUncertain -Category 'NewChatUncertain' -Message 'The independent homepage changed during Pro selection; no send is allowed.'
+        }
+        return [ordered]@{
+            ok = $true; command = 'new-chat'; live = $true; transport = $Script:AgentBrowserTransport
+            conversationReset = $true; targetBinding = ConvertTo-AgentBrowserTargetBinding -Target $Target
+            url = $snapshot.Url; urlExact = $snapshot.UrlExact
+            selectedModeControlCount = $snapshot.SelectedModeControlCount
+            selectedModeLabel = $snapshot.SelectedModeLabel; selectedModeIsPro = $snapshot.SelectedModeIsPro
+            clipboardUsed = $false; focusRequested = $false
         }
     }
-
-    return [ordered]@{
-        ok = $true
-        command = 'new-chat'
-        live = $true
-        transport = $Script:AgentBrowserTransport
-        conversationReset = $opened
-        targetBinding = ConvertTo-AgentBrowserTargetBinding -Target $Target
-        url = $snapshot.Url
-        urlExact = $snapshot.UrlExact
-        clipboardUsed = $false
-        focusRequested = $false
+    catch {
+        $exception = $_.Exception
+        Throw-SidebarError -ExitCode (Get-ExceptionExitCode -Exception $exception) -Category (Get-ExceptionCategory -Exception $exception) -Message $exception.Message -Details ([ordered]@{
+            newChatTargetOpened = $true; targetBinding = $newBinding
+            url = [string](Get-ObjectProperty $snapshot 'Url' 'https://chatgpt.com/')
+            selectedModeControlCount = [int](Get-ObjectProperty $snapshot 'SelectedModeControlCount' 0)
+            selectedModeLabel = [string](Get-ObjectProperty $snapshot 'SelectedModeLabel' '')
+            selectedModeIsPro = [bool](Get-ObjectProperty $snapshot 'SelectedModeIsPro' $false)
+            composerCount = [int](Get-ObjectProperty $snapshot 'ComposerCount' 0)
+            domInspection = Get-ObjectProperty $snapshot 'DomInspection' $null
+        })
     }
+    finally { Exit-UiMutex -Lease $newLease }
 }
 
 function Assert-AgentBrowserUserTurnAcknowledgement {
@@ -5152,7 +5285,7 @@ function Invoke-AgentBrowserSend {
         -Binding $TargetBinding
 
     $fillEnvelope = Invoke-AgentBrowserCliJson -Arguments @(
-        'fill', '#prompt-textarea', $PromptText,
+        'fill', ([string](Get-ObjectProperty $snapshot 'ComposerSelector' '#prompt-textarea')), $PromptText,
         '--tab', [string]$target.TabId,
         '--browser', [string]$target.BrowserId,
         '--profile', [string]$target.ProfileId,
@@ -5221,7 +5354,7 @@ function Invoke-AgentBrowserSend {
                 Write-EvidenceState -Directory $EvidenceDirectory -State $state
 
                 $fillEnvelope = Invoke-AgentBrowserCliJson -Arguments @(
-                    'fill', '#prompt-textarea', $PromptText,
+                    'fill', ([string](Get-ObjectProperty $attemptInitialSnapshot 'ComposerSelector' '#prompt-textarea')), $PromptText,
                     '--tab', [string]$currentTarget.TabId,
                     '--browser', [string]$currentTarget.BrowserId,
                     '--profile', [string]$currentTarget.ProfileId,
@@ -5327,7 +5460,7 @@ function Invoke-AgentBrowserSend {
         $clickBoundaryCrossed = $true
         try {
             $clickEnvelope = Invoke-AgentBrowserCliJson -Arguments @(
-                'click', 'button[data-testid="send-button"]',
+                'click', ([string]$commitSnapshot.SendSelector),
                 '--tab', [string]$commitTarget.TabId,
                 '--browser', [string]$commitTarget.BrowserId,
                 '--profile', [string]$commitTarget.ProfileId,
