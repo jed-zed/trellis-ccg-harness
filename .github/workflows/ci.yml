@@ -73,6 +73,9 @@ jobs:
       - name: Typecheck personal CCG
         run: pnpm --dir ./components/ccg-workflow typecheck
 
+      - name: Build personal CCG
+        run: pnpm --dir ./components/ccg-workflow build
+
       - name: Test personal CCG
         if: runner.os != 'Windows'
         run: pnpm --dir ./components/ccg-workflow test
@@ -83,9 +86,6 @@ jobs:
       - name: Test personal CCG (Windows ACL-safe)
         if: runner.os == 'Windows'
         run: pnpm --dir ./components/ccg-workflow exec vitest run --no-file-parallelism --retry 1
-
-      - name: Build personal CCG
-        run: pnpm --dir ./components/ccg-workflow build
 
       - name: Windows Grok offline security contract
         if: runner.os == 'Windows' && matrix.node-version == 22
