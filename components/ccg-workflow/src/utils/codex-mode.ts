@@ -1,11 +1,12 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { homedir, tmpdir } from 'node:os'
+import { tmpdir } from 'node:os'
 import { isAbsolute, relative, resolve } from 'node:path'
 import fs from 'fs-extra'
 import { join } from 'pathe'
 import { parse, stringify } from 'smol-toml'
 import { version as packageVersion } from '../../package.json'
 import { readCcgConfigAt } from './config'
+import { assertCodexHostPath, resolveCodexHome } from './host-boundary'
 import { PACKAGE_ROOT, injectConfigVariables } from './installer-template'
 import {
   assertManagedPath,
@@ -17,6 +18,8 @@ import {
   safeManagedRemoveFile,
 } from './managed-path'
 import { formatPythonCommand, resolvePythonInvocation } from './python-resolver'
+
+export { resolveCodexHome } from './host-boundary'
 
 const START_MARKER = '<!-- CCG:START'
 const END_MARKER = '<!-- CCG:END -->'
@@ -31,6 +34,54 @@ interface ManagedFile {
   relativePath: string
   installedSha256: string
   original?: OriginalFile
+  /** Explicitly reviewed user bytes, never installer output or a replacement baseline. */
+  preservedUser?: PreservedAgent
+}
+
+const PRESERVABLE_AGENT_PATHS = ['agents/ccg-implement.toml', 'agents/ccg-research.toml'] as const
+
+interface AgentOverrides {
+  model: string
+  model_reasoning_effort: string
+}
+
+interface PreservedAgent {
+  schemaVersion: 1
+  contract: 'additive-model-selection-v1'
+  sha256: string
+  templateSha256: string
+  planSha256: string
+  sourceOwnershipSha256: string
+  preservedAt: string
+  overrides: AgentOverrides
+  baseline: OriginalFile
+  snapshot: OriginalFile
+}
+
+export interface AgentPreservationPlan {
+  schemaVersion: 1
+  contract: 'additive-model-selection-v1'
+  createdAt: string
+  codexHome: string
+  baselineDir: string
+  templateDir: string
+  targetVersion: string
+  ownershipSha256: string
+  agents: Array<{
+    relativePath: string
+    installedSha256: string
+    currentSha256: string
+    templateSha256: string
+    overrides: AgentOverrides
+  }>
+}
+
+export interface PlanAgentPreservationOptions {
+  codexHome?: string
+  templateDir?: string
+  baselineDir: string
+  model: string
+  reasoningEffort: string
 }
 
 export interface OwnershipManifest {
@@ -57,8 +108,14 @@ export interface InstallCodexModeOptions {
   codexHome?: string
   templateDir?: string
   pythonCommand?: string
-  /** Test-only verified wrapper bytes; production callers must use the pinned downloader. */
+  /** Explicit production input, checked against this build's fixed native artifact pin. */
+  wrapperFile?: string
+  /** Test-only verified wrapper bytes; production uses a pinned download or local artifact. */
   wrapperBytes?: Buffer
+  /** Explicit read-only plan; binds old ownership, baseline, current bytes and target templates. */
+  agentPreservationPlan?: string
+  /** Exact reviewed file bytes, checked on the same read used to parse the plan. */
+  agentPreservationPlanSha256?: string
 }
 
 export interface UninstallCodexModeOptions {
@@ -89,13 +146,6 @@ interface CodexModeTransactionJournal {
 }
 
 const TRANSACTION_JOURNAL_PATH = '.ccg/transaction.json'
-
-export function resolveCodexHome(
-  configuredHome = process.env.CODEX_HOME,
-  userHome = homedir(),
-): string {
-  return configuredHome?.trim() || join(userHome, '.codex')
-}
 
 function sha256(value: string | Buffer): string {
   return createHash('sha256').update(value).digest('hex')
@@ -294,12 +344,56 @@ function validateOriginalFile(
   }
 }
 
+function validateAgentOverrides(value: unknown): AgentOverrides {
+  assertPlainObject(value, 'Preserved agent overrides')
+  assertKeys(value, ['model', 'model_reasoning_effort'], [], 'Preserved agent overrides')
+  if (typeof value.model !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9._:/-]{0,127}$/u.test(value.model)
+    || typeof value.model_reasoning_effort !== 'string'
+    || !['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'ultra'].includes(value.model_reasoning_effort)) {
+    throw new Error('Preserved agent model selection is invalid.')
+  }
+  return { model: value.model, model_reasoning_effort: value.model_reasoning_effort }
+}
+
+function validatePreservedAgent(value: unknown, relativePath: string, installedDigest: string): PreservedAgent {
+  if (!(PRESERVABLE_AGENT_PATHS as readonly string[]).includes(relativePath))
+    throw new Error(`Agent preservation is not supported for ${relativePath}.`)
+  assertPlainObject(value, 'Preserved agent contract')
+  assertKeys(value, ['schemaVersion', 'contract', 'sha256', 'templateSha256', 'planSha256', 'sourceOwnershipSha256', 'preservedAt', 'overrides', 'baseline', 'snapshot'], [], 'Preserved agent contract')
+  if (value.schemaVersion !== 1 || value.contract !== 'additive-model-selection-v1'
+    || typeof value.preservedAt !== 'string' || Number.isNaN(Date.parse(value.preservedAt))) {
+    throw new Error('Preserved agent contract has an unsupported schema.')
+  }
+  const baseline = validateOriginalFile(value.baseline, relativePath, 'Preserved agent baseline')
+  const snapshot = validateOriginalFile(value.snapshot, relativePath, 'Preserved agent snapshot')
+  const digest = validateDigest(value.sha256, 'Preserved agent')
+  if (baseline.sha256 !== installedDigest || snapshot.sha256 !== digest)
+    throw new Error('Preserved agent provenance does not match its installed baseline or snapshot.')
+  return {
+    schemaVersion: 1,
+    contract: 'additive-model-selection-v1',
+    sha256: digest,
+    templateSha256: validateDigest(value.templateSha256, 'Preserved agent template'),
+    planSha256: validateDigest(value.planSha256, 'Preserved agent plan'),
+    sourceOwnershipSha256: validateDigest(value.sourceOwnershipSha256, 'Preserved agent source ownership'),
+    preservedAt: value.preservedAt,
+    overrides: validateAgentOverrides(value.overrides),
+    baseline,
+    snapshot,
+  }
+}
+
+/** The original installer digest remains provenance, while explicit user bytes have their own digest. */
+export function effectiveManagedFileSha256(file: ManagedFile): string {
+  return file.preservedUser?.sha256 ?? file.installedSha256
+}
+
 function validateManagedFile(value: unknown): ManagedFile {
   assertPlainObject(value, 'Codex mode managed file')
   assertKeys(
     value,
     ['relativePath', 'installedSha256'],
-    ['original'],
+    ['original', 'preservedUser'],
     'Codex mode managed file',
   )
   const relativePath = validateManagedRelativePath(value.relativePath)
@@ -318,6 +412,9 @@ function validateManagedFile(value: unknown): ManagedFile {
             `Codex mode managed file ${relativePath}`,
           ),
         }),
+    ...(value.preservedUser === undefined ? {} : {
+      preservedUser: validatePreservedAgent(value.preservedUser, relativePath,        validateDigest(value.installedSha256, 'Preserved agent installed baseline')),
+    }),
   }
 }
 
@@ -435,6 +532,180 @@ async function readOwnership(path: string): Promise<OwnershipManifest | null> {
   return validateOwnershipManifest(parsed)
 }
 
+async function readPlainExternalFile(path: string): Promise<Buffer> {
+  if (!isAbsolute(path))
+    throw new Error('Agent preservation inputs require absolute paths.')
+  const absolute = resolve(path)
+  const metadata = await fs.lstat(absolute)
+  if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.nlink !== 1
+    || resolve(await fs.realpath(absolute)) !== absolute) {
+    throw new Error(`Agent preservation input must be a plain file without links: ${path}`)
+  }
+  const bytes = await fs.readFile(absolute)
+  const after = await fs.lstat(absolute)
+  if (after.dev !== metadata.dev || after.ino !== metadata.ino || after.nlink !== 1
+    || after.size !== bytes.length || after.mtimeMs !== metadata.mtimeMs)
+    throw new Error(`Agent preservation input changed while reading: ${path}`)
+  return bytes
+}
+
+function assertAgentAddition(current: Buffer, baseline: Buffer, template: Buffer, overrides: AgentOverrides): void {
+  const lf = (bytes: Buffer) => bytes.toString('utf8').replace(/\r\n/g, '\n')
+  const baseText = lf(baseline)
+  if (lf(template) !== baseText)
+    throw new Error('Agent preservation target template differs from the owned baseline; review a separate migration.')
+  const base = parse(baseText) as Record<string, unknown>
+  const document = parse(current.toString('utf8')) as Record<string, unknown>
+  if ('model' in base || 'model_reasoning_effort' in base)
+    throw new Error('Agent preservation requires an owned baseline without model overrides.')
+  if (document.model !== overrides.model || document.model_reasoning_effort !== overrides.model_reasoning_effort)
+    throw new Error('Agent preservation model overrides differ from the explicit requested values.')
+  const stripped = lf(current).replace(/^[ \t]*(?:model|model_reasoning_effort)[ \t]*=[^\n]*(?:\n|$)/gm, '')
+  if (stripped !== baseText)
+    throw new Error('Agent preservation allows only the two additive model selection lines; prompts, sandbox, features and other bytes must match the owned baseline.')
+  // The byte check also rejects changed comments or layout. The TOML comparison
+  // ensures an apparent assignment within a multiline string is never accepted.
+  delete document.model
+  delete document.model_reasoning_effort
+  if (canonical(document) !== canonical(base))
+    throw new Error('Agent preservation changes agent behavior beyond model selection.')
+}
+
+function validateAgentPreservationPlan(value: unknown): AgentPreservationPlan {
+  assertPlainObject(value, 'Agent preservation plan')
+  assertKeys(value, ['schemaVersion', 'contract', 'createdAt', 'codexHome', 'baselineDir', 'templateDir', 'targetVersion', 'ownershipSha256', 'agents'], [], 'Agent preservation plan')
+  if (value.schemaVersion !== 1 || value.contract !== 'additive-model-selection-v1'
+    || typeof value.createdAt !== 'string' || Number.isNaN(Date.parse(value.createdAt))
+    || typeof value.targetVersion !== 'string' || !Array.isArray(value.agents)
+    || value.agents.length !== PRESERVABLE_AGENT_PATHS.length) {
+    throw new Error('Agent preservation plan has an unsupported schema.')
+  }
+  for (const field of ['codexHome', 'baselineDir', 'templateDir'] as const) {
+    if (typeof value[field] !== 'string' || !isAbsolute(value[field]))
+      throw new Error(`Agent preservation plan ${field} must be absolute.`)
+  }
+  const agents = value.agents.map((row) => {
+    assertPlainObject(row, 'Agent preservation plan row')
+    assertKeys(row, ['relativePath', 'installedSha256', 'currentSha256', 'templateSha256', 'overrides'], [], 'Agent preservation plan row')
+    if (typeof row.relativePath !== 'string' || !(PRESERVABLE_AGENT_PATHS as readonly string[]).includes(row.relativePath))
+      throw new Error('Agent preservation plan contains an unsupported agent path.')
+    return {
+      relativePath: row.relativePath,
+      installedSha256: validateDigest(row.installedSha256, 'Agent preservation installed baseline'),
+      currentSha256: validateDigest(row.currentSha256, 'Agent preservation current bytes'),
+      templateSha256: validateDigest(row.templateSha256, 'Agent preservation target template'),
+      overrides: validateAgentOverrides(row.overrides),
+    }
+  })
+  if (new Set(agents.map(row => row.relativePath)).size !== agents.length)
+    throw new Error('Agent preservation plan contains duplicate paths.')
+  return {
+    schemaVersion: 1,
+    contract: 'additive-model-selection-v1',
+    createdAt: value.createdAt,
+    codexHome: value.codexHome as string,
+    baselineDir: value.baselineDir as string,
+    templateDir: value.templateDir as string,
+    targetVersion: value.targetVersion,
+    ownershipSha256: validateDigest(value.ownershipSha256, 'Agent preservation ownership'),
+    agents,
+  }
+}
+
+/** Read-only: no manifest repair, target write, download or model call. */
+export async function planAgentPreservationAt(options: PlanAgentPreservationOptions): Promise<AgentPreservationPlan> {
+  const codexHome = resolve(options.codexHome ?? resolveCodexHome())
+  const templateDir = resolve(options.templateDir ?? join(PACKAGE_ROOT, 'templates', 'codex'))
+  assertCodexHostPath(codexHome)
+  if (!(await fs.pathExists(codexHome)))
+    throw new Error('Agent preservation requires an existing owned Codex installation.')
+  await assertManagedPath(codexHome, '.ccg/ownership.json', 'file')
+  const ownershipBytes = await readPlainExternalFile(join(codexHome, '.ccg/ownership.json'))
+  const ownership = validateOwnershipManifest(JSON.parse(ownershipBytes.toString('utf8')))
+  if (await fs.pathExists(join(codexHome, TRANSACTION_JOURNAL_PATH)))
+    throw new Error('Recover the pending Codex transaction before planning agent preservation.')
+  if (!isAbsolute(options.baselineDir))
+    throw new Error('Agent preservation baseline directory must be absolute.')
+  const overrides = validateAgentOverrides({ model: options.model, model_reasoning_effort: options.reasoningEffort })
+  const agents: AgentPreservationPlan['agents'] = []
+  for (const relativePath of PRESERVABLE_AGENT_PATHS) {
+    const prior = ownership.files.find(file => file.relativePath === relativePath)
+    if (!prior || prior.preservedUser)
+      throw new Error(`Agent preservation requires unmodified original ownership provenance for ${relativePath}.`)
+    await assertManagedPath(codexHome, relativePath, 'file')
+    const current = await readPlainExternalFile(join(codexHome, relativePath))
+    const name = relativePath.slice('agents/'.length)
+    const baseline = await readPlainExternalFile(join(options.baselineDir, name))
+    const template = await readPlainExternalFile(join(templateDir, relativePath))
+    if (sha256(baseline) !== prior.installedSha256)
+      throw new Error(`Agent preservation baseline does not match original ownership for ${relativePath}.`)
+    if (prior.original) {
+      const original = await readPlainExternalFile(await assertManagedPath(codexHome, prior.original.backupPath, 'file'))
+      if (sha256(original) !== prior.original.sha256)
+        throw new Error(`Agent preservation original backup digest mismatch for ${relativePath}.`)
+    }
+    assertAgentAddition(current, baseline, template, overrides)
+    agents.push({ relativePath, installedSha256: prior.installedSha256,      currentSha256: sha256(current), templateSha256: sha256(template), overrides })
+  }
+  return {
+    schemaVersion: 1,
+    contract: 'additive-model-selection-v1',
+    createdAt: new Date().toISOString(),
+    codexHome,
+    baselineDir: resolve(options.baselineDir),
+    templateDir,
+    targetVersion: packageVersion,
+    ownershipSha256: sha256(ownershipBytes),
+    agents,
+  }
+}
+
+async function loadAgentPreservationPlan(path: string, expectedSha256: string, codexHome: string, templateDir: string): Promise<AgentPreservationPlan> {
+  const bytes = await readPlainExternalFile(path)
+  if (sha256(bytes) !== expectedSha256)
+    throw new Error('Agent preservation plan SHA-256 differs from the reviewed file.')
+  const plan = validateAgentPreservationPlan(JSON.parse(bytes.toString('utf8')))
+  if (resolve(plan.codexHome) !== resolve(codexHome) || resolve(plan.templateDir) !== resolve(templateDir)
+    || plan.targetVersion !== packageVersion)
+    throw new Error('Agent preservation plan is bound to a different home, template root or version.')
+  const fresh = await planAgentPreservationAt({ codexHome, templateDir, baselineDir: plan.baselineDir,    model: plan.agents[0].overrides.model, reasoningEffort: plan.agents[0].overrides.model_reasoning_effort })
+  if (fresh.ownershipSha256 !== plan.ownershipSha256 || canonical(fresh.agents) !== canonical(plan.agents))
+    throw new Error('Agent preservation plan is stale: ownership, baseline, current bytes or templates changed.')
+  return plan
+}
+
+function preservationArtifactPath(digest: string, name: 'plan' | 'source-ownership'): string {
+  return `.ccg/agent-preservation/${digest}/${name}.json`
+}
+
+export async function verifyPreservedAgentAt(codexHome: string, file: ManagedFile, template: Buffer): Promise<void> {
+  const preserved = file.preservedUser!
+  const current = await readPlainExternalFile(await assertManagedPath(codexHome, file.relativePath, 'file'))
+  if (sha256(current) !== preserved.sha256 || sha256(template) !== preserved.templateSha256)
+    throw new Error(`${file.relativePath} preserved user bytes or target template changed; a new reviewed migration is required.`)
+  const baseline = await readPlainExternalFile(await assertManagedPath(codexHome, preserved.baseline.backupPath, 'file'))
+  const snapshot = await readPlainExternalFile(await assertManagedPath(codexHome, preserved.snapshot.backupPath, 'file'))
+  if (sha256(baseline) !== preserved.baseline.sha256 || sha256(snapshot) !== preserved.snapshot.sha256)
+    throw new Error('Preserved agent baseline or original user snapshot is corrupt.')
+  assertAgentAddition(current, baseline, template, preserved.overrides)
+  const sourceBytes = await readPlainExternalFile(await assertManagedPath(codexHome,    preservationArtifactPath(preserved.planSha256, 'source-ownership'), 'file'))
+  if (sha256(sourceBytes) !== preserved.sourceOwnershipSha256)
+    throw new Error('Preserved agent original ownership snapshot is corrupt.')
+  const source = validateOwnershipManifest(JSON.parse(sourceBytes.toString('utf8')))
+  const sourceFile = source.files.find(row => row.relativePath === file.relativePath)
+  if (!sourceFile || sourceFile.preservedUser || sourceFile.installedSha256 !== file.installedSha256
+    || canonical(sourceFile.original) !== canonical(file.original))
+    throw new Error('Preserved agent original installed digest or backup provenance changed.')
+  const planBytes = await readPlainExternalFile(await assertManagedPath(codexHome,    preservationArtifactPath(preserved.planSha256, 'plan'), 'file'))
+  const plan = validateAgentPreservationPlan(JSON.parse(planBytes.toString('utf8')))
+  const row = plan.agents.find(row => row.relativePath === file.relativePath)
+  if (sha256(canonical(plan)) !== preserved.planSha256 || plan.ownershipSha256 !== preserved.sourceOwnershipSha256
+    || resolve(plan.codexHome) !== resolve(codexHome) || !row
+    || row.currentSha256 !== preserved.sha256 || row.installedSha256 !== file.installedSha256
+    || row.templateSha256 !== preserved.templateSha256 || canonical(row.overrides) !== canonical(preserved.overrides))
+    throw new Error('Preserved agent explicit plan provenance is corrupt.')
+}
+
 function validateTransactionTarget(value: unknown): string {
   if (typeof value !== 'string')
     throw new Error('Codex mode transaction target must be a string.')
@@ -446,6 +717,7 @@ function validateTransactionTarget(value: unknown): string {
     || /^ccg\/bin\/codeagent-wrapper(?:\.exe)?$/i.test(normalized)
     || normalized === '.ccg-version'
     || normalized === '.ccg/ownership.json'
+    || /^\.ccg\/agent-preservation\/[a-f0-9]{64}\/(?:plan|source-ownership)\.json$/u.test(normalized)
     || /^(?:agents|hooks)\/[a-z0-9._-]+$/i.test(normalized)
     || /^\.ccg\/backups\/[^/]+\/(?:AGENTS\.md|hooks\.json|config\.toml|ccg\/config\.toml|ccg\/bin\/codeagent-wrapper(?:\.exe)?|\.ccg-version|(?:agents|hooks)\/[a-z0-9._-]+)$/i.test(normalized)
   if (!allowed || normalized.includes('..'))
@@ -539,7 +811,7 @@ async function beginCodexModeTransaction(
   if (pending) {
     throw new Error(
       `Interrupted Codex mode ${pending.operation} transaction requires recovery. `
-      + 'Run `ccg codex-mode recover` first.',
+      + 'Run `ccg-codex codex-mode recover` first.',
     )
   }
 
@@ -621,6 +893,7 @@ export async function recoverCodexModeAt(
 ): Promise<CodexModeRecoveryResult> {
   const codexHome = options.codexHome ?? resolveCodexHome()
   try {
+    assertCodexHostPath(codexHome)
     await ensureManagedRoot(codexHome)
     const journal = await readTransactionJournal(codexHome)
     if (!journal) {
@@ -764,6 +1037,20 @@ export async function installCodexModeAt(
   let transaction: CodexModeTransactionJournal | null = null
   let mutationCount = 0
   try {
+    assertCodexHostPath(codexHome)
+    if ((options.agentPreservationPlan === undefined) !== (options.agentPreservationPlanSha256 === undefined)
+      || (options.agentPreservationPlanSha256 !== undefined && !/^[a-f0-9]{64}$/.test(options.agentPreservationPlanSha256)))
+      throw new Error('Agent preservation requires a plan and its exact reviewed SHA-256 together.')
+    if (options.wrapperBytes !== undefined && process.env.NODE_ENV !== 'test')
+      throw new Error('wrapperBytes is available only in tests.')
+    if (options.wrapperFile !== undefined && options.wrapperBytes !== undefined)
+      throw new Error('wrapperFile and test-only wrapperBytes cannot be combined.')
+    const preservationPlan = options.agentPreservationPlan
+      ? await loadAgentPreservationPlan(options.agentPreservationPlan, options.agentPreservationPlanSha256!, codexHome, templateDir)
+      : undefined
+    const localWrapperBytes = options.wrapperFile !== undefined
+      ? await (await import('./installer')).readPinnedLocalWrapper(options.wrapperFile)
+      : undefined
     await ensureManagedRoot(codexHome)
     for (const relativePath of [
       '.ccg/ownership.json',
@@ -783,11 +1070,12 @@ export async function installCodexModeAt(
     if (pending) {
       throw new Error(
         `Interrupted Codex mode ${pending.operation} transaction requires recovery. `
-        + 'Run `ccg codex-mode recover` first.',
+        + 'Run `ccg-codex codex-mode recover` first.',
       )
     }
 
     const previous = await readOwnership(ownershipPath)
+    const preservationRows = new Map(preservationPlan?.agents.map(row => [row.relativePath, row]) ?? [])
     const existingHooks = (await readJsonStrict(hooksPath, 'Codex hooks.json')) ?? {}
     const existingAgents = await fs.pathExists(agentsPath) ? await fs.readFile(agentsPath, 'utf8') : ''
 
@@ -821,10 +1109,22 @@ export async function installCodexModeAt(
     const previousFiles = new Map(previous?.files.map(file => [file.relativePath, file]) ?? [])
     const planned = new Map<string, Buffer>()
     const plannedBackups = new Map<string, Buffer>()
+    const retainedAgents: ManagedFile[] = []
+    const planDigest = preservationPlan ? sha256(canonical(preservationPlan)) : undefined
+    if (preservationPlan && planDigest) {
+      plannedBackups.set(preservationArtifactPath(planDigest, 'plan'), Buffer.from(`${canonical(preservationPlan)}\n`))
+      const sourceOwnership = await readPlainExternalFile(ownershipPath)
+      if (sha256(sourceOwnership) !== preservationPlan.ownershipSha256)
+        throw new Error('Agent preservation ownership changed while preparing installation.')
+      plannedBackups.set(preservationArtifactPath(planDigest, 'source-ownership'), sourceOwnership)
+      for (const artifactPath of [preservationArtifactPath(planDigest, 'plan'), preservationArtifactPath(planDigest, 'source-ownership')]) {
+        await assertManagedPath(codexHome, artifactPath, 'missing-or-file', true)
+        if (await fs.pathExists(join(codexHome, artifactPath)))
+          throw new Error('Agent preservation provenance destination is already occupied.')
+      }
+    }
 
-    if (options.wrapperBytes && process.env.NODE_ENV !== 'test' && process.env.VITEST !== 'true')
-      throw new Error('wrapperBytes is available only in tests.')
-    let wrapperBytes = options.wrapperBytes
+    let wrapperBytes = localWrapperBytes ?? options.wrapperBytes
     const existingWrapper = previousFiles.get(wrapperRelativePath)
     const wrapperPath = join(codexHome, wrapperRelativePath)
     if (!wrapperBytes && existingWrapper && await fs.pathExists(wrapperPath)) {
@@ -905,6 +1205,40 @@ export async function installCodexModeAt(
       )
       const current = await fs.pathExists(target) ? await fs.readFile(target) : null
       const prior = previousFiles.get(relativePath)
+      if (prior?.preservedUser) {
+        await verifyPreservedAgentAt(codexHome, prior, bytes)
+        files.push(prior)
+        retainedAgents.push(prior)
+        planned.delete(relativePath)
+        continue
+      }
+      const preservationRow = preservationRows.get(relativePath)
+      if (preservationRow && preservationPlan && planDigest) {
+        if (!prior || !current || sha256(current) !== preservationRow.currentSha256
+          || prior.installedSha256 !== preservationRow.installedSha256
+          || sha256(bytes) !== preservationRow.templateSha256)
+          throw new Error(`Agent preservation plan became stale for ${relativePath}.`)
+        const baseline = await readPlainExternalFile(join(preservationPlan.baselineDir, relativePath.slice('agents/'.length)))
+        if (sha256(baseline) !== prior.installedSha256)
+          throw new Error('Agent preservation baseline changed while preparing installation.')
+        assertAgentAddition(current, baseline, bytes, preservationRow.overrides)
+        const preserved: ManagedFile = { ...prior, preservedUser: {
+          schemaVersion: 1,
+          contract: 'additive-model-selection-v1',
+          sha256: sha256(current),
+          templateSha256: sha256(bytes),
+          planSha256: planDigest,
+          sourceOwnershipSha256: preservationPlan.ownershipSha256,
+          preservedAt: new Date().toISOString(),
+          overrides: preservationRow.overrides,
+          baseline: planBackupBytes(codexHome, `${backupRoot}-agent-baseline`, relativePath, baseline, plannedBackups),
+          snapshot: planBackupBytes(codexHome, `${backupRoot}-agent-preserved`, relativePath, current, plannedBackups),
+        } }
+        files.push(preserved)
+        retainedAgents.push(preserved)
+        planned.delete(relativePath)
+        continue
+      }
       let original = prior?.original
       if (prior) {
         const isValidMutableConfig = (
@@ -946,7 +1280,23 @@ export async function installCodexModeAt(
           plannedBackups,
         )
       : previous?.hookGroup.backup
+    // A reinstall must not make earlier user edits eligible for full backup restoration.
+    // Omitting the optional full-file digest keeps later installs on managed-group removal.
+    const mayRestoreOriginalHooks = !previous?.hookGroup.backup
+      || (hooksBytes !== null
+        && previous.hookGroup.installedFileSha256 !== undefined
+        && sha256(hooksBytes) === previous.hookGroup.installedFileSha256)
 
+    const assertRetainedBytes = async (): Promise<void> => {
+      for (const file of retainedAgents) {
+        const current = await readPlainExternalFile(await assertManagedPath(codexHome, file.relativePath, 'file'))
+        if (sha256(current) !== file.preservedUser!.sha256)
+          throw new Error(`${file.relativePath} changed after preservation planning; original user bytes were not written.`)
+      }
+      if (preservationPlan && sha256(await readPlainExternalFile(ownershipPath)) !== preservationPlan.ownershipSha256)
+        throw new Error('Agent preservation source ownership changed before commit.')
+    }
+    await assertRetainedBytes()
     const touched = [
       'AGENTS.md',
       'hooks.json',
@@ -991,11 +1341,12 @@ export async function installCodexModeAt(
         event,
         value: group,
         sha256: sha256(canonical(group)),
-        fileCreated: hooksBytes === null,
-        installedFileSha256: sha256(nextHooksText),
+        fileCreated: previous?.hookGroup.fileCreated ?? (hooksBytes === null),
+        ...(mayRestoreOriginalHooks ? { installedFileSha256: sha256(nextHooksText) } : {}),
         ...(hooksBackup ? { backup: hooksBackup } : {}),
       },
     }
+    await assertRetainedBytes()
     await write(ownershipPath, `${JSON.stringify(ownership, null, 2)}\n`)
     await finishCodexModeTransaction(codexHome, transaction)
     transaction = null
@@ -1027,6 +1378,10 @@ async function restoreManagedFile(
   write: (path: string, value: string | Buffer) => Promise<void>,
   remove: (path: string) => Promise<void>,
 ): Promise<void> {
+  if (file.preservedUser) {
+    skipped.push(`${file.relativePath} (preserved user agent; never restored or removed)`)
+    return
+  }
   const target = await assertManagedPath(
     codexHome,
     file.relativePath,
@@ -1063,6 +1418,7 @@ export async function uninstallCodexModeAt(
   let mutationCount = 0
 
   try {
+    assertCodexHostPath(codexHome)
     if (!(await fs.pathExists(codexHome))) {
       return {
         success: true,
@@ -1081,7 +1437,7 @@ export async function uninstallCodexModeAt(
     if (pending) {
       throw new Error(
         `Interrupted Codex mode ${pending.operation} transaction requires recovery. `
-        + 'Run `ccg codex-mode recover` first.',
+        + 'Run `ccg-codex codex-mode recover` first.',
       )
     }
     const ownership = await readOwnership(ownershipPath)
@@ -1096,7 +1452,7 @@ export async function uninstallCodexModeAt(
     const touched = [
       'AGENTS.md',
       'hooks.json',
-      ...ownership.files.map(file => file.relativePath),
+      ...ownership.files.filter(file => !file.preservedUser).map(file => file.relativePath),
       '.ccg/ownership.json',
     ]
     for (const relativePath of touched) {

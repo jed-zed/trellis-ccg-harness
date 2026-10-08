@@ -62,6 +62,55 @@ and recovery tests; ordinary callers use only `repoRoot`.
 
 ## 3. Contracts
 
+- `homeDir`/`--home-dir` is AgentsHome. `codexHome`/`--codex-home` is the physical
+  Codex directory, with HomeDir/.codex as the compatibility default. Resolve
+  and bind both roots in plans, inventory digests, receipts, backups, provider
+  environments, rollback and validation. Reject a changed or linked root.
+- Updating the same managed platform Skill count requires a formal source
+  update: verify the original receipt and target tree, back up original source
+  manifest and bytes, CAS the new ownership, and retain explicit rollback
+  protection for later user edits. Never rewrite a prior digest as provenance.
+
+### Physical Codex home and platform source updates
+
+`--home-dir` (PowerShell `-HomeDir`) is AgentsHome: global Skills, state,
+approval records, provenance keys and backups remain under its `.agents/`.
+`--codex-home` (`-CodexHome`) selects the physical Codex configuration root;
+the compatibility default is `HomeDir/.codex`. Explicit roots must exist and
+use non-linked directory chains. An existing profile junction is retained and
+is never transplanted. An existing historical alias must resolve to the same
+selected physical directory before its first source-update transaction.
+
+The selected Codex root binds global AGENTS projection, migration inventory
+digest, ownership, authenticated journal/backup, third-party plan digest,
+provider metadata subprocess environment and conflict inspection. A different
+root invalidates the approval and rollback input. `HOME`/`USERPROFILE` remain
+AgentsHome; `CODEX_HOME` is the selected Codex root. Exported Skills carry the
+root resolver, and staged source validation pins and materializes it.
+
+An approved Global Init can update the same 15-Skill platform source set.
+Before changing any owned target it verifies the original receipt and actual
+tree, saves original bytes and from/to source digests, and creates an
+authenticated source-update journal. User-owned or changed trees remain
+blocked. Success records the new exact source tree; repeat is unchanged.
+`skill-source-rollback --home-dir <AgentsHome> --codex-home <physical-root>
+--backup-id <id> --approved` authenticates the journal, checks every current
+target and backup before mutation, and refuses later user changes. Failed
+updates restore only unchanged transaction-owned targets; a concurrent edit
+retains the original backup for explicit recovery.
+
+Rollback retains the raw historical receipt. If its alias is subsequently
+removed, audit and reinit can use a signed rolled-back source-update observation
+only when the selected physical root, original receipt bytes and observed
+physical AGENTS bytes still match. A lexical alias or changed target alone
+cannot establish ownership. Direct schema-1 Global Init receipts remain direct
+receipts; catalog migration audit applies to schema-2 catalog ownership.
+
+Regression coverage includes separate roots with existing profile junctions,
+plan/apply/repeat/failure/rollback, root-switch rejection, same-count source
+updates and later-user-edit rollback refusal. Tests use owned temporary roots;
+they never write the installed daily profile or change credentials/permissions.
+
 - `apply` accepts only an approved, secret-free contract and writes canonical
   JSON to `.harness/project.json`.
 - First-time apply may reuse an existing safe `.harness/` directory only when

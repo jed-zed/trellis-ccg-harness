@@ -1,5 +1,15 @@
 # Trellis CCG Harness
 
+Global setup accepts an explicit AgentsHome (`-HomeDir`) and a separate physical
+CodexHome (`-CodexHome`). Plans, backups, ownership and rollback bind both roots.
+The promoted personal source uses the installed `ccg-codex` package/command;
+the official Claude `ccg` package has a separate installation and ownership
+transaction. A pinned `-CcgPackageArchive` / `-CcgPackageArchiveSha256` uses the
+offline artifact path. Existing user agent overrides require the explicit
+`-AgentPreservationPlan` / `-AgentPreservationPlanSha256` contract; the matching
+local wrapper is passed with `-CcgWrapperFile`. Neither source promotion nor
+this documentation installs a daily environment.
+
 这是 `jed-zed` 的 AI 开发 Harness：用 Trellis 管理任务、PRD、规范和工程记忆，用 Codex-only CCG 管理 Codex、Gemini、Grok、GPT Pro、外部证据和质量门禁。
 
 ## 来源与声明
@@ -7,9 +17,7 @@
 本仓库是独立维护的集成项目，组合并适配了 [Trellis](https://github.com/mindfold-ai/trellis) 与 [CCG](https://github.com/fengshao1227/ccg-workflow)，不是两者的官方发行版。其中，Trellis 上游项目采用 AGPL-3.0 许可证；CCG 上游代码采用 MIT 许可证，本仓库使用的 CCG 代码来自 `jed-zed` 的个人定制分支。上述许可证仅适用于对应第三方来源，不代表本仓库整体采用这些许可证；Harness 自有集成层仍为 `UNLICENSED`。上游版权、许可证副本及精确来源记录见 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) 和 [`harness.sources.json`](harness.sources.json)。
 
 > 重要：本仓库里的 CCG 不是重新从原作者仓库下载的默认版本。权威来源是 [`jed-zed/ccg-gptpro-worflow`](https://github.com/jed-zed/ccg-gptpro-worflow) 的个人主线；精确 commit、Git tree 和捕获时间只以 [`harness.sources.json`](harness.sources.json) 为准。原作者仓库只作为上游来源和版权归属记录。
-> `harness.sources.json` 中的 CCG 版本只描述仓库内的源码快照，不锁定本机
-> 已安装的个人 CCG CLI/插件版本；个人 CCG 与 Harness 的跨版本兼容性由同一
-> 所有者维护。
+> The source manifest records the exact personal source and target runtime identity. Source promotion leaves daily installations unchanged; installation verifies matching CLI/plugin provenance and ownership. CCG and Harness version numbers remain independent.
 
 这里的 Harness 不是第三套框架或另一个依赖。**Trellis + 个人 CCG 的组合本身就是 Harness**；本仓库的脚本、来源清单和 CI 只是让这套组合可以安全安装、验证、升级和迁移。
 

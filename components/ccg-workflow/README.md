@@ -1,3 +1,5 @@
+> **Codex-only personal candidate.** This build installs `@jed-zed/ccg-codex-workflow` with the `ccg-codex` executable. Read [HOST_ISOLATION.md](./HOST_ISOLATION.md) first. Claude retains upstream CCG; its GPTPro support is the independent `plugins/ccg-gptpro-bridge` addon. Legacy Claude setup examples below are historical and unavailable in this build.
+
 # CCG - Claude + Codex + Gemini Multi-Model Collaboration
 
 <div align="center">
@@ -38,11 +40,10 @@
 
 **CCG is a workflow engine for Claude Code.** It turns Claude into a multi-model orchestrator — Claude stays in control while dispatching specialized work to Codex (OpenAI), Gemini (Google), and Grok (xAI) through a Go binary bridge.
 
-One command. Describe what you want. The engine handles the rest.
-
-```bash
-npx ccg-workflow    # Install in 60 seconds
-```
+This repository's personal Codex package has its own install procedure and
+`ccg-codex` command. Follow [HOST_ISOLATION.md](./HOST_ISOLATION.md) with a
+reviewed, pinned local wrapper artifact. The upstream Claude CCG installation
+is separate.
 
 ## Architecture
 
@@ -52,6 +53,17 @@ npx ccg-workflow    # Install in 60 seconds
 
 **Claude Code** is the lead orchestrator. It analyzes your intent, selects a strategy, and manages the entire workflow. The **Hook Engine** injects state every turn so Claude never loses context — even after compaction. The **codeagent-wrapper** (a compiled Go binary) bridges Claude to external models for parallel analysis and review.
 
+## MCP Research and Legacy Grok
+
+Search actively with existing independent `web_search` agents and grok-search MCP; Codex splits questions and synthesizes the results. Keep the existing agent model and reasoning effort.
+
+Match key conclusions to original sources. Check versions and licenses when reusing code, and experiment conditions when adopting paper conclusions. Mark unverified findings. Ordinary research does not run Grok CLI/ACP, wait for its gates, or require manifests, hashes, or a second search channel.
+
+Use the existing `codex` search route for Codex-led MCP research and keep `intelligence.auto_route = false`. MCP is a retrieval tool, not another CCG Provider. Report unavailable sources without automatically switching to the old CLI.
+
+The Grok coding backend is unchanged. Explicit `/ccg:grok-intel` and `/ccg:grok-verify` commands retain their legacy implementation and strict validation for deliberate reuse; ordinary workflows do not invoke them. The archived instructions below are inactive references.
+
+<!-- Legacy research instructions; inactive in ordinary MCP research.
 ## Grok External Intelligence
 
 Grok now has two deliberately separate roles:
@@ -91,6 +103,7 @@ Validated evidence is local-only by default:
 Cache keys bind the task, mode, model/CLI/policy versions, the complete tracked diff and untracked-file contents, plan, dependencies, official-domain policy, and verification diff. Automatic routes always delegate reuse to the versioned manual cache, which revalidates every manifest member plus evidence/model provenance before reuse; `--force-refresh` always runs a fresh collection and replaces the same-key entry only after success. Retention and bundle caps use `retention_days`, `exported_retention_days`, and `max_bundle_bytes`; export requires `--export <directory>` and never happens automatically. A required blocked route can be waived only by the user with `ccg route waive --state-file <state-file> --reason "<user reason>"`; this records `actor=user` and a timestamp in route state, never mutates evidence, never claims verification passed, and requires downstream bridges to omit external-intelligence evidence flags while retaining the waiver in ordinary routing evidence.
 
 On Windows, the dedicated credential and run roots are protected with owner-only ACLs and reject junction/reparse traversal. Local diagnostics snapshot and restore volatile credential state, and doctor runs purge historical sessions, logs, memtrace, and active-session indexes while preserving browser login, pinned config, and model metadata. Browser OAuth is the normal desktop path; the manual GitHub Actions live smoke uses an environment-approved `XAI_API_KEY`. Junction tests can be skipped by Windows itself when the runner lacks link-creation privilege, but production paths still fail closed on observed links/reparse points.
+-->
 
 ## How It Works
 
@@ -198,11 +211,35 @@ When your message mentions security, caching, RAG, Kubernetes, etc., the relevan
 
 | Command | Description |
 |---------|-------------|
+| `/ccg:grok-intel` | Explicit legacy ACP intelligence collection; not an ordinary research prerequisite |
+| `/ccg:grok-verify` | Explicit legacy verification; not an automatic final gate |
+| `/ccg:gptpro-plan` | Automated GPT Pro sidebar planning evidence with optional MCP research |
+| `/ccg:gptpro-exc` | Automated GPT Pro sidebar execution-route review |
+| `/ccg:gptpro-review` | Automated GPT Pro sidebar review with useful source findings when available |
+
+<!-- Legacy research instructions; inactive in ordinary MCP research.
 | `/ccg:grok-intel` | Collect validated current Web/X evidence through isolated Grok ACP |
 | `/ccg:grok-verify` | Verify a plan, diff, target, and dependencies against current facts |
 | `/ccg:gptpro-plan` | Automated GPT Pro sidebar planning evidence after required Grok routing |
 | `/ccg:gptpro-exc` | Automated GPT Pro sidebar execution-route review |
 | `/ccg:gptpro-review` | Automated GPT Pro sidebar final review with canonical Grok provenance |
+-->
+
+### Scorecard Output Contracts
+
+The Codex CCG command families include these mandatory outputs:
+
+| Command family | Required score output |
+| --- | --- |
+| `/ccg:plan`, `/ccg:gptpro-plan` | `需求完整性评分（0-10）` with `目标明确性（0-3）`, `预期结果（0-3）`, `边界范围（0-2）`, `约束条件（0-2）`, and `判定：>=7 继续；<7 停止并提出补充问题`; GPT Pro planning also requires `Requirement Completeness` and `Planning Readiness Scorecard`. |
+| `/ccg:execute`, `/ccg:codex-exec`, `/ccg:excute` | Final `完成度评分` with five 20-point dimensions, `TOTAL SCORE` out of 100, and `Ready / Needs Follow-up / Blocked`. |
+| `/ccg:review`, `/ccg:gptpro-review` | `VALIDATION REPORT` and `TOTAL SCORE: XX/100`; frontend/UI-heavy reviews also require `FRONTEND VALIDATION REPORT`. |
+| `/ccg:gptpro-exc` | Mandatory `Implementation Readiness Scorecard` as read-only advisory second-opinion evidence; Codex decides final implementation and verification. |
+| `/ccg:spec-review`, `/ccg:team-review` | `Summary Scorecard`, `CRITICAL / WARNING / SUGGESTION`, and `Final Assessment`. |
+
+Requirement completeness below 7 stops plan creation or revision until missing details are supplied; 7 or above continues planning only. Completion scoring caps `Verification` at `10/20` when no real verification command ran, and any remaining Critical blocker makes the final status `Blocked`.
+
+Scores cite visible evidence and decrease when evidence is missing. GPT Pro uses the existing automated sidebar and ordinary routed evidence, with Gemini included only when it actually ran. Codex uses the more conservative score and blocker judgment when evidence disagrees. Scores do not authorize execution or Provider calls.
 
 ### OpenSpec Integration
 
@@ -220,52 +257,44 @@ Includes `/ccg:workflow`, `/ccg:plan`, `/ccg:execute`, `/ccg:frontend`, `/ccg:ba
 
 ## Quick Start
 
+Use a reviewed, full 40-character personal commit and a pinned local wrapper.
+Read [HOST_ISOLATION.md](./HOST_ISOLATION.md) before installation, including
+the agent preservation plan when it applies. From a source checkout:
+
 ```bash
-# From a reviewed, full 40-character personal commit
-corepack enable
 pnpm install --frozen-lockfile
 pnpm build
-node bin/ccg.mjs init
+node bin/ccg.mjs codex-mode --help
 ```
 
-Requires **Node.js 20+** and **Claude Code CLI**. Codex CLI, Gemini CLI, and Grok CLI are optional (enable multi-model features).
+Requires **Node.js 20+**, pnpm, and Codex CLI. The installation command
+changes managed Codex paths; run it only after reviewing the plan and artifact.
 
 If you hand this repository URL to an AI agent, have it follow
 [`AI_INSTALL.md`](./AI_INSTALL.md). The repository URL is not installation
-approval. After CCG is installed, `ccg addons` or `ccg addons --json` shows the
-recommended Ponytail, Caveman, grill-me, Context7, Playwright, official
-DeepWiki, and Exa companions without installing anything; the default is always
-skip. Approved auxiliary MCPs are configured separately with `ccg config mcp`.
+approval. `ccg-codex addons --json` lists optional companions without installing
+or configuring them.
 
 ## CLI Commands
 
 ```bash
-node bin/ccg.mjs                          # Interactive menu
-node bin/ccg.mjs init                     # 4-step install wizard
-node bin/ccg.mjs addons                   # Read-only companion add-on catalog
-node bin/ccg.mjs addons --json            # Machine-readable catalog for AI agents
-node bin/ccg.mjs doctor                   # Environment health check
-node bin/ccg.mjs doctor --platform codex  # Explicit Codex ownership/version health check
-node bin/ccg.mjs status                   # Installation overview
-node bin/ccg.mjs codex-mode install       # Install Codex-Led mode
-node bin/ccg.mjs codex-mode uninstall     # Uninstall Codex-Led mode
-node bin/ccg.mjs codex-mode recover       # Recover an interrupted Codex transaction
-node bin/ccg.mjs wrapper --backend antigravity "task" . # Managed provider run; Web UI on by default
-node bin/ccg.mjs routing list              # Show four top-level role providers
-node bin/ccg.mjs routing set frontend antigravity # Change one compatible role only
-node bin/ccg.mjs uninstall                # Uninstall CCG
-node bin/ccg.mjs config mcp               # Configure approved MCPs
-node bin/ccg.mjs diagnose-mcp             # Static MCP diagnosis
-node bin/ccg.mjs diagnose-mcp --smoke     # Opt-in bounded stdio handshake
-node bin/ccg.mjs grok login               # Direct official Grok browser login
-node bin/ccg.mjs doctor --grok            # Non-paid Grok contract doctor
-node bin/ccg.mjs doctor --grok-live       # Explicit paid Web/X smoke
+node bin/ccg.mjs                           # Codex-only help
+node bin/ccg.mjs addons --json             # Read-only companion catalog
+node bin/ccg.mjs doctor                    # Codex health check
+node bin/ccg.mjs status                    # Codex installation overview
+node bin/ccg.mjs codex-mode --help         # Install and preservation options
+node bin/ccg.mjs codex-mode recover        # Recover an interrupted transaction
+node bin/ccg.mjs codex-mode uninstall      # Remove only managed Codex files
 ```
+
+The install action is `node bin/ccg.mjs codex-mode install --wrapper-file "<reviewed-local-wrapper-path>"`;
+review its artifact and preservation requirements
+in [HOST_ISOLATION.md](./HOST_ISOLATION.md) before running it.
 
 Codex mode routes four roles through an explicit capability matrix:
 frontend/backend support `codex`, `gemini`, `claude`, `antigravity`, `grok`,
 and `pi`; search supports `codex` and `grok`; product-manager supports `codex`,
-`gemini`, and `claude`. CCG workflows use `ccg wrapper` for managed
+`gemini`, and `claude`. CCG workflows use `ccg-codex wrapper` for managed
 Claude/Antigravity/Grok/Pi runs; the direct command also accepts ordinary Codex
 and Gemini wrapper backends but never changes role routing. It
 leaves the browser Web UI enabled unless `--lite` is explicit. Frontend or
@@ -274,7 +303,7 @@ product-manager authorization gate at the next applicable checkpoint; every
 Provider call still requires explicit per-call approval. Codex remains the final
 real-workspace writer and verifier.
 
-## Configuration
+## Historical upstream Claude configuration (reference only)
 
 ```
 ~/.claude/

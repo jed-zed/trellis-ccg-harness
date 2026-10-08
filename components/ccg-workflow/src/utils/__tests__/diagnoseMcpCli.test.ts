@@ -15,7 +15,7 @@ afterEach(async () => {
 })
 
 describe('diagnose-mcp CLI failure propagation', () => {
-  it('returns nonzero for malformed MCP JSON even when smoke is requested', async () => {
+  it('rejects legacy Claude MCP smoke before reading or changing malformed JSON', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'ccg malformed mcp '))
     roots.push(homeDir)
     const configPath = join(homeDir, '.claude.json')
@@ -43,7 +43,7 @@ describe('diagnose-mcp CLI failure propagation', () => {
     )
 
     expect(result.status).not.toBe(0)
-    expect(`${result.stdout}\n${result.stderr}`).toMatch(/parse|malformed/i)
+    expect(`${result.stdout}\n${result.stderr}`).toMatch(/Legacy Claude command.+disabled|Codex-only/i)
     expect(await readFile(configPath, 'utf8')).toBe(malformed)
   }, 30_000)
 })

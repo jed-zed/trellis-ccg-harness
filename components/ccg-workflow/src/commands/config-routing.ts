@@ -1,7 +1,6 @@
 import type { ModelRouting, ModelType, RoutingRole } from '../types'
 import ansis from 'ansis'
 import fs from 'fs-extra'
-import { join } from 'pathe'
 import { parse, stringify } from 'smol-toml'
 import { REGISTERED_MODEL_TYPES, STANDARD_ROUTING_ROLES } from '../types'
 import {
@@ -10,9 +9,11 @@ import {
   isRoleProviderAllowed,
   isRoutingRole,
   normalizeModelRouting,
+  normalizeProviderModel,
+  setRoleProvider,
 } from '../utils/model-routing'
-import { migrateLegacyProductManagerProviderDocument } from '../utils/config'
-import { resolveCodexHome } from '../utils/codex-mode'
+import { getConfigPath, migrateLegacyProductManagerProviderDocument } from '../utils/config'
+import { assertCodexHostPath } from '../utils/host-boundary'
 
 interface CodexConfigDocument {
   [key: string]: unknown
@@ -23,21 +24,41 @@ export interface RoutingCommandOptions {
   json?: boolean
 }
 
+export async function configureProviderRouting(
+  provider: 'kimi' | 'opencode',
+  options: { model?: string, role?: string, configPath?: string },
+): Promise<ModelRouting> {
+  if (options.role !== undefined && options.role !== 'frontend' && options.role !== 'backend')
+    throw new Error('Kimi/OpenCode may be configured only for frontend or backend')
+  if (options.model === undefined && options.role === undefined)
+    throw new Error('configure requires an explicit --model or --role')
+  const path = options.configPath || getCodexRoutingConfigPath()
+  const document = await readDocument(path)
+  let routing = normalizeModelRouting(document.routing)
+  if (options.role)
+    routing = setRoleProvider(routing, options.role as 'frontend' | 'backend', provider)
+  if (options.model !== undefined)
+    routing[provider === 'kimi' ? 'kimiModel' : 'opencodeModel'] = normalizeProviderModel(options.model, `${provider}Model`)
+  document.routing = routing
+  await writeDocument(path, document)
+  return routing
+}
+
 export function getCodexRoutingConfigPath(): string {
-  return join(resolveCodexHome(), 'ccg', 'config.toml')
+  return getConfigPath()
 }
 
 async function readDocument(configPath: string): Promise<CodexConfigDocument> {
+  assertCodexHostPath(configPath)
   if (!await fs.pathExists(configPath))
-    throw new Error(`Codex CCG config not found: ${configPath}. Run \`ccg codex-mode install\` first.`)
+    throw new Error(`Codex CCG config not found: ${configPath}. Run \`ccg-codex codex-mode install\` first.`)
   const parsed = parse(await fs.readFile(configPath, 'utf8')) as CodexConfigDocument
   const migrated = migrateLegacyProductManagerProviderDocument(parsed)
-  if (migrated.changed)
-    await writeDocument(configPath, migrated.document)
   return migrated.document as CodexConfigDocument
 }
 
 async function writeDocument(configPath: string, document: CodexConfigDocument): Promise<void> {
+  assertCodexHostPath(configPath)
   await fs.writeFile(configPath, stringify(document as any), 'utf8')
 }
 

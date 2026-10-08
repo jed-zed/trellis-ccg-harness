@@ -13,6 +13,15 @@ ordinary `/ccg:plan` semantics have already run.
 
 ## Contract
 
+## Research
+
+Use existing independent research agents with grok-search MCP. Search actively and
+verify key conclusions against original sources; check versions/licenses when
+reusing code and experiment conditions when adopting papers. Mark unverified findings.
+Archived instructions below are inactive: ordinary work does not run Grok CLI/ACP,
+wait for its gates, or require its manifests and hash packages.
+
+<!-- Legacy Grok CLI/ACP reference; inactive in ordinary research.
 Run the Grok intelligence decision by writing the bounded planning subject to the active task directory, then run
 `ccg route --workflow gptpro-plan --phase intake --task-file <request-file> --state-file <state-file>`
 
@@ -23,6 +32,8 @@ required, the shared route must produce canonical source-backed evidence before 
 planning evidence or GPT Pro session is created. Required exit 2/3/4 stops this workflow unless the
 user supplies an explicit route-state waiver with `ccg route waive --state-file <state-file> --reason "<user reason>"`; the waiver does not create evidence or claim verification passed. A waived route continues only through ordinary routing evidence and must omit the bridge's external-intelligence flags. Exit code `2`, `3`, or `4` stops before ordinary work.
 Add `--require-external-intelligence` together with `--expected-intelligence-mode <route investigation_mode>` and `--expected-intelligence-depth <route depth>` only when the route state says `status=verified or status=received_unverified` and `requirement=required`.
+-->
+
 Then run ordinary `/ccg:plan`. Preserve the current CCG orchestrator semantics and the normal
 model routing for this installation, including Codex, Claude, Gemini, or any configured helper that
 ordinary planning would use. GPT Pro is fourth evidence: it is appended as a sidebar planning second
@@ -73,9 +84,13 @@ fields into Trellis `task.json`.
 1. Locate or create the native CCG task, or locate the existing Trellis task, at
    `<task-dir>/task.json`.
 2. Resolve the planning subject from `$ARGUMENTS`, an existing plan file, or task context.
+<!-- Legacy Grok CLI/ACP reference; inactive in ordinary research.
 3. Run `/ccg:grok-intel <planning-subject> --mode contract` when required. Validate the canonical
    `grok/external-intelligence/required` item, artifact hash, manifest hash, and task pointer. Never
    pass raw JSONL to GPT Pro.
+-->
+
+3. Include useful MCP research findings and original source links when available.
 4. Run or verify the ordinary `/ccg:plan` route first and write a concise routing evidence file,
    for example `<evidence-root>/evidence/routing.md`, plus a routing summary file.
    The routing evidence must identify the current orchestrator, the routed model evidence that
@@ -114,7 +129,10 @@ Create a concise prompt file with:
   status; if repository URL is unavailable, the prompt must say so and GPT Pro must not guess repo facts;
 - Base CCG Routing Evidence summary and artifact path;
 - Gemini evidence summary and artifact path;
+<!-- Legacy Grok CLI/ACP reference; inactive in ordinary research.
 - validated Grok summary, claims, evidence/manifest paths and hashes; never raw events or page bodies;
+-->
+- Relevant research findings, original source links, and unresolved uncertainty when available.
 - explicit request to challenge the existing plan for requirement ambiguity, wrong assumptions,
   architecture risk, missing constraints, test gaps, and whether the plan is worth continuing;
 - required output sections: `Blockers`, `Risks`, `Missing Evidence`, `Plan Adjustments`, and `Go-NoGo`.
@@ -136,9 +154,13 @@ python ~/.claude/.ccg/engine/tools/gptpro/gptpro_bridge.py \
   --routing-evidence-file "<routing-evidence-file>" \
   --routing-summary-file "<routing-summary-file>" \
   --require-routing-evidence \
-  --require-claude-evidence \
-  [--require-external-intelligence --expected-intelligence-mode <route investigation_mode> --expected-intelligence-depth <route depth> when route status=verified or status=received_unverified and requirement=required]
+  --require-claude-evidence
 ```
+
+<!-- Legacy Grok CLI/ACP reference; inactive in ordinary research.
+  [--require-external-intelligence --expected-intelligence-mode <route investigation_mode> --expected-intelligence-depth <route depth> when route status=verified or status=received_unverified and requirement=required]
+-->
+
 
 If the user explicitly disabled Claude and routing evidence records
 `claudeEvidenceStatus: skipped_by_user`, omit `--require-claude-evidence`; do not omit it for

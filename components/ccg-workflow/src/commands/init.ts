@@ -10,6 +10,7 @@ import { REGISTERED_MODEL_TYPES } from '../types'
 import { createDefaultConfig, createDefaultRouting, ensureCcgDir, readCcgConfig, resolveNonInteractiveIntelligenceConsent, writeCcgConfig } from '../utils/config'
 import { getAllCommandIds, getCoreCommandIds, installAceTool, installContextWeaver, installFastContext, installMcpServer, installWorkflows, showBinaryInstallFailure, syncMcpToCodex, syncMcpToGemini, writeFastContextPrompt } from '../utils/installer'
 import { migrateToV1_4_0, needsMigration } from '../utils/migration'
+import { allowedProvidersForRole, normalizeProviderModel } from '../utils/model-routing'
 import { gitExecutableSource, npmSelector } from '../utils/third-party-sources'
 import { printCompanionAddonRecommendation } from './addons'
 
@@ -173,7 +174,8 @@ function parseModelOption(value: string | undefined, fallback: ModelType[], opti
 }
 
 function roleProviderChoices(recommended: ModelType): Array<{ name: string, value: ModelType }> {
-  return REGISTERED_MODEL_TYPES.map((provider) => {
+  const role = recommended === 'grok' ? 'search' : recommended === 'codex' ? 'backend' : 'frontend'
+  return allowedProvidersForRole(role).map((provider) => {
     const name = provider === 'claude'
       ? 'Claude Code'
       : provider.charAt(0).toUpperCase() + provider.slice(1)
@@ -269,6 +271,8 @@ export async function init(options: InitOptions = {}): Promise<InitResult> {
   let inheritedRouting = createDefaultRouting()
   let geminiModel = ''
   let grokModel = ''
+  let kimiModel = ''
+  let opencodeModel = ''
   const mode: CollaborationMode = 'smart'
   let selectedWorkflows = getCoreCommandIds()
   let _installMode: 'v3' | 'legacy' = 'v3'
@@ -285,6 +289,8 @@ export async function init(options: InitOptions = {}): Promise<InitResult> {
       searchModels = existingConfig.routing.search?.models || ['grok']
       geminiModel = existingConfig.routing.geminiModel || ''
       grokModel = existingConfig.routing.grokModel || ''
+      kimiModel = existingConfig.routing.kimiModel || ''
+      opencodeModel = existingConfig.routing.opencodeModel || ''
     }
     frontendModels = parseModelOption(options.frontend, frontendModels, '--frontend')
     backendModels = parseModelOption(options.backend, backendModels, '--backend')
@@ -385,6 +391,8 @@ export async function init(options: InitOptions = {}): Promise<InitResult> {
         geminiModel = existingConfig.routing.geminiModel
       if (existingConfig.routing.grokModel)
         grokModel = existingConfig.routing.grokModel
+      kimiModel = existingConfig.routing.kimiModel || ''
+      opencodeModel = existingConfig.routing.opencodeModel || ''
     }
     if (existingConfig?.performance?.liteMode !== undefined) {
       liteMode = existingConfig.performance.liteMode
@@ -553,6 +561,21 @@ export async function init(options: InitOptions = {}): Promise<InitResult> {
         else {
           grokModel = selectedGrokModel
         }
+      }
+      for (const provider of ['kimi', 'opencode'] as const) {
+        if (![selectedFrontend, selectedBackend].includes(provider))
+          continue
+        const { model } = await inquirer.prompt<{ model: string }>([{
+          type: 'input',
+          name: 'model',
+          message: `${provider} model (blank keeps its CLI default; OpenCode uses provider/model)`,
+          default: provider === 'kimi' ? kimiModel : opencodeModel,
+          validate: (value: string) => !/[\u0000-\u001F\u007F]/.test(value) || 'Use a single-line model identifier',
+        }])
+        if (provider === 'kimi')
+          kimiModel = model.trim()
+        else
+          opencodeModel = model.trim()
       }
       return 'next'
     }
@@ -991,6 +1014,8 @@ export async function init(options: InitOptions = {}): Promise<InitResult> {
     mode,
     geminiModel,
     grokModel,
+    kimiModel: normalizeProviderModel(options.kimiModel ?? kimiModel, 'kimiModel'),
+    opencodeModel: normalizeProviderModel(options.opencodeModel ?? opencodeModel, 'opencodeModel'),
   }
 
   // Summary + confirmation handled by runSummaryStep() inside the state

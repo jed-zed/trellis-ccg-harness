@@ -32,7 +32,7 @@ export function truthy(value) {
 }
 
 export function parseCcgVersion(value) {
-  return value.match(/\bccg\/(\d+\.\d+\.\d+)\b/i)?.[1] ?? null;
+  return value.match(/\bccg(?:-codex)?\/(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)(?=$|\s)/i)?.[1] ?? null;
 }
 
 export function makeFinding({

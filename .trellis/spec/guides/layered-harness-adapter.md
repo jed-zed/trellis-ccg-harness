@@ -21,7 +21,39 @@ framework.
 Do not write lifecycle state from CCG back into `.trellis/tasks/`. CCG runtime
 state under `.ccg/` and `.codex/ccg/` is evidence only and must remain ignored.
 
+## Shared Plan Approval
+
+The canonical contract is [Shared plan approval](../../workflow.md#shared-plan-approval).
+CCG resolves the current or explicitly identified Trellis task's planning
+artifacts instead of creating another plan authority. The Codex coordinator
+may record the actual user source, reviewed version and artifacts, and covered
+scope/actions in existing `task.json.meta.planApproval`; CCG does not gain
+lifecycle-write authority from that record.
+
+Task-creation consent alone never authorizes implementation. Once the user
+has reviewed and explicitly approved the final plan, both layers consume the
+same valid approval across handoff and resume. Re-presenting an equivalent
+summary is not a new gate. Material plan, scope, acceptance, or risk changes,
+withdrawal, or an unverifiable approval source require resolving the uncovered
+part before implementing it. Byte digests locate reviewed artifacts; they do
+not make formatting or checklist changes material by themselves.
+
+This is a workflow/Skill contract enforced by the coordinator, not a new
+validator inside `task.py start`. Preserve required planning artifacts,
+fast-lane limits, validation, and independent product-manager presentation or
+consequential-action approvals. A plan approval cannot answer a new PM card.
+
 ## Collaboration Policy Projection
+
+The `Codex native leaf workers` section is scoped to Codex. Trellis remains
+`inline`; native workers may research, implement exact owned paths or verify,
+while the coordinator retains lifecycle writes, shared control files, final
+integration and verification. This is an instruction contract, not a runtime
+scheduler or a permission grant. The official Claude workflow is unchanged.
+`buildCanonicalContext` includes this section from the owned project policy
+with its source path/digest when present; explicit Claude host markers omit it.
+Policy upgrades use the existing versioned transaction below, preserving
+task records, provider permissions and user-owned role/model configuration.
 
 - `.agents/skills/harness-init/assets/collaboration-policy.md` is the
   distribution's upstream reusable rule source. Each initialized project gets

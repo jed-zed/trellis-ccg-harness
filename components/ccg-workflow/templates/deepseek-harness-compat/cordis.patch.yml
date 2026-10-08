@@ -1,0 +1,6 @@
+# The installer adds an explicit provider/model pair to this row.
+# This template alone cannot run on a deployment-default route.
+- insert:
+    - id: ccg-deepseek-compat
+      name: ccg-deepseek-compat
+      config: {}

@@ -44,6 +44,21 @@ Use exactly these sections:
 
 ## Verification
 
+Include the following mandatory scorecard within this section in the same response, even for weak-evidence input; keep all existing output sections:
+
+### Implementation Readiness Scorecard
+
+| Dimension | Score | Evidence |
+| --- | ---: | --- |
+| Plan fit | XX/20 | <evidence> |
+| Implementation completeness | XX/20 | <evidence> |
+| Verification readiness | XX/20 | <evidence> |
+| Risk handling | XX/20 | <evidence> |
+| Adoption recommendation | XX/20 | <Ready / Needs Follow-up / Blocked with reason> |
+| **TOTAL SCORE** | **XX/100** | <Codex adoption recommendation> |
+
+Score only from visible task context, actual routed evidence, diffs, and verification summaries. Missing evidence lowers scores; disagreements use the more conservative score and blocker judgment. Proposed verification commands show readiness, not proof that verification ran. Unresolved Critical blockers require `Blocked`. The scorecard is read-only advisory second-opinion evidence; it does not authorize execution or Provider calls or decide final implementation.
+
 Do not make `Implementation Notes` the main deliverable unless the evidence is strong. If you include pseudo patch or code, keep it localized and mark it `advisory / illustrative`.
 
 Do not claim to edit files. The ordinary execute owner will apply final changes.

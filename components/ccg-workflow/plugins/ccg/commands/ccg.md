@@ -58,9 +58,9 @@ If `$ARGUMENTS` is empty, show the available CCG commands in Chinese:
 - `/ccg:verify-module <module-path>` - check module completeness.
 - `/ccg:verify-quality <changed-path>` - check quality issues.
 - `/ccg:verify-security <changed-path>` - check security-sensitive changes.
-- `ccg routing list` - show the four top-level role providers.
-- `ccg routing set <role> <provider>` - change one role independently.
-- `ccg wrapper --backend <provider> ...` - run a managed Claude, Antigravity, Grok, or Pi role provider with Web UI enabled by default.
+- `ccg-codex routing list` - show the four top-level role providers.
+- `ccg-codex routing set <role> <provider>` - change one role independently.
+- `ccg-codex wrapper --backend <provider> ...` - run a managed Claude, Antigravity, Grok, or Pi role provider with Web UI enabled by default.
 
 All ordinary routes follow the shared **Companion Role Contract**: frontend or
 backend work evaluates advisory search evidence and the product-manager
@@ -68,7 +68,7 @@ authorization gate; an actual Provider call still needs explicit authorization.
 
 If `$ARGUMENTS` contains a plan path or task, treat it as `/ccg:execute $ARGUMENTS`.
 
-Core rule: generic workflow roles resolve their providers through `ccg
+Core rule: generic workflow roles resolve their providers through `ccg-codex
 routing`; Codex remains the orchestrator, sole real-workspace writer, and final
 verifier. Whenever a role selects Gemini, invoke the bundled browser preview
 helper automatically. Explicit provider commands bypass the saved defaults.

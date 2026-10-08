@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
-import { existsSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -52,7 +54,7 @@ test("recorded Trellis version keeps the Harness-owned inline and hook boundarie
   assert.match(await text(".gitattributes"), /journal-\*\.md\s+merge=union/);
 });
 
-test("Harness exact-byte projections are pinned to LF", async () => {
+test("Harness owned projections use LF while CCG preserves authoritative bytes", async () => {
   const attributes = await text(".gitattributes");
   for (const relativePath of [
     "AGENTS.md",
@@ -73,7 +75,7 @@ test("Harness exact-byte projections are pinned to LF", async () => {
   }
   assert.match(
     attributes,
-    /^components\/ccg-workflow\/\*\* text=auto eol=lf$/m,
+    /^components\/ccg-workflow\/\*\* -text$/m,
   );
   assert.match(
     attributes,
@@ -89,6 +91,32 @@ test("Harness exact-byte projections are pinned to LF", async () => {
     attributes,
     /^\.harness\/\*\* text=auto eol=lf$/m,
   );
+});
+
+test("CCG component preserves both CRLF and LF blobs with Git autocrlf enabled", async () => {
+  const fixtureRoot = mkdtempSync(path.join(tmpdir(), "harness-attributes-"));
+  const component = path.join(fixtureRoot, "components", "ccg-workflow");
+  const git = (...args) => {
+    const result = spawnSync("git", ["-C", fixtureRoot, "-c", "core.autocrlf=true", ...args]);
+    assert.equal(result.status, 0, result.stderr?.toString());
+    return result.stdout;
+  };
+  try {
+    mkdirSync(component, { recursive: true });
+    writeFileSync(path.join(fixtureRoot, ".gitattributes"), await text(".gitattributes"));
+    const samples = new Map([
+      ["crlf.txt", Buffer.from("authoritative\r\nsource\r\n")],
+      ["lf.txt", Buffer.from("authoritative\nsource\n")],
+    ]);
+    for (const [name, bytes] of samples) writeFileSync(path.join(component, name), bytes);
+    git("init", "--quiet");
+    git("add", "--", ".gitattributes", "components/ccg-workflow");
+    for (const [name, bytes] of samples) {
+      assert.deepEqual(git("show", `:components/ccg-workflow/${name}`), bytes, name);
+    }
+  } finally {
+    rmSync(fixtureRoot, { recursive: true, force: true });
+  }
 });
 
 test("Trellis conflict copies are resolved instead of committed", () => {

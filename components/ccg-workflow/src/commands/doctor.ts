@@ -10,11 +10,13 @@ import { STANDARD_ROUTING_ROLES } from '../types'
 import { IMPLEMENTED_PRODUCT_MANAGER_PROVIDERS } from '../product-manager/provider-registry'
 import { resolveClaudeExecutable, resolveGeminiEntrypoint } from './product-manager'
 import { readCcgConfig, readCcgConfigAt } from '../utils/config'
-import { resolveCodexHome, validateOwnershipManifest } from '../utils/codex-mode'
+import { effectiveManagedFileSha256, resolveCodexHome, validateOwnershipManifest, verifyPreservedAgentAt } from '../utils/codex-mode'
 import { EXPECTED_BINARY_VERSION, verifyBinaryVersion } from '../utils/installer'
 import { createDefaultRoleRouting, isRoutingRole } from '../utils/model-routing'
 import { assertManagedPath } from '../utils/managed-path'
 import { PACKAGE_ROOT } from '../utils/installer-template'
+import type { SidebarSkillRoots } from '../utils/sidebar-skill'
+import { inspectSidebarSkill, sidebarSkillInstallGuidance } from '../utils/sidebar-skill'
 import { version as packageVersion } from '../../package.json'
 
 const OK = ansis.green('✓')
@@ -55,6 +57,7 @@ export function execFileSafe(command: string, args: string[] = []): string | nul
 }
 
 export interface DoctorOptions {
+  gptpro?: boolean
   grok?: boolean
   grokLive?: boolean
   grokCleanup?: boolean
@@ -164,9 +167,7 @@ function execFileCaptured(command: string, args: string[], timeout = 60_000): Ca
   }
 }
 
-async function grokManagerPath(): Promise<string> {
-  const installed = join(homedir(), '.claude', '.ccg', 'engine', 'tools', 'grok-intelligence', 'manage.mjs')
-  if (await fs.pathExists(installed)) return installed
+function grokManagerPath(): string {
   return join(PACKAGE_ROOT, 'templates', 'engine', 'tools', 'grok-intelligence', 'manage.mjs')
 }
 
@@ -230,7 +231,7 @@ async function inspectCodexOwnership(
   const managedPaths = new Set<string>()
   for (const file of files) {
     const relativePath = file?.relativePath
-    const installedSha256 = file?.installedSha256
+    const installedSha256 = file && effectiveManagedFileSha256(file)
     if (typeof relativePath !== 'string' || typeof installedSha256 !== 'string') {
       issues.push('managed file entry is malformed')
       continue
@@ -240,11 +241,22 @@ async function inspectCodexOwnership(
       continue
     }
     managedPaths.add(relativePath)
+    if (file.preservedUser)
+      notes.push(`explicitly preserved user agent: ${relativePath}; original installer digest remains provenance`)
     try {
       const target = await assertManagedPath(codexHome, relativePath, 'file')
       if (!(await fileExists(target))) {
         issues.push(`managed file missing: ${relativePath}`)
         continue
+      }
+      if (file.preservedUser) {
+        try {
+          await verifyPreservedAgentAt(codexHome, file, await fs.readFile(join(PACKAGE_ROOT, 'templates', 'codex', relativePath)))
+        }
+        catch (error) {
+          issues.push(`preserved agent provenance invalid: ${relativePath}: ${String(error)}`)
+          continue
+        }
       }
       if (sha256(await fs.readFile(target)) !== installedSha256) {
         if (relativePath === 'ccg/config.toml') {
@@ -291,7 +303,32 @@ async function inspectCodexOwnership(
   }
 }
 
-async function doctorCodex(): Promise<DoctorResult> {
+export async function sidebarDoctorCheck(
+  required = false,
+  roots: SidebarSkillRoots = { projectRoot: process.cwd(), codexHome: resolveCodexHome(), userHome: homedir() },
+): Promise<DoctorCheck> {
+  const sidebar = await inspectSidebarSkill(roots)
+  return {
+    label: 'GPT Pro sidebar files',
+    status: sidebar.status === 'installed' ? OK : required ? FAIL : WARN,
+    detail: `${sidebar.status}: ${sidebar.detail}${sidebar.status === 'installed'
+      ? ''
+      : `; ${required ? '' : 'Optional for ordinary CCG workflows. '}${sidebarSkillInstallGuidance(sidebar.candidates)}`}`,
+  }
+}
+
+async function doctorGptpro(): Promise<DoctorResult> {
+  const checks = [await sidebarDoctorCheck(true)]
+  console.log()
+  console.log(ansis.cyan.bold(`  CCG Doctor (GPT Pro local files) v${packageVersion}`))
+  for (const { label, status, detail } of checks)
+    console.log(`  ${status} ${ansis.bold(label)} ${ansis.gray(detail)}`)
+  console.log()
+  const failures = checks.filter(check => check.status === FAIL)
+  return { ok: failures.length === 0, failures, checks }
+}
+
+async function doctorCodex(options: DoctorOptions): Promise<DoctorResult> {
   const codexHome = resolveCodexHome()
   const checks: DoctorCheck[] = []
 
@@ -369,7 +406,7 @@ async function doctorCodex(): Promise<DoctorResult> {
     label: 'Codex transaction',
     status: hasPendingTransaction ? FAIL : OK,
     detail: hasPendingTransaction
-      ? 'Interrupted operation found; run `ccg codex-mode recover`'
+      ? 'Interrupted operation found; run `ccg-codex codex-mode recover`'
       : 'No interrupted operation',
   })
 
@@ -377,7 +414,7 @@ async function doctorCodex(): Promise<DoctorResult> {
   let codexConfig: Awaited<ReturnType<typeof readCcgConfigAt>> = null
   let routingError: string | null = null
   try {
-    codexConfig = await readCcgConfigAt(ccgConfigPath)
+    codexConfig = await readCcgConfigAt(ccgConfigPath, { persistMigration: false })
   }
   catch (error) {
     routingError = error instanceof Error ? error.message : String(error)
@@ -436,6 +473,7 @@ async function doctorCodex(): Promise<DoctorResult> {
   }
 
   console.log()
+  checks.push(await sidebarDoctorCheck(Boolean(options.gptpro)))
   console.log(ansis.cyan.bold(`  CCG Doctor (Codex) v${packageVersion}`))
   console.log()
   for (const { label, status, detail } of checks)
@@ -446,14 +484,17 @@ async function doctorCodex(): Promise<DoctorResult> {
   if (failures.length === 0) {
     console.log(ansis.green('  All Codex checks passed.'))
   }
+  else if (failures.every(check => check.label === 'GPT Pro sidebar files')) {
+    console.log(ansis.red('  Repair the independent sidebar Skill using the installation guidance above, then rerun this check.'))
+  }
   else {
     const invalidRole = routingError?.match(/not supported for role ([a-z-]+);/u)?.[1]
     const routingRepair = invalidRole && isRoutingRole(invalidRole)
-      ? `ccg routing set ${invalidRole} ${createDefaultRoleRouting()[invalidRole].primary}`
+      ? `ccg-codex routing set ${invalidRole} ${createDefaultRoleRouting()[invalidRole].primary}`
       : null
     const repairCommand = hasPendingTransaction
-      ? 'ccg codex-mode recover'
-      : routingRepair || 'ccg codex-mode install'
+      ? 'ccg-codex codex-mode recover'
+      : routingRepair || 'ccg-codex codex-mode install'
     console.log(ansis.red(`  ${failures.length} issue(s) found. Run ${ansis.cyan(repairCommand)}, then rerun this check.`))
   }
   console.log()
@@ -486,9 +527,11 @@ function unsupportedDoctorPlatform(platform: string): DoctorResult {
 
 export async function doctor(options: DoctorOptions = {}): Promise<DoctorResult> {
   if (options.platform === 'codex')
-    return doctorCodex()
+    return doctorCodex(options)
   if (options.platform && options.platform !== 'claude')
     return unsupportedDoctorPlatform(String(options.platform))
+  if (options.gptpro && !options.platform)
+    return doctorGptpro()
 
   const installDir = join(homedir(), '.claude')
   const checks: DoctorCheck[] = []
@@ -660,7 +703,7 @@ export async function doctor(options: DoctorOptions = {}): Promise<DoctorResult>
     label: 'Codex transaction',
     status: hasPendingCodexTransaction ? FAIL : OK,
     detail: hasPendingCodexTransaction
-      ? 'Interrupted operation found; run `ccg codex-mode recover`'
+      ? 'Interrupted operation found; run `ccg-codex codex-mode recover`'
       : 'No interrupted operation',
   })
 
@@ -681,6 +724,8 @@ export async function doctor(options: DoctorOptions = {}): Promise<DoctorResult>
     })
   }
 
+  checks.push(await sidebarDoctorCheck(Boolean(options.gptpro)))
+
   // Output
   console.log()
   console.log(ansis.cyan.bold(`  CCG Doctor v${packageVersion}`))
@@ -693,6 +738,9 @@ export async function doctor(options: DoctorOptions = {}): Promise<DoctorResult>
   console.log()
   if (failures.length === 0) {
     console.log(ansis.green('  All checks passed.'))
+  }
+  else if (failures.every(check => check.label === 'GPT Pro sidebar files')) {
+    console.log(ansis.red('  Repair the independent sidebar Skill using the installation guidance above, then rerun this check.'))
   }
   else {
     console.log(ansis.red(`  ${failures.length} issue(s) found. Run ${ansis.cyan('ccg init --force')} to reinstall.`))

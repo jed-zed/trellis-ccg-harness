@@ -1,1 +1,5 @@
 *.mjs text eol=lf
+
+# The independent addon carries a byte-pinned payload manifest, including
+# upstream PowerShell snapshots. Preserve those exact bytes across Git import.
+/plugins/ccg-gptpro-bridge/** -text

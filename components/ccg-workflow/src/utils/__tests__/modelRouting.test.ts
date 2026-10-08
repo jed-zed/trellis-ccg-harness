@@ -61,8 +61,8 @@ describe('model routing', () => {
 
   it('allows only providers supported by each role', () => {
     const expected = {
-      frontend: ['codex', 'gemini', 'claude', 'antigravity', 'grok', 'pi'],
-      backend: ['codex', 'gemini', 'claude', 'antigravity', 'grok', 'pi'],
+      frontend: ['codex', 'gemini', 'claude', 'antigravity', 'grok', 'pi', 'kimi', 'opencode'],
+      backend: ['codex', 'gemini', 'claude', 'antigravity', 'grok', 'pi', 'kimi', 'opencode'],
       search: ['codex', 'grok'],
       'product-manager': ['codex', 'gemini', 'claude'],
     } as const

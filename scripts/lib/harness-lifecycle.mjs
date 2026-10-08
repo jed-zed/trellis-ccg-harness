@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-import { lstat, readFile, realpath } from "node:fs/promises";
+import { lstat, readFile, readlink, realpath } from "node:fs/promises";
 import path from "node:path";
+import { CCG_RUNTIME_PACKAGES, resolveCcgRuntimePackage } from "../ccg-runtime.mjs";
 
 import {
   buildContentIdentity,
@@ -31,6 +32,10 @@ const LIFECYCLE_COMMANDS = new Set([
   "bootstrap-begin",
   "bootstrap-complete",
   "bootstrap-abort",
+  "bootstrap-runtime-checkpoint",
+  "ccg-runtime-migration-plan",
+  "ccg-legacy-disposition-plan",
+  "ccg-legacy-disposition",
 ]);
 
 export function parseSparseArchiveExclusions(value) {
@@ -144,6 +149,17 @@ function requireValue(argv, index, option) {
 
 function applyLifecycleOption(result, args, index, command) {
   const option = args[index];
+  if (["--ccg-migration-plan", "--recipient-plan"].includes(option)) {
+    const key = option === "--ccg-migration-plan" ? "ccgMigrationPlan" : "recipientPlan";
+    result[key] = path.resolve(requireValue(args, index, option));
+    return index + 1;
+  }
+  if (["--ccg-migration-plan-sha256", "--recipient-plan-sha256"].includes(option)) {
+    const value = requireValue(args, index, option);
+    if (!/^[a-f0-9]{64}$/.test(value)) throw new Error(`${option} requires a SHA-256 digest.`);
+    result[option === "--ccg-migration-plan-sha256" ? "ccgMigrationPlanSha256" : "recipientPlanSha256"] = value;
+    return index + 1;
+  }
   if (option === "--repo-root") {
     result.repoRoot = path.resolve(requireValue(args, index, option));
     return index + 1;
@@ -233,6 +249,21 @@ export function parseLifecycleArgs(argv) {
   }
 
   result.repoRoot = path.resolve(result.repoRoot);
+  if (Boolean(result.ccgMigrationPlan) !== Boolean(result.ccgMigrationPlanSha256)) {
+    throw new Error("CCG migration plan requires its exact SHA-256 digest.");
+  }
+  if (Boolean(result.recipientPlan) !== Boolean(result.recipientPlanSha256)) {
+    throw new Error("Recipient plan requires its exact SHA-256 digest.");
+  }
+  if (result.ccgMigrationPlan && !["bootstrap-begin", "ccg-legacy-disposition"].includes(command)) {
+    throw new Error("CCG migration plan is only valid for bootstrap-begin or ccg-legacy-disposition.");
+  }
+  if (result.recipientPlan && command !== "ccg-legacy-disposition-plan") {
+    throw new Error("Recipient plan is only valid for ccg-legacy-disposition-plan.");
+  }
+  if (command === "ccg-legacy-disposition-plan" && !result.recipientPlan) throw new Error("Legacy disposition requires a pinned recipient plan.");
+  if (command === "ccg-legacy-disposition" && !result.ccgMigrationPlan) throw new Error("Legacy disposition requires a pinned reviewed plan.");
+  if (result.ccgMigrationPlan && command === "bootstrap-begin" && !result.manageCcg) throw new Error("CCG namespace migration requires --manage-ccg.");
   if (command === "update") assertUpdateArguments(result);
   return result;
 }
@@ -391,8 +422,34 @@ function normalizedPath(value) {
   return process.platform === "win32" ? resolved.toLowerCase() : resolved;
 }
 
+export function ccgCommandPaths(entryPath, packageName, platform = process.platform) {
+  const runtime = resolveCcgRuntimePackage(packageName);
+  let globalRoot = path.resolve(entryPath);
+  for (const ignored of packageName.split("/")) globalRoot = path.dirname(globalRoot);
+  if (path.basename(globalRoot) !== "node_modules") throw new Error("CCG package path must be inside the npm node_modules root.");
+  if (platform === "win32") return ["", ".cmd", ".ps1"].map(suffix => path.join(path.dirname(globalRoot), runtime.command + suffix));
+  if (path.basename(path.dirname(globalRoot)) !== "lib") throw new Error("Unix CCG package root must be under prefix/lib/node_modules.");
+  return [path.join(path.dirname(path.dirname(globalRoot)), "bin", runtime.command)];
+}
+
+export async function inspectCcgCommandFiles(entryPath, packageName) {
+  const entries = [];
+  for (const filename of ccgCommandPaths(entryPath, packageName)) {
+    let info;
+    try { info = await lstat(filename); } catch (error) { if (error.code === "ENOENT") { entries.push({ path: filename, kind: "absent" }); continue; } throw error; }
+    if (info.isSymbolicLink()) entries.push({ path: filename, kind: "link", target: await readlink(filename) });
+    else if (info.isFile() && info.size <= 1024 * 1024) entries.push({ path: filename, kind: "file", sha256: createHash("sha256").update(await readFile(filename)).digest("hex") });
+    else throw new Error(`CCG command target is not a bounded npm shim: ${filename}.`);
+  }
+  return entries;
+}
+
+export function ccgCommandFilesEqual(left, right) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
 function packageEntryPath(globalRoot, packageName) {
-  if (!["ccg-workflow", "@mindfoldhq/trellis"].includes(packageName)) {
+  if (!Object.hasOwn(CCG_RUNTIME_PACKAGES, packageName) && packageName !== "@mindfoldhq/trellis") {
     throw new Error(`Unsupported global package: ${packageName}.`);
   }
   return path.join(path.resolve(globalRoot), ...packageName.split("/"));
@@ -657,6 +714,18 @@ export function buildBootstrapOwnership(options) {
       );
     }
     const recordedCcg = previousById.get("ccg-link");
+    const ccgPackage = resolveCcgRuntimePackage(options.ccgPackage ?? "ccg-workflow").packageName;
+    const migratingNamespace = recordedCcg && recordedCcg.package !== ccgPackage;
+    if (migratingNamespace) {
+      const plan = options.ccgMigrationPlan;
+      if (!plan || plan.fromPackage !== recordedCcg.package || plan.toPackage !== ccgPackage ||
+          options.before?.ccg !== null || previousById.has("ccg-legacy-retained") ||
+          !globalPackageSnapshotsEqual(plan.legacyRuntime, recordedCcg.installedByHarness) ||
+          !globalPackageSnapshotsEqual(options.beforeLegacyCcg, plan.legacyRuntime)) {
+        throw new Error("CCG package identity migration requires an exact reviewed namespace migration plan.");
+      }
+      entries.push({ ...recordedCcg, id: "ccg-legacy-retained", disposition: "retained", commandFiles: plan.legacyCommandFiles });
+    }
     const previousCcg = canMigrateLegacyCcgLink(
       recordedCcg,
       options.before?.ccg,
@@ -666,15 +735,18 @@ export function buildBootstrapOwnership(options) {
           ...recordedCcg,
           installedByHarness: options.before.ccg,
         }
-      : recordedCcg;
-    entries.push(buildOwnershipEntry({
+      : migratingNamespace ? undefined : recordedCcg;
+    const nextEntry = buildOwnershipEntry({
       id: "ccg-link",
       kind: "npm-global-package",
-      packageName: "ccg-workflow",
+      packageName: ccgPackage,
       before: options.before?.ccg ?? null,
       after: options.after?.ccg ?? null,
       previousEntry: previousCcg,
-    }));
+    });
+    if (options.ccgCommandFiles) nextEntry.commandFiles = options.ccgCommandFiles;
+    else if (previousCcg?.commandFiles) nextEntry.commandFiles = previousCcg.commandFiles;
+    entries.push(nextEntry);
   }
   return {
     schemaVersion: 2,
@@ -715,7 +787,7 @@ function validateOwnershipEntry(entry) {
       "originalBeforeFirstManagement",
       "installedByHarness",
     ],
-    [],
+    ["commandFiles", "disposition", "release"],
     "Harness ownership entry",
   );
   const expected = {
@@ -725,14 +797,16 @@ function validateOwnershipEntry(entry) {
     },
     "ccg-link": {
       kinds: new Set(["npm-global-link", "npm-global-package"]),
-      package: "ccg-workflow",
+      packages: new Set(Object.keys(CCG_RUNTIME_PACKAGES)),
     },
+    "ccg-legacy-retained": { kind: "npm-global-package", package: "ccg-workflow" },
   }[entry.id];
   if (
     !expected ||
     (expected.kind !== undefined && entry.kind !== expected.kind) ||
     (expected.kinds !== undefined && !expected.kinds.has(entry.kind)) ||
-    entry.package !== expected.package
+    (expected.package !== undefined && entry.package !== expected.package) ||
+    (expected.packages !== undefined && !expected.packages.has(entry.package))
   ) {
     throw new Error("Harness ownership entry target is invalid.");
   }
@@ -740,6 +814,25 @@ function validateOwnershipEntry(entry) {
     entry.originalBeforeFirstManagement,
     `${entry.id} original package`,
   );
+  if (entry.commandFiles !== undefined) {
+    const expectedPaths = ccgCommandPaths(entry.installedByHarness.entryPath, entry.package);
+    if (!Array.isArray(entry.commandFiles) || entry.commandFiles.length !== expectedPaths.length) throw new Error("Harness CCG command identity has an invalid schema.");
+    for (const [index, file] of entry.commandFiles.entries()) {
+      if (file.kind === "file") assertExactKeys(file, ["path", "kind", "sha256"], [], "Owned CCG command");
+      else if (file.kind === "link") assertExactKeys(file, ["path", "kind", "target"], [], "Owned CCG command");
+      else throw new Error("Owned CCG commands must exist as regular files or links.");
+      if (normalizedPath(file.path) !== normalizedPath(expectedPaths[index]) ||
+          (file.kind === "file" && !/^[a-f0-9]{64}$/.test(file.sha256)) ||
+          (file.kind === "link" && (typeof file.target !== "string" || !file.target || file.target.includes("\0")))) throw new Error("Owned CCG command fingerprint is invalid.");
+    }
+  }
+  if (entry.id === "ccg-legacy-retained") {
+    if (!entry.commandFiles || !["retained", "released-for-stock-claude"].includes(entry.disposition)) throw new Error("Retained CCG slot requires a command identity and explicit disposition.");
+    if (entry.disposition === "released-for-stock-claude") {
+      assertExactKeys(entry.release, ["recipientPlanSha256", "dispositionPlanSha256", "releasedAt"], [], "CCG legacy release");
+      if (![entry.release.recipientPlanSha256, entry.release.dispositionPlanSha256].every(hash => /^[a-f0-9]{64}$/.test(hash)) || typeof entry.release.releasedAt !== "string") throw new Error("CCG legacy release identity is invalid.");
+    } else if (entry.release !== undefined) throw new Error("Retained CCG runtime cannot have a release receipt.");
+  } else if (entry.disposition !== undefined || entry.release !== undefined) throw new Error("Only the retained legacy slot can carry a disposition.");
   validateGlobalPackageSnapshot(
     entry.installedByHarness,
     `${entry.id} installed package`,
@@ -812,6 +905,15 @@ export function assertBootstrapOwnershipContinuity(
     );
   }
   for (const entry of ownership.entries) {
+    if (entry.id === "ccg-link" && managed?.ccg && managed.ccgPackage !== undefined && entry.package !== managed.ccgPackage) {
+      const plan = managed.ccgMigrationPlan;
+      if (!plan || plan.fromPackage !== entry.package || plan.toPackage !== managed.ccgPackage ||
+          before?.ccg !== null || !globalPackageSnapshotsEqual(managed.legacyCcg, entry.installedByHarness) ||
+          !globalPackageSnapshotsEqual(plan.legacyRuntime, entry.installedByHarness)) {
+        throw new Error("CCG package identity migration requires an exact reviewed namespace migration plan.");
+      }
+      continue;
+    }
     if (
       selected.has(entry.id) &&
       !globalPackageSnapshotsEqual(
@@ -839,9 +941,11 @@ export function buildOwnedUninstallPlan(ownership, observations, repoRoot) {
   const remove = [];
   const skip = [];
   for (const entry of ownership.entries) {
+    if (entry.id === "ccg-legacy-retained") continue;
     const observed = observations?.[entry.id] ?? null;
     (
-      globalPackageSnapshotsEqual(observed, entry.installedByHarness)
+      globalPackageSnapshotsEqual(observed, entry.installedByHarness) &&
+      (!entry.commandFiles || ccgCommandFilesEqual(observations?.commandFiles?.[entry.id], entry.commandFiles))
         ? remove
         : skip
     ).push(entry);

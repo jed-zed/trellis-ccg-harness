@@ -64,3 +64,20 @@ test("trusted command resolver binds CCG to an exact Node package entrypoint", a
     await rm(packageRoot, { recursive: true, force: true });
   }
 });
+
+
+test("trusted command resolver keeps scoped Codex and legacy CCG package identities separate", async () => {
+  const packageRoot = await mkdtemp(path.join(tmpdir(), "harness-trusted-ccg-codex-"));
+  try {
+    for (const [name, command] of [["ccg-workflow", "ccg"], ["@jed-zed/ccg-codex-workflow", "ccg-codex"]]) {
+      const root = path.join(packageRoot, ...name.split("/"));
+      await mkdir(path.join(root, "bin"), { recursive: true });
+      await writeFile(path.join(root, "package.json"), JSON.stringify({ name, version: "3.4.16-localarchive.3", bin: { [command]: "bin/ccg.mjs" } }));
+      await writeFile(path.join(root, "bin", "ccg.mjs"), "console.log('synthetic')\n");
+      const binding = await resolveTrustedCommand(command, { env: {}, nodePath: process.execPath, approvedPackageRoots: [packageRoot], approvedCommandRoots: [] });
+      assert.equal(binding.logicalName, command);
+      assert.equal(binding.identity.packageName, name);
+      assert.equal(binding.identity.packageTree.realRoot, path.resolve(await realpath(root)));
+    }
+  } finally { await rm(packageRoot, { recursive: true, force: true }); }
+});

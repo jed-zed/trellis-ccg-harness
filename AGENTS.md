@@ -130,6 +130,76 @@ applicable quality gates without creating a second task or plan authority.
 Reference the existing canonical artifact instead of copying its requirements
 or plan into another layer.
 
+## Codex native leaf workers
+
+This section applies only to the Codex host and its native workers. It does
+not alter the official Claude CCG workflow or grant a CCG Provider workspace
+writes. Trellis dispatch stays `inline`: the Codex coordinator owns task
+state, shared control files, final integration and full-scope verification.
+Inline permits independent research, bounded implementation and verification
+leaves; a CCG/Trellis-managed task is not by itself a reason to refuse them.
+
+- Dispatch a useful ready work package as soon as its inputs and boundaries
+  are known; do not wait to finish unrelated investigation. Usually start
+  with 1–2 workers and grow to 3–4 only for additional independent work and
+  available host capacity. A simple task stays inline; zero workers is valid.
+  These are planning targets, not a worker-count gate or a mandatory team flow.
+- Give each package its outcome, needed context or task references,
+  dependencies, read-only or write mode, exact owned write paths, acceptance
+  check and time budget. Native leaves reuse this packet and need no separate
+  Trellis task or JSONL curation. Use the existing Trellis context protocol for
+  a formally delegated implement/check task. CCG roles describe the work;
+  provider calls and CLI processes are not native-worker counts.
+- Read-only leaves receive no write ownership. Before a write leaf starts,
+  the coordinator must establish a trusted, authorized scope and one writer
+  per path, including ancestor/descendant overlaps. Serialize overlapping
+  paths and shared files; the coordinator also waits before editing a leaf's
+  paths. A read overlapping an active writer also waits or uses a frozen
+  snapshot; only read/read overlaps may run concurrently on the same live
+  paths. Missing or ambiguous write scope blocks those writes. Missing batch
+  IDs or totals may be filled by the coordinator and do not stop safe work.
+- Leaves do not mutate task lifecycle, shared orchestration files or another
+  worker's paths, recursively dispatch implement/check work, or enlarge
+  permissions. Keep user-selected models/reasoning, sandbox, approval,
+  network/payment and tool-access boundaries; delegation grants none of them.
+- Return useful findings or a stable partial result early, with its limits;
+  the coordinator can use it for independent work while the leaf continues.
+  A dependent package starts only after the coordinator accepts a frozen
+  delivery or fixed snapshot; a progress message is not a completed dependency.
+  A partial result does not release write ownership. Small follow-ups may
+  reuse the same package/context. Final checks or independent review must use
+  the actual integrated revision; self-review is not independent review.
+- On timeout, failure or unavailable capability, continue unrelated ready
+  work and report the gap. After the previous writer is confirmed stopped,
+  inspect its partial changes and transfer ownership before a replacement or
+  inline takeover. Never have both writers race, invent a passing result or
+  bypass a required check. Reduce concurrency for CPU/memory pressure or
+  nested provider work; only one owner runs a heavy shared test/build at once.
+- Record the actual assignments, useful results, failures and checks in the
+  existing task/report. No duplicate audit documents or quota gate is needed.
+  This is coordinator instruction, not a new automatic scheduler or sandbox.
+
+## Shared plan approval
+
+Follow the `Shared plan approval` section (`#shared-plan-approval`) in the
+project's canonical `.trellis/workflow.md`. If the user has already explicitly
+authorized task creation, create its planning record without asking again;
+that consent alone does not authorize implementation.
+
+After the user has reviewed and explicitly approved a concrete final plan,
+CCG and Trellis reuse that approval for the same task, plan version, scope,
+risk, and actions. A handoff, resume, or equivalent summary does not require a
+second approval. The Codex coordinator records the actual approval source and
+coverage in existing `task.json.meta.planApproval`; metadata without a real
+user source is not consent, and the record is not a mechanical approval gate.
+
+Keep the first final-plan review and all applicable planning artifacts,
+fast-lane boundaries, verification, and completion requirements. Material
+changes or withdrawal stop the affected implementation until covered by a
+valid approval; formatting or checklist updates alone do not invalidate it.
+Independent product-manager presentation gates and consequential actions keep
+their own required authorization and cannot be cleared by plan approval.
+
 ## Ponytail boundary
 
 Use Ponytail `full` mode for implementation when the Skill is available.

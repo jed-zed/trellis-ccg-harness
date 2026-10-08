@@ -81,6 +81,18 @@ describe('Codex Gemini preview template', () => {
     'live-output.upstream.html',
   )
 
+  it.each([
+    { role: 'review', report: 'VALIDATION REPORT', dimensions: ['Task / Root Cause Coverage', 'Code Quality', 'Side Effects', 'Edge Cases', 'Test Coverage'] },
+    { role: 'frontend', report: 'FRONTEND VALIDATION REPORT', dimensions: ['User Experience', 'Visual Consistency', 'Accessibility', 'Performance', 'Browser Compatibility'] },
+  ])('assembles the $role scorecard into the actual helper prompt without invoking Gemini', ({ role, report, dimensions }) => {
+    const prompt = runPython(helperPath, `import argparse; print(module.apply_prompt_template(argparse.Namespace(prompt_template="${role}"), "Bounded local scorecard fixture"))`)
+    expect(prompt).toContain(report)
+    expect(prompt).toContain('TOTAL SCORE: XX/100')
+    for (const dimension of dimensions)
+      expect(prompt).toContain(`${dimension}: XX/20`)
+    expect(prompt.replaceAll('\r\n', '\n')).toContain('# User Task\n\nBounded local scorecard fixture')
+  })
+
   it('pins the mechanically resolved original-author Live Output page', () => {
     const template = readFileSync(templatePath, 'utf8').replaceAll('\r\n', '\n')
     const doctype = template.indexOf('<!DOCTYPE html>')

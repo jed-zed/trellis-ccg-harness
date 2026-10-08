@@ -1,3 +1,4 @@
+import { resolveCodexHome } from "./codex-home.mjs";
 import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { execFile as execFileCallback } from "node:child_process";
 import {
@@ -665,6 +666,7 @@ async function verifyPinnedGitCheckout(directory, source, execFileImpl, binding,
  */
 export async function acquirePinnedGitSource({
   homeDir,
+  codexHome,
   source,
   execFileImpl = execFile,
   approvalPlan,
@@ -678,9 +680,11 @@ export async function acquirePinnedGitSource({
     throw new Error("Latest source acquisition requires the displayed third-party approval plan.");
   }
   validateApprovalPlanDigest(approvalPlan);
+  const codex = await resolveCodexHome(canonicalHome,
+    codexHome ?? approvalPlan.execution?.subprocessConfigRoots?.codexHome ?? null);
   assertCanonicalEqual(
     approvalPlan.execution?.subprocessConfigRoots,
-    subprocessConfigRoots(canonicalHome),
+    subprocessConfigRoots(canonicalHome, codex),
     "Latest source subprocess configuration roots",
   );
   const displayedSources = approvalPlan.groups
@@ -972,13 +976,13 @@ function thirdPartyCommandNames(manifest) {
   return [...names].sort();
 }
 
-function subprocessConfigRoots(homeDir) {
+function subprocessConfigRoots(homeDir, codexHome) {
   const home = path.resolve(homeDir);
   return {
     home,
     userProfile: home,
     xdgConfigHome: path.join(home, ".config"),
-    codexHome: path.join(home, ".codex"),
+    codexHome: codexHome ?? path.join(home, ".codex"),
     sourceCache: path.join(home, ".agents", "harness", "sources"),
     toolCache: path.join(home, ".agents", "harness", "tools"),
   };
@@ -1030,6 +1034,7 @@ function assertCanonicalEqual(actual, expected, label) {
 export async function verifyThirdPartyApprovalPlanForOperation({
   approvalPlan,
   homeDir,
+  codexHome,
   manifest,
   manifestSha256,
   repoRoot,
@@ -1056,6 +1061,7 @@ export async function verifyThirdPartyApprovalPlanForOperation({
     throw new Error("Third-party approval plan strict-data-boundary policy drifted after presentation.");
   }
   const canonicalHome = await assertRealDirectory(homeDir, "User home");
+  const codex = await resolveCodexHome(canonicalHome, codexHome ?? null);
   const canonicalRepo = repoRoot
     ? await assertRealDirectory(repoRoot, "Project root")
     : null;
@@ -1087,7 +1093,7 @@ export async function verifyThirdPartyApprovalPlanForOperation({
   }
   assertCanonicalEqual(
     approvalPlan.execution.subprocessConfigRoots,
-    subprocessConfigRoots(canonicalHome),
+    subprocessConfigRoots(canonicalHome, codex),
     "Third-party approval plan subprocess configuration roots",
   );
   const expectedCommandNames = thirdPartyCommandNames(manifest);
@@ -1200,6 +1206,7 @@ export async function buildThirdPartyApprovalPlan({
   manifestPath,
   manifest: suppliedManifest,
   homeDir,
+  codexHome,
   repoRoot,
   strictDataBoundary = false,
   env = process.env,
@@ -1218,6 +1225,7 @@ export async function buildThirdPartyApprovalPlan({
   if (!homeDir) throw new Error("homeDir is required.");
   if (!repoRoot) throw new Error("repoRoot is required for authoritative third-party approval planning.");
   const canonicalHomeDir = await assertRealDirectory(homeDir, "User home");
+  const codex = await resolveCodexHome(canonicalHomeDir, codexHome ?? null);
   const canonicalRepoRoot = repoRoot
     ? await assertRealDirectory(repoRoot, "Project root")
     : null;
@@ -1294,7 +1302,7 @@ export async function buildThirdPartyApprovalPlan({
       arch,
       assetPlatform: `${platform}-${arch}`,
       commandPlan,
-      subprocessConfigRoots: subprocessConfigRoots(canonicalHomeDir),
+      subprocessConfigRoots: subprocessConfigRoots(canonicalHomeDir, codex),
     },
     groups: groupRecords,
     detected: { codegraph: { indexPresent: Boolean(repoRoot && await exists(path.join(path.resolve(repoRoot), ".codegraph"))) } },
@@ -2863,6 +2871,7 @@ async function acquireApprovalReceiptLock(
  */
 export async function preflightThirdPartyGlobalApproval({
   homeDir,
+  codexHome,
   manifest: suppliedManifest,
   manifestPath,
   approvals,
@@ -2880,6 +2889,7 @@ export async function preflightThirdPartyGlobalApproval({
   await verifyThirdPartyApprovalPlanForOperation({
     approvalPlan,
     homeDir,
+    codexHome,
     manifest: loaded.manifest,
     manifestSha256: loaded.manifestSha256,
     repoRoot,
@@ -3036,6 +3046,7 @@ export async function applyThirdPartyGlobalSkills({
   approved,
   approvals,
   homeDir,
+  codexHome,
   manifest: suppliedManifest,
   manifestPath,
   sourceResolver,
@@ -3055,6 +3066,7 @@ export async function applyThirdPartyGlobalSkills({
   await verifyThirdPartyApprovalPlanForOperation({
     approvalPlan,
     homeDir,
+    codexHome,
     manifest: loaded.manifest,
     manifestSha256: loaded.manifestSha256,
     repoRoot,
@@ -3508,6 +3520,7 @@ export async function applyThirdPartyProjectSkills({
   approved,
   approvals,
   homeDir,
+  codexHome,
   repoRoot,
   manifest: suppliedManifest,
   manifestPath,
@@ -3528,6 +3541,7 @@ export async function applyThirdPartyProjectSkills({
   await verifyThirdPartyApprovalPlanForOperation({
     approvalPlan,
     homeDir,
+    codexHome,
     manifest: loaded.manifest,
     manifestSha256: loaded.manifestSha256,
     repoRoot,

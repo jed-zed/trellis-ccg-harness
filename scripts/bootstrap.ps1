@@ -1,17 +1,60 @@
 [CmdletBinding()]
 param(
   [string]$RepoRoot = (Split-Path -Parent $PSScriptRoot),
+  [string]$HomeDir,
+  [string]$CodexHome,
   [switch]$LinkCcg,
   [switch]$SkipInstall,
   [string]$CcgSetupTargetVersion,
   [string]$CcgSetupPreviousPluginVersion,
-  [string]$AuthoritativeCcgCheckout
+  [string]$AuthoritativeCcgCheckout,
+  [string]$CcgMigrationPlan,
+  [string]$CcgMigrationPlanSha256,
+  [string]$CcgPackageArchive,
+  [string]$CcgPackageArchiveSha256
 )
 
 $ErrorActionPreference = "Stop"
+if ($env:CLAUDECODE -eq "1" -or $env:CCG_HOST -eq "claude") {
+  throw "Personal Harness mutations require the Codex host; explicit Claude host markers are rejected."
+}
 $RepoRoot = [System.IO.Path]::GetFullPath($RepoRoot)
+& node (Join-Path $PSScriptRoot "lib/ccg-legacy-claim-guard.mjs") --repo-root $RepoRoot
+if ($LASTEXITCODE -ne 0) { throw "The fixed new control root refuses mutations of a retired legacy management root." }
+if ($CodexHome -and -not $HomeDir) { throw "CodexHome requires an explicit HomeDir." }
+$savedRootEnvironment = @{ HOME = $env:HOME; USERPROFILE = $env:USERPROFILE; CODEX_HOME = $env:CODEX_HOME }
+$archiveReadLease = $null
+try {
+if ($HomeDir) {
+  $HomeDir = [System.IO.Path]::GetFullPath($HomeDir)
+  $helper = Join-Path $RepoRoot ".agents/skills/harness-init/scripts/codex-home.mjs"
+  $arguments = @("--input-type=module", "-e", 'import { pathToFileURL } from "node:url"; const { resolveCodexHome } = await import(pathToFileURL(process.argv[1])); console.log(await resolveCodexHome(process.argv[2], process.argv[3] || null));', $helper, $HomeDir)
+  if ($CodexHome) { $arguments += $CodexHome }
+  $result = @(& node @arguments 2>&1)
+  if ($LASTEXITCODE -ne 0) { throw "Invalid physical CodexHome: $($result -join [Environment]::NewLine)" }
+  $CodexHome = ($result -join [Environment]::NewLine).Trim()
+  $env:HOME = $HomeDir
+  $env:USERPROFILE = $HomeDir
+  $env:CODEX_HOME = $CodexHome
+}
 $manifest = Get-Content -LiteralPath (Join-Path $RepoRoot "harness.sources.json") -Raw | ConvertFrom-Json
 $ccgRoot = Join-Path $RepoRoot ([string]$manifest.ccg.snapshotPath)
+$runtimeArguments = @("--repo-root", $RepoRoot)
+if ($CcgPackageArchive) {
+  if (-not $LinkCcg -or $CcgPackageArchiveSha256 -notmatch '^[a-f0-9]{64}$') {
+    throw "Pinned CCG package archive requires -LinkCcg and its SHA-256."
+  }
+  $CcgPackageArchive = [System.IO.Path]::GetFullPath($CcgPackageArchive)
+  # Keep the validated Windows archive readable by npm while denying writes
+  # and replacement until the installation transaction has completed.
+  $archiveReadLease = [System.IO.File]::Open($CcgPackageArchive,
+    [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::Read)
+  $runtimeArguments += @("--archive", $CcgPackageArchive, "--sha256", $CcgPackageArchiveSha256)
+}
+elseif ($CcgPackageArchiveSha256) { throw "CcgPackageArchiveSha256 requires CcgPackageArchive." }
+$ccgRuntimeJson = & node (Join-Path $PSScriptRoot "ccg-runtime.mjs") @runtimeArguments
+if ($LASTEXITCODE -ne 0) { throw "Personal CCG runtime identity is invalid." }
+$ccgRuntime = ($ccgRuntimeJson -join [Environment]::NewLine) | ConvertFrom-Json
 if ($CcgSetupTargetVersion -and -not $LinkCcg) {
   throw "CcgSetupTargetVersion requires -LinkCcg."
 }
@@ -64,6 +107,13 @@ if ($manageTrellis) {
 if ($manageCcg) {
   $beginArguments += "--manage-ccg"
 }
+if ($CcgMigrationPlan) {
+  if (-not $manageCcg -or $CcgMigrationPlanSha256 -notmatch '^[a-f0-9]{64}$') {
+    throw "CCG namespace migration requires -LinkCcg and its approved SHA-256."
+  }
+  $beginArguments += @("--ccg-migration-plan", [System.IO.Path]::GetFullPath($CcgMigrationPlan), "--ccg-migration-plan-sha256", $CcgMigrationPlanSha256)
+}
+elseif ($CcgMigrationPlanSha256) { throw "CcgMigrationPlanSha256 requires CcgMigrationPlan." }
 
 & node @beginArguments
 if ($LASTEXITCODE -ne 0) {
@@ -79,7 +129,7 @@ try {
     }
   }
 
-  if (-not $SkipInstall) {
+  if (-not $SkipInstall -and -not $CcgPackageArchive) {
     if (-not (Get-Command pnpm -ErrorAction SilentlyContinue) -and
         (Get-Command corepack -ErrorAction SilentlyContinue)) {
       & corepack enable
@@ -107,16 +157,25 @@ try {
 
   if ($LinkCcg) {
     Write-Output (
-      "Installing the packaged personal CCG snapshot as the global ccg command..."
+      "Installing the packaged personal CCG snapshot as the global $($ccgRuntime.command) command..."
     )
     # Keep -LinkCcg as the compatibility switch used by existing lifecycle and
     # clean-install callers. npm's install-links option packages and copies a
     # local directory instead of leaving a global junction back into the
     # mutable Harness snapshot.
-    & npm install -g --install-links=true --install-strategy=nested $ccgRoot
+    if ($CcgPackageArchive) {
+      $revalidatedRuntime = & node (Join-Path $PSScriptRoot "ccg-runtime.mjs") @runtimeArguments
+      if ($LASTEXITCODE -ne 0) { throw "Pinned CCG package archive changed before installation." }
+      & npm install -g $CcgPackageArchive --offline --ignore-scripts --no-audit --no-fund --install-strategy=nested
+    }
+    else {
+      & npm install -g --install-links=true --install-strategy=nested $ccgRoot
+    }
     if ($LASTEXITCODE -ne 0) {
       throw "Packaged global CCG installation failed."
     }
+    & node $lifecycleScript "bootstrap-runtime-checkpoint" "--repo-root" $RepoRoot
+    if ($LASTEXITCODE -ne 0) { throw "Cannot checkpoint the installed CCG runtime ownership." }
   }
 
   $doctorArguments = @{
@@ -153,4 +212,11 @@ catch {
     Write-Error "Bootstrap rollback also failed; inspect .harness-cache/bootstrap-pending.json."
   }
   throw $bootstrapFailure
+}
+}
+finally {
+  if ($null -ne $archiveReadLease) { $archiveReadLease.Dispose() }
+  $env:HOME = $savedRootEnvironment.HOME
+  $env:USERPROFILE = $savedRootEnvironment.USERPROFILE
+  $env:CODEX_HOME = $savedRootEnvironment.CODEX_HOME
 }

@@ -14,6 +14,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
+import { resolveCcgRuntimePackage } from "../../ccg-runtime.mjs";
 
 import { assertInside, readJson, sha256 } from "./process.mjs";
 import { commandError, defaultRunner, runCommand } from "./process.mjs";
@@ -1332,8 +1333,10 @@ export async function runInstalledProductManagerReview(
       "Harness policy allows no product-manager provider.",
     );
   }
-  const roots = await discoverRoots(["ccg"], { env });
-  const binding = await resolveCommand("ccg", {
+  const ccgTarget = resolveCcgRuntimePackage(sources.ccg.package);
+  if (contract.runtime?.ccg?.command !== ccgTarget.command) throw new Error("CCG source package and adapter command identity differ.");
+  const roots = await discoverRoots([ccgTarget.command], { env });
+  const binding = await resolveCommand(ccgTarget.command, {
     env,
     approvedPackageRoots: roots.approvedPackageRoots,
     approvedCommandRoots: roots.approvedCommandRoots,

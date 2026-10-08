@@ -1,0 +1,112 @@
+{
+  "id": "host-isolation-install-closure",
+  "name": "host-isolation-install-closure",
+  "title": "Complete isolated Codex and stock Claude installation closure",
+  "description": "Complete physical CodexHome/AgentsHome separation, preserve reviewed agent raw bytes, promote personal CCG source identity, and verify isolated stock Claude offline install plus stable GPTPro addon launcher and rollback.",
+  "status": "in_progress",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "codex",
+  "assignee": "codex",
+  "createdAt": "2026-10-03",
+  "completedAt": null,
+  "branch": "codex/legacy-claim-retirement-20261004",
+  "base_branch": "0df9d7b08642ff377e07fc0f1d05b5e0dd811caa",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    ".trellis/tasks/10-03-host-isolation-install-closure/prd.md",
+    ".trellis/tasks/10-03-host-isolation-install-closure/design.md",
+    ".trellis/tasks/10-03-host-isolation-install-closure/implement.md"
+  ],
+  "notes": "",
+  "meta": {
+    "planApproval": {
+      "status": "approved",
+      "taskId": "host-isolation-install-closure",
+      "version": "installation-closure-gap-2",
+      "reviewedArtifacts": [],
+      "reviewedContext": "Explicit parent authorizes closing the already-reviewed real gaps and unifying worker integration; new artifacts record that authority, without claiming an unseen plan received artifact review.",
+      "currentArtifacts": [
+        {
+          "file": ".trellis/tasks/10-03-host-isolation-install-closure/prd.md",
+          "sha256": "8368c929199522894bf8b033b3bb92a822fab227c65ed99cee818e1936c3e93f"
+        },
+        {
+          "file": ".trellis/tasks/10-03-host-isolation-install-closure/design.md",
+          "sha256": "18b9c43dd72675138d63485c981c553f602fec3dcd5322088433c2157d0c750c"
+        },
+        {
+          "file": ".trellis/tasks/10-03-host-isolation-install-closure/implement.md",
+          "sha256": "76aee5832e325d6d0ceb94de4cf873ffce33b2e350067f56d710e0ec8ff76d04"
+        }
+      ],
+      "scope": "Read-only actual consumer inventory; minimal legacy claim retirement and isolated rehearsal; semantic Astra worker integration and one final installation closure.",
+      "actions": [
+        "local implementation and bounded native leaf dispatch",
+        "isolated tests/install/repeat/failure/rollback",
+        "real separate CCG source commit and exact Harness provenance",
+        "single successor artifact"
+      ],
+      "source": {
+        "threadId": "01a0f2ca-94cb-7468-8234-a2588ee4800a",
+        "channel": "cloud_threads.send_message",
+        "quotes": [
+          "已有明确用户宿主隔离请求覆盖必要实现与演练，当前仅不允许未协调日用安装。对真实目标只读，涉及实际替换/退役仍待最终部署确认。",
+          "请在你的独立最终集成候选合入、刷新Harness内嵌CCG来源记录、复跑受影响和全套检查/安装闭环，与当前legacy owner迁移合同协调。不要盲套或覆盖用户修改，不日用部署；最终给单一可安装包和精简需要确认的实际范围，别各自维护互相不同包。"
+        ],
+        "restrictions": [
+          "no daily mutation",
+          "no permission/auth changes",
+          "no model/Pro submissions",
+          "no push/merge",
+          "no Astra branch writes"
+        ]
+      },
+      "recordedAtUtc": "2026-10-04T01:08:32.842343+00:00"
+    },
+    "planApprovalHistory": [
+      {
+        "status": "approved",
+        "taskId": "host-isolation-install-closure",
+        "version": "installation-closure-1",
+        "reviewedArtifacts": [],
+        "reviewedContext": "Parent reviewed the prior deployment gap list and expressly authorized local implementation/rehearsal. New documents record that scope, without inventing earlier artifact review.",
+        "currentArtifacts": [
+          {
+            "file": ".trellis/tasks/10-03-host-isolation-install-closure/prd.md",
+            "sha256": "c1ebae12423896aef2716bedc60b2597a52998c076990538eb8ec51207aeec85"
+          },
+          {
+            "file": ".trellis/tasks/10-03-host-isolation-install-closure/design.md",
+            "sha256": "a0c78080228fef14d095292c79753bb56ced2efefa72e07a53ab3087cab70993"
+          },
+          {
+            "file": ".trellis/tasks/10-03-host-isolation-install-closure/implement.md",
+            "sha256": "41548b86d487050692d1a1dba7657a9431f84f4034ff5d4f78f89d36ac0959a5"
+          }
+        ],
+        "scope": "Isolated physical roots, exact agent preservation, formal personal source/runtime promotion, offline official npm, stable Claude addon, repeat/failure/rollback.",
+        "actions": [
+          "local code and tests",
+          "isolated prefix/HOME/cache rehearsal",
+          "real local source commit and exact component promotion",
+          "single completed artifact update"
+        ],
+        "source": {
+          "quote": "这份清单表明还有实际实现缺口，并非仅等待安装确认：Harness分根/来源推广、两个agent原字节保留迁移合同、官方npm离线依赖演练、新Claude addon日常可加载方式。请继续在隔离候选把这些范围内缺口补齐并验证，别把未准备命令交用户批准后才发现不能执行。原用户明确要求宿主隔离与Claude桥移植，覆盖这些必要代码/测试；不需要额外用户决策才能保留其现有model/xhigh原字节。保持正式receipt/ownership语义，不绕过漂移保护。",
+          "threadId": "01a0f2ca-94cb-7468-8234-a2588ee4800a",
+          "channel": "cloud_threads.send_message",
+          "restriction": "No real daily installation or permission/credential changes."
+        },
+        "recordedAtUtc": "2026-10-03T22:24:55.370521+00:00"
+      }
+    ]
+  }
+}

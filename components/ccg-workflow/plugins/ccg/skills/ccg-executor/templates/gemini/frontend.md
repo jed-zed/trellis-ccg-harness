@@ -32,4 +32,20 @@ For review-only requests, return:
 5. Concrete fixes.
 6. Verification checklist.
 
+For review-only requests, also include this mandatory score block:
+
+```text
+FRONTEND VALIDATION REPORT
+==========================
+User Experience: XX/20 - [reason]
+Visual Consistency: XX/20 - [reason]
+Accessibility: XX/20 - [reason]
+Performance: XX/20 - [reason]
+Browser Compatibility: XX/20 - [reason]
+
+TOTAL SCORE: XX/100
+```
+
+Score from visible evidence and lower scores for missing evidence. State unresolved blockers explicitly and keep the final judgment conservative.
+
 If a review finding needs code, include a fenced Unified Diff Patch.

@@ -1,6 +1,8 @@
 import type { CcgConfig, CollaborationMode, SupportedLang } from '../types'
 
 export interface CliOptions {
+  kimiModel?: string
+  opencodeModel?: string
   lang?: SupportedLang
   force?: boolean
   skipPrompt?: boolean

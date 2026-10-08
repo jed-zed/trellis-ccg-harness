@@ -270,6 +270,13 @@ func buildGeminiArgs(cfg *Config, targetArg string) []string {
 
 	// Existing args
 	args = append(args, "-o", "stream-json", "-y")
+	// Limit only this explicitly opted-out child. Never edit user settings or HOME.
+	if cfg.DisableMCP {
+		if cfg.MCPAllowlistName == "" {
+			panic("MCP opt-out requires prepareMCPMode before argument construction")
+		}
+		args = append(args, "--allowed-mcp-server-names", cfg.MCPAllowlistName)
+	}
 
 	if cfg.Mode == "resume" {
 		if cfg.SessionID != "" {

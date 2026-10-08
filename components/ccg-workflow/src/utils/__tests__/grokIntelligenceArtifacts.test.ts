@@ -420,10 +420,14 @@ describe('versioned Grok evidence cache', () => {
         rmSync(lockPath, { recursive: true, force: true })
         mkdirSync(lockPath)
         writeFileSync(join(lockPath, 'owner.json'), `${JSON.stringify(replacement)}\n`)
-        contender = withCacheLock({ cacheRoot, key }, async () => {
+        const losingAttempt = withCacheLock({ cacheRoot, key }, async () => {
           contenderRan = true
           return 'must-not-run'
         })
+        contender = losingAttempt
+        // The contender can reject before the outer lock attempt settles.
+        // Observe it now; the assertion below still checks the rejection.
+        void losingAttempt.catch(() => {})
         throw Object.assign(new Error('process is not alive'), { code: 'ESRCH' })
       }
       if (pid === replacement.pid)

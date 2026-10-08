@@ -1,39 +1,42 @@
 import type { CcgConfig, IntelligenceConfig, ModelRouting, ProductManagerConfig, SupportedLang } from '../types'
 import fs from 'fs-extra'
-import { homedir } from 'node:os'
 import { join } from 'pathe'
 import { parse, stringify } from 'smol-toml'
 import { version as packageVersion } from '../../package.json'
+import { assertCodexHostPath, resolveCodexHome } from './host-boundary'
 import {
   createDefaultRoleRouting,
   normalizeModelRouting,
   setRoleProvider,
 } from './model-routing'
 
-// v1.4.0: 配置目录统一到 ~/.claude/.ccg/
-const CCG_DIR = join(homedir(), '.claude', '.ccg')
-const CONFIG_FILE = join(CCG_DIR, 'config.toml')
-
 export function getCcgDir(): string {
-  return CCG_DIR
+  const directory = join(resolveCodexHome(), 'ccg')
+  assertCodexHostPath(directory)
+  return directory
 }
 
 export function getConfigPath(): string {
-  return CONFIG_FILE
+  const configFile = join(getCcgDir(), 'config.toml')
+  assertCodexHostPath(configFile)
+  return configFile
 }
 
 export async function ensureCcgDir(): Promise<void> {
-  await fs.ensureDir(CCG_DIR)
+  const directory = getCcgDir()
+  assertCodexHostPath(directory)
+  await fs.ensureDir(directory)
 }
 
 export async function readCcgConfig(): Promise<CcgConfig | null> {
-  return readCcgConfigAt(CONFIG_FILE)
+  return readCcgConfigAt(getConfigPath())
 }
 
 export async function readCcgConfigAt(
   configFile: string,
   options: { persistMigration?: boolean } = {},
 ): Promise<CcgConfig | null> {
+  assertCodexHostPath(configFile)
   if (!await fs.pathExists(configFile))
     return null
   const content = await fs.readFile(configFile, 'utf-8')
@@ -50,12 +53,14 @@ export async function readCcgConfigAt(
 }
 
 export async function writeCcgConfig(config: CcgConfig): Promise<void> {
+  const configFile = getConfigPath()
+  assertCodexHostPath(configFile)
   await ensureCcgDir()
   const content = stringify({
     ...config,
     routing: normalizeModelRouting(config.routing),
   } as any)
-  await fs.writeFile(CONFIG_FILE, content, 'utf-8')
+  await fs.writeFile(configFile, content, 'utf-8')
 }
 
 const DEFAULT_INTELLIGENCE_CONFIG: IntelligenceConfig = {
@@ -267,9 +272,9 @@ export function createDefaultConfig(options: {
       installed: options.installedWorkflows,
     },
     paths: {
-      commands: join(homedir(), '.claude', 'commands', 'ccg'),
-      prompts: join(CCG_DIR, 'prompts'), // v1.4.0: 移到配置目录
-      backup: join(CCG_DIR, 'backup'),
+      commands: join(getCcgDir(), 'commands'),
+      prompts: join(getCcgDir(), 'prompts'),
+      backup: join(getCcgDir(), 'backup'),
     },
     mcp: {
       provider: options.mcpProvider || 'fast-context',

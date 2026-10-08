@@ -9,6 +9,7 @@ import {
 } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
+import { assertLegacyClaimMutationAllowed, assertPendingClaimStateAllowed } from "./ccg-legacy-claim-guard.mjs";
 
 import {
   assertSafeRegularFileOrAbsent,
@@ -160,8 +161,10 @@ async function assertNoPendingJournal(repoRoot) {
   }
 }
 
-export async function acquireTransactionLock(repoRoot) {
+export async function acquireTransactionLock(repoRoot, { retirementPlanSha256 = null, pendingOperation = null } = {}) {
   const root = path.resolve(repoRoot);
+  await assertLegacyClaimMutationAllowed(root, { retirementPlanSha256 });
+  await assertPendingClaimStateAllowed(root, pendingOperation);
   const { stateDir, lockPath } = transactionStatePaths(root);
   await safeCreateDirectory(root, stateDir, "Transaction state");
   await assertSafeRegularFileOrAbsent(root, lockPath, "Transaction lock");
@@ -180,7 +183,14 @@ export async function acquireTransactionLock(repoRoot) {
       })}\n`,
     );
     await handle.sync();
+    await assertLegacyClaimMutationAllowed(root, { retirementPlanSha256 });
+    await assertPendingClaimStateAllowed(root, pendingOperation);
   } catch (error) {
+    if (handle) {
+      await handle.close().catch(() => {});
+      const current = await readJsonIfPresent(lockPath);
+      if (current?.token === token) await safeRemove(root, lockPath, "Rejected transaction lock");
+    }
     if (error?.code === "EEXIST") {
       throw new Error(
         `Another Harness transaction is running or left a lock at ${lockPath}.`,
@@ -552,6 +562,7 @@ async function pruneSupersededSnapshot(
 }
 
 export async function replaceComponentTransaction(options) {
+  await assertLegacyClaimMutationAllowed(options.repoRoot);
   const repoRoot = path.resolve(options.repoRoot);
   const candidateDir = path.resolve(options.candidateDir);
   assertReplacementIdentity(options);
@@ -1156,6 +1167,7 @@ function buildManagedFilesRecord(context, options) {
 }
 
 export async function replaceManagedFilesTransaction(options) {
+  await assertLegacyClaimMutationAllowed(options.repoRoot);
   const repoRoot = path.resolve(options.repoRoot);
   const lock = await acquireTransactionLock(repoRoot);
   try {
@@ -1634,6 +1646,7 @@ async function performManagedFilesRollback(context, afterRestore) {
 }
 
 export async function rollbackLastTransaction(options) {
+  await assertLegacyClaimMutationAllowed(options.repoRoot);
   const repoRoot = path.resolve(options.repoRoot);
   const recordPath = path.join(
     repoRoot,
@@ -2362,6 +2375,8 @@ function validateRecoveryLock(lock, repoRoot) {
 
 export async function recoverInterruptedTransaction(options) {
   const repoRoot = path.resolve(options.repoRoot);
+  await assertLegacyClaimMutationAllowed(repoRoot);
+  await assertPendingClaimStateAllowed(repoRoot, "transaction-recover");
   const { lockPath, journalPath } = transactionStatePaths(repoRoot);
   const isProcessAlive = options.isProcessAlive ?? defaultIsProcessAlive;
   await ensureSafeDirectoryChain(
@@ -2388,10 +2403,11 @@ export async function recoverInterruptedTransaction(options) {
     );
   }
   if (existingLock) {
+    await assertLegacyClaimMutationAllowed(repoRoot);
     await safeRemove(repoRoot, lockPath, "Stale transaction lock");
   }
 
-  const lock = await acquireTransactionLock(repoRoot);
+  const lock = await acquireTransactionLock(repoRoot, { pendingOperation: "transaction-recover" });
   try {
     const journal = await readJsonIfPresent(journalPath);
     if (!journal) {

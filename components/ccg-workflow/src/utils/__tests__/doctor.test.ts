@@ -143,7 +143,8 @@ describe('doctor command helpers', () => {
     expect(isCodexNativeRequest(['wrapper', '--backend', 'antigravity'])).toBe(true)
     expect(isCodexNativeRequest(['doctor', '--platform', 'codex'])).toBe(true)
     expect(isCodexNativeRequest(['doctor', '--platform=codex'])).toBe(true)
-    expect(isCodexNativeRequest(['doctor'])).toBe(false)
+    expect(isCodexNativeRequest(['doctor', '--gptpro'])).toBe(true)
+    expect(isCodexNativeRequest(['doctor'])).toBe(true)
     expect(isCodexNativeRequest(['doctor', '--platform', 'claude'])).toBe(false)
   })
 
@@ -287,6 +288,7 @@ describe('Codex-only doctor', () => {
       'Codex transaction',
       'CCG role routing',
       'Product manager route',
+      'GPT Pro sidebar files',
     ])
     expect(await fs.pathExists(join(root, '.claude'))).toBe(false)
   })
@@ -316,8 +318,8 @@ describe('Codex-only doctor', () => {
     const output = log.mock.calls.flat().join('\n')
 
     expect(result.ok).toBe(false)
-    expect(output).toContain('ccg routing set search grok')
-    expect(output).not.toContain('ccg codex-mode install')
+    expect(output).toContain('ccg-codex routing set search grok')
+    expect(output).not.toContain('ccg-codex codex-mode install')
     expect(await fs.readFile(configPath, 'utf8')).toBe(invalid)
   })
 
@@ -446,12 +448,40 @@ describe('Codex-only doctor', () => {
       'Codex wrapper',
       'Codex transaction',
     ])
-    expect(output).toContain('ccg codex-mode recover')
+    expect(output).toContain('ccg-codex codex-mode recover')
     expect(output).not.toContain('ccg init --force')
   })
 })
 
 describe('doctor CLI', () => {
+  it('checks missing GPT Pro files without platform config or browser access', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'ccg missing sidebar doctor '))
+    roots.push(root)
+    const result = runCli(root, ['doctor', '--gptpro'], join(root, 'custom codex'))
+    expect(result.status, result.stderr).toBe(1)
+    expect(result.stdout).toContain('CCG Doctor (GPT Pro local files)')
+    expect(result.stdout).toContain('missing:')
+    expect(result.stdout).toContain('approved Harness installer')
+    expect(result.stdout).not.toContain('CCG config')
+    expect(result.stdout).not.toContain('ccg init --force')
+    expect(await fs.pathExists(join(root, '.claude'))).toBe(false)
+    expect(await fs.pathExists(join(root, 'custom codex'))).toBe(false)
+  })
+
+  it('accepts complete local sidebar files without claiming a live transport', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'ccg installed sidebar doctor '))
+    roots.push(root)
+    const codexHome = join(root, 'custom codex')
+    const directory = join(codexHome, 'skills', 'chatgpt-pro-sidebar')
+    for (const file of ['SKILL.md', 'scripts/chatgpt-pro-sidebar.ps1', 'scripts/chatgpt-pro-sidebar-watch.ps1', 'scripts/chatgpt-pro-agent-browser-v2.js', 'scripts/chatgpt-pro-agent-browser-select-pro.js'])
+      await fs.outputFile(join(directory, file), 'fixture\n')
+    const result = runCli(root, ['doctor', '--gptpro'], codexHome)
+    expect(result.status, result.stderr).toBe(0)
+    expect(result.stdout).toContain('installed:')
+    expect(result.stdout).toContain('browser connection and login were not checked')
+    expect(await fs.pathExists(join(root, '.claude'))).toBe(false)
+  })
+
   it('rejects unknown platforms without falling back to legacy checks', async () => {
     const root = await mkdtemp(join(tmpdir(), 'ccg invalid doctor platform '))
     roots.push(root)
@@ -459,9 +489,8 @@ describe('doctor CLI', () => {
     const result = runCli(root, ['doctor', '--platform', 'unknown'])
 
     expect(result.status).toBe(1)
-    expect(result.stdout).toContain('Unsupported platform "unknown"')
-    expect(result.stdout).toContain('--platform claude')
-    expect(result.stdout).toContain('--platform codex')
+    expect(result.stderr).toContain('Personal doctor is Codex-only')
+    expect(result.stdout).not.toContain('CCG Doctor')
     expect(result.stdout).not.toContain('CCG config')
     expect(result.stdout).not.toContain('ccg init --force')
     expect(await fs.pathExists(join(root, '.claude'))).toBe(false)
@@ -501,22 +530,22 @@ describe('doctor CLI', () => {
     const result = runCli(root, ['doctor', '--platform', 'codex'], codexHome)
 
     expect(result.status).toBe(1)
-    expect(result.stdout).toContain('ccg codex-mode recover')
+    expect(result.stdout).toContain('ccg-codex codex-mode recover')
     expect(result.stdout).not.toContain('ccg init --force')
     expect(await fs.pathExists(join(root, '.claude'))).toBe(false)
   })
 
-  it('keeps bare doctor on the legacy Claude installation contract', () => {
+  it('runs bare doctor on the Codex installation contract', () => {
     const root = join(tmpdir(), `ccg legacy doctor ${Date.now()}`)
     roots.push(root)
 
     const result = runCli(root, ['doctor'])
 
     expect(result.status).toBe(1)
-    expect(result.stdout).toContain('CCG config')
-    expect(result.stdout).toContain('Commands')
-    expect(result.stdout).toContain('Hook registration')
-    expect(result.stdout).not.toContain('CCG Doctor (Codex)')
+    expect(result.stdout).toContain('CCG Doctor (Codex)')
+    expect(result.stdout).toContain('Codex version')
+    expect(result.stdout).not.toContain('Hook registration')
+    expect(result.stdout).not.toContain('~/.claude/.ccg/config.toml')
   })
 
   it('uses the same custom CODEX_HOME for lifecycle repair and doctor', async () => {

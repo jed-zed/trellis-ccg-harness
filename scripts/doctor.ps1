@@ -149,9 +149,12 @@ else {
   Add-Pass "$goVersion"
 }
 
-$ccgVersion = Read-Version "ccg"
+$ccgTargetJson = & node (Join-Path $PSScriptRoot "ccg-runtime.mjs") --package ([string]$manifest.ccg.package)
+if ($LASTEXITCODE -ne 0) { throw "Personal CCG package identity is invalid." }
+$ccgTarget = ($ccgTargetJson -join [Environment]::NewLine) | ConvertFrom-Json
+$ccgVersion = Read-Version ([string]$ccgTarget.command)
 $ccgRuntimeVersion = $null
-if ($ccgVersion -match '(?i)\bccg/(\d+\.\d+\.\d+)\b') {
+if ($ccgVersion -match '(?i)\bccg(?:-codex)?/(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)(?=$|\s)') {
   $ccgRuntimeVersion = $Matches[1]
 }
 elseif ($ccgVersion) {
