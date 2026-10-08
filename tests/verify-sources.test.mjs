@@ -309,7 +309,7 @@ function verifyFetched(value, extra = []) {
   );
 }
 
-function runEnvironmentSanitizationProbe() {
+function runEnvironmentSanitizationProbe(globalConfigPath) {
   const powershell = `
 $errors = $null
 $tokens = $null
@@ -337,6 +337,8 @@ $hostile = @{
   GIT_CONFIG_KEY_0 = "alias.status"
   GIT_CONFIG_VALUE_0 = "!attacker"
   GIT_CONFIG_PARAMETERS = "attacker"
+  GIT_CONFIG_GLOBAL = $env:HARNESS_TEST_GLOBAL_CONFIG
+  GIT_CONFIG_SYSTEM = $env:HARNESS_TEST_GLOBAL_CONFIG
   GIT_EXEC_PATH = "attacker-git-exec"
   GIT_SSH = "attacker-git-ssh"
   GIT_SSH_COMMAND = "attacker-git-ssh-command"
@@ -370,6 +372,10 @@ $nodeResult = Invoke-TrustedTextCommand -Identity $node -Arguments @("--version"
 if ($gitResult.ExitCode -ne 0 -or $nodeResult.ExitCode -ne 0) {
   throw "Trusted commands failed under hostile parent environment."
 }
+$configResult = Invoke-TrustedTextCommand -Identity $git -Arguments @("config", "--global", "--list")
+if ($configResult.ExitCode -ne 0 -or -not [string]::IsNullOrWhiteSpace($configResult.Stdout)) {
+  throw "Git must read an empty global configuration: $($configResult.Stderr)"
+}
 `;
   return run(
     "pwsh",
@@ -379,6 +385,7 @@ if ($gitResult.ExitCode -ne 0 -or $nodeResult.ExitCode -ne 0) {
       env: {
         ...process.env,
         HARNESS_TEST_VERIFY_SCRIPT: VERIFY_SCRIPT,
+        HARNESS_TEST_GLOBAL_CONFIG: globalConfigPath,
       },
     },
   );
@@ -788,7 +795,9 @@ test("source verifier clears Node and Git environment injection before execution
       false,
       "NODE_OPTIONS preload must not execute inside the verifier's Node child",
     );
-    const probe = runEnvironmentSanitizationProbe();
+    const globalConfig = path.join(value.fixtureRoot, "hostile.gitconfig");
+    writeFileSync(globalConfig, "[alias]\nstatus = !attacker\n");
+    const probe = runEnvironmentSanitizationProbe(globalConfig);
     assert.equal(probe.status, 0, `${probe.stdout}\n${probe.stderr}`);
   } finally {
     value.cleanup();

@@ -331,6 +331,15 @@ function isNonemptyString(value) {
   return typeof value === "string" && Boolean(value.trim());
 }
 
+function isProductManagerRequired(taskDirectory) {
+  const { taskPath } = assertCanonicalTaskDirectory(taskDirectory);
+  const required = readJson(taskPath).meta?.productManager?.required;
+  if (required !== undefined && typeof required !== "boolean") {
+    throw new Error("task.json meta.productManager.required must be a boolean.");
+  }
+  return required === true;
+}
+
 function isValidTimestamp(value) {
   return typeof value === "string" && !Number.isNaN(Date.parse(value));
 }
@@ -610,6 +619,9 @@ export function syncProductManagerPlan(taskDirectory) {
     required: false,
   });
   if (current?.planDigest === planDigest) return current;
+  if (current?.currentGate?.status === "awaiting_user_acceptance") {
+    throw new Error("Resolve the pending product-manager acceptance before replacing its plan.");
+  }
   const previous = new Map(
     (current?.milestones ?? []).map((milestone) => [milestone.id, milestone]),
   );
@@ -725,6 +737,7 @@ export function prepareProductManagerReview(
   const canonical = assertCanonicalTaskDirectory(taskDirectory);
   const task = readJson(canonical.taskPath);
   const state = readProductManagerState(canonical.taskDirectory);
+  const reviewRequired = isProductManagerRequired(canonical.taskDirectory);
   const prdPath = path.join(canonical.taskDirectory, "prd.md");
   const designPath = path.join(canonical.taskDirectory, "design.md");
   const implementPath = path.join(canonical.taskDirectory, "implement.md");
@@ -792,6 +805,7 @@ export function prepareProductManagerReview(
     repository_facts: [
       { lifecycle_authority: "trellis" },
       { workspace_writer: "codex" },
+      { product_manager_review_required: reviewRequired },
       { artifacts },
     ],
     evidence_refs: [...evidenceRefs],
@@ -821,6 +835,7 @@ export function prepareProductManagerReview(
     repoRoot: path.resolve(repoRoot),
     stateRevision: state.stateRevision,
     planDigest: state.planDigest,
+    reviewRequired,
   };
 }
 
@@ -892,7 +907,8 @@ function assertPreparedReviewIsCurrent(taskDirectory, prepared) {
     current.input.input_digest !== prepared.input.input_digest ||
     current.input.evidence_digest !== prepared.input.evidence_digest ||
     current.stateRevision !== prepared.stateRevision ||
-    current.planDigest !== prepared.planDigest
+    current.planDigest !== prepared.planDigest ||
+    current.reviewRequired !== prepared.reviewRequired
   ) {
     throw new Error(
       "Stale product-manager response: current input or evidence identity changed.",
@@ -959,6 +975,12 @@ export function applyProductManagerReview(taskDirectory, prepared, response) {
   const milestone = state.milestones.find(
     (item) => item.id === prepared.input.checkpoint_id,
   );
+  const required = prepared.reviewRequired;
+  const merged = required && prepared.input.trigger_type === "FINAL_REVIEW" &&
+    canMergeFinalAcceptance(state, milestone, prepared, response);
+  if (state.currentGate?.status === "awaiting_user_acceptance" && !merged) {
+    throw new Error("A pending product-manager acceptance cannot be replaced by another review.");
+  }
   if (
     prepared.input.trigger_type === "MILESTONE_REVIEW" &&
     !milestone
@@ -970,23 +992,10 @@ export function applyProductManagerReview(taskDirectory, prepared, response) {
     invocationKey: prepared.invocationKey,
     inputDigest: response.input_digest,
     evidenceDigest: response.evidence_digest,
+    required,
   };
   state.latestAdvice = createAdviceProjection(response);
   if (prepared.input.trigger_type === "FINAL_REVIEW") {
-    const merged = canMergeFinalAcceptance(
-      state,
-      milestone,
-      prepared,
-      response,
-    );
-    if (
-      state.currentGate?.status === "awaiting_user_acceptance" &&
-      !merged
-    ) {
-      throw new Error(
-        "FINAL_REVIEW cannot replace a pending milestone acceptance gate.",
-      );
-    }
     state.finalReview = {
       ...state.finalReview,
       ...review,
@@ -1008,10 +1017,12 @@ export function applyProductManagerReview(taskDirectory, prepared, response) {
     milestone.pmReview = review;
     milestone.reviewStale = false;
     milestone.evidenceRefs = response.evidence_refs;
-    milestone.status =
-      response.verdict === "accepted"
-        ? "awaiting_user_acceptance"
-        : "blocked";
+    if (required) {
+      milestone.status =
+        response.verdict === "accepted"
+          ? "awaiting_user_acceptance"
+          : "blocked";
+    }
   }
   const decisionTrigger = [
     "INTAKE_REVIEW",
@@ -1019,16 +1030,15 @@ export function applyProductManagerReview(taskDirectory, prepared, response) {
     "DRIFT_REVIEW",
   ].includes(prepared.input.trigger_type);
   const needsDecisionGate =
-    decisionTrigger &&
-    (
-      ["needs_user_decision", "reopen_request", "unavailable"].includes(
-        response.verdict,
-      ) ||
-      response.material_change_proposal !== null
-    );
-  if (decisionTrigger && !needsDecisionGate) {
+    ["needs_user_decision", "reopen_request"].includes(response.verdict) ||
+    response.material_change_proposal != null ||
+    response.reopen_request != null ||
+    (required && decisionTrigger && response.verdict !== "accepted");
+  if (!needsDecisionGate && (decisionTrigger || !required)) {
     state.currentGate = null;
-    state.nextAction = response.recommended_next_action;
+    state.nextAction = decisionTrigger && response.verdict === "accepted"
+      ? response.recommended_next_action
+      : `Continue approved Trellis work; optional PM verdict: ${response.verdict}. See latestAdvice.`;
     state.history.push({
       type: "product_manager_review",
       checkpointId: prepared.input.checkpoint_id,
@@ -1044,7 +1054,9 @@ export function applyProductManagerReview(taskDirectory, prepared, response) {
     );
   }
   const gateKind =
-    prepared.input.trigger_type === "FINAL_REVIEW"
+    !required && needsDecisionGate
+      ? "decision"
+      : prepared.input.trigger_type === "FINAL_REVIEW"
       ? state.finalReview?.mergedWithMilestone
         ? "merged"
         : "final"
@@ -1323,6 +1335,16 @@ export async function runInstalledProductManagerReview(
     env = process.env,
   },
 ) {
+  if (!responseFile && !allowProviderCall) {
+    if (isProductManagerRequired(taskDirectory)) {
+      throw new Error("Required product-manager review needs an authorized Provider call or a saved response.");
+    }
+    return {
+      ...buildProductManagerStatus(taskDirectory),
+      reviewStatus: "authorization_required",
+      nextAction: "Optional PM was not called. Continue approved Trellis work within existing authorization.",
+    };
+  }
   const contract = readJson(path.join(repoRoot, ".harness", "adapter.json"));
   const sources = readJson(path.join(repoRoot, "harness.sources.json"));
   const claudeTransport = readProjectClaudeTransport(repoRoot);
@@ -1665,7 +1687,7 @@ export function respondToProductManagerGate(
       "An unavailable product-manager verdict requires retry or 忽略风险并继续.",
     );
   }
-  if (milestone) {
+  if (milestone && gate.kind !== "decision") {
     milestone.status =
       decision.kind === "accepted"
         ? "completed"
@@ -1712,7 +1734,13 @@ export function respondToProductManagerGate(
   );
 }
 
-export function determineProductManagerFinalEligibility(state) {
+export function determineProductManagerFinalEligibility(state, { required = true } = {}) {
+  if (state.currentGate?.status === "awaiting_user_acceptance") {
+    return { eligible: false, conclusion: "blocked", reasons: ["user_acceptance:pending"] };
+  }
+  if (!required) {
+    return { eligible: true, conclusion: "not_required", reasons: [] };
+  }
   const reasons = [];
   for (const milestone of state.milestones) {
     if (!["completed", "user_overridden"].includes(milestone.status)) {
@@ -1764,6 +1792,10 @@ export function determineProductManagerFinalEligibility(state) {
 
 export function buildProductManagerStatus(taskDirectory) {
   const state = readProductManagerState(taskDirectory);
+  // Legacy accepted/required reviews retain their completion contract.
+  const required = isProductManagerRequired(taskDirectory) ||
+    state.milestones.some((item) => item.pmReview && item.pmReview.required !== false) ||
+    Boolean(state.finalReview && state.finalReview.required !== false);
   return {
     schemaVersion: 1,
     taskId: state.taskId,
@@ -1774,13 +1806,14 @@ export function buildProductManagerStatus(taskDirectory) {
     currentGate: state.currentGate,
     progress: calculateProgress(state.milestones),
     nextAction: state.nextAction,
+    reviewRequired: required,
     latestAdvice: state.latestAdvice
       ? {
           ...state.latestAdvice,
           stale: state.latestAdvice.planRevision !== state.planRevision,
         }
       : null,
-    finalEligibility: determineProductManagerFinalEligibility(state),
+    finalEligibility: determineProductManagerFinalEligibility(state, { required }),
   };
 }
 

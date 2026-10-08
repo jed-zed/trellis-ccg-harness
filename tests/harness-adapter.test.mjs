@@ -1406,3 +1406,33 @@ test("Grok probe redacts provider failures and stays optional when unset", async
     "HARNESS_GROK_API_KEY",
   ]);
 });
+
+test("canonical context permits no active task without hiding task errors", () => {
+  const fixture = createFixture();
+  try {
+    const context = buildCanonicalContext(fixture.repoRoot, {
+      runner: (command, args, options) => args.at(-1) === "current"
+        ? { status: 1, stdout: "", stderr: "" }
+        : fixture.runner(command, args, options),
+    });
+    assert.equal(context.task, null);
+    assert.equal(context.sources.ccg.gitTree, "personal-tree");
+    assert.equal(context.authorities.lifecycle, "trellis");
+
+    fixture.state.taskPath = ".trellis/tasks/missing-task";
+    assert.throws(
+      () => buildCanonicalContext(fixture.repoRoot, { runner: fixture.runner }),
+      { code: "TASK_METADATA_MISSING" },
+    );
+    assert.throws(
+      () => buildCanonicalContext(fixture.repoRoot, {
+        runner: (command, args, options) => args.at(-1) === "current"
+          ? { status: 2, stdout: "", stderr: "Task pointer is malformed." }
+          : fixture.runner(command, args, options),
+      }),
+      { code: "TASK_RESOLUTION_FAILED" },
+    );
+  } finally {
+    fixture.cleanup();
+  }
+});

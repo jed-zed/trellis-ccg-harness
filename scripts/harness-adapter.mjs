@@ -71,7 +71,7 @@ Usage:
   node scripts/harness-adapter.mjs grok-probe [--json] [--chat] [--search] [--live]
 
 Notes:
-  - context reads the active canonical Trellis task.
+  - context reads project context; task is null when no Trellis task is active.
   - conflicts is offline; --ci skips user-level plugin and hook inspection.
   - --skip-runtime is reserved for doctor.ps1 after its native CCG CLI probe.
   - grok-probe is explicit and may call a paid provider. It reads only

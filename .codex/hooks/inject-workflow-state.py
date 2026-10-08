@@ -200,6 +200,15 @@ def load_product_manager_gate(task_dir: Path) -> Optional[str]:
         return None
     gate = state.get("currentGate")
     if not isinstance(gate, dict) or gate.get("status") != "awaiting_user_acceptance":
+        advice = state.get("latestAdvice")
+        if gate is None and isinstance(advice, dict) and advice.get("verdict") == "unavailable":
+            return (
+                "<product-manager-advice>\n"
+                "Product-manager evidence is unavailable; no user acceptance gate is pending.\n"
+                "Continue independently authorized work and report the missing review. "
+                "Do not bypass a required review, claim acceptance, or invoke a Provider without authorization.\n"
+                "</product-manager-advice>"
+            )
         return None
     checkpoint = gate.get("checkpointId")
     verdict = gate.get("pmVerdict")
@@ -222,8 +231,8 @@ def load_product_manager_gate(task_dir: Path) -> Optional[str]:
         f"Resume breadcrumb: {next_action.strip()}\n"
         "Show `node scripts/harness-adapter.mjs pm status` and accept only:\n"
         f"{responses}\n"
-        "Do not continue implementation, finish, or archive until `pm respond` "
-        "records one of these decisions.\n"
+        "Do not pass this checkpoint or finish/archive until `pm respond` "
+        "records one of these decisions. Independent authorized work may continue.\n"
         "</product-manager-gate>"
     )
 

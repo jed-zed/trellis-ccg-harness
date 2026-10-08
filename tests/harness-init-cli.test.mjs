@@ -28,6 +28,7 @@ import {
   markProjectReady,
   migrateProjectProductManager,
   runHarnessInitCli,
+  syncProjectPolicy,
   validateProjectContract,
 } from "../.agents/skills/harness-init/scripts/harness-init-core.mjs";
 
@@ -150,6 +151,47 @@ function setOwnedPolicyProjection(repoRoot, policy, policyVersion) {
     renderedBlockSha256;
   writeFileSync(ownershipPath, canonicalJson(ownership));
 }
+
+test("policy-only sync upgrades owned projections without rewriting the project contract", async () => {
+  const value = fixture();
+  try {
+    const contractPath = writeContract(value.repoRoot, approvedContract());
+    await applyProjectContract({ repoRoot: value.repoRoot, contractPath, skillRoot: SKILL_ROOT });
+    setOwnedPolicyProjection(value.repoRoot, "# Previous policy\n", 7);
+    const agentsPath = path.join(value.repoRoot, "AGENTS.md");
+    writeFileSync(agentsPath, `User notes stay intact.\n${readFileSync(agentsPath, "utf8")}`);
+    const preserved = ["project.json", "project.schema.json", "product-manager.schema.json", "third-party-sources.json"];
+    const before = preserved.map((name) => readFileSync(path.join(value.repoRoot, ".harness", name)));
+    const result = await syncProjectPolicy({ repoRoot: value.repoRoot, skillRoot: SKILL_ROOT });
+    assert.deepEqual(result.changedPaths.sort(), [".harness/ownership.json", ".harness/policies/collaboration-policy.md", "AGENTS.md"]);
+    assert.match(readFileSync(agentsPath, "utf8"), /^User notes stay intact\./);
+    assert.equal(readFileSync(path.join(value.repoRoot, PROJECT_POLICY_PATH), "utf8"), readFileSync(POLICY_PATH, "utf8"));
+    for (const [index, name] of preserved.entries()) {
+      assert.deepEqual(readFileSync(path.join(value.repoRoot, ".harness", name)), before[index]);
+    }
+    assert.deepEqual(await syncProjectPolicy({ repoRoot: value.repoRoot, skillRoot: SKILL_ROOT }), { status: "unchanged", changedPaths: [] });
+  } finally { value.cleanup(); }
+});
+
+test("policy-only sync rejects modified ownership and rolls back a partial projection", async () => {
+  const value = fixture();
+  try {
+    const contractPath = writeContract(value.repoRoot, approvedContract());
+    await applyProjectContract({ repoRoot: value.repoRoot, contractPath, skillRoot: SKILL_ROOT });
+    setOwnedPolicyProjection(value.repoRoot, "# Previous policy\n", 7);
+    const paths = ["AGENTS.md", PROJECT_POLICY_PATH, ".harness/ownership.json"];
+    const before = paths.map((name) => readFileSync(path.join(value.repoRoot, name)));
+    await assert.rejects(syncProjectPolicy({
+      repoRoot: value.repoRoot, skillRoot: SKILL_ROOT,
+      faultInjector: (phase) => { if (phase === "after-target:AGENTS.md") throw new Error("fixture interrupted projection"); },
+    }), /fixture interrupted/);
+    for (const [index, name] of paths.entries()) assert.deepEqual(readFileSync(path.join(value.repoRoot, name)), before[index]);
+    assert.deepEqual(transactionResidue(value.repoRoot), []);
+    writeFileSync(path.join(value.repoRoot, PROJECT_POLICY_PATH), "User changed this policy.\n");
+    await assert.rejects(syncProjectPolicy({ repoRoot: value.repoRoot, skillRoot: SKILL_ROOT }), /modified/i);
+    assert.deepEqual(readFileSync(path.join(value.repoRoot, "AGENTS.md")), before[0]);
+  } finally { value.cleanup(); }
+});
 
 async function waitForFile(filePath, child) {
   const deadline = Date.now() + 10_000;
@@ -381,7 +423,7 @@ test("approved contracts atomically create the owned Harness contract", async ()
       },
     ]);
     assert.deepEqual(ownership.policy, {
-      policyVersion: 10,
+      policyVersion: 11,
       markerFormatVersion: 1,
       sourcePath: ".harness/policies/collaboration-policy.md",
       sourceSha256: sha256(readFileSync(POLICY_PATH)),
@@ -1688,7 +1730,7 @@ test("policy content cannot change without a policy version bump", async () => {
       "# Harness Collaboration Policy",
       "# Harness Collaboration Policy without version bump",
     );
-    setOwnedPolicyProjection(value.repoRoot, differentPolicy, 10);
+    setOwnedPolicyProjection(value.repoRoot, differentPolicy, 11);
     const before = {
       agents: readFileSync(path.join(value.repoRoot, "AGENTS.md"), "utf8"),
       policy: readFileSync(

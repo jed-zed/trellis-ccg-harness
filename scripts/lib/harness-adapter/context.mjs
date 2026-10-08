@@ -200,16 +200,22 @@ export function buildCanonicalContext(
 ) {
   const contract = readJson(path.join(repoRoot, ".harness", "adapter.json"));
   const sources = readJson(path.join(repoRoot, "harness.sources.json"));
-  const task = taskResolver(repoRoot, {
-    runner,
-    env,
-    platform: pythonPlatform,
-  });
+  let task;
+  try {
+    task = taskResolver(repoRoot, {
+      runner,
+      env,
+      platform: pythonPlatform,
+    });
+  } catch (error) {
+    if (error.code !== "NO_ACTIVE_TASK") throw error;
+    task = null;
+  }
   const context = {
     schemaVersion: contract.schemaVersion,
     harness: contract.harness.definition,
     authorities: contract.authorities,
-    task: {
+    task: task ? {
       id: task.metadata.id,
       title: task.metadata.title,
       status: task.metadata.status,
@@ -220,7 +226,7 @@ export function buildCanonicalContext(
         task.directory,
         task.metadata.id,
       ),
-    },
+    } : null,
     sources: {
       trellis: {
         package: sources.trellis.package,

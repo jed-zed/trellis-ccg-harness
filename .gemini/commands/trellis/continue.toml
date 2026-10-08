@@ -1,7 +1,7 @@
 description = "Trellis: continue"
 
 prompt = """
-Read Request Triage in `.trellis/workflow.md` first. Fast-lane requests need no task lifecycle. For structured work, reuse the matching task. Complex tasks require `prd.md`, `design.md`, and `implement.md`. Present completed planning artifacts for review and wait for explicit implementation approval; task-creation consent alone does not authorize implementation. Resume an approved implementation at its first unfinished step.
+Read Request Triage in `.trellis/workflow.md` first. Fast-lane requests need no task lifecycle. For authorized structured work, automatically reuse or create the matching task unless the user opted out. Complex tasks require `prd.md`, `design.md`, and `implement.md`. Apply `.trellis/workflow.md#shared-plan-approval`; reuse actual same-scope approval and ask only for a required unapproved plan or material decision. Resume an approved implementation at its first unfinished step.
 
 Load only missing context through `get_context.py --mode phase --step <X.Y> --platform gemini`. Follow that canonical guidance, including required artifacts, project lint/type-check/tests, coverage requirements, dispatch authorization and pending hard user gates. Do not duplicate the workflow into a second checklist or force a commit before completion.
 

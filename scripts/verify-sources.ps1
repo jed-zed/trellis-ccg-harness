@@ -336,11 +336,7 @@ function New-TrustedProcessStartInfo {
     $startInfo.Environment["WINDIR"] = $windowsDirectory
   }
   if ([string]$Identity.Name -ceq "git") {
-    $nullDevice = if (
-      [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform(
-        [System.Runtime.InteropServices.OSPlatform]::Windows
-      )
-    ) { "NUL" } else { "/dev/null" }
+    $nullDevice = "/dev/null"
     $startInfo.Environment["GIT_CONFIG_NOSYSTEM"] = "1"
     $startInfo.Environment["GIT_CONFIG_GLOBAL"] = $nullDevice
     $startInfo.Environment["GIT_CONFIG_COUNT"] = "0"

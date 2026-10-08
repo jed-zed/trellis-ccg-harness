@@ -16,7 +16,7 @@ python ./.trellis/scripts/get_context.py --mode phase
 
 If context includes `Trellis update available:`, preserve that full operational hint when reporting it; an available update does not authorize an installation.
 
-Reuse the matching task. Obtain creation consent only if a new task is needed and consent is missing. Route `planning` to requirements, design and execution planning. Complex tasks must have `prd.md`, `design.md`, and `implement.md`; lightweight structured tasks may be PRD-only. Present the completed plan for explicit user approval before `task.py start`. Route `in_progress` to the next unfinished implementation/check step.
+Automatically reuse or create the matching task for authorized structured development unless the user opted out for this scope/session. Route `planning` to requirements, design and execution planning. Complex tasks must have `prd.md`, `design.md`, and `implement.md`; lightweight structured tasks may be PRD-only. Apply `.trellis/workflow.md#shared-plan-approval` before `task.py start`; reuse the same actual user approval, and ask only for an unapproved required plan or material decision. Route `in_progress` to the next unfinished implementation/check step.
 
 Read relevant spec indexes before coding; discover packages only when their location is unknown. Load step detail only when needed with `get_context.py --mode phase --step <X.Y> --platform codex`.
 

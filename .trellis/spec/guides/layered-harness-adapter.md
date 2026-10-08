@@ -23,6 +23,12 @@ state under `.ccg/` and `.codex/ccg/` is evidence only and must remain ignored.
 
 ## Collaboration Policy Projection
 
+- `syncProjectPolicy` upgrades only the owned policy, its `AGENTS.md` block and
+  ownership record through the existing authenticated transaction. It preserves
+  contract/Schema bytes and rejects user-modified projections.
+- Approved structured work reuses actual same-scope plan approval across
+  Trellis/CCG handoff and resume. Fast-lane requests keep their existing route;
+  explicit task opt-outs remain effective.
 - `.agents/skills/harness-init/assets/collaboration-policy.md` is the
   distribution's upstream reusable rule source. Each initialized project gets
   an owned policy snapshot at `.harness/policies/collaboration-policy.md`.

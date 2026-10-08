@@ -73,7 +73,18 @@ Fast lane does not ask whether to create a task and does not create task artifac
 
 Fast lane never bypasses applicable input validation, security, data protection, basic accessibility, or explicit project/CI checks. File count and line count alone cannot prove low risk. An active task does not force unrelated simple questions into its lifecycle; preserve its status and any pending gate.
 
-For structured work, reuse the matching task. If a new task is needed, obtain task-creation consent unless already given. Task creation and implementation are separate approvals. Present the completed planning artifacts for review and obtain implementation approval before starting. If task creation is declined, clarify or narrow the request instead of hiding broad work in the fast lane.
+For authorized structured development, automatically reuse or create the task and necessary artifacts unless the user opted out for this scope/session. An explicit no-task instruction remains effective; continue within the authorized scope without fabricating task state. Task bookkeeping and phase transitions are not separate approval questions. Apply Shared plan approval before implementation; unresolved material decisions and the selected original CCG strategy's required gates remain authoritative.
+
+### Shared plan approval
+
+Keep the selected original CCG strategy's gates: direct-fix adds no plan approval; quick-implement requires its compact-plan approval; guided/full retain their analysis, plan/mode, review and quality gates. Do not downgrade a strategy to avoid its gates.
+
+CCG and Trellis use one approval for the same implementation scope. Check the actual user message and, when available, `task.json.meta.planApproval`; a plan file or an agent assertion alone is not approval.
+
+- Reuse approval of the same task, plan scope, risks and action classes across handoff, phase changes and session resume. A fresh summary, formatting-only digest change or evidence refresh does not invalidate it.
+- When no required approval covers the presented plan, show it and wait once. A request to execute an already presented plan can supply that approval; an initial request does not approve an unseen plan.
+- Ask again only for a material scope/risk/acceptance change, a new external effect, withdrawal, or an explicit expiry. Record the source message and covered scope in the existing task metadata; do not invent approvals or another plan authority.
+- Task management and plan approval never authorize unapproved paid/network actions, credential access, installation, publishing, deployment or destructive changes.
 
 ### Planning Artifacts
 
@@ -94,7 +105,7 @@ Complex-task documents and the project quality checklist are required. For other
 
 ### Phase 1: Plan
 
-- 1.0 Reuse or create task `[required · once]` for structured work with consent
+- 1.0 Reuse or create task `[required · once]` automatically for authorized structured work unless the user opted out
 - 1.1 Confirm requirements and planning artifacts `[required · repeatable]`
 - 1.2 Research `[on evidence]`
 - 1.3 Configure context `[on authorized sub-agent dispatch]`
@@ -104,7 +115,7 @@ Complex-task documents and the project quality checklist are required. For other
 [workflow-state:no_task]
 No active task. Default fast lane for simple conversation, read-only local inspection, or known local low-risk edits: needed context -> answer/minimal edit -> applicable quality checks -> report. Do not ask a task-creation question or create task artifacts, journal, start/finish/archive, or commit lifecycle for these requests.
 Unknown impact or ambiguous requests enter the structured lane. Authentication/authorization, credentials, permissions, data migration/loss, Provider/network/paid calls, install/sync/publish, destructive operations, shared core or multiple modules also enter the structured lane. Preserve applicable security, data protection, accessibility, authorization, and project/CI gates.
-Structured work reuses a matching task; obtain creation consent only if a new task is needed and not already authorized. Complex tasks require prd.md, design.md and implement.md, followed by planning review and separate implementation approval. Other extra steps require a trigger fact -> required output -> stop condition. See Request Triage and Planning Artifacts in workflow.md.
+For authorized structured development, automatically reuse/create the task and necessary artifacts unless the user opted out for this scope/session. Complex tasks require prd.md, design.md and implement.md. Apply Shared plan approval and preserve the original CCG strategy gates. Other extra steps require a trigger fact -> required output -> stop condition. See Request Triage and Planning Artifacts in workflow.md.
 [/workflow-state:no_task]
 
 [workflow-state:task_error]
@@ -114,14 +125,14 @@ Preserve existing task fields and artifacts. If the correct status cannot be det
 [/workflow-state:task_error]
 
 [workflow-state:planning]
-Lightweight structured tasks may be PRD-only. Complex tasks must finish prd.md, design.md and implement.md before task.py start. Present the completed plan and wait for explicit user approval; task-creation consent does not authorize implementation.
+Lightweight structured tasks may be PRD-only. Complex tasks must finish prd.md, design.md and implement.md before task.py start. Apply Shared plan approval: reuse an unchanged approved scope without asking again; present a required unapproved plan once.
 Curate context only for authorized sub-agent dispatch. Research, Providers and other extras need a trigger fact -> required output -> stop condition.
 [/workflow-state:planning]
 
 [workflow-state:planning-inline]
-Lightweight structured tasks may be PRD-only. Complex tasks must finish prd.md, design.md and implement.md before task.py start. Present the completed plan and wait for explicit user approval; task-creation consent does not authorize implementation.
+Lightweight structured tasks may be PRD-only. Complex tasks must finish prd.md, design.md and implement.md before task.py start. Apply Shared plan approval: reuse an unchanged approved scope without asking again; present a required unapproved plan once.
 Inline mode skips JSONL curation and loads task artifacts/specs directly. Research, Providers and other extras need a trigger fact -> required output -> stop condition.
-Product-manager gate: if currentGate.status=awaiting_user_acceptance, present that exact review and stop; only pm respond with a fresh explicit response may clear it. Resume the same task afterward.
+Product-manager gate: if currentGate.status=awaiting_user_acceptance, present that exact review and block its dependent checkpoint. Only `pm respond` with a fresh explicit response may clear it. Optional unavailable advice without a gate does not block independent authorized work. Resume the same task afterward.
 [/workflow-state:planning-inline]
 
 ### Phase 2: Execute
@@ -138,7 +149,7 @@ Final verification covers the full affected task scope. Spec, journal, additiona
 [workflow-state:in_progress-inline]
 Read requirements, design, execution plan and specs -> minimal edit -> project lint/typecheck/tests and coverage checklist -> completion record. Codex implements/checks directly; do not dispatch implement/check sub-agents. Research, Providers and other extras require a trigger fact -> required output -> stop condition. Preserve required safety/project gates.
 Update specs only for a changed durable contract; commit only when requested/authorized. Completion does not require a commit, archive commit, or journal bundle.
-Product-manager gate: if currentGate.status=awaiting_user_acceptance, present that exact review and stop; only pm respond with a fresh explicit response may clear it. Resume the same task afterward.
+Product-manager gate: if currentGate.status=awaiting_user_acceptance, present that exact review and block its dependent checkpoint. Only `pm respond` with a fresh explicit response may clear it. Optional unavailable advice without a gate does not block independent authorized work. Resume the same task afterward.
 [/workflow-state:in_progress-inline]
 
 ### Phase 3: Finish
@@ -162,7 +173,7 @@ Load step details only when needed with `get_context.py --mode phase --step <X.Y
 
 #### 1.0 Create task `[required · once]`
 
-Structured lane only. Reuse a matching task before creating another. Obtain creation consent if not already given. Use `task.py create "<title>" --slug <name>` without a date prefix; it creates planning state. Do not automatically start before the requirements and plan are ready. Parent/child tasks are optional only for independently delivered work needing separate ownership; record real dependency ordering in the owning plan.
+Structured lane only. Automatically reuse or create a matching task for authorized development unless the user opted out for this scope/session. Use `task.py create "<title>" --slug <name>` without a date prefix; it creates planning state. Do not automatically start before the requirements and plan are ready. Parent/child tasks are optional only for independently delivered work needing separate ownership; record real dependency ordering in the owning plan.
 
 #### 1.1 Requirement exploration `[required · repeatable]`
 
@@ -180,13 +191,13 @@ For authorized sub-agent work, curate `implement.jsonl` / `check.jsonl` with act
 
 #### 1.4 Activate task `[required · once]`
 
-Review accepted requirements, design, execution plan and applicable gates. Task-creation or planning consent does not authorize coding. After presenting the completed plan, wait for explicit user approval before `task.py start`. Unresolved material decisions and pending hard gates still require the user's response.
+Review accepted requirements, design, execution plan and applicable gates. Task-creation or planning consent does not authorize coding. Apply Shared plan approval before `task.py start`; reuse an unchanged approved scope rather than asking again. Unresolved material decisions and pending hard gates still require the user's response.
 
 Run `task.py start <task-dir>` (inline seed-only context: add `--allow-empty-context`). Follow any actual session-identity error; do not manufacture an identity or use another task's state.
 
 #### 1.5 Completion criteria
 
-Task identity, accepted requirements, reviewed planning artifacts, separate implementation approval and `in_progress` status are required. Complex tasks require prd.md, design.md and implement.md. A delegated task also needs its curated context.
+Unless the user opted out, task identity, accepted requirements, reviewed planning artifacts, applicable Shared plan approval and `in_progress` status are required. Complex tasks require prd.md, design.md and implement.md. A delegated task also needs its curated context.
 
 ## Phase 2: Execute
 

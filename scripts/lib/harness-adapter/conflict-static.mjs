@@ -254,7 +254,7 @@ function checkTaskAuthority({
         : "Trellis task authority could not be resolved safely.",
       noActiveTask ? undefined : redactString(error.message),
       noActiveTask
-        ? "Run context only while a Trellis task is active."
+        ? "Project context is available without a task; task-scoped commands still require one."
         : "Repair the active Trellis task pointer or metadata.",
     );
   }

@@ -51,7 +51,8 @@ node scripts/harness-adapter.mjs pm respond \
 node scripts/harness-adapter.mjs pm final-eligibility
 ```
 
-Only `--allow-provider-call` authorizes a live provider invocation. Provider
+Only `--allow-provider-call`, backed by existing user authorization for the
+same Provider/data/action/cost scope, permits a live provider invocation. Provider
 selection, status, plan sync, response application, and eligibility checks are
 offline operations.
 
@@ -196,7 +197,20 @@ second verdict, authorize fallback, or expose raw credentials.
 
 ### Lifecycle and hooks
 
-- `MILESTONE_REVIEW` and `FINAL_REVIEW` create user hard gates.
+- PM is advisory by default. Codex records an explicit task requirement as
+  `task.json.meta.productManager.required: true`; a missing field is advisory,
+  and a present non-boolean is invalid. This is task-owned policy, never a
+  Provider decision, and is included in the review input digest.
+- For optional reviews, no call authorization means no Provider/runtime/snapshot
+  invocation; report `authorization_required` and continue independently
+  authorized work. Required reviews without authorization or a saved response
+  still fail before execution. Existing scoped user authorization can be reused.
+- Optional `unavailable` or rejected reviews retain advice without creating a
+  user gate, marking a milestone completed, or fabricating acceptance.
+- Required `MILESTONE_REVIEW` and `FINAL_REVIEW` create user hard gates.
+  Material decisions/reopen requests retain a decision gate even for optional
+  review. A pending legacy user gate is never cleared by another review or a
+  plan sync; only its valid response (or the existing safe final merge) advances it.
 - A hard gate begins unpresented. `pm present` records the exact advice/card
   digest and the resulting state revision without calling a Provider.
 - `pm respond` fails closed until that exact gate has been presented. Codex
@@ -207,7 +221,11 @@ second verdict, authorize fallback, or expose raw credentials.
 - Prior blanket approvals, approvals for other checkpoints, and responses sent
   before presentation cannot satisfy a newly created gate.
 - A final verdict never calls Trellis finish/archive.
-- `final-eligibility` is a read-only authorization result.
+- `final-eligibility` is a read-only PM completion result. Advisory-only state
+  returns `eligible: true, conclusion: not_required`; this neither verifies
+  engineering quality nor authorizes a Trellis finish. Required and legacy
+  mandatory reviews retain their acceptance/evidence checks. Any pending
+  user gate blocks PM eligibility regardless of the current task policy.
 - A user response updates the expected `stateRevision` through CAS.
 - The last milestone and final gate may merge only when their bound inputs are
   unchanged and one response can update both atomically.
@@ -228,7 +246,8 @@ second verdict, authorize fallback, or expose raw credentials.
 | Local Claude override is an SSH bridge | Fail closed; do not use it as native Claude |
 | SSH config or protocol v2 probe fails | Return unavailable on SSH only; never start local Claude |
 | Installed provider is empty, disabled, unavailable, or disallowed | Return `unavailable`; never fall back |
-| Live review lacks `--allow-provider-call` and has no saved response | Refuse the call without network access |
+| Optional review lacks `--allow-provider-call` and has no saved response | Return authorization_required without calling the runtime or mutating state; continue independent work |
+| Required review lacks `--allow-provider-call` and has no saved response | Refuse the call before runtime/snapshot/network access |
 | Input/output has missing, unknown, malformed, or oversized fields | Reject before projection |
 | Task/checkpoint/plan/input/evidence digest changes | Preserve raw audit as stale; do not project |
 | Invocation lock has a live owner | Refuse the second owner |
@@ -242,15 +261,16 @@ second verdict, authorize fallback, or expose raw credentials.
 | A prior blanket approval is reused for a new gate | Refuse orchestration; show and restate the current review, then wait for a fresh user response |
 | Claude model override is absent | Pass `--model opus` explicitly; do not inherit or fall back to `sonnet` |
 | Installed command stdout contains anything besides one JSON document | Reject as a protocol error; do not recover by substring parsing |
-| Verdict is rejected, unavailable, or needs a decision | Keep Trellis task in progress and require user action |
-| Final eligibility is false | Do not call Trellis finish/archive |
+| Optional verdict is rejected/unavailable with no material decision | Retain advice and diagnostics; no acceptance gate or automatic Provider retry |
+| Required review fails, or a material decision is proposed | Keep the dependent checkpoint pending; do not fabricate acceptance |
+| Existing user gate is pending | Preserve it, including on plan sync and advisory review; require its fresh presented response |
+| Final eligibility is false | Do not pass the PM completion gate; independent authorized work may continue |
 
 ## 5. Good / Base / Bad Cases
 
-- Good: Codex prepares a `MILESTONE_REVIEW`, explicitly authorizes the selected
-  Claude provider, the
-  validated response matches all digests, and the adapter creates one user gate
-  in the tracked projection.
+- Good: For an explicitly required PM task, Codex prepares a `MILESTONE_REVIEW`, explicitly authorizes the selected
+  Claude provider, the validated response matches all digests, and the adapter
+  creates one user gate in the tracked projection.
 - Base: `pm sync-plan` creates or refreshes the projection from the existing
   Trellis plan without changing `task.json.status` or calling a provider.
 - Good: a saved fake provider response drives offline CI through milestone,
@@ -298,7 +318,8 @@ Assertions must cover:
 - state-revision CAS and atomic merged final response;
 - rich advice round-trip, legacy recovery, presentation-before-response, and
   advice persistence after gate clearing;
-- milestone/final hard gates and Trellis finish separation;
+- optional unavailable and unauthorized calls remaining advisory without fake acceptance;
+- required milestone/final hard gates, legacy pending-card preservation and Trellis finish separation;
 - hooks remaining breadcrumb-only;
 - fake-provider offline E2E with no local login or paid call.
 
@@ -327,6 +348,7 @@ const prepared = prepareProductManagerReview(repoRoot, taskDir, {
 const projected = applyProductManagerReview(taskDir, prepared, response);
 ```
 
-Codex validates the snapshot-bound evidence, the adapter updates only the tracked
-review projection, and a later explicit user response authorizes any Trellis
-lifecycle transition.
+Codex validates the snapshot-bound Provider evidence, the adapter updates only the tracked
+review projection, and Trellis retains lifecycle authority. A required user
+gate needs its explicit response; optional advice alone neither blocks nor
+authorizes a lifecycle transition.
