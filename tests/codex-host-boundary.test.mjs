@@ -50,9 +50,9 @@ for (const [name, calls] of [
     for (const marker of markers) for (const [command,args] of calls) {
       const env = {...baseEnv,...marker};
       const ps = command === "pwsh";
-      if (ps) env.USERPROFILE = shellHome;
+      if (ps) { env.HOME = shellHome; env.USERPROFILE = shellHome; }
       const targetArgs = [...args,ps?"-RepoRoot":"--repo-root",project];
-      if (ps && args.at(-1).endsWith("install.ps1")) targetArgs.push("-HomeDir",home);
+      if (ps) targetArgs.push("-HomeDir",home);
       const result = spawnSync(command,targetArgs,{env,cwd:project,encoding:"utf8",shell:false,timeout:15000});
       assert.equal(result.status,1,[result.error,result.stdout,result.stderr].filter(Boolean).join("\n"));
       assert.match(result.stderr,/require the Codex host/);

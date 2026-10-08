@@ -1,6 +1,6 @@
 import { mkdtemp, mkdir, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { join, parse, resolve } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { configRouting, configureProviderRouting, readCodexRoutingConfig } from '../../commands/config-routing'
 import { readCodexProductManagerConfig } from '../../commands/product-manager'
@@ -31,10 +31,13 @@ afterEach(async () => {
 })
 
 describe('Codex configuration path isolation', () => {
-  it('uses the supplied user home fallback and preserves an explicit G drive Codex home', async () => {
+  it('uses the supplied user home fallback and preserves an explicit drive Codex home', async () => {
     const { userHome } = await fixture()
+    const explicitHome = process.platform === 'win32'
+      ? join(parse(tmpdir()).root, 'CodexData', '.codex')
+      : 'G:\\CodexData\\.codex'
     expect(resolve(resolveCodexHome('', userHome))).toBe(join(userHome, '.codex'))
-    expect(resolveCodexHome(' G:\\CodexData\\.codex ', userHome)).toBe('G:\\CodexData\\.codex')
+    expect(resolveCodexHome(` ${explicitHome} `, userHome)).toBe(explicitHome)
   })
 
   it('resolves CODEX_HOME on each call and stores only in the selected Codex tree', async () => {

@@ -173,6 +173,51 @@ jobs:
       - name: Bootstrap, link the final component, and run Harness doctor
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
+          $ciHome = Join-Path $env:RUNNER_TEMP 'harness-platform-doctor-home'
+          $npmPrefix = Join-Path $env:RUNNER_TEMP 'harness-platform-doctor-npm'
+          New-Item -ItemType Directory -Path $ciHome, $npmPrefix -Force | Out-Null
+          $env:HOME = $ciHome
+          $env:USERPROFILE = $ciHome
+          $env:CODEX_HOME = Join-Path $ciHome '.codex'
+          $env:NPM_CONFIG_PREFIX = $npmPrefix
+          $env:NPM_CONFIG_CACHE = Join-Path $ciHome '.npm-cache'
+          $npmBin = if ($IsWindows) { $npmPrefix } else { Join-Path $npmPrefix 'bin' }
+          $env:PATH = "$npmBin$([System.IO.Path]::PathSeparator)$env:PATH"
+
           ./scripts/bootstrap.ps1 -LinkCcg
-          ccg --version
+          if ($LASTEXITCODE -ne 0) { throw 'Harness bootstrap failed.' }
+          $runtimeJson = & node ./scripts/ccg-runtime.mjs --repo-root (Get-Location).Path
+          if ($LASTEXITCODE -ne 0) { throw 'CCG runtime identity resolution failed.' }
+          $runtime = ($runtimeJson -join [Environment]::NewLine) | ConvertFrom-Json
+          $manifest = Get-Content -LiteralPath ./harness.sources.json -Raw | ConvertFrom-Json
+          $ccgCommand = [string]$runtime.command
+          $expectedVersion = [string]$manifest.ccg.version
+          $prefixRoot = [System.IO.Path]::GetFullPath($npmPrefix).TrimEnd(
+            [System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar
+          ) + [System.IO.Path]::DirectorySeparatorChar
+          $pathComparison = if ($IsWindows) {
+            [System.StringComparison]::OrdinalIgnoreCase
+          } else {
+            [System.StringComparison]::Ordinal
+          }
+          foreach ($cliName in @('trellis', $ccgCommand)) {
+            $cliSource = [System.IO.Path]::GetFullPath(
+              [string](Get-Command -Name $cliName -ErrorAction Stop).Source
+            )
+            if (-not $cliSource.StartsWith($prefixRoot, $pathComparison)) {
+              throw "$cliName resolved outside the isolated npm prefix: $cliSource"
+            }
+            if ($cliName -eq $ccgCommand) {
+              $versionOutput = & $cliSource --version
+              if ($LASTEXITCODE -ne 0) { throw "$ccgCommand --version failed." }
+              $versionText = ($versionOutput -join [Environment]::NewLine).Trim()
+              $namedVersion = "^$([regex]::Escape($ccgCommand))/$([regex]::Escape($expectedVersion))(?=\s|$)"
+              if ($versionText -ne $expectedVersion -and $versionText -notmatch $namedVersion) {
+                throw "$ccgCommand returned unexpected version: $versionText"
+              }
+              Write-Host "Verified $ccgCommand $expectedVersion from $cliSource"
+            }
+          }
           pnpm harness:uninstall
+          if ($LASTEXITCODE -ne 0) { throw 'Harness uninstall failed.' }

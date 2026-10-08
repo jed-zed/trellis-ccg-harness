@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
 import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { join, parse, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 
@@ -62,15 +62,17 @@ describe('standalone personal Grok engine Codex host paths', () => {
       expect(await readFile(join(engineRoots[0], path))).toEqual(await readFile(join(engineRoots[1], path)))
   })
 
-  it('resolves an explicit G drive and user-home fallback in an actual Node child', async () => {
+  it('resolves an explicit drive and user-home fallback in an actual Node child', async () => {
     const { userHome, project, env } = await fixture()
+    const explicitHome = process.platform === 'win32'
+      ? join(parse(tmpdir()).root, 'CodexData', '.codex')
+      : 'G:\\CodexData\\.codex'
     for (const engineRoot of engineRoots) {
       const moduleUrl = pathToFileURL(join(engineRoot, 'lib/host-boundary.mjs')).href
-      const gDriveHome = ' G:\\CodexData\\.codex '
-      const script = `import { resolveCodexHome } from ${JSON.stringify(moduleUrl)}; process.stdout.write(JSON.stringify([resolveCodexHome(${JSON.stringify(gDriveHome)}, ${JSON.stringify(userHome)}), resolveCodexHome("", ${JSON.stringify(userHome)})]));`
+      const script = `import { resolveCodexHome } from ${JSON.stringify(moduleUrl)}; process.stdout.write(JSON.stringify([resolveCodexHome(${JSON.stringify(` ${explicitHome} `)}, ${JSON.stringify(userHome)}), resolveCodexHome("", ${JSON.stringify(userHome)})]));`
       const result = run('--input-type=module', ['-e', script], project, env)
       expect(result.status, result.stderr).toBe(0)
-      expect(JSON.parse(result.stdout)).toEqual(['G:\\CodexData\\.codex', join(userHome, '.codex')])
+      expect(JSON.parse(result.stdout)).toEqual([explicitHome, join(userHome, '.codex')])
     }
   })
 

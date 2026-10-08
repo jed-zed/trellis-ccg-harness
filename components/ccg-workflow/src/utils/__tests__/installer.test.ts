@@ -416,7 +416,7 @@ describe('installWorkflows — binary installation', () => {
       'utf8',
     )
     expect(workflow).toContain(`- '.github/workflows/build-binaries.yml'`)
-    expect(workflow).toContain(`go-version: '1.21.13'`)
+    expect(workflow).toContain(`go-version: '1.26.2'`)
     expect(workflow).toContain(
       'go build -buildvcs=false -trimpath -ldflags="-s -w"',
     )

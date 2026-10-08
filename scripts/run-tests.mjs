@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
-import { readdirSync } from "node:fs";
+import { readdirSync, realpathSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
@@ -19,11 +20,22 @@ if (testFiles.length === 0) {
   process.exit(1);
 }
 
+// Windows runners may expose TEMP through an 8.3 alias (RUNNER~1). Fixtures
+// model physical roots, so give the test process a canonical temporary root.
+const testEnv = { ...process.env };
+if (process.platform === "win32") {
+  const physicalTemp = realpathSync.native(tmpdir());
+  testEnv.TEMP = physicalTemp;
+  testEnv.TMP = physicalTemp;
+  testEnv.TMPDIR = physicalTemp;
+}
+
 const result = spawnSync(
   process.execPath,
   ["--test", "--test-concurrency=1", ...testFiles],
   {
     cwd: repoRoot,
+    env: testEnv,
     stdio: "inherit",
   },
 );

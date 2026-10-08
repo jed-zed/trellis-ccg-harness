@@ -1571,7 +1571,7 @@ test("scoped Codex CCG rejects a legacy bin alias before any command mutation", 
     });
     const result = runSetup(value);
     assert.notEqual(result.status, 0);
-    assert.match(setupDiagnostic(result), /source\/package\/bin identity must match exactly/i);
+    assert.match(setupDiagnostic(result), /source\/package\/bin(?:\s|\|)+identity must match exactly/i);
     assert.deepEqual(commandLog(value), []);
     assert.equal(readFileSync(path.join(value.homeDir, ".claude", "user.txt"), "utf8"), "preserve-user\n");
     assert.equal(readFileSync(path.join(value.repoRoot, ".claude", "project.txt"), "utf8"), "preserve-project\n");
@@ -1590,7 +1590,7 @@ test("explicit wrapper and agent preservation inputs reach an owned Codex update
     const result = runSetup(value, ["-CcgWrapperFile", wrapper, "-AgentPreservationPlan", plan, "-AgentPreservationPlanSha256", digest]);
     assert.equal(result.status, 0, setupDiagnostic(result));
     const calls = commandLog(value).filter(call => call.command === "ccg-codex" && call.args.slice(0, 2).join(" ") === "codex-mode install");
-    assert.deepEqual(calls.at(-1).args, ["codex-mode", "install", "--wrapper-file", wrapper, "--agent-preservation-plan", plan]);
+    assert.deepEqual(calls.at(-1).args, ["codex-mode", "install", "--wrapper-file", wrapper, "--agent-preservation-plan", plan, "--agent-preservation-plan-sha256", `sha256:${digest}`]);
     assert.equal(readFileSync(path.join(value.homeDir, ".claude", "user.txt"), "utf8"), "preserve-user\n");
   } finally { value.cleanup(); }
 });

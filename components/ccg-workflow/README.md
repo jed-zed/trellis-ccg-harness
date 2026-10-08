@@ -40,11 +40,10 @@
 
 **CCG is a workflow engine for Claude Code.** It turns Claude into a multi-model orchestrator — Claude stays in control while dispatching specialized work to Codex (OpenAI), Gemini (Google), and Grok (xAI) through a Go binary bridge.
 
-One command. Describe what you want. The engine handles the rest.
-
-```bash
-npx ccg-workflow    # Install in 60 seconds
-```
+This repository's personal Codex package has its own install procedure and
+`ccg-codex` command. Follow [HOST_ISOLATION.md](./HOST_ISOLATION.md) with a
+reviewed, pinned local wrapper artifact. The upstream Claude CCG installation
+is separate.
 
 ## Architecture
 
@@ -258,52 +257,44 @@ Includes `/ccg:workflow`, `/ccg:plan`, `/ccg:execute`, `/ccg:frontend`, `/ccg:ba
 
 ## Quick Start
 
+Use a reviewed, full 40-character personal commit and a pinned local wrapper.
+Read [HOST_ISOLATION.md](./HOST_ISOLATION.md) before installation, including
+the agent preservation plan when it applies. From a source checkout:
+
 ```bash
-# From a reviewed, full 40-character personal commit
-corepack enable
 pnpm install --frozen-lockfile
 pnpm build
-node bin/ccg.mjs init
+node bin/ccg.mjs codex-mode --help
 ```
 
-Requires **Node.js 20+** and **Claude Code CLI**. Codex CLI, Gemini CLI, and Grok CLI are optional (enable multi-model features).
+Requires **Node.js 20+**, pnpm, and Codex CLI. The installation command
+changes managed Codex paths; run it only after reviewing the plan and artifact.
 
 If you hand this repository URL to an AI agent, have it follow
 [`AI_INSTALL.md`](./AI_INSTALL.md). The repository URL is not installation
-approval. After CCG is installed, `ccg addons` or `ccg addons --json` shows the
-recommended Ponytail, Caveman, grill-me, Context7, Playwright, official
-DeepWiki, and Exa companions without installing anything; the default is always
-skip. Approved auxiliary MCPs are configured separately with `ccg config mcp`.
+approval. `ccg-codex addons --json` lists optional companions without installing
+or configuring them.
 
 ## CLI Commands
 
 ```bash
-node bin/ccg.mjs                          # Interactive menu
-node bin/ccg.mjs init                     # 4-step install wizard
-node bin/ccg.mjs addons                   # Read-only companion add-on catalog
-node bin/ccg.mjs addons --json            # Machine-readable catalog for AI agents
-node bin/ccg.mjs doctor                   # Environment health check
-node bin/ccg.mjs doctor --platform codex  # Explicit Codex ownership/version health check
-node bin/ccg.mjs status                   # Installation overview
-node bin/ccg.mjs codex-mode install       # Install Codex-Led mode
-node bin/ccg.mjs codex-mode uninstall     # Uninstall Codex-Led mode
-node bin/ccg.mjs codex-mode recover       # Recover an interrupted Codex transaction
-node bin/ccg.mjs wrapper --backend antigravity "task" . # Managed provider run; Web UI on by default
-node bin/ccg.mjs routing list              # Show four top-level role providers
-node bin/ccg.mjs routing set frontend antigravity # Change one compatible role only
-node bin/ccg.mjs uninstall                # Uninstall CCG
-node bin/ccg.mjs config mcp               # Configure approved MCPs
-node bin/ccg.mjs diagnose-mcp             # Static MCP diagnosis
-node bin/ccg.mjs diagnose-mcp --smoke     # Opt-in bounded stdio handshake
-node bin/ccg.mjs grok login               # Direct official Grok browser login
-node bin/ccg.mjs doctor --grok            # Non-paid Grok contract doctor
-node bin/ccg.mjs doctor --grok-live       # Explicit paid Web/X smoke
+node bin/ccg.mjs                           # Codex-only help
+node bin/ccg.mjs addons --json             # Read-only companion catalog
+node bin/ccg.mjs doctor                    # Codex health check
+node bin/ccg.mjs status                    # Codex installation overview
+node bin/ccg.mjs codex-mode --help         # Install and preservation options
+node bin/ccg.mjs codex-mode recover        # Recover an interrupted transaction
+node bin/ccg.mjs codex-mode uninstall      # Remove only managed Codex files
 ```
+
+The install action is `node bin/ccg.mjs codex-mode install --wrapper-file "<reviewed-local-wrapper-path>"`;
+review its artifact and preservation requirements
+in [HOST_ISOLATION.md](./HOST_ISOLATION.md) before running it.
 
 Codex mode routes four roles through an explicit capability matrix:
 frontend/backend support `codex`, `gemini`, `claude`, `antigravity`, `grok`,
 and `pi`; search supports `codex` and `grok`; product-manager supports `codex`,
-`gemini`, and `claude`. CCG workflows use `ccg wrapper` for managed
+`gemini`, and `claude`. CCG workflows use `ccg-codex wrapper` for managed
 Claude/Antigravity/Grok/Pi runs; the direct command also accepts ordinary Codex
 and Gemini wrapper backends but never changes role routing. It
 leaves the browser Web UI enabled unless `--lite` is explicit. Frontend or
@@ -312,7 +303,7 @@ product-manager authorization gate at the next applicable checkpoint; every
 Provider call still requires explicit per-call approval. Codex remains the final
 real-workspace writer and verifier.
 
-## Configuration
+## Historical upstream Claude configuration (reference only)
 
 ```
 ~/.claude/

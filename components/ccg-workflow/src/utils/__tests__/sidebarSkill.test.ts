@@ -67,16 +67,17 @@ describe('local sidebar Skill resolution', () => {
   it('fails closed for an existing unreadable SKILL.md', async () => {
     await install(directories[0])
     await install(directories[1])
+    const selectedDirectory = await fs.realpath(directories[0])
     const readFile = fs.readFile.bind(fs)
     vi.spyOn(fs, 'readFile').mockImplementation(((path: string, options: any) => {
-      if (String(path) === join(directories[0], 'SKILL.md'))
+      if (String(path) === join(selectedDirectory, 'SKILL.md'))
         return Promise.reject(Object.assign(new Error('permission denied'), { code: 'EACCES', path }))
       return readFile(path, options)
     }) as typeof fs.readFile)
     const result = await inspectSidebarSkill(roots)
     expect(result.status).toBe('broken')
     expect(result.detail).toContain('EACCES')
-    expect(result.directory).toBe(await fs.realpath(directories[0]))
+    expect(result.directory).toBe(selectedDirectory)
   })
 
   it.each(SIDEBAR_REQUIRED_FILES.slice(1))('requires %s in the selected installation', async (missingFile) => {
@@ -84,7 +85,7 @@ describe('local sidebar Skill resolution', () => {
     await install(directories[1])
     const result = await inspectSidebarSkill(roots)
     expect(result.status).toBe('broken')
-    expect(result.detail).toContain(join(directories[0], missingFile))
+    expect(result.detail).toContain(join(await fs.realpath(directories[0]), missingFile))
     expect(result.directory).toBe(await fs.realpath(directories[0]))
   })
 

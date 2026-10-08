@@ -78,7 +78,11 @@ async function fixture() {
     await writeFile(planPath, `${JSON.stringify(plan, null, 2)}\n`)
     return plan
   }
-  return { root, codexHome, templateDir, oldTemplateDir, baselineDir, ownershipPath,    oldOwnership, sourceOwnership, originals, beforeOriginal, planOptions, installOptions, planPath, writePlan }
+  const planApproval = async () => ({
+    agentPreservationPlan: planPath,
+    agentPreservationPlanSha256: digest(await readFile(planPath)),
+  })
+  return { root, codexHome, templateDir, oldTemplateDir, baselineDir, ownershipPath,    oldOwnership, sourceOwnership, originals, beforeOriginal, planOptions, installOptions, planPath, writePlan, planApproval }
 }
 
 describe('explicit additive user agent preservation', () => {
@@ -89,7 +93,7 @@ describe('explicit additive user agent preservation', () => {
     expect(await snapshot(f.codexHome)).toEqual(before)
     expect(plan.agents).toHaveLength(2)
     expect(plan.ownershipSha256).toBe(digest(f.sourceOwnership))
-    const result = await installCodexModeAt({ ...f.installOptions, agentPreservationPlan: f.planPath })
+    const result = await installCodexModeAt({ ...f.installOptions, ...await f.planApproval() })
     expect(result.success, result.message).toBe(true)
     const ownership = validateOwnershipManifest(await fs.readJSON(f.ownershipPath))
     const preserved = ownership.files.filter(row => row.preservedUser)
@@ -153,9 +157,50 @@ describe('explicit additive user agent preservation', () => {
         : which === 'baseline' ? join(f.baselineDir, roles[0]) : join(f.templateDir, 'agents', roles[0])
     await fs.appendFile(path, '\n')
     const before = await snapshot(f.codexHome)
-    const result = await installCodexModeAt({ ...f.installOptions, agentPreservationPlan: f.planPath })
+    const result = await installCodexModeAt({ ...f.installOptions, ...await f.planApproval() })
     expect(result.success).toBe(false)
     expect(await snapshot(f.codexHome)).toEqual(before)
+  })
+
+  it('rejects a still-valid plan whose bytes change after its SHA-256 is approved', async () => {
+    const f = await fixture()
+    const plan = await f.writePlan()
+    const approvedSha256 = digest(await readFile(f.planPath))
+    const changed = { ...plan, createdAt: new Date(Date.parse(plan.createdAt) + 60_000).toISOString() }
+    await writeFile(f.planPath, `${JSON.stringify(changed, null, 2)}\n`)
+    const changedSha256 = digest(await readFile(f.planPath))
+    expect(changedSha256).not.toBe(approvedSha256)
+    const before = await snapshot(f.codexHome)
+    const held = await installCodexModeAt({
+      ...f.installOptions,
+      agentPreservationPlan: f.planPath,
+      agentPreservationPlanSha256: approvedSha256,
+    })
+    expect(held.success).toBe(false)
+    expect(held.message).toContain('Agent preservation plan SHA-256 differs')
+    expect(await snapshot(f.codexHome)).toEqual(before)
+    const accepted = await installCodexModeAt({
+      ...f.installOptions,
+      agentPreservationPlan: f.planPath,
+      agentPreservationPlanSha256: changedSha256,
+    })
+    expect(accepted.success, accepted.message).toBe(true)
+  })
+
+  it('requires the preservation plan and its SHA-256 as an exact pair', async () => {
+    const f = await fixture()
+    await f.writePlan()
+    const before = await snapshot(f.codexHome)
+    for (const selection of [
+      { agentPreservationPlan: f.planPath },
+      { agentPreservationPlanSha256: digest(await readFile(f.planPath)) },
+      { agentPreservationPlan: f.planPath, agentPreservationPlanSha256: 'A'.repeat(64) },
+    ]) {
+      const result = await installCodexModeAt({ ...f.installOptions, ...selection })
+      expect(result.success).toBe(false)
+      expect(result.message).toContain('plan and its exact reviewed SHA-256 together')
+      expect(await snapshot(f.codexHome)).toEqual(before)
+    }
   })
 
   it('rejects copied plans for another home and arbitrary or duplicate path rows', async () => {
@@ -169,7 +214,7 @@ describe('explicit additive user agent preservation', () => {
     ]) {
       await writeFile(f.planPath, JSON.stringify(changed))
       const before = await snapshot(f.codexHome)
-      expect((await installCodexModeAt({ ...f.installOptions, agentPreservationPlan: f.planPath })).success).toBe(false)
+      expect((await installCodexModeAt({ ...f.installOptions, ...await f.planApproval() })).success).toBe(false)
       expect(await snapshot(f.codexHome)).toEqual(before)
     }
   })
@@ -197,7 +242,7 @@ describe('explicit additive user agent preservation', () => {
     await f.writePlan()
     const hardlink = join(f.root, 'plan-hardlink.json')
     await link(f.planPath, hardlink)
-    expect((await installCodexModeAt({ ...f.installOptions, agentPreservationPlan: hardlink })).success).toBe(false)
+    expect((await installCodexModeAt({ ...f.installOptions, ...await f.planApproval(), agentPreservationPlan: hardlink })).success).toBe(false)
     const junction = join(f.root, 'baseline-link')
     await symlink(f.baselineDir, junction, process.platform === 'win32' ? 'junction' : 'dir')
     await expect(planAgentPreservationAt({ ...f.planOptions, baselineDir: junction })).rejects.toThrow('plain file without links')
@@ -216,7 +261,7 @@ describe('explicit additive user agent preservation', () => {
   it('holds later user edits on reinstall and rollback; never rewrites their model, prompt or original backup', async () => {
     const f = await fixture()
     await f.writePlan()
-    expect((await installCodexModeAt({ ...f.installOptions, agentPreservationPlan: f.planPath })).success).toBe(true)
+    expect((await installCodexModeAt({ ...f.installOptions, ...await f.planApproval() })).success).toBe(true)
     const later = Buffer.from(`${f.originals.get(roles[0])!.toString('utf8')}# later user modification\n`)
     await writeFile(join(f.codexHome, 'agents', roles[0]), later)
     const before = await snapshot(f.codexHome)
@@ -235,7 +280,7 @@ describe('explicit additive user agent preservation', () => {
   it('rejects target template changes and tampered immutable provenance on repeat installation', async () => {
     const f = await fixture()
     await f.writePlan()
-    expect((await installCodexModeAt({ ...f.installOptions, agentPreservationPlan: f.planPath })).success).toBe(true)
+    expect((await installCodexModeAt({ ...f.installOptions, ...await f.planApproval() })).success).toBe(true)
     const row = validateOwnershipManifest(await fs.readJSON(f.ownershipPath)).files.find(row => row.preservedUser)!
     const template = join(f.templateDir, row.relativePath)
     const bytes = await readFile(template)
@@ -254,7 +299,7 @@ describe('explicit additive user agent preservation', () => {
   it('rejects receipt SHA rebasing and preservation on other managed files', async () => {
     const f = await fixture()
     await f.writePlan()
-    expect((await installCodexModeAt({ ...f.installOptions, agentPreservationPlan: f.planPath })).success).toBe(true)
+    expect((await installCodexModeAt({ ...f.installOptions, ...await f.planApproval() })).success).toBe(true)
     const manifest = await fs.readJSON(f.ownershipPath)
     const selected = manifest.files.find((row: any) => row.preservedUser)
     selected.installedSha256 = selected.preservedUser.sha256
@@ -279,6 +324,16 @@ describe('explicit additive user agent preservation', () => {
     const invalid = run(['uninstall', '--agent-preservation-plan', f.planPath])
     expect(invalid.status).not.toBe(0)
     expect(invalid.stderr).toContain('only for install')
+    const missingDigest = run(['install', '--agent-preservation-plan', f.planPath])
+    expect(missingDigest.status).not.toBe(0)
+    expect(missingDigest.stderr).toContain('plan and its exact reviewed SHA-256 together')
+    const missingPlan = run(['install', '--agent-preservation-plan-sha256', '0'.repeat(64)])
+    expect(missingPlan.status).not.toBe(0)
+    expect(missingPlan.stderr).toContain('plan and its exact reviewed SHA-256 together')
+    await f.writePlan()
+    const wrongDigest = run(['install', '--agent-preservation-plan', f.planPath, '--agent-preservation-plan-sha256', `sha256:${'0'.repeat(64)}`])
+    expect(wrongDigest.status).not.toBe(0)
+    expect(wrongDigest.stderr).toContain('Agent preservation plan SHA-256 differs')
     expect(await snapshot(f.codexHome)).toEqual(before)
   })
 
@@ -289,7 +344,7 @@ describe('explicit additive user agent preservation', () => {
     for (const name of roles)
       await fs.copy(join(process.cwd(), 'templates', 'codex', 'agents', name), join(f.templateDir, 'agents', name))
     await f.writePlan()
-    expect((await installCodexModeAt({ ...f.installOptions, agentPreservationPlan: f.planPath })).success).toBe(true)
+    expect((await installCodexModeAt({ ...f.installOptions, ...await f.planApproval() })).success).toBe(true)
     vi.stubEnv('CODEX_HOME', f.codexHome)
     vi.spyOn(console, 'log').mockImplementation(() => {})
     const before = await snapshot(f.codexHome)
@@ -310,7 +365,7 @@ describe('explicit additive user agent preservation', () => {
   it('recovery never snapshots or restores preserved agents, including a user edit after interruption', async () => {
     const f = await fixture()
     await f.writePlan()
-    expect((await installCodexModeAt({ ...f.installOptions, agentPreservationPlan: f.planPath })).success).toBe(true)
+    expect((await installCodexModeAt({ ...f.installOptions, ...await f.planApproval() })).success).toBe(true)
     const runner = join(f.root, 'crash-repeat.mjs')
     await writeFile(runner, [
       `import { installCodexModeAt } from ${JSON.stringify(pathToFileURL(join(process.cwd(), 'src/utils/codex-mode.ts')).href)};`,

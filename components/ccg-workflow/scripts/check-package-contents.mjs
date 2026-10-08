@@ -198,6 +198,7 @@ function npmCliPath() {
   const candidates = [
     process.env.npm_execpath,
     join(dirname(process.execPath), 'node_modules', 'npm', 'bin', 'npm-cli.js'),
+    join(dirname(process.execPath), '..', 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js'),
     ...searchDirectories.map(directory => join(directory, 'node_modules', 'npm', 'bin', 'npm-cli.js')),
   ]
   const found = candidates.find(path => path && existsSync(path) && /npm-cli\.(?:js|cjs)$/.test(path))

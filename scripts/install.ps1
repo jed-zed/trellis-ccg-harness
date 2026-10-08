@@ -1109,7 +1109,7 @@ if ($AgentPreservationPlan -or $AgentPreservationPlanSha256) {
 }
 $codexModeInstallArguments = @("codex-mode", "install")
 if ($CcgWrapperFile) { $codexModeInstallArguments += @("--wrapper-file", $CcgWrapperFile) }
-if ($AgentPreservationPlan) { $codexModeInstallArguments += @("--agent-preservation-plan", $AgentPreservationPlan) }
+if ($AgentPreservationPlan) { $codexModeInstallArguments += @("--agent-preservation-plan", $AgentPreservationPlan, "--agent-preservation-plan-sha256", "sha256:$AgentPreservationPlanSha256") }
 Assert-NotFilesystemRoot $RepoRoot "RepoRoot"
 Assert-NotFilesystemRoot $HomeDir "HomeDir"
 Assert-RealDirectory $RepoRoot "RepoRoot"

@@ -5,8 +5,8 @@ param(
 $ErrorActionPreference = 'Stop'
 $goPath = (Get-Command -Name $GoExecutable -ErrorAction Stop).Source
 $goVersion = & $goPath version
-if ($LASTEXITCODE -ne 0 -or $goVersion -notmatch '\bgo1\.21\.13\b') {
-  throw "Clean-install acceptance requires Go 1.21.13; got: $goVersion"
+if ($LASTEXITCODE -ne 0 -or $goVersion -notmatch '\bgo1\.26\.2\b') {
+  throw "Clean-install acceptance requires Go 1.26.2; got: $goVersion"
 }
 
 $previousRun = $env:CCG_CLEAN_INSTALL_E2E

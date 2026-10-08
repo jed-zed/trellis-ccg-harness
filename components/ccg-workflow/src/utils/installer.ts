@@ -75,19 +75,19 @@ export const EXPECTED_BINARY_VERSION = '5.12.14-personal.20261003.1'
 export const BINARY_INSTALL_FAILURE_POLICY = 'fatal' as const
 
 /**
- * Digests measured from this local personal build. These assets have not been
+ * Digests from two matching builds of the reviewed Git source. Assets are not
  * published; the distinct release tag must be approved before remote installs.
  * A candidate must match before it is made executable or started.
  * Generated from the reviewed source checkout with Go 1.26.2,
  * CGO disabled, and `-buildvcs=false -trimpath -ldflags="-s -w"`.
  */
 export const EXPECTED_BINARY_SHA256: Readonly<Record<string, string>> = Object.freeze({
-  'codeagent-wrapper-darwin-amd64': '2ac1b9b265c29f0e4b27a3c83a3e4fbfba64516d88ece08271e02095cfba0bb2',
-  'codeagent-wrapper-darwin-arm64': '1d8396f5d366d0ed67d0dd99e1108c23a0050530ec1bbd02d23e8bc507b3144a',
-  'codeagent-wrapper-linux-amd64': '5df62166e87f5472e73cc7cc6b2c4a7b4c373900bd0f230d6a017f9ee564d5c8',
-  'codeagent-wrapper-linux-arm64': '8237c59cd669c0434b289bdf5f7003c895ff7fb0b1d6c9995c5833ac6f0d422c',
+  'codeagent-wrapper-darwin-amd64': '8c102c9deabbbca533738f6458c0968f53f614f816b2928c2970605c990698d1',
+  'codeagent-wrapper-darwin-arm64': '08ca6f42e891c5ac1c765c5812078dad59c2fdaf06e34824ef7cdbb26e22a15c',
+  'codeagent-wrapper-linux-amd64': '51d2156fd782542439cac3ab41bfda08cd95aaea2d087d65cfb6cb4dec730ad4',
+  'codeagent-wrapper-linux-arm64': 'b9b48d0e86495eed5bfbee8fed5b24c76476856f07bc5f71bf00017ba7a8e8c5',
   'codeagent-wrapper-windows-amd64.exe': 'a5e95212e83117f0c17cb54d7b1a55c58a07590bd3ede0ceac774f4d7b321f1b',
-  'codeagent-wrapper-windows-arm64.exe': '91bbf77642964294aba1bdaf5c51e9d4c81d34422cabaa8ec1b0de9a9dc6a21b',
+  'codeagent-wrapper-windows-arm64.exe': '6ddd01a5a1f8cda86c7ef6d1b29e048e06ca1ec626af3f23893f89be3ddc210d',
 })
 
 // ═══════════════════════════════════════════════════════
@@ -128,7 +128,7 @@ function normalizeTemplateContent(content: string): string {
 // ═══════════════════════════════════════════════════════
 
 const GITHUB_REPO = 'jed-zed/ccg-gptpro-worflow'
-const RELEASE_TAG = 'wrapper-5.12.13-personal.20261002.1'
+const RELEASE_TAG = `wrapper-${EXPECTED_BINARY_VERSION}`
 
 /** Only the user's authoritative personal release is an executable source. */
 const BINARY_SOURCES = [
@@ -633,7 +633,7 @@ async function installSkillGeneratedCommands(ctx: InstallContext): Promise<void>
  * These enable Codex CLI as an alternative lead orchestrator (Codex-led multi-model mode).
  * Files are installed to ~/.codex/ (global) and user copies AGENTS.md to project root.
  */
-export async function installCodexMode(options: { wrapperFile?: string, agentPreservationPlan?: string } = {}): Promise<{ success: boolean, message: string }> {
+export async function installCodexMode(options: { wrapperFile?: string, agentPreservationPlan?: string, agentPreservationPlanSha256?: string } = {}): Promise<{ success: boolean, message: string }> {
   return installCodexModeAt(options)
 }
 

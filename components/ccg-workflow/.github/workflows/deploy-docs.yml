@@ -38,12 +38,15 @@ jobs:
         run: pnpm docs:build
 
       - uses: actions/configure-pages@v4
+        if: github.event_name == 'workflow_dispatch'
 
       - uses: actions/upload-pages-artifact@v3
+        if: github.event_name == 'workflow_dispatch'
         with:
           path: docs/.vitepress/dist
 
   deploy:
+    if: github.event_name == 'workflow_dispatch'
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

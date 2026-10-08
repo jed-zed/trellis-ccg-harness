@@ -30,7 +30,7 @@ function fixture() {
     }
     return { status: 0, stdout: '', stderr: '', error: undefined }
   }) as unknown as typeof spawnSync
-  return { root, prefix, context: { npmCli, run, platform: 'linux' as const, arch: 'x64' } }
+  return { root, prefix, context: { npmCli, run, platform: 'linux' as const, arch: 'x64', nodeVersion: '22.19.0' } }
 }
 
 afterEach(async () => {

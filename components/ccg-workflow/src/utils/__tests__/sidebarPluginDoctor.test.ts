@@ -1,13 +1,14 @@
 import { spawnSync } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import fs from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { delimiter, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { SIDEBAR_REQUIRED_FILES, sidebarSkillDirectories } from '../sidebar-skill'
 
 const powershell = process.platform === 'win32'
   ? join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
-  : 'pwsh'
+  : process.env.PATH?.split(delimiter).map(directory => join(directory, 'pwsh')).find(existsSync) || 'pwsh'
 const powershellAvailable = spawnSync(powershell, ['-NoProfile', '-NonInteractive', '-Command', '$PSVersionTable.PSVersion.ToString()'], { windowsHide: true, timeout: 10_000 }).status === 0
 const doctorScript = join(process.cwd(), 'plugins', 'ccg', 'scripts', 'doctor.ps1')
 const pluginRoot = join(process.cwd(), 'plugins', 'ccg')
@@ -78,7 +79,10 @@ describe.skipIf(!powershellAvailable)('PowerShell sidebar file doctor', () => {
       await install(directory)
     const { exitCode, report } = runDoctor()
     expect(exitCode).toBe(0)
-    expect(report.checks[0]).toMatchObject({ status: 'PASS', detail: expect.stringContaining(`installed: Installed local files: ${directories[selected]}`) })
+    expect(report.checks[0]).toMatchObject({ status: 'PASS', detail: expect.stringContaining('installed: Installed local files: ') })
+    const installedPath = /installed: Installed local files: (.*?); browser connection/.exec(report.checks[0].detail)?.[1]
+    expect(installedPath).toBeTruthy()
+    expect(await fs.realpath(installedPath!)).toBe(await fs.realpath(directories[selected]))
     expect(report.checks[0].detail).toContain('browser connection and login were not checked')
   })
 
