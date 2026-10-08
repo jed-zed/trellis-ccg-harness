@@ -47,4 +47,3 @@ test("Trellis entry points share approval authority while retaining original CCG
   assert.match(workflow, /guided\/full retain their analysis, plan\/mode, review and quality gates/);
   assert.match(workflow, /Task management and plan approval never authorize unapproved paid\/network actions/);
 });
-
