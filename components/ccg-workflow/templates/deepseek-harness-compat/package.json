@@ -1,0 +1,14 @@
+{
+  "name": "ccg-deepseek-compat",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Optional one-shot DeepSeek Harness opinion tool for the personal Codex workflow",
+  "exports": { ".": "./src/index.js" },
+  "files": ["src", "cordis.patch.yml", "route.json", "README.md"],
+  "dsh": { "bundle": { "patch": "./cordis.patch.yml" } },
+  "peerDependencies": {
+    "@deepseek-ai/schemastery": "^3.18.1",
+    "@deepseek-ai/dsh-tool-subagent": "0.1.0-rc.6"
+  }
+}

@@ -1,3 +1,5 @@
+> **个人版 Codex 专用候选。** 此构建使用独立包 `@jed-zed/ccg-codex-workflow` 和命令 `ccg-codex`。先阅读 [HOST_ISOLATION.md](./HOST_ISOLATION.md)。Claude 保留原作者 CCG，只增独立 `plugins/ccg-gptpro-bridge`。下方旧 Claude 初始化示例保留历史出处，此构建不提供这些入口。
+
 # CCG - Claude + Codex + Gemini 多模型协作
 
 <div align="center">
@@ -38,11 +40,9 @@
 
 **CCG 是 Claude Code 的工作流引擎。** 它让 Claude 变成多模型编排器 —— Claude 保持主控地位，通过 Go 编译的 codeagent-wrapper 将专业任务分发给 Codex（OpenAI）、Gemini（Google）和 Grok（xAI）。
 
-一条命令，描述你要做什么，引擎自动处理一切。
-
-```bash
-npx ccg-workflow    # 60 秒安装
-```
+此仓库的个人 Codex 包使用独立的 `ccg-codex` 命令。请按照
+[HOST_ISOLATION.md](./HOST_ISOLATION.md) 使用已审核的本地 wrapper 文件安装。
+原版 Claude CCG 的安装与此包分开。
 
 ## 架构
 
@@ -52,6 +52,17 @@ npx ccg-workflow    # 60 秒安装
 
 **Claude Code** 是主控编排器。它分析你的意图、选择策略、管理整个工作流。**Hook 引擎**每轮注入状态，确保 Claude 永不丢失上下文 —— 即使上下文被压缩。**codeagent-wrapper**（编译的 Go 二进制）作为桥梁，将 Claude 连接到外部模型进行并行分析和审查。
 
+## MCP 调研与旧 Grok 链路
+
+积极搜索类似项目、可复用代码、已有方案与适用论文。按独立问题派发现有 `web_search` 子代理，以 grok-search MCP 为主要取资料工具，由 Codex 综合；保留原有代理模型与推理级别。
+
+日常只做必要核验：关键结论对应原文；实际复用代码查版本和许可证；采用论文结论查实验条件；未核实的明确标注。不要求再并跑 Grok CLI/ACP，不强制 manifest、哈希证据包或等待旧搜索门禁。
+
+使用已有 `codex` 搜索路由表达 Codex 编排，并保持 `intelligence.auto_route = false`。MCP 是取资料工具，不是新增 Provider；失败如实报告，不自动改走旧 CLI。
+
+Grok 编码后端不变。显式 `/ccg:grok-intel`、`/ccg:grok-verify` 的旧实现和严格校验继续保留，普通工作流不自动调用。下方旧说明作为停用参考保留。
+
+<!-- Legacy research instructions; inactive in ordinary MCP research.
 ## Grok 外部情报层
 
 Grok 现在有两个刻意隔离的定位：
@@ -91,6 +102,7 @@ ccg doctor --grok-live          # 显式、有限额的付费 Web/X 冒烟
 缓存键绑定任务、模式、计划、目标、依赖、diff 和阶段；`--force-refresh` 可跳过缓存。本地证据默认保留 7 天，显式导出的脱敏包保留 30 天。只有传入 `--export <目录>` 才会导出，系统绝不自动导出。必需门禁只能由用户明确授权豁免，并记录理由和时间。
 
 Windows 上的凭据目录和运行目录使用仅所有者 ACL，并拒绝 junction/重解析路径穿越。桌面默认使用浏览器 OAuth；手动 GitHub Actions live smoke 通过受 environment 审批的 `XAI_API_KEY` 运行。若 Windows 运行器没有创建链接的权限，junction 测试会被系统跳过，但生产路径一旦观察到链接或重解析点仍会关闭式拒绝。
+-->
 
 ## 工作流程
 
@@ -198,11 +210,19 @@ CCG 引擎:
 
 | 命令 | 说明 |
 |------|------|
+| `/ccg:grok-intel` | 显式调用的旧 ACP 情报链路，普通调研不依赖 |
+| `/ccg:grok-verify` | 显式调用的旧核验链路，不作为自动最终门禁 |
+| `/ccg:gptpro-plan` | 自动 GPT Pro 侧栏规划证据，可使用已有 MCP 调研 |
+| `/ccg:gptpro-exc` | 自动 GPT Pro 侧栏执行路线审查 |
+| `/ccg:gptpro-review` | 自动 GPT Pro 侧栏审查，按需加入来源发现 |
+
+<!-- Legacy research instructions; inactive in ordinary MCP research.
 | `/ccg:grok-intel` | 通过隔离的 Grok ACP 收集并验证最新 Web/X 证据 |
 | `/ccg:grok-verify` | 根据最新事实核验计划、diff、目标和依赖 |
 | `/ccg:gptpro-plan` | 必需 Grok 路由后，手动获取 GPT Pro 规划证据 |
 | `/ccg:gptpro-exc` | 手动进行 GPT Pro 执行路线审查 |
 | `/ccg:gptpro-review` | 使用规范 Grok 来源记录进行 GPT Pro 最终审查 |
+-->
 
 ### OpenSpec 集成
 
@@ -220,58 +240,45 @@ CCG 引擎:
 
 ## 快速开始
 
+从已审核的个人仓库 40 位完整 commit 开始，并准备已固定哈希的本地 wrapper 文件。
+安装前先阅读 [HOST_ISOLATION.md](./HOST_ISOLATION.md)；如需保留现有代理的模型设置，
+先生成并审核代理保留计划。在源代码目录中可先进行只读准备：
+
 ```bash
-# 从已经审核的个人仓库 40 位完整 commit 开始
-corepack enable
 pnpm install --frozen-lockfile
 pnpm build
-node bin/ccg.mjs init
+node bin/ccg.mjs codex-mode --help
 ```
 
-需要 **Node.js 20+** 和 **Claude Code CLI**。Codex CLI、Gemini CLI 和 Grok CLI 为可选（启用多模型功能）。
+需要 **Node.js 20+**、pnpm 和 Codex CLI。安装会更改受管理的 Codex 路径，
+应在审核计划和本地文件后执行。仓库链接本身不代表安装授权；交给 AI 代理时，
+请让它遵循 [AI_INSTALL.md](./AI_INSTALL.md)。
 
-如果你把仓库链接直接交给 AI 安装，请让它先遵循
-[`AI_INSTALL.md`](./AI_INSTALL.md)。仓库链接本身不代表安装授权。CCG
-安装完成后，可运行 `ccg addons` 或 `ccg addons --json` 只读查看推荐的
-Ponytail、Caveman、grill-me、Context7、Playwright、官方 DeepWiki 和 Exa
-伴生组件；不会自动安装，默认始终跳过。批准后的辅助 MCP 再通过
-`ccg config mcp` 逐项配置。
-
-## CLI 命令大全
+## Codex CLI 命令
 
 ```bash
-node bin/ccg.mjs                          # 交互式菜单
-node bin/ccg.mjs init                     # 4 步安装向导
-node bin/ccg.mjs addons                   # 只读查看推荐的伴生 Add-on
-node bin/ccg.mjs addons --json            # 供 AI 使用的机器可读目录
-node bin/ccg.mjs doctor                   # 环境健康检查
-node bin/ccg.mjs doctor --platform codex  # 显式检查 Codex 所有权与版本健康状态
-node bin/ccg.mjs status                   # 安装概况
-node bin/ccg.mjs codex-mode install       # 安装 Codex 主导模式
-node bin/ccg.mjs codex-mode uninstall     # 卸载 Codex 主导模式
-node bin/ccg.mjs codex-mode recover       # 恢复中断的 Codex 事务
-node bin/ccg.mjs wrapper --backend antigravity "任务" . # 托管执行，默认打开网页
-node bin/ccg.mjs routing list             # 查看四个大角色的 Provider
-node bin/ccg.mjs routing set frontend antigravity # 只切换一个兼容职责
-node bin/ccg.mjs uninstall                # 卸载 CCG
-node bin/ccg.mjs config mcp               # 配置已批准的 MCP
-node bin/ccg.mjs diagnose-mcp             # 静态 MCP 诊断
-node bin/ccg.mjs diagnose-mcp --smoke     # 显式、有界的 stdio 握手
-node bin/ccg.mjs grok login               # 直接进行官方 Grok 浏览器登录
-node bin/ccg.mjs doctor --grok            # 非付费 Grok 合约检查
-node bin/ccg.mjs doctor --grok-live       # 显式付费 Web/X 冒烟
+node bin/ccg.mjs                            # Codex 专用帮助
+node bin/ccg.mjs addons --json              # 只读查看可选组件
+node bin/ccg.mjs doctor                     # Codex 健康检查
+node bin/ccg.mjs status                     # Codex 安装概况
+node bin/ccg.mjs codex-mode --help          # 安装和保留计划参数
+node bin/ccg.mjs codex-mode recover         # 恢复中断的事务
+node bin/ccg.mjs codex-mode uninstall       # 只移除受管理的 Codex 文件
 ```
+
+安装命令为 `node bin/ccg.mjs codex-mode install --wrapper-file "<已审核本地文件的绝对路径>"`；
+代理保留计划和文件验证要求见 [HOST_ISOLATION.md](./HOST_ISOLATION.md)。
 
 Codex 模式按能力矩阵设置四个角色：frontend/backend 支持 `codex`、
 `gemini`、`claude`、`antigravity`、`grok`、`pi`；search 只支持 `codex`、
 `grok`；product-manager 支持 `codex`、`gemini` 和 `claude`。CCG 工作流用
-`ccg wrapper` 托管 Claude/Antigravity/Grok/Pi；直接命令也接受普通
+`ccg-codex wrapper` 托管 Claude/Antigravity/Grok/Pi；直接命令也接受普通
 Codex/Gemini wrapper 后端，但不会修改角色路由。除非显式传入
 `--lite`，否则默认打开浏览器网页。使用 frontend/backend 时还会自动加入
 必需的 search 证据，并在下一适用检查点评估 product-manager 授权门；每次
 Provider 调用仍需显式批准。Codex 仍负责真实工作区的最终写入和验证。
 
-## 配置
+## 原版 Claude 配置（仅供历史参考）
 
 ```
 ~/.claude/

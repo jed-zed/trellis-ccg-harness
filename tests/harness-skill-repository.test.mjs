@@ -5,6 +5,8 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
+  renameSync,
   readFileSync,
   rmSync,
   symlinkSync,
@@ -34,6 +36,8 @@ import {
   saveSkillRepositoryProfile,
   seedPersonalSkillRepository,
 } from "../.agents/skills/harness-init/scripts/harness-init-core.mjs";
+import { installBundledPlatformSkills } from "../.agents/skills/harness-init/scripts/guided-init.mjs";
+import { rollbackPlatformSourceUpdate } from "../.agents/skills/harness-init/scripts/skill-platform-migration.mjs";
 
 const ALL_GLOBAL_PLATFORM_SKILLS = [...GLOBAL_PLATFORM_SKILLS].sort((left, right) =>
   left.localeCompare(right),
@@ -50,6 +54,128 @@ const THIRD_PARTY_SOURCE = JSON.parse(
 const THIRD_PARTY_SOURCE_SHA256 = createHash("sha256")
   .update(`${JSON.stringify(THIRD_PARTY_SOURCE, null, 2)}\n`)
   .digest("hex");
+
+test("split-root Skill migration plans, applies, repeats and rolls back with intact root binding", async () => {
+  const value = fixture();
+  const gitEnv = { ...process.env, GIT_AUTHOR_NAME: "Harness Tests", GIT_AUTHOR_EMAIL: "harness-tests@example.invalid",
+    GIT_COMMITTER_NAME: "Harness Tests", GIT_COMMITTER_EMAIL: "harness-tests@example.invalid" };
+  try {
+    const roots = populateSkillPlatformFixture(value, gitEnv);
+    const codexHome = path.join(value.root, "physical-codex"); mkdirSync(codexHome);
+    const agentsPath = path.join(codexHome, "AGENTS.md");
+    writeFileSync(agentsPath, "# Physical Codex user rules\r\n");
+    const originalAgents = readFileSync(agentsPath);
+    const legacySentinel = readFileSync(path.join(value.homeDir, ".codex", "AGENTS.md"));
+    await initializeReadyFixtureProject(value);
+    const options = { repoRoot: value.repoRoot, homeDir: value.homeDir, codexHome,
+      repositoryPath: value.skillRepository, projectSkills: ["test-first"], preservedPaths: [roots.preserved], gitEnv };
+    const inventory = await planSkillPlatformMigration(options);
+    assert.equal(inventory.codexHome, codexHome);
+    assert.notEqual(inventory.inventorySha256, (await planSkillPlatformMigration({ ...options, codexHome: null })).inventorySha256);
+    const installed = await applySkillPlatformMigration({ ...options, approved: true, expectedInventorySha256: inventory.inventorySha256 });
+    assert.equal(installed.status, "migrated");
+    const ownership = JSON.parse(readFileSync(installed.ownershipPath, "utf8"));
+    assert.equal(ownership.codexHome, codexHome); assert.equal(ownership.managedBlocks[0].path, agentsPath);
+    assert.match(readFileSync(agentsPath, "utf8"), /HARNESS-SKILL-REPOSITORY:START/);
+    assert.deepEqual(readFileSync(path.join(value.homeDir, ".codex", "AGENTS.md")), legacySentinel);
+    assert.equal((await auditSkillPlatformMigration(options)).status, "ready");
+    assert.equal((await applySkillPlatformMigration({ ...options, approved: true, expectedInventorySha256: inventory.inventorySha256 })).status, "unchanged");
+    const installedAgents = readFileSync(agentsPath); writeFileSync(agentsPath, Buffer.concat([installedAgents, Buffer.from("# User changes after deployment\n")]));
+    const userChanged = readFileSync(agentsPath), receipt = readFileSync(installed.ownershipPath);
+    await assert.rejects(rollbackSkillPlatformMigration({ ...options, approved: true, backupId: installed.backupId }), /intact|drift|changed/);
+    assert.deepEqual(readFileSync(agentsPath), userChanged); assert.deepEqual(readFileSync(installed.ownershipPath), receipt);
+    writeFileSync(agentsPath, installedAgents);
+    assert.equal((await rollbackSkillPlatformMigration({ ...options, approved: true, backupId: installed.backupId })).status, "rolled-back");
+    assert.deepEqual(readFileSync(agentsPath), originalAgents);
+    assert.deepEqual(readFileSync(path.join(value.homeDir, ".codex", "AGENTS.md")), legacySentinel);
+  } finally { value.cleanup(); }
+});
+
+test("signed source rollback retains the original receipt and supports audit and reinit after its old alias is removed", async () => {
+  const value = fixture();
+  const gitEnv = { ...process.env, GIT_AUTHOR_NAME: "Harness Tests", GIT_AUTHOR_EMAIL: "harness-tests@example.invalid",
+    GIT_COMMITTER_NAME: "Harness Tests", GIT_COMMITTER_EMAIL: "harness-tests@example.invalid" };
+  try {
+    const roots = populateSkillPlatformFixture(value, gitEnv);
+    await initializeReadyFixtureProject(value);
+    const options = { repoRoot: value.repoRoot, homeDir: value.homeDir, repositoryPath: value.skillRepository,
+      projectSkills: ["test-first"], preservedPaths: [roots.preserved], gitEnv };
+    const inventory = await planSkillPlatformMigration(options);
+    const first = await applySkillPlatformMigration({ ...options, approved: true, expectedInventorySha256: inventory.inventorySha256 });
+    const oldReceipt = readFileSync(first.ownershipPath);
+    const alias = path.join(value.homeDir, ".codex"), codexHome = path.join(value.root, "physical-codex");
+    renameSync(alias, codexHome); symlinkSync(codexHome, alias, process.platform === "win32" ? "junction" : "dir");
+    const source = path.join(roots.harnessRoot, "harness-init", "SKILL.md");
+    writeFileSync(source, `${readFileSync(source, "utf8")}\n# Formal source update\n`);
+    const updated = await installBundledPlatformSkills({ approved: true, homeDir: value.homeDir, codexHome, platformSkillsRoot: roots.harnessRoot });
+    assert.equal(updated.status, "upgraded");
+    assert.equal(JSON.parse(readFileSync(first.ownershipPath, "utf8")).managedBlocks[0].path, path.join(codexHome, "AGENTS.md"));
+    rmSync(alias, { recursive: true });
+    const target = path.join(value.homeDir, ".agents", "skills", "harness-init", "SKILL.md"), installed = readFileSync(target);
+    writeFileSync(target, Buffer.concat([installed, Buffer.from("\n# User edit after deployment\n")]));
+    const changed = readFileSync(target), receipt = readFileSync(first.ownershipPath);
+    const rollback = { approved: true, homeDir: value.homeDir, codexHome, backupId: updated.sourceUpdateBackupId };
+    await assert.rejects(rollbackPlatformSourceUpdate(rollback), /changed after source update/);
+    assert.deepEqual(readFileSync(target), changed); assert.deepEqual(readFileSync(first.ownershipPath), receipt);
+    writeFileSync(target, installed);
+    assert.equal((await rollbackPlatformSourceUpdate(rollback)).status, "rolled-back");
+    assert.deepEqual(readFileSync(first.ownershipPath), oldReceipt); assert.equal(existsSync(alias), false);
+    const physicalAgents = path.join(codexHome, "AGENTS.md"), observedAgents = readFileSync(physicalAgents);
+    writeFileSync(physicalAgents, Buffer.concat([observedAgents, Buffer.from("# New user rule after rollback\n")]));
+    assert.notEqual((await auditSkillPlatformMigration({ ...options, codexHome })).status, "ready");
+    await assert.rejects(installBundledPlatformSkills({ approved: true, homeDir: value.homeDir, codexHome, platformSkillsRoot: roots.harnessRoot }), /different Codex home/);
+    assert.deepEqual(readFileSync(first.ownershipPath), oldReceipt);
+    writeFileSync(physicalAgents, observedAgents);
+    const audit = await auditSkillPlatformMigration({ ...options, codexHome });
+    assert.equal(audit.status, "ready", JSON.stringify(audit));
+    assert.equal((await installBundledPlatformSkills({ approved: true, homeDir: value.homeDir, codexHome, platformSkillsRoot: roots.harnessRoot })).status, "upgraded");
+    assert.equal(existsSync(alias), false);
+  } finally { value.cleanup(); }
+});
+
+test("split-root migration failure after global projection restores only the selected Codex root", async () => {
+  const value = fixture();
+  const gitEnv = { ...process.env, GIT_AUTHOR_NAME: "Harness Tests", GIT_AUTHOR_EMAIL: "harness-tests@example.invalid",
+    GIT_COMMITTER_NAME: "Harness Tests", GIT_COMMITTER_EMAIL: "harness-tests@example.invalid" };
+  try {
+    const roots = populateSkillPlatformFixture(value, gitEnv);
+    const codexHome = path.join(value.root, "physical-codex"); mkdirSync(codexHome);
+    const agentsPath = path.join(codexHome, "AGENTS.md"); writeFileSync(agentsPath, "Physical rules before install\n");
+    const before = readFileSync(agentsPath), legacy = readFileSync(path.join(value.homeDir, ".codex", "AGENTS.md"));
+    await initializeReadyFixtureProject(value);
+    const options = { repoRoot: value.repoRoot, homeDir: value.homeDir, codexHome,
+      repositoryPath: value.skillRepository, projectSkills: [], preservedPaths: [roots.preserved], gitEnv };
+    const inventory = await planSkillPlatformMigration(options);
+    await assert.rejects(applySkillPlatformMigration({ ...options, approved: true, expectedInventorySha256: inventory.inventorySha256,
+      faultInjector: async (phase) => { if (phase === "global-block-installed") throw new Error("fixture split root fault"); } }), /fixture split root fault/);
+    assert.deepEqual(readFileSync(agentsPath), before); assert.deepEqual(readFileSync(path.join(value.homeDir, ".codex", "AGENTS.md")), legacy);
+    assert.equal(existsSync(path.join(value.homeDir, ".agents", "harness", "global-skills.json")), false);
+  } finally { value.cleanup(); }
+});
+
+test("split-root migration failure preserves a concurrent global user edit and its pre-write backup", async () => {
+  const value = fixture();
+  const gitEnv = { ...process.env, GIT_AUTHOR_NAME: "Harness Tests", GIT_AUTHOR_EMAIL: "harness-tests@example.invalid",
+    GIT_COMMITTER_NAME: "Harness Tests", GIT_COMMITTER_EMAIL: "harness-tests@example.invalid" };
+  try {
+    const roots = populateSkillPlatformFixture(value, gitEnv);
+    const codexHome = path.join(value.root, "physical-codex"); mkdirSync(codexHome);
+    const agentsPath = path.join(codexHome, "AGENTS.md"); writeFileSync(agentsPath, "Original physical rules\n");
+    const original = readFileSync(agentsPath);
+    await initializeReadyFixtureProject(value);
+    const options = { repoRoot: value.repoRoot, homeDir: value.homeDir, codexHome,
+      repositoryPath: value.skillRepository, projectSkills: [], preservedPaths: [roots.preserved], gitEnv };
+    const inventory = await planSkillPlatformMigration(options);
+    await assert.rejects(applySkillPlatformMigration({ ...options, approved: true, expectedInventorySha256: inventory.inventorySha256,
+      faultInjector: async (phase) => { if (phase === "global-block-installed") {
+        writeFileSync(agentsPath, "Concurrent user rules\n"); throw new Error("fixture split root user change");
+      } } }), /requires recovery/);
+    assert.equal(readFileSync(agentsPath, "utf8"), "Concurrent user rules\n");
+    const backups = path.join(value.homeDir, ".agents", "harness", "backups");
+    const backupId = readdirSync(backups)[0];
+    assert.deepEqual(readFileSync(path.join(backups, backupId, "original-AGENTS.md")), original);
+  } finally { value.cleanup(); }
+});
 
 test("Project Skill manifest paths remain recognizable across host platforms", () => {
   assert.equal(isPortableAbsolutePath("I:\\skills\\catalog"), true);

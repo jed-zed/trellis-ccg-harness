@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
+  cpSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -10,6 +12,7 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
 import {
   REDACTED,
@@ -255,6 +258,7 @@ function sourceManifest() {
 function createFixture() {
   const repoRoot = mkdtempSync(path.join(tmpdir(), "harness-adapter-"));
   const homeDir = path.join(repoRoot, "home");
+  const codexHome = path.join(homeDir, ".codex");
   const taskDirectory = path.join(
     repoRoot,
     ".trellis",
@@ -405,6 +409,7 @@ function createFixture() {
   return {
     repoRoot,
     homeDir,
+    codexHome,
     taskDirectory,
     runner,
     state,
@@ -538,6 +543,68 @@ test("project Codex hooks use the cross-platform Python launcher", () => {
   assert.doesNotMatch(serialized, /"command":"python(?:3)?\s/);
 });
 
+test("real Trellis consumers retain shared plan approval and the independent PM gate", () => {
+  const python = resolvePython();
+  const workflow = readFileSync(new URL("../.trellis/workflow.md", import.meta.url), "utf8");
+  const fixture = createFixture();
+  const run = (script, args = [], input) => {
+    const result = spawnSync(python.command, [...python.argsPrefix, "-X", "utf8", script, ...args], {
+      cwd: fixture.repoRoot,
+      encoding: "utf8",
+      windowsHide: true,
+      timeout: 10_000,
+      env: { ...process.env, TRELLIS_CONTEXT_ID: "approval-consumer", TRELLIS_HOOKS: "1", TRELLIS_DISABLE_HOOKS: "0", PYTHONDONTWRITEBYTECODE: "1" },
+      input,
+    });
+    assert.equal(result.status, 0, result.stderr || result.error?.message);
+    return result.stdout;
+  };
+  try {
+    cpSync(new URL("../.trellis/scripts", import.meta.url), path.join(fixture.repoRoot, ".trellis", "scripts"), { recursive: true });
+    writeText(path.join(fixture.repoRoot, ".trellis", "workflow.md"), workflow);
+    const contextScript = path.join(fixture.repoRoot, ".trellis", "scripts", "get_context.py");
+    const phase = run(contextScript, ["--mode", "phase", "--platform", "codex"]);
+    assert.match(phase, /### Shared plan approval/);
+    assert.match(phase, /task\.json\.meta\.planApproval/);
+    assert.match(phase, /a plan file or an agent assertion alone is not approval/);
+    assert.match(phase, /direct-fix adds no plan approval; quick-implement requires its compact-plan approval/);
+    assert.match(phase, /presentation revision and a fresh explicit user response/);
+    const createDetail = run(contextScript, ["--mode", "phase", "--step", "1.0", "--platform", "codex"]);
+    assert.match(createDetail, /Automatically reuse or create.*unless the user opted out/);
+    const startDetail = run(contextScript, ["--mode", "phase", "--step", "1.4", "--platform", "codex"]);
+    assert.match(startDetail, /reuse an unchanged approved scope rather than asking again/);
+    for (const skill of ["trellis-start", "trellis-brainstorm", "trellis-continue"]) {
+      assert.match(readFileSync(new URL(`../.agents/skills/${skill}/SKILL.md`, import.meta.url), "utf8"), /workflow\.md#shared-plan-approval/);
+    }
+
+    const hookScript = fileURLToPath(new URL("../.codex/hooks/inject-workflow-state.py", import.meta.url));
+    const hook = () => JSON.parse(run(hookScript, [], JSON.stringify({ cwd: fixture.repoRoot, prompt: "Resume this task" }))).hookSpecificOutput.additionalContext;
+    const noTask = hook();
+    assert.match(noTask, /automatically reuse\/create.*unless the user opted out/);
+    assert.match(noTask, /preserve the original CCG strategy gates/);
+    writeJson(path.join(fixture.taskDirectory, "task.json"), { id: "fixture-task", status: "planning" });
+    writeJson(path.join(fixture.repoRoot, ".trellis", ".runtime", "sessions", "approval-consumer.json"), { current_task: ".trellis/tasks/fixture-task" });
+    for (const mode of ["inline", "auto"]) {
+      writeText(path.join(fixture.repoRoot, ".trellis", "config.yaml"), `codex:\n  dispatch_mode: ${mode}\n`);
+      const planning = hook();
+      assert.match(planning, /Task: fixture-task \(planning\)/);
+      assert.match(planning, /Shared plan approval/);
+      assert.match(planning, /reuse an unchanged approved scope without asking again/);
+      assert.match(planning, /present a required unapproved plan once/);
+      assert.match(planning, mode === "inline" ? /Inline mode skips JSONL curation/ : /Curate context only for authorized sub-agent dispatch/);
+    }
+    writeText(path.join(fixture.repoRoot, ".trellis", "config.yaml"), "codex:\n  dispatch_mode: inline\n");
+    writeJson(path.join(fixture.taskDirectory, "product-manager.json"), { currentGate: { status: "awaiting_user_acceptance", checkpointId: "M1", pmVerdict: "needs_decision" } });
+    const pendingGate = hook();
+    assert.match(pendingGate, /HARD STOP: product-manager user acceptance is pending/);
+    assert.match(pendingGate, /Do not pass this checkpoint or finish\/archive until `pm respond`/);
+    assert.match(pendingGate, /Independent authorized work may continue/);
+    assert.equal(JSON.parse(readFileSync(path.join(fixture.taskDirectory, "task.json"), "utf8")).status, "planning");
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test("builds canonical context from the active Trellis task", () => {
   const fixture = createFixture();
   try {
@@ -611,6 +678,7 @@ test("clean fixture has no blocking conflicts", async () => {
     const report = await auditConflicts(fixture.repoRoot, {
       runner: fixture.runner,
       homeDir: fixture.homeDir,
+      codexHome: fixture.codexHome,
     });
     assert.equal(report.summary.blocking, 0);
     assert.equal(conflictExitCode(report), 0);
@@ -643,6 +711,7 @@ test("invalid project Claude transport is a blocking conflict", async () => {
     const report = await auditConflicts(fixture.repoRoot, {
       runner: fixture.runner,
       homeDir: fixture.homeDir,
+      codexHome: fixture.codexHome,
     });
     const finding = report.findings.find(
       (item) => item.id === "product-manager-managed-assets",
@@ -690,6 +759,7 @@ test("catalog and third-party project Skill path overlap is a blocking conflict"
     const report = await auditConflicts(fixture.repoRoot, {
       runner: fixture.runner,
       homeDir: fixture.homeDir,
+      codexHome: fixture.codexHome,
     });
     const finding = report.findings.find(
       (item) => item.id === "project-skill-path-ownership",
@@ -741,6 +811,7 @@ test("catalog and third-party project Skill parent-child overlap is a blocking c
     const report = await auditConflicts(fixture.repoRoot, {
       runner: fixture.runner,
       homeDir: fixture.homeDir,
+      codexHome: fixture.codexHome,
     });
     const finding = report.findings.find(
       (item) => item.id === "project-skill-path-ownership",
@@ -780,6 +851,7 @@ test("selected third-party project Skill path must be managed by the project con
     const report = await auditConflicts(fixture.repoRoot, {
       runner: fixture.runner,
       homeDir: fixture.homeDir,
+      codexHome: fixture.codexHome,
     });
     const finding = report.findings.find(
       (item) => item.id === "project-skill-path-ownership",
@@ -826,6 +898,7 @@ test("valid third-party project Skill ownership normalizes managed path separato
     const report = await auditConflicts(fixture.repoRoot, {
       runner: fixture.runner,
       homeDir: fixture.homeDir,
+      codexHome: fixture.codexHome,
     });
     const finding = report.findings.find(
       (item) => item.id === "project-skill-path-ownership",
@@ -863,6 +936,7 @@ test("selected third-party project Skill ownership rejects missing or malformed 
       const report = await auditConflicts(fixture.repoRoot, {
         runner: fixture.runner,
         homeDir: fixture.homeDir,
+        codexHome: fixture.codexHome,
       });
       const finding = report.findings.find(
         (item) => item.id === "project-skill-path-ownership",
@@ -902,6 +976,7 @@ test("Codex plugin cache accepts an owned base-version cachebuster", async () =>
     const report = await auditConflicts(fixture.repoRoot, {
       runner: fixture.runner,
       homeDir: fixture.homeDir,
+      codexHome: fixture.codexHome,
     });
     const finding = report.findings.find(
       (item) => item.id === "ccg-plugin-cache",
@@ -943,6 +1018,7 @@ test("Codex plugin cache accepts valid owner-compatible versions", async () => {
     const report = await auditConflicts(fixture.repoRoot, {
       runner: fixture.runner,
       homeDir: fixture.homeDir,
+      codexHome: fixture.codexHome,
     });
     const finding = report.findings.find(
       (item) => item.id === "ccg-plugin-cache",
@@ -973,6 +1049,7 @@ test("missing CCG CLI blocks while a missing plugin cache remains visible", asyn
     const report = await auditConflicts(fixture.repoRoot, {
       runner: fixture.runner,
       homeDir: fixture.homeDir,
+      codexHome: fixture.codexHome,
     });
     const runtime = report.findings.find(
       (item) => item.id === "ccg-runtime-cli",
@@ -998,6 +1075,7 @@ test("deterministic CI skips only user runtime checks", async () => {
     const report = await auditConflicts(fixture.repoRoot, {
       runner: fixture.runner,
       homeDir: fixture.homeDir,
+      codexHome: fixture.codexHome,
       includeRuntimeState: false,
       includeUserState: false,
     });
@@ -1011,6 +1089,7 @@ test("deterministic CI skips only user runtime checks", async () => {
     const ordinary = await auditConflicts(fixture.repoRoot, {
       runner: fixture.runner,
       homeDir: fixture.homeDir,
+      codexHome: fixture.codexHome,
     });
     assert.equal(
       ordinary.findings.find(
@@ -1039,6 +1118,7 @@ test("Trellis assets under project .claude are blocking conflicts", async () => 
     const report = await auditConflicts(fixture.repoRoot, {
       runner: fixture.runner,
       homeDir: fixture.homeDir,
+      codexHome: fixture.codexHome,
     });
     const finding = report.findings.find(
       (item) => item.id === "harness-claude-assets",
@@ -1063,6 +1143,7 @@ test("unrelated project .claude content is reported but preserved", async () => 
     const report = await auditConflicts(fixture.repoRoot, {
       runner: fixture.runner,
       homeDir: fixture.homeDir,
+      codexHome: fixture.codexHome,
     });
     const finding = report.findings.find(
       (item) => item.id === "user-claude-assets",
@@ -1092,6 +1173,7 @@ test("source, runtime state, provider, and Claude drift are blocking", async () 
     const report = await auditConflicts(fixture.repoRoot, {
       runner: fixture.runner,
       homeDir: fixture.homeDir,
+      codexHome: fixture.codexHome,
       env: { ...process.env, HARNESS_ENABLE_CLAUDE: "true" },
     });
     assert.equal(conflictExitCode(report), 2);
@@ -1214,6 +1296,7 @@ test("GPT Pro model and sidebar provider drift are blocking", async () => {
       const report = await auditConflicts(fixture.repoRoot, {
         runner: fixture.runner,
         homeDir: fixture.homeDir,
+        codexHome: fixture.codexHome,
       });
       assert.equal(
         report.findings.find((item) => item.id === testCase.findingId).status,
@@ -1248,6 +1331,7 @@ test("unguarded duplicate Trellis prompt hooks remain warning-only", async () =>
     const report = await auditConflicts(fixture.repoRoot, {
       runner: fixture.runner,
       homeDir: fixture.homeDir,
+      codexHome: fixture.codexHome,
     });
     const overlap = report.findings.find(
       (item) => item.id === "prompt-hook-overlap",
@@ -1290,6 +1374,7 @@ test("guarded global Trellis hook yields to the project hook", async () => {
     const report = await auditConflicts(fixture.repoRoot, {
       runner: fixture.runner,
       homeDir: fixture.homeDir,
+      codexHome: fixture.codexHome,
     });
     const overlap = report.findings.find(
       (item) => item.id === "prompt-hook-overlap",
@@ -1322,6 +1407,7 @@ test("an idle repository without an active task remains doctor-safe", async () =
       const report = await auditConflicts(fixture.repoRoot, {
         runner,
         homeDir: fixture.homeDir,
+        codexHome: fixture.codexHome,
       });
       const taskAuthority = report.findings.find(
         (item) => item.id === "task-authority",

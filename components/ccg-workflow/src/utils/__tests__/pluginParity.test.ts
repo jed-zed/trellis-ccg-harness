@@ -13,7 +13,8 @@ describe('Codex plugin release parity', () => {
     const packageVersion = readJson(join(root, 'package.json')).version
     const pluginVersion = readJson(join(root, 'plugins', 'ccg', '.codex-plugin', 'plugin.json')).version
     const codexMarketplaceVersion = readJson(join(root, '.codex-plugin', 'marketplace.json')).plugins[0].version
-    const claudeMarketplaceVersion = readJson(join(root, '.claude-plugin', 'marketplace.json')).plugins[0].version
+    const claudeMarketplace = readJson(join(root, '.claude-plugin', 'marketplace.json'))
+    const bridgeVersion = readJson(join(root, 'plugins', 'ccg-gptpro-bridge', '.claude-plugin', 'plugin.json')).version
     const configTemplate = fs.readFileSync(join(root, 'templates', 'codex', 'ccg-config.toml'), 'utf8')
     const configTemplateVersion = configTemplate.match(/^version = "([^"]+)"$/m)?.[1]
 
@@ -22,7 +23,9 @@ describe('Codex plugin release parity', () => {
       new RegExp(`^${packageVersion.replaceAll('.', '\\.')}\\+codex\\.[a-z0-9-]+$`),
     )
     expect(codexMarketplaceVersion).toBe(packageVersion)
-    expect(claudeMarketplaceVersion).toBe(packageVersion)
+    expect(claudeMarketplace.plugins.map((plugin: any) => plugin.name)).toEqual(['ccg-gptpro-bridge'])
+    expect(claudeMarketplace.plugins[0].source).toBe('./plugins/ccg-gptpro-bridge')
+    expect(claudeMarketplace.plugins[0].version).toBe(bridgeVersion)
     expect(configTemplateVersion).toBe(packageVersion)
   })
 
@@ -45,7 +48,7 @@ describe('Codex plugin release parity', () => {
   })
 
   it('pins external providers to the native-permission non-lite wrapper launch contract', () => {
-    const contract = 'ccg wrapper --backend <provider> --progress - "<workdir>"'
+    const contract = 'ccg-codex wrapper --backend <provider> --progress - "<workdir>"'
     const surfaces = [
       join(root, 'plugins', 'ccg', 'rules', 'ccg-role-routing.md'),
       ...['ccg-executor', 'ccg-plan', 'ccg-execute', 'ccg-analyze', 'ccg-frontend', 'ccg-backend']
@@ -212,6 +215,59 @@ describe('Codex plugin release parity', () => {
     expect(rule).toContain('Never create `.ccg/tasks`')
     expect(phaseGuide).toContain('Product-manager event boundary')
     expect(phaseGuide).toContain('Trellis remains the only task')
+  })
+
+  it('keeps canonical Trellis plans and the standalone planning stop boundary', () => {
+    const skillRoot = join(root, 'plugins', 'ccg', 'skills')
+    const plan = fs.readFileSync(join(skillRoot, 'ccg-plan', 'SKILL.md'), 'utf8')
+    const executor = fs.readFileSync(join(skillRoot, 'ccg-executor', 'SKILL.md'), 'utf8')
+
+    expect(plan).toContain('## Plan location and authority')
+    expect(plan).toContain('task.py current --source')
+    expect(plan).toContain('current session')
+    expect(plan).toContain('Do not silently select another active task')
+    expect(plan).toContain('Do not write a duplicate `.codex/ccg/plans/` plan')
+    for (const content of [plan, executor]) {
+      expect(content).toContain('.trellis/workflow.md#shared-plan-approval')
+      for (const artifact of ['task.json', 'prd.md', 'design.md', 'implement.md'])
+        expect(content).toContain(artifact)
+      expect(content).toContain('.codex/ccg/plans/')
+    }
+    expect(plan).toContain('do not ask for a Y/N execution handoff')
+    expect(plan).toContain('Do not continue into implementation')
+    expect(plan).toContain('## Role-provider planning evidence gate')
+    expect(plan).toContain('stop before the Provider call')
+    expect(plan).not.toContain('Write and revise plans only under `.codex/ccg/plans/*.md`')
+
+    for (const skill of ['ccg-execute', 'ccg-workflow', 'ccg-feat']) {
+      const content = fs.readFileSync(join(skillRoot, skill, 'SKILL.md'), 'utf8')
+      expect(content, skill).toContain('ccg-executor/SKILL.md')
+      expect(content, skill).toContain('Trellis approval handoff')
+      expect(content, skill).toContain('implement.md')
+    }
+  })
+
+  it('ships one source-backed approval handoff without replacing independent gates', () => {
+    const executor = fs.readFileSync(
+      join(root, 'plugins', 'ccg', 'skills', 'ccg-executor', 'SKILL.md'),
+      'utf8',
+    )
+    expect(executor).toContain('## Trellis approval handoff')
+    expect(executor).toContain('task.json.meta.planApproval')
+    for (const field of ['taskId', 'version', 'reviewedArtifacts', 'scope', 'actions', 'source', 'recordedAtUtc'])
+      expect(executor).toContain(`\`${field}\``)
+    expect(executor).toContain('A bare `approved` field')
+    expect(executor).toContain('any status other than `approved`')
+    expect(executor).toContain('pending, rejected, withdrawn, superseded')
+    expect(executor).toContain('do not ask again')
+    expect(executor).toContain('SHA256 identifies reviewed bytes')
+    expect(executor).toContain('formatting, typos, line endings, checklist progress')
+    expect(executor).toContain('substantive change')
+    expect(executor).toContain('fresh explicit user response')
+    expect(executor).toContain('presentation revision')
+    expect(executor).toContain('Provider/network/paid calls')
+    expect(executor).toContain('task.py start` does not itself validate approval')
+    expect(executor).toContain('/ccg:verify-security')
   })
 
   it('keeps search and product-manager companion routing on every affected skill surface', () => {

@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
+import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { isAbsolute, join, relative, resolve } from 'node:path'
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
@@ -176,7 +177,8 @@ function hash(value: string | Buffer) {
 
 describe('Grok automatic intelligence routing', () => {
   beforeEach(async () => {
-    await fs.emptyDir(root)
+    await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+    await fs.ensureDir(root)
     evidenceCounter = 0
     await fs.writeJson(join(root, 'package.json'), { name: 'fixture' })
     await fs.writeFile(join(root, 'pnpm-lock.yaml'), 'lockfileVersion: 9\n')
@@ -185,7 +187,7 @@ describe('Grok automatic intelligence routing', () => {
   })
 
   afterAll(async () => {
-    await fs.remove(root)
+    await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   })
 
   it('routes a dependency or API contract intake before the workflow and persists call order', async () => {

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import {
   chmodSync,
@@ -75,9 +76,9 @@ const versionForRoot = (state, root) =>
 
 if (command === "trellis" && args[0] === "--version") {
   console.log("trellis 0.6.9");
-} else if (command === "ccg" && args[0] === "--version") {
+} else if ((command === "ccg" || command === "ccg-codex") && args[0] === "--version") {
   console.log(readState().ccgVersion ?? "${CCG_VERSION}");
-} else if (command === "ccg" && args.join(" ") === "codex-mode install") {
+} else if ((command === "ccg" || command === "ccg-codex") && args.slice(0, 2).join(" ") === "codex-mode install") {
   const state = readState();
   if (state.codexModeBehavior === "fail-create-claude") {
     writeFileSync(
@@ -92,12 +93,12 @@ if (command === "trellis" && args[0] === "--version") {
     console.error("Codex mode failed once");
     process.exitCode = 93;
   } else {
-    const ownershipPath = path.join(process.env.HOME, ".codex", ".ccg", "ownership.json");
+    const ownershipPath = path.join(process.env.CODEX_HOME || path.join(process.env.HOME, ".codex"), ".ccg", "ownership.json");
     mkdirSync(path.dirname(ownershipPath), { recursive: true });
     writeFileSync(ownershipPath, "{}\\n");
     console.log("Codex mode installed");
   }
-} else if (command === "ccg" && args.join(" ") === "doctor --platform codex") {
+} else if ((command === "ccg" || command === "ccg-codex") && args.join(" ") === "doctor --platform codex") {
   const state = readState();
   if (state.codexDoctorBehavior === "fail") {
     console.error("Codex mode ownership verification failed");
@@ -321,6 +322,7 @@ function fixture({
   mutateClaudeDuringBootstrap = false,
   codexModeBehavior = "normal",
   pluginBehavior = "normal",
+  ccgPackage = "ccg-workflow",
   ccgVersion = CCG_VERSION,
   pluginManifestVersion = `${ccgVersion}+codex.1`,
   reportedPluginVersion = pluginManifestVersion,
@@ -332,9 +334,14 @@ function fixture({
   const logPath = path.join(root, "commands.jsonl");
   const statePath = path.join(root, "codex-state.json");
   const ccgRoot = path.join(repoRoot, "components", "ccg-workflow");
+  const ccgCommand = ccgPackage === "@jed-zed/ccg-codex-workflow" ? "ccg-codex" : "ccg";
   mkdirSync(path.join(ccgRoot, "plugins", "ccg"), { recursive: true });
   mkdirSync(path.join(repoRoot, "scripts"), { recursive: true });
   mkdirSync(homeDir, { recursive: true });
+  const helperRoot = path.join(repoRoot, ".agents", "skills", "harness-init", "scripts");
+  mkdirSync(helperRoot, { recursive: true });
+  writeFileSync(path.join(helperRoot, "codex-home.mjs"), readFileSync(path.join(REPO_ROOT,
+    ".agents", "skills", "harness-init", "scripts", "codex-home.mjs")));
   mkdirSync(binDir, { recursive: true });
   if (createClaudeTrees) {
     mkdirSync(path.join(homeDir, ".claude"), { recursive: true });
@@ -359,14 +366,15 @@ function fixture({
       version: "0.6.9",
     },
     ccg: {
-      package: "ccg-workflow",
+      package: ccgPackage,
       version: ccgVersion,
       snapshotPath: "components/ccg-workflow",
     },
   });
   writeJson(path.join(ccgRoot, "package.json"), {
-    name: "ccg-workflow",
+    name: ccgPackage,
     version: ccgVersion,
+    bin: { [ccgCommand]: "bin/ccg.mjs" },
   });
   writeJson(path.join(ccgRoot, ".codex-plugin", "marketplace.json"), {
     name: "ccg-gptpro-worflow",
@@ -392,10 +400,16 @@ function fixture({
     path.join(repoRoot, "scripts", "bootstrap.ps1"),
     `param(
   [string]$RepoRoot,
+  [string]$HomeDir,
+  [string]$CodexHome,
   [switch]$LinkCcg,
   [string]$CcgSetupTargetVersion,
   [string]$CcgSetupPreviousPluginVersion,
-  [string]$AuthoritativeCcgCheckout
+  [string]$AuthoritativeCcgCheckout,
+  [string]$CcgMigrationPlan,
+  [string]$CcgMigrationPlanSha256,
+  [string]$CcgPackageArchive,
+  [string]$CcgPackageArchiveSha256
 )
 Add-Content -LiteralPath $env:MOCK_COMMAND_LOG -Value '{"command":"bootstrap"}'
 ${bootstrapMutation}
@@ -405,6 +419,25 @@ ${bootstrapMutation}
     path.join(repoRoot, "scripts", "doctor.ps1"),
     `param([string]$RepoRoot, [string]$AuthoritativeCheckout)
 Add-Content -LiteralPath $env:MOCK_COMMAND_LOG -Value '{"command":"doctor"}'
+if ($env:MOCK_ASSERT_FINAL_PHASE -eq "1") {
+  $projectionPath = Join-Path $env:HOME ".agents/harness/global-skills.json"
+  if (-not (Test-Path -LiteralPath $projectionPath)) {
+    throw "Final Doctor ran before Global Init produced its projection."
+  }
+  $projection = Get-Content -LiteralPath $projectionPath -Raw | ConvertFrom-Json
+  if (@($projection.managedPlatformSkills).Count -ne 15) {
+    throw "Final Doctor did not observe all 15 projected platform Skills."
+  }
+  foreach ($skill in $projection.managedPlatformSkills) {
+    if (-not (Test-Path -LiteralPath (Join-Path $skill.targetPath "SKILL.md"))) {
+      throw "Final Doctor observed an incomplete platform Skill projection."
+    }
+  }
+  if (Test-Path -LiteralPath (Join-Path $RepoRoot ".harness-cache/transaction.lock")) {
+    throw "Final Doctor ran while the installer transaction lock still existed."
+  }
+  Write-Output "[fixture:final-doctor] projection complete; installer lock absent"
+}
 `,
   );
   writeFileSync(
@@ -412,7 +445,7 @@ Add-Content -LiteralPath $env:MOCK_COMMAND_LOG -Value '{"command":"doctor"}'
     globalInitSource(),
   );
   writeFileSync(path.join(binDir, "mock-cli.mjs"), commandShimSource());
-  for (const command of ["codex", "ccg", "trellis"]) {
+  for (const command of ["codex", "ccg", "ccg-codex", "trellis"]) {
     const unixPath = path.join(binDir, command);
     writeFileSync(
       unixPath,
@@ -586,7 +619,7 @@ function installOwnedPreviousPlugin(value, {
 test("non-interactive Global Setup is explicit, exact, provider-safe, and idempotent", () => {
   const value = fixture();
   try {
-    const first = runSetup(value);
+    const first = runSetup(value, [], { MOCK_ASSERT_FINAL_PHASE: "1" });
     assert.equal(first.status, 0, `${first.stdout}\n${first.stderr}`);
     assert.match(
       first.stdout,
@@ -645,8 +678,40 @@ test("non-interactive Global Setup is explicit, exact, provider-safe, and idempo
     const globalInitIndex = firstCalls.findIndex(
       ({ command }) => command === "global-init",
     );
-    assert.ok(finalDoctorIndex > codexModeIndex);
-    assert.ok(globalInitIndex > finalDoctorIndex);
+    assert.ok(globalInitIndex > codexModeIndex);
+    assert.ok(finalDoctorIndex > globalInitIndex);
+    const installerSource = readFileSync(INSTALL_SCRIPT, "utf8");
+    const mutationSourceIndex = installerSource.indexOf("& node @globalArguments");
+    const projectionSourceIndex = installerSource.indexOf(
+      "$platformManifestPath = Assert-GlobalSkillProjection", mutationSourceIndex,
+    );
+    const ownReleaseSourceIndex = installerSource.indexOf(
+      "Exit-InstallerTransactionLock $installerTransactionLock", projectionSourceIndex,
+    );
+    const clearLeaseSourceIndex = installerSource.indexOf(
+      "$installerTransactionLock = $null", ownReleaseSourceIndex,
+    );
+    const strictDoctorSourceIndex = installerSource.indexOf(
+      '& (Join-Path $RepoRoot "scripts/doctor.ps1") @finalDoctorArguments', clearLeaseSourceIndex,
+    );
+    const strictFailureSourceIndex = installerSource.indexOf(
+      'throw "Final Harness doctor failed with exit code $LASTEXITCODE."', strictDoctorSourceIndex,
+    );
+    const successSourceIndex = installerSource.indexOf(
+      'Write-Output "Global Setup complete."', strictFailureSourceIndex,
+    );
+    assert.ok(mutationSourceIndex >= 0);
+    assert.ok(projectionSourceIndex > mutationSourceIndex);
+    assert.ok(ownReleaseSourceIndex > projectionSourceIndex);
+    assert.ok(clearLeaseSourceIndex > ownReleaseSourceIndex);
+    assert.ok(strictDoctorSourceIndex > clearLeaseSourceIndex);
+    assert.ok(strictFailureSourceIndex > strictDoctorSourceIndex);
+    assert.ok(successSourceIndex > strictFailureSourceIndex);
+    const finalDoctorOutputIndex = first.stdout.indexOf(
+      "[fixture:final-doctor] projection complete; installer lock absent",
+    );
+    assert.ok(finalDoctorOutputIndex >= 0);
+    assert.ok(first.stdout.indexOf("Global Setup complete.") > finalDoctorOutputIndex);
     const globalSkills = JSON.parse(
       readFileSync(
         path.join(value.homeDir, ".agents", "harness", "global-skills.json"),
@@ -828,6 +893,7 @@ test("Global Setup accepts a newer immutable CCG version recorded by the Harness
     writeJson(path.join(ccgRoot, "package.json"), {
       name: "ccg-workflow",
       version,
+      bin: { ccg: "bin/ccg.mjs" },
     });
     writeJson(path.join(ccgRoot, ".codex-plugin", "marketplace.json"), {
       name: "ccg-gptpro-worflow",
@@ -1451,4 +1517,110 @@ test("non-interactive execution requires every core approval flag", () => {
   } finally {
     value.cleanup();
   }
+});
+
+
+test("scoped Codex CCG setup is clean/repeat safe and never executes legacy ccg", () => {
+  const value = fixture({ ccgPackage: "@jed-zed/ccg-codex-workflow" });
+  try {
+    for (const run of [1, 2]) {
+      const result = runSetup(value);
+      assert.equal(result.status, 0, setupDiagnostic(result));
+      assert.match(result.stdout, /ccg-codex codex-mode install/);
+      assert.equal(readFileSync(path.join(value.homeDir, ".claude", "user.txt"), "utf8"), "preserve-user\n");
+      assert.equal(readFileSync(path.join(value.repoRoot, ".claude", "project.txt"), "utf8"), "preserve-project\n");
+    }
+    const calls = commandLog(value);
+    assert.equal(calls.some(call => call.command === "ccg"), false);
+    assert.equal(calls.some(call => call.command === "ccg-codex" && call.args.join(" ") === "codex-mode install"), true);
+    assert.equal(calls.some(call => call.command === "ccg-codex" && call.args.join(" ") === "doctor --platform codex"), true);
+    assert.equal(calls.filter(call => call.command === "codex" && call.args.slice(0, 2).join(" ") === "plugin add").length, 1);
+    assert.equal(calls.some(call => ["ccg", "ccg-codex"].includes(call.command) && ["init", "uninstall"].includes(call.args[0])), false);
+  } finally { value.cleanup(); }
+});
+
+test("scoped Codex CCG failed plugin upgrade restores owned bytes and Claude sentinels", () => {
+  const value = fixture({ ccgPackage: "@jed-zed/ccg-codex-workflow" });
+  try {
+    const previous = installOwnedPreviousPlugin(value);
+    const ownedPath = path.join(value.homeDir, ".agents", "harness", "codex-plugin.json");
+    const before = readFileSync(ownedPath);
+    const state = JSON.parse(readFileSync(value.statePath, "utf8"));
+    state.pluginBehavior = "fail-once";
+    writeJson(value.statePath, state);
+    const failed = runSetup(value);
+    assert.notEqual(failed.status, 0);
+    assert.match(setupDiagnostic(failed), /plugin add failed once/i);
+    assert.deepEqual(readFileSync(ownedPath), before);
+    const restored = JSON.parse(readFileSync(value.statePath, "utf8"));
+    assert.equal(canonicalPath(restored.marketplaces[0].root), canonicalPath(previous.marketplaceRoot));
+    assert.equal(restored.installed[0].version, previous.pluginVersion);
+    assert.equal(readFileSync(path.join(value.homeDir, ".claude", "user.txt"), "utf8"), "preserve-user\n");
+    assert.equal(readFileSync(path.join(value.repoRoot, ".claude", "project.txt"), "utf8"), "preserve-project\n");
+    assert.equal(commandLog(value).some(call => call.command === "ccg"), false);
+    const recovered = runSetup(value);
+    assert.equal(recovered.status, 0, setupDiagnostic(recovered));
+  } finally { value.cleanup(); }
+});
+
+test("scoped Codex CCG rejects a legacy bin alias before any command mutation", () => {
+  const value = fixture({ ccgPackage: "@jed-zed/ccg-codex-workflow" });
+  try {
+    writeJson(path.join(value.repoRoot, "components", "ccg-workflow", "package.json"), {
+      name: "@jed-zed/ccg-codex-workflow", version: CCG_VERSION, bin: { ccg: "bin/ccg.mjs" },
+    });
+    const result = runSetup(value);
+    assert.notEqual(result.status, 0);
+    assert.match(setupDiagnostic(result), /source\/package\/bin(?:\s|\|)+identity must match exactly/i);
+    assert.deepEqual(commandLog(value), []);
+    assert.equal(readFileSync(path.join(value.homeDir, ".claude", "user.txt"), "utf8"), "preserve-user\n");
+    assert.equal(readFileSync(path.join(value.repoRoot, ".claude", "project.txt"), "utf8"), "preserve-project\n");
+  } finally { value.cleanup(); }
+});
+
+test("explicit wrapper and agent preservation inputs reach an owned Codex update unchanged", () => {
+  const value = fixture({ ccgPackage: "@jed-zed/ccg-codex-workflow" });
+  try {
+    assert.equal(runSetup(value).status, 0);
+    const wrapper = path.join(value.root, "reviewed wrapper.exe");
+    const plan = path.join(value.root, "reviewed agents.json");
+    writeFileSync(wrapper, "MZ fixture; actual native wrapper verified in isolated closure\n");
+    writeFileSync(plan, '{"kind":"forwarding-fixture"}\n');
+    const digest = createHash("sha256").update(readFileSync(plan)).digest("hex");
+    const result = runSetup(value, ["-CcgWrapperFile", wrapper, "-AgentPreservationPlan", plan, "-AgentPreservationPlanSha256", digest]);
+    assert.equal(result.status, 0, setupDiagnostic(result));
+    const calls = commandLog(value).filter(call => call.command === "ccg-codex" && call.args.slice(0, 2).join(" ") === "codex-mode install");
+    assert.deepEqual(calls.at(-1).args, ["codex-mode", "install", "--wrapper-file", wrapper, "--agent-preservation-plan", plan, "--agent-preservation-plan-sha256", `sha256:${digest}`]);
+    assert.equal(readFileSync(path.join(value.homeDir, ".claude", "user.txt"), "utf8"), "preserve-user\n");
+  } finally { value.cleanup(); }
+});
+
+test("a changed agent preservation plan is refused before CLI or plugin writes", () => {
+  const value = fixture({ ccgPackage: "@jed-zed/ccg-codex-workflow" });
+  try {
+    const plan = path.join(value.root, "changed plan.json");
+    writeFileSync(plan, '{"kind":"forwarding-fixture"}\n');
+    const result = runSetup(value, ["-AgentPreservationPlan", plan, "-AgentPreservationPlanSha256", "0".repeat(64)]);
+    assert.notEqual(result.status, 0);
+    assert.match(setupDiagnostic(result), /plan SHA-256 mismatch/i);
+    assert.deepEqual(commandLog(value), []);
+    assert.equal(existsSync(path.join(value.homeDir, ".codex")), false);
+  } finally { value.cleanup(); }
+});
+
+test("plugin ownership binds a physical Codex root and refuses a later root switch before mutation", () => {
+  const value = fixture({ ccgPackage: "@jed-zed/ccg-codex-workflow" });
+  try {
+    const codexHome = path.join(value.root, "physical codex"); mkdirSync(codexHome);
+    const first = runSetup(value, ["-CodexHome", codexHome]);
+    assert.equal(first.status, 0, setupDiagnostic(first));
+    const ownership = path.join(value.homeDir, ".agents", "harness", "codex-plugin.json");
+    assert.equal(canonicalPath(JSON.parse(readFileSync(ownership, "utf8")).codexHome), canonicalPath(codexHome));
+    assert.equal(existsSync(path.join(value.homeDir, ".codex")), false);
+    const callsBefore = commandLog(value), bytesBefore = readFileSync(ownership);
+    const other = path.join(value.root, "another codex"); mkdirSync(other);
+    const switched = runSetup(value, ["-CodexHome", other]);
+    assert.notEqual(switched.status, 0); assert.match(setupDiagnostic(switched), /another physical CodexHome/i);
+    assert.deepEqual(commandLog(value), callsBefore); assert.deepEqual(readFileSync(ownership), bytesBefore);
+  } finally { value.cleanup(); }
 });

@@ -13,7 +13,9 @@ import { resolveEffectiveXPolicy, validateEvidencePackage } from '../../../templ
 
 const packageRoot = resolve('.')
 const tempRoot = join(tmpdir(), `ccg-grok-workflow-${Date.now()}`)
-const routeCommand = 'ccg route'
+function routeCommandForSurface(relativePath: string): string {
+  return relativePath.startsWith('plugins/ccg/') ? 'ccg-codex route' : 'ccg route'
+}
 let evidenceCounter = 0
 
 function hash(value: string | Buffer) {
@@ -142,7 +144,7 @@ describe('Grok workflow routing behavior', () => {
     await fs.remove(tempRoot)
   })
 
-  it('declares executable coverage for every automatic-routing family and mirrors every listed surface', () => {
+  it('retains legacy route coverage while ordinary workflows use MCP research without ACP gates', () => {
     const coveragePath = join(packageRoot, 'templates', 'engine', 'tools', 'grok-intelligence', 'workflow-coverage.json')
     expect(fs.pathExistsSync(coveragePath)).toBe(true)
     const coverage = fs.readJsonSync(coveragePath)
@@ -167,6 +169,7 @@ describe('Grok workflow routing behavior', () => {
     for (const entry of coverage.defaultSkipSurfaces) {
       expect(coverage.defaultSkips).toContain(entry.id)
       for (const relativePath of entry.surfaces) {
+        const routeCommand = routeCommandForSurface(relativePath)
         const content = readFileSync(join(packageRoot, ...relativePath.split('/')), 'utf8')
         expect(content, relativePath).not.toContain(routeCommand)
         expect(content, relativePath).toMatch(/does not invoke|不调用.*Grok/i)
@@ -176,13 +179,19 @@ describe('Grok workflow routing behavior', () => {
     for (const entry of coverage.workflows) {
       expect(entry.surfaces.length).toBeGreaterThan(0)
       for (const relativePath of entry.surfaces) {
+        const routeCommand = routeCommandForSurface(relativePath)
         const content = readFileSync(join(packageRoot, ...relativePath.split('/')), 'utf8')
         expect(content, relativePath).toContain(routeCommand)
         expect(content, relativePath).toContain(`--workflow ${entry.id}`)
         expect(content, relativePath).toContain('--state-file')
         expect(content, relativePath).toMatch(/exit (?:code )?`?2(?:`, `3`, or `4|\/3\/4)/i)
         expect(content, relativePath).toContain('tool-managed background execution and wait mechanism')
-        expect(content, relativePath).toContain('ccg route recover --state-file')
+        expect(content, relativePath).toContain(`${routeCommand} recover --state-file`)
+        const active = content.replace(/<!--[\s\S]*?-->/g, '')
+        expect(active, relativePath).toContain('grok-search MCP')
+        expect(active, relativePath).not.toContain(routeCommand)
+        expect(active, relativePath).not.toContain('--require-external-intelligence')
+        expect(active, relativePath).not.toMatch(/intelligence-(?:request\.md|route\.json)/)
       }
     }
   })
@@ -351,7 +360,7 @@ describe('Grok workflow routing behavior', () => {
     expect(events).toEqual(['decision', 'state:complete', 'decision', 'state:pending', 'state:complete'])
   })
 
-  it('places the executable Grok gate before ordinary work on representative entrypoints', () => {
+  it('places lightweight research guidance before ordinary work on representative entrypoints', () => {
     const surfaces = [
       ['templates/commands/go.md', '## Phase 0: 逃生舱检测'],
       ['templates/commands/gptpro-plan.md', 'Then run ordinary `/ccg:plan`'],
@@ -363,14 +372,14 @@ describe('Grok workflow routing behavior', () => {
       ['plugins/ccg/skills/ccg-gptpro-review/SKILL.md', 'Run ordinary `/ccg:review`'],
     ] as const
     for (const [relativePath, ordinaryMarker] of surfaces) {
-      const content = readFileSync(join(packageRoot, ...relativePath.split('/')), 'utf8')
-      const routeIndex = content.indexOf(routeCommand)
-      expect(routeIndex, relativePath).toBeGreaterThanOrEqual(0)
-      expect(routeIndex, relativePath).toBeLessThan(content.indexOf(ordinaryMarker))
+      const content = readFileSync(join(packageRoot, ...relativePath.split('/')), 'utf8').replace(/<!--[\s\S]*?-->/g, '')
+      const researchIndex = content.indexOf('grok-search MCP')
+      expect(researchIndex, relativePath).toBeGreaterThanOrEqual(0)
+      expect(researchIndex, relativePath).toBeLessThan(content.indexOf(ordinaryMarker))
     }
   })
 
-  it('bootstraps the bounded /ccg:go request before invoking its external intelligence gate', () => {
+  it('preserves the old /ccg:go bootstrap only as inactive reference', () => {
     const surfaces = [
       'templates/commands/go.md',
       'plugins/ccg/commands/go.md',
@@ -379,12 +388,15 @@ describe('Grok workflow routing behavior', () => {
     for (const relativePath of surfaces) {
       const content = readFileSync(join(packageRoot, ...relativePath.split('/')), 'utf8')
       const bootstrapIndex = content.indexOf('Bootstrap contract:')
-      const routeIndex = content.indexOf(routeCommand)
+      const routeIndex = content.indexOf(routeCommandForSurface(relativePath))
       expect(bootstrapIndex, relativePath).toBeGreaterThanOrEqual(0)
       expect(bootstrapIndex, relativePath).toBeLessThan(routeIndex)
       expect(content.slice(bootstrapIndex, routeIndex), relativePath).toMatch(
         /create or reuse[\s\S]*\.ccg\/tasks\/<task-id>\/[\s\S]*write the original user request[\s\S]*intelligence-request\.md/i,
       )
+      const active = content.replace(/<!--[\s\S]*?-->/g, '')
+      expect(active, relativePath).not.toContain('Bootstrap contract:')
+      expect(active, relativePath).not.toContain('intelligence-request.md')
     }
   })
 

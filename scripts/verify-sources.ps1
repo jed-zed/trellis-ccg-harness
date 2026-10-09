@@ -20,11 +20,12 @@ $trustedCommandResolverPath = Join-Path $RepoRoot $trustedCommandResolverRelativ
 $expectedThirdPartyManifestSha256 = "748796e09774955811aa1d4a8ed165efb865d88643d493cd9cf211d835a34850"
 # Canonical UTF-8 SHA-256 (CRLF normalized to LF) of the shared validator.
 # `-Index` must execute this exact staged source, never a mutable worktree copy.
-$expectedThirdPartyValidatorSha256 = "b202d98f7280560916eae69c6772b70cb7f27876bbfda818bcee035065d3a606"
+$expectedThirdPartyValidatorSha256 = "919c9bd4a68ecf45f61c6139c2d0571d8a9a5ab4dab32c09933035d057f5684a"
 # Canonical UTF-8 SHA-256 of the validator's trusted command dependency.
-$expectedTrustedCommandResolverSha256 = "febf8675ace4cf0ce353c8680aa4e3e606e424844704a85877efd7610f420d2e"
+$expectedTrustedCommandResolverSha256 = "cf7c2645f0b7b2cbc502b9e96c24ae306b1f7727f3fd03f15017da351b449494"
 # Every transitive native-identity import is pinned and staged with the validator.
 $identityDependencyPins = @{
+  "codex-home.mjs" = "ee6c9c0cde172584d22a7c72816f38582ef2570c4abff69801a4589bae33549b"
   "windows-process-identity.mjs" = "bbce7766912c3ec91dfd83223b4feca2b903dbe2d03fc868e0c7a5273434672d"
   "python-resolver.mjs" = "68eb4a600b1c03545ccc8edf8318a1b3760f7ee11d9ce9d7dedfd04f9b40ae1d"
 }
@@ -296,11 +297,86 @@ function Open-TrustedCommandLease {
   }
 }
 
+function Assert-TrustedGitConfigLease {
+  param([AllowNull()]$Lease)
+
+  if ($null -eq $Lease) { return }
+  $path = [System.IO.Path]::GetFullPath([string]$Lease.Path)
+  $expected = [System.IO.Path]::Combine([string]$Lease.TempRoot, [string]$Lease.FileName)
+  if ($path -cne $expected -or $path -cne [System.IO.Path]::GetFullPath($Lease.Stream.Name) -or [string]$Lease.FileName -cnotmatch '^trellis-ccg-git-config-[0-9a-f]{32}\.config$') {
+    throw "Trusted Git config path changed outside its owned temp file."
+  }
+  $item = Microsoft.PowerShell.Management\Get-Item -LiteralPath $path -Force
+  if ($item -isnot [System.IO.FileInfo] -or $item.Length -ne 0 -or $Lease.Stream.Length -ne 0) {
+    throw "Trusted Git config must remain an empty regular file."
+  }
+  Assert-UnlinkedPath -Item $item -Name "Git config"
+}
+
+function Open-TrustedGitConfigLease {
+  param([Parameter(Mandatory = $true)]$Identity)
+
+  if ([string]$Identity.Name -cne "git" -or -not [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform(
+    [System.Runtime.InteropServices.OSPlatform]::Windows
+  )) { return $null }
+  $tempRoot = [System.IO.Path]::GetFullPath([System.IO.Path]::GetTempPath())
+  $parent = Microsoft.PowerShell.Management\Get-Item -LiteralPath $tempRoot -Force
+  if ($parent -isnot [System.IO.DirectoryInfo]) { throw "Git config temp root must be a directory." }
+  while ($parent) {
+    if (Test-ReparsePoint -Item $parent) { throw "Git config temp root must not use linked parents." }
+    $parent = $parent.Parent
+  }
+  $fileName = "trellis-ccg-git-config-$([Guid]::NewGuid().ToString('N')).config"
+  $path = [System.IO.Path]::Combine($tempRoot, $fileName)
+  $stream = [System.IO.File]::Open(
+    $path, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::Read
+  )
+  $lease = [pscustomobject]@{ Path = $path; TempRoot = $tempRoot; FileName = $fileName; Stream = $stream }
+  try {
+    Assert-TrustedGitConfigLease -Lease $lease
+    return $lease
+  }
+  catch {
+    Close-TrustedGitConfigLease -Lease $lease
+    throw
+  }
+}
+
+function Close-TrustedGitConfigLease {
+  param([AllowNull()]$Lease)
+
+  if ($null -eq $Lease) { return }
+  $ownedPath = $null
+  $safeToDelete = $false
+  try {
+    # FileStream.Name is the original creation path, independent of mutable lease fields.
+    $ownedPath = [System.IO.Path]::GetFullPath($Lease.Stream.Name)
+    $tempRoot = [System.IO.Path]::GetFullPath([System.IO.Path]::GetTempPath()).TrimEnd(
+      [System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar
+    )
+    if ([System.IO.Path]::GetDirectoryName($ownedPath) -cne $tempRoot -or
+        [System.IO.Path]::GetFileName($ownedPath) -cnotmatch '^trellis-ccg-git-config-[0-9a-f]{32}\.config$') {
+      throw "Refusing to clean Git config outside its original owned temp path."
+    }
+    $item = Microsoft.PowerShell.Management\Get-Item -LiteralPath $ownedPath -Force
+    if ($item -isnot [System.IO.FileInfo]) { throw "Owned Git config is no longer a regular file." }
+    Assert-UnlinkedPath -Item $item -Name "Git config"
+    $safeToDelete = $true
+    Assert-TrustedGitConfigLease -Lease $Lease
+  }
+  finally {
+    $Lease.Stream.Dispose()
+    # Drift fails closed while still reclaiming this original file, never Lease.Path.
+    if ($safeToDelete) { [System.IO.File]::Delete($ownedPath) }
+  }
+}
+
 function New-TrustedProcessStartInfo {
   param(
     [Parameter(Mandatory = $true)]$Identity,
     [Parameter(Mandatory = $true)][string[]]$Arguments,
-    [switch]$RedirectStandardInput
+    [switch]$RedirectStandardInput,
+    [AllowNull()]$GitConfigLease = $null
   )
 
   $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
@@ -336,9 +412,16 @@ function New-TrustedProcessStartInfo {
     $startInfo.Environment["WINDIR"] = $windowsDirectory
   }
   if ([string]$Identity.Name -ceq "git") {
-    $nullDevice = "/dev/null"
+    $gitConfigPath = "/dev/null"
+    if ([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform(
+      [System.Runtime.InteropServices.OSPlatform]::Windows
+    )) {
+      if ($null -eq $GitConfigLease) { throw "Windows Git requires an owned empty config lease." }
+      Assert-TrustedGitConfigLease -Lease $GitConfigLease
+      $gitConfigPath = [string]$GitConfigLease.Path
+    }
     $startInfo.Environment["GIT_CONFIG_NOSYSTEM"] = "1"
-    $startInfo.Environment["GIT_CONFIG_GLOBAL"] = $nullDevice
+    $startInfo.Environment["GIT_CONFIG_GLOBAL"] = $gitConfigPath
     $startInfo.Environment["GIT_CONFIG_COUNT"] = "0"
     $startInfo.Environment["GIT_TERMINAL_PROMPT"] = "0"
     $startInfo.Environment["GIT_OPTIONAL_LOCKS"] = "0"
@@ -356,13 +439,16 @@ function Invoke-TrustedTextCommand {
   )
 
   $lease = Open-TrustedCommandLease -Identity $Identity
+  $configLease = $null
   $process = $null
   try {
+    $configLease = Open-TrustedGitConfigLease -Identity $Identity
     $process = [System.Diagnostics.Process]::new()
     $process.StartInfo = New-TrustedProcessStartInfo `
       -Identity $Identity `
       -Arguments $Arguments `
-      -RedirectStandardInput:$RedirectStandardInput
+      -RedirectStandardInput:$RedirectStandardInput `
+      -GitConfigLease $configLease
     if (-not $process.Start()) {
       throw "Unable to start trusted $($Identity.Name) command."
     }
@@ -377,6 +463,7 @@ function Invoke-TrustedTextCommand {
     $process.WaitForExit()
     $stdout = $stdoutTask.GetAwaiter().GetResult()
     $stderr = $stderrTask.GetAwaiter().GetResult()
+    Assert-TrustedGitConfigLease -Lease $configLease
     return [pscustomobject]@{
       ExitCode = [int]$process.ExitCode
       Stdout = $stdout
@@ -384,9 +471,14 @@ function Invoke-TrustedTextCommand {
     }
   }
   finally {
-    if ($process) { $process.Dispose() }
-    $lease.Dispose()
-    Assert-TrustedCommandIdentity -Identity $Identity
+    try { if ($process) { $process.Dispose() } }
+    finally {
+      try { Close-TrustedGitConfigLease -Lease $configLease }
+      finally {
+        $lease.Dispose()
+        Assert-TrustedCommandIdentity -Identity $Identity
+      }
+    }
   }
 }
 
@@ -446,14 +538,17 @@ function Get-GitTreeBytes {
   )
 
   $gitPath = $RelativePath.Replace('\', '/')
-  $startInfo = New-TrustedProcessStartInfo `
-    -Identity $script:GitCommandIdentity `
-    -Arguments @("-C", $RepoRoot, "cat-file", "blob", "${Treeish}:$gitPath")
   $lease = Open-TrustedCommandLease -Identity $script:GitCommandIdentity
-  $process = [System.Diagnostics.Process]::new()
-  $process.StartInfo = $startInfo
+  $configLease = $null
+  $process = $null
   $stream = $null
   try {
+    $configLease = Open-TrustedGitConfigLease -Identity $script:GitCommandIdentity
+    $process = [System.Diagnostics.Process]::new()
+    $process.StartInfo = New-TrustedProcessStartInfo `
+      -Identity $script:GitCommandIdentity `
+      -Arguments @("-C", $RepoRoot, "cat-file", "blob", "${Treeish}:$gitPath") `
+      -GitConfigLease $configLease
     if (-not $process.Start()) { throw "Unable to read staged Git blob: $RelativePath" }
     $stream = [System.IO.MemoryStream]::new()
     $copyTask = $process.StandardOutput.BaseStream.CopyToAsync($stream)
@@ -461,16 +556,24 @@ function Get-GitTreeBytes {
     $process.WaitForExit()
     $null = $copyTask.GetAwaiter().GetResult()
     $stderr = $stderrTask.GetAwaiter().GetResult()
+    Assert-TrustedGitConfigLease -Lease $configLease
     if ($process.ExitCode -ne 0) {
       throw "git cat-file blob failed for ${Treeish}:${gitPath}: $stderr"
     }
     return ,$stream.ToArray()
   }
   finally {
-    if ($stream) { $stream.Dispose() }
-    $process.Dispose()
-    $lease.Dispose()
-    Assert-TrustedCommandIdentity -Identity $script:GitCommandIdentity
+    try {
+      if ($stream) { $stream.Dispose() }
+      if ($process) { $process.Dispose() }
+    }
+    finally {
+      try { Close-TrustedGitConfigLease -Lease $configLease }
+      finally {
+        $lease.Dispose()
+        Assert-TrustedCommandIdentity -Identity $script:GitCommandIdentity
+      }
+    }
   }
 }
 

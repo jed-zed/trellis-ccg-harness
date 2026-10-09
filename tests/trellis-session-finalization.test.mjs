@@ -42,7 +42,7 @@ function fixture(t, { configCommit = true, ignored = false } = {}) {
   const value = { repoRoot, trellisRoot, scriptsRoot };
   t.after(() => {
     assert.equal(path.dirname(path.resolve(repoRoot)), path.resolve(tmpdir()));
-    rmSync(repoRoot, { recursive: true, force: true });
+    rmSync(repoRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
   git(value, ["-c", "init.templateDir=", "init", "--initial-branch=main"]);
   git(value, ["config", "user.name", "Session regression"]);

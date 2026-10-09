@@ -2,7 +2,7 @@
 
 import { createHash, randomUUID } from 'node:crypto'
 import { lstat, mkdir, readFile, realpath, rename, stat, writeFile } from 'node:fs/promises'
-import { homedir } from 'node:os'
+import { assertCodexEngineHost, resolveCodexConfigPath } from './lib/host-boundary.mjs'
 import { basename, dirname, isAbsolute, relative, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { parseIntelligenceToml, runManualCommand } from './command.mjs'
@@ -378,8 +378,9 @@ async function resolveConfig(input) {
     return input.config
   if (!input.configPath)
     return undefined
+  const configPath = resolveCodexConfigPath(input.configPath)
   try {
-    return parseIntelligenceToml(await readFile(resolve(input.configPath), 'utf8'))
+    return parseIntelligenceToml(await readFile(configPath, 'utf8'))
   }
   catch (error) {
     if (error?.code === 'ENOENT')
@@ -731,6 +732,7 @@ async function completeInvokedRoute(input, context, invocation, runtime) {
 }
 
 export async function runWorkflowRoute(input, runtime = {}) {
+  assertCodexEngineHost()
   const context = await prepareWorkflowRoute(input, runtime)
   if (context.decision.requirement === 'disabled')
     return completeSkippedRoute(input, context, runtime)
@@ -823,6 +825,7 @@ export async function waiveWorkflowRoute(input, runtime = {}) {
 }
 
 function parseArgs(argv) {
+  argv = argv.flatMap(value => value.startsWith('--config=') ? ['--config', value.slice('--config='.length)] : [value])
   const output = { dependencies: [], officialDomains: [] }
   for (let index = 0; index < argv.length; index++) {
     const value = argv[index]
@@ -847,6 +850,7 @@ function parseArgs(argv) {
 }
 
 async function main(argv = process.argv.slice(2)) {
+  assertCodexEngineHost()
   const waiverAction = argv[0] === 'waive'
   const recoverAction = argv[0] === 'recover'
   const args = parseArgs(waiverAction || recoverAction ? argv.slice(1) : argv)
@@ -863,7 +867,7 @@ async function main(argv = process.argv.slice(2)) {
     process.exitCode = result.exitCode
     return
   }
-  const configPath = resolve(args.config || resolve(homedir(), '.codex', 'ccg', 'config.toml'))
+  const configPath = resolveCodexConfigPath(args.config)
   const taskFile = args.taskFile ? await assertNoLinkedPath(repoRoot, args.taskFile, 'task file') : null
   const task = taskFile ? await readFile(taskFile.absolute, 'utf8') : String(args.task || '')
   const controller = new AbortController()

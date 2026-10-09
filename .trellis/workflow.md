@@ -84,6 +84,7 @@ CCG and Trellis use one approval for the same implementation scope. Check the ac
 - Reuse approval of the same task, plan scope, risks and action classes across handoff, phase changes and session resume. A fresh summary, formatting-only digest change or evidence refresh does not invalidate it.
 - When no required approval covers the presented plan, show it and wait once. A request to execute an already presented plan can supply that approval; an initial request does not approve an unseen plan.
 - Ask again only for a material scope/risk/acceptance change, a new external effect, withdrawal, or an explicit expiry. Record the source message and covered scope in the existing task metadata; do not invent approvals or another plan authority.
+- Plan approval cannot answer a product-manager hard user gate. Run `pm present` and show that exact review; `pm respond` requires the resulting presentation revision and a fresh explicit user response.
 - Task management and plan approval never authorize unapproved paid/network actions, credential access, installation, publishing, deployment or destructive changes.
 
 ### Planning Artifacts
@@ -96,7 +97,7 @@ The minimum skeleton is task identity, accepted requirements, one authoritative 
 | `implement.md` | Complex task -> one ordered execution plan -> each stage has an action, verification and rollback point |
 | Research/search | A specific unanswered question blocks correctness -> source-backed answer -> that question is answered |
 | Provider or product-manager evidence | A required external capability or explicitly requested review -> bounded evidence -> answer/review returned or its failure reported; obtain network/paid authorization first |
-| Sub-agent | An independently bounded task benefits from delegation and dispatch is authorized -> specified result -> assigned question/action is complete; Codex inline remains the writer |
+| Sub-agent | An independently bounded task benefits from authorized delegation -> specified result -> assigned question/action is complete; Codex inline keeps root coordination and permits native leaves under the Codex native leaf workers policy |
 | Review | A changed risk boundary or explicit review requirement -> actionable findings against that boundary -> findings resolved or explicitly accepted |
 | Broader tests | Final structured-task verification, shared impact, a failure, or project/CI requirement -> full affected-scope evidence -> checks pass |
 | Spec/journal | A durable contract changed or an actual handoff needs missing context -> concise update/link -> future work can proceed without duplicating the task |
@@ -131,7 +132,7 @@ Curate context only for authorized sub-agent dispatch. Research, Providers and o
 
 [workflow-state:planning-inline]
 Lightweight structured tasks may be PRD-only. Complex tasks must finish prd.md, design.md and implement.md before task.py start. Apply Shared plan approval: reuse an unchanged approved scope without asking again; present a required unapproved plan once.
-Inline mode skips JSONL curation and loads task artifacts/specs directly. Research, Providers and other extras need a trigger fact -> required output -> stop condition.
+Inline mode skips JSONL curation and loads task artifacts/specs directly. In the Codex host, apply the Codex native leaf workers policy for bounded native research; the coordinator retains task state. Research, Providers and other extras need a trigger fact -> required output -> stop condition.
 Product-manager gate: if currentGate.status=awaiting_user_acceptance, present that exact review and block its dependent checkpoint. Only `pm respond` with a fresh explicit response may clear it. Optional unavailable advice without a gate does not block independent authorized work. Resume the same task afterward.
 [/workflow-state:planning-inline]
 
@@ -147,7 +148,7 @@ Final verification covers the full affected task scope. Spec, journal, additiona
 [/workflow-state:in_progress]
 
 [workflow-state:in_progress-inline]
-Read requirements, design, execution plan and specs -> minimal edit -> project lint/typecheck/tests and coverage checklist -> completion record. Codex implements/checks directly; do not dispatch implement/check sub-agents. Research, Providers and other extras require a trigger fact -> required output -> stop condition. Preserve required safety/project gates.
+Read requirements, design, execution plan and specs -> minimal edit -> project lint/typecheck/tests and coverage checklist -> completion record. In the Codex host, inline permits independent research, bounded implementation and verification under the Codex native leaf workers section of .harness/policies/collaboration-policy.md. Dispatch ready packages early, usually 1–2 then 3–4 only when useful; zero is valid. Each write path has one owner; the coordinator retains task state, shared control files, final integration and full-scope verification. Research, Providers and other extras require a trigger fact -> required output -> stop condition. Preserve required safety/project gates.
 Update specs only for a changed durable contract; commit only when requested/authorized. Completion does not require a commit, archive commit, or journal bundle.
 Product-manager gate: if currentGate.status=awaiting_user_acceptance, present that exact review and block its dependent checkpoint. Only `pm respond` with a fresh explicit response may clear it. Optional unavailable advice without a gate does not block independent authorized work. Resume the same task afterward.
 [/workflow-state:in_progress-inline]
@@ -185,9 +186,9 @@ Name the unanswered question first. Use the repository's search router and exist
 
 #### 1.3 Configure context `[on authorized sub-agent dispatch]`
 
-Inline mode loads relevant specs directly through `trellis-before-dev`; skip JSONL curation. When `task.py start` sees seed-only manifests, use its supported `--allow-empty-context` option for this inline contract, not for a delegated task lacking context.
+Inline mode loads relevant specs directly through `trellis-before-dev`; skip JSONL curation. Codex native leaves receive a bounded work packet with task/spec references, needed context, mode and exact write ownership, following `Codex native leaf workers` in `.harness/policies/collaboration-policy.md`; they do not create a separate task. When `task.py start` sees seed-only manifests, use its supported `--allow-empty-context` option for this inline contract, not for a formally delegated task lacking context.
 
-For authorized sub-agent work, curate `implement.jsonl` / `check.jsonl` with actual needed specs/research: `{"file":"<repo-relative path>","reason":"<why>"}`. Seed `_example` rows do not count. Read task artifacts in addition to these references. Manifests supply context, not a second plan. Every dispatch starts with `Active task: <task path>` and a bounded assignment; an implement/check child never recursively dispatches implement/check.
+For authorized Trellis implement/check task dispatch outside Codex native inline leaves, curate `implement.jsonl` / `check.jsonl` with actual needed specs/research: `{"file":"<repo-relative path>","reason":"<why>"}`. Seed `_example` rows do not count. Read task artifacts in addition to these references. Manifests supply context, not a second plan. Structured-task dispatch identifies `Active task: <task path>` and a bounded assignment; an implement/check child never recursively dispatches implement/check. Fast-lane native leaves reference their work packet without creating a task.
 
 #### 1.4 Activate task `[required · once]`
 
@@ -203,7 +204,7 @@ Unless the user opted out, task identity, accepted requirements, reviewed planni
 
 #### 2.1 Implement `[required · repeatable]`
 
-Read the owning task artifacts and applicable specs via `trellis-before-dev`. Trace callers and the changed boundary, reuse existing mechanisms, then implement the minimum accepted behavior. Codex inline writes directly. Other dispatch modes use their native context protocol only when delegation is authorized and triggered.
+Read the owning task artifacts and applicable specs via `trellis-before-dev`. Trace callers and the changed boundary, reuse existing mechanisms, then implement the minimum accepted behavior. Codex inline permits the coordinator and explicitly scoped native write leaves, with one writer per path. The coordinator retains task state, shared control files, integration and final verification; apply `Codex native leaf workers` in `.harness/policies/collaboration-policy.md` for early results, follow-ups and failure handoff. This Codex-only policy does not change the official Claude workflow. Other dispatch modes use their native context protocol only when delegation is authorized and triggered.
 
 Do not add fallback, retry, caching, compatibility wrappers, defensive branches, configuration or abstractions for hypothetical failures. A reproduced fault, accepted contract, or actual trust/data boundary must justify each one. Fix the shared root cause instead of layering guards at every caller; return clear errors rather than silently claiming success. Preserve security, input validation at trust boundaries, data-loss prevention and accessibility.
 

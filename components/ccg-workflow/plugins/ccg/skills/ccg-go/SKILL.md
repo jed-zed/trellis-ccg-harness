@@ -9,19 +9,30 @@ Use `commands/go.md` as the authoritative routing contract for `/ccg:go`.
 
 ## Behavior
 
+## Research
+
+Use existing independent research agents with grok-search MCP. Search actively and
+verify key conclusions against original sources; check versions/licenses when
+reusing code and experiment conditions when adopting papers. Mark unverified findings.
+Archived instructions below are inactive: ordinary work does not run Grok CLI/ACP,
+wait for its gates, or require its manifests and hash packages.
+
+<!-- Legacy Grok CLI/ACP reference; inactive in ordinary research.
 Bootstrap contract: before invoking the route, create or reuse a safe `<task-id>`, create
 `.ccg/tasks/<task-id>/`, and write the original user request to
 `.ccg/tasks/<task-id>/intelligence-request.md` with a file-writing tool rather than shell interpolation.
 Reuse this same task id throughout `/ccg:go`, including S and git-action routes.
 
 - Before inspecting or routing ordinary work, write the bounded request to the active task directory
-  and run `ccg route --workflow go --phase intake --task-file <request-file> --state-file <state-file>`.
+  and run `ccg-codex route --workflow go --phase intake --task-file <request-file> --state-file <state-file>`.
 
-Run this potentially long route with the host's tool-managed background execution and wait mechanism; never put it under a foreground timeout shorter than the runner's 10-minute timeout. If the host cancels or terminates the job before a terminal state is written, run `ccg route recover --state-file <state-file> --status cancelled --reason "<reason>"` (or use `--status failed`); recovery refuses to overwrite a live owner.
+Run this potentially long route with the host's tool-managed background execution and wait mechanism; never put it under a foreground timeout shorter than the runner's 10-minute timeout. If the host cancels or terminates the job before a terminal state is written, run `ccg-codex route recover --state-file <state-file> --status cancelled --reason "<reason>"` (or use `--status failed`); recovery refuses to overwrite a live owner.
   The controller must add `--semantic-mode contract|incident --semantic-reason <reason>` when its own
   judgment finds a material current-fact dependency even if the user did not ask to search. Supply
   plan/diff/dependency paths when present, re-run final external verification when their digests change,
   persist every skip reason, and stop on exit code `2`, `3`, or `4`.
+-->
+
 - Inspect the user's natural-language request, current project context, and git status before choosing a workflow.
 - Route explicit GPT Pro intents to `/ccg:gptpro-plan`, `/ccg:gptpro-review`, or `/ccg:gptpro-exc`.
 - If the user says `gptpro` without a precise subcommand, choose:

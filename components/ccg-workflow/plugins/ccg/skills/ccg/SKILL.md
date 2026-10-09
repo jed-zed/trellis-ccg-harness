@@ -53,13 +53,13 @@ If the user provided no argument, answer in Chinese with the CCG command index:
 - `/ccg:verify-module <module-path>` - check module structure and required documentation.
 - `/ccg:verify-quality <changed-path>` - inspect complexity, duplication, naming, and code smells.
 - `/ccg:verify-security <changed-path>` - scan security-sensitive changes.
-- `ccg routing list` - show the provider selected for the four top-level roles.
-- `ccg routing set <role> <provider>` - change one role without changing the others.
-- `ccg wrapper --backend <provider> ...` - run a managed Claude, Antigravity, Grok, or Pi role provider with Web UI enabled by default.
+- `ccg-codex routing list` - show the provider selected for the four top-level roles.
+- `ccg-codex routing set <role> <provider>` - change one role without changing the others.
+- `ccg-codex wrapper --backend <provider> ...` - run a managed Claude, Antigravity, Grok, or Pi role provider with Web UI enabled by default.
 
 If the user provided a plan path or task, treat it as `/ccg:execute`.
 
-Core rule: all four roles resolve through `ccg routing`; analysis, planning,
+Core rule: all four roles resolve through `ccg-codex routing`; analysis, planning,
 and review occur inside those roles. Follow the shared **Companion Role
 Contract**: frontend or backend evaluates advisory search evidence and the
 product-manager authorization gate. Codex remains the orchestrator, sole

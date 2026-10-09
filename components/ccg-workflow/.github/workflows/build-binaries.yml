@@ -6,10 +6,18 @@ on:
       - '.github/workflows/build-binaries.yml'
       - 'codeagent-wrapper/**'
       - 'src/utils/installer.ts'
+      - 'scripts/wrapper-release.json'
+      - 'scripts/verify-wrapper-release.mjs'
   workflow_dispatch:
+    inputs:
+      publish_assets:
+        description: 'Publish the reviewed versioned assets from main'
+        type: boolean
+        required: false
+        default: false
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
@@ -17,15 +25,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.21.13'
+          go-version: '1.26.2'
 
-      - name: Cross-compile binaries
+      - name: Verify exact source and release recipe
+        run: node scripts/verify-wrapper-release.mjs
+
+      - name: Cross-compile binaries twice
         working-directory: codeagent-wrapper
         run: |
           set -e
-          mkdir -p ../artifacts
+          mkdir -p ../artifacts ../artifacts-repeat
 
           declare -a targets=(
             "darwin:amd64:"
@@ -36,107 +51,88 @@ jobs:
             "windows:arm64:.exe"
           )
 
-          for target in "${targets[@]}"; do
-            IFS=':' read -r os arch ext <<< "$target"
-            output="codeagent-wrapper-${os}-${arch}${ext}"
-            echo "::group::Building ${output}"
-            CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -buildvcs=false -trimpath -ldflags="-s -w" -o "../artifacts/${output}" .
-            echo "::endgroup::"
+          for directory in artifacts artifacts-repeat; do
+            for target in "${targets[@]}"; do
+              IFS=':' read -r os arch ext <<< "$target"
+              output="codeagent-wrapper-${os}-${arch}${ext}"
+              echo "::group::Building ${directory}/${output}"
+              CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -buildvcs=false -trimpath -ldflags="-s -w" -o "../${directory}/${output}" .
+              echo "::endgroup::"
+            done
           done
 
           echo "### Build artifacts" >> $GITHUB_STEP_SUMMARY
           ls -lh ../artifacts/ | awk 'NR>1{printf "- `%s` (%s)\n", $NF, $5}' >> $GITHUB_STEP_SUMMARY
 
-      - name: Verify pinned binary digests
-        run: |
-          node <<'NODE'
-          const { createHash } = require('node:crypto')
-          const { readFileSync, readdirSync } = require('node:fs')
-          const { join } = require('node:path')
+      - name: Verify both builds against the six installer pins
+        run: node scripts/verify-wrapper-release.mjs artifacts artifacts-repeat
 
-          const source = readFileSync('src/utils/installer.ts', 'utf8')
-          const expected = new Map(
-            [...source.matchAll(/^\s*'([^']+)': '([0-9a-f]{64})',?\s*$/gm)]
-              .filter(([, name]) => name.startsWith('codeagent-wrapper-'))
-              .map(([, name, digest]) => [name, digest]),
-          )
-          const artifacts = readdirSync('artifacts')
-            .filter(name => name.startsWith('codeagent-wrapper-'))
-            .sort()
-          if (expected.size !== 6 || artifacts.length !== 6)
-            throw new Error(`Expected 6 pinned digests and 6 artifacts; got ${expected.size} and ${artifacts.length}`)
-          const mismatches = []
-          for (const name of artifacts) {
-            const actual = createHash('sha256').update(readFileSync(join('artifacts', name))).digest('hex')
-            if (actual !== expected.get(name))
-              mismatches.push(`${name}: expected ${expected.get(name)}, got ${actual}`)
-            console.log(`${name} ${actual}`)
-          }
-          if (mismatches.length)
-            throw new Error(`Binary digest mismatch:\n${mismatches.join('\n')}`)
-          NODE
-
-      - name: Delete existing preset release
-        if: github.ref == 'refs/heads/main'
-        run: gh release delete preset --yes --cleanup-tag 2>/dev/null || true
-        env:
-          GH_TOKEN: ${{ github.token }}
-
-      - name: Create preset release
-        if: github.ref == 'refs/heads/main'
-        uses: softprops/action-gh-release@v2
+      - name: Stage verified assets for an explicitly approved main release
+        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.publish_assets == true
+        uses: actions/upload-artifact@v4
         with:
-          tag_name: preset
-          name: "Pre-built Binaries (codeagent-wrapper)"
-          body: |
-            Pre-compiled `codeagent-wrapper` binaries for all supported platforms.
-            Automatically downloaded during `npx ccg-workflow` installation.
+          name: verified-wrapper-assets
+          path: artifacts/codeagent-wrapper-*
+          if-no-files-found: error
+          retention-days: 1
 
-            | File | Platform | Architecture |
-            |------|----------|-------------|
-            | `codeagent-wrapper-darwin-amd64` | macOS | Intel x64 |
-            | `codeagent-wrapper-darwin-arm64` | macOS | Apple Silicon |
-            | `codeagent-wrapper-linux-amd64` | Linux | x64 |
-            | `codeagent-wrapper-linux-arm64` | Linux | ARM64 |
-            | `codeagent-wrapper-windows-amd64.exe` | Windows | x64 |
-            | `codeagent-wrapper-windows-arm64.exe` | Windows | ARM64 |
-
-            > This release is automatically updated when `codeagent-wrapper/` source changes.
-            > Mirror: Cloudflare R2 (auto-synced)
-          files: artifacts/*
-          prerelease: true
-          make_latest: false
-
-      - name: Check R2 publish credentials
-        id: r2
-        if: github.ref == 'refs/heads/main'
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: |
-          if [[ -n "$CLOUDFLARE_API_TOKEN" && -n "$CLOUDFLARE_ACCOUNT_ID" ]]; then
-            echo "enabled=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "enabled=false" >> "$GITHUB_OUTPUT"
-          fi
+  publish:
+    needs: build
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.publish_assets == true
+    runs-on: ubuntu-latest
+    concurrency:
+      group: wrapper-release-publisher
+      cancel-in-progress: false
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
-        if: github.ref == 'refs/heads/main' && steps.r2.outputs.enabled == 'true'
         with:
           node-version: '22'
 
-      - name: Install wrangler
-        if: github.ref == 'refs/heads/main' && steps.r2.outputs.enabled == 'true'
-        run: npm i -g wrangler@latest
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.2'
 
-      - name: Sync binaries to Cloudflare R2 mirror
-        if: github.ref == 'refs/heads/main' && steps.r2.outputs.enabled == 'true'
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: verified-wrapper-assets
+          path: artifacts
+
+      - name: Recheck downloaded assets and release identity
+        run: node scripts/verify-wrapper-release.mjs artifacts
+
+      - name: Read versioned release target
+        id: release
         run: |
-          for bin in artifacts/codeagent-wrapper-*; do
-            name=$(basename "$bin")
-            echo "Uploading $name → R2..."
-            wrangler r2 object put "github/preset/$name" --file="$bin" --content-type=application/octet-stream --remote
-          done
+          tag="$(node -p "JSON.parse(require('node:fs').readFileSync('scripts/wrapper-release.json')).releaseTag")"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Reject a previously used release tag
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          set +e
+          git ls-remote --exit-code --tags origin "refs/tags/$RELEASE_TAG" >/dev/null
+          tag_status=$?
+          set -e
+          if [[ "$tag_status" -eq 0 ]]; then
+            echo "Git tag already exists: $RELEASE_TAG" >&2
+            exit 1
+          elif [[ "$tag_status" -ne 2 ]]; then
+            echo "Could not verify release tag availability (git exit $tag_status)" >&2
+            exit 1
+          fi
+
+      - name: Publish versioned GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          gh release create "$RELEASE_TAG" artifacts/codeagent-wrapper-* \
+            --target "$GITHUB_SHA" \
+            --title "Verified codeagent-wrapper $RELEASE_TAG" \
+            --notes "Reviewed source and six SHA-256-pinned assets." \
+            --prerelease --latest=false

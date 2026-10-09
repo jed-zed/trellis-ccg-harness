@@ -1,3 +1,4 @@
+import { resolveCodexHome } from "./codex-home.mjs";
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import {
@@ -118,23 +119,26 @@ function assertPendingAction(state, provider, action) {
 
 async function sourcePlan({
   homeDir,
+  codexHome,
   provider,
   action,
   repoRoot = null,
   resolveCommand,
 }) {
   const home = await realDirectory(homeDir, "User home");
+  const codex = await resolveCodexHome(home, codexHome ?? null);
   const repository =
     repoRoot === null
       ? home
       : await realDirectory(repoRoot, "Repository root");
-  const state = await loadGlobalInitState({ homeDir: home });
+  const state = await loadGlobalInitState({ homeDir: home, codexHome: codex });
   if (!state) throw new Error("Trusted Global Init state is required before provider actions.");
   assertPendingAction(state, provider, action);
   return {
     schemaVersion: PLAN_SCHEMA_VERSION,
     owner: OWNER,
     homeDir: home,
+    codexHome: codex,
     repoRoot: repository,
     globalInitStateSha256: stateDigest(state),
     provider,
@@ -149,6 +153,7 @@ async function sourcePlan({
  */
 export async function planProviderAction({
   homeDir = os.homedir(),
+  codexHome = null,
   provider,
   action,
   repoRoot = null,
@@ -156,6 +161,7 @@ export async function planProviderAction({
 } = {}) {
   const plan = await sourcePlan({
     homeDir,
+    codexHome,
     provider,
     action,
     repoRoot,
@@ -467,6 +473,7 @@ export async function fingerprintProtectedClaudeBoundary(
  */
 export async function executeProviderAction({
   homeDir = os.homedir(),
+  codexHome = null,
   provider,
   action,
   planSha256,
@@ -482,6 +489,7 @@ export async function executeProviderAction({
   }
   const plan = await planProviderAction({
     homeDir,
+    codexHome,
     provider,
     action,
     repoRoot,

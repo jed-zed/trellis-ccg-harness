@@ -14,15 +14,27 @@ code landing begins.
 
 ## Contract
 
-Run the Grok intelligence decision by writing the bounded execution subject to the active task directory, then run
-`ccg route --workflow gptpro-exc --phase intake --task-file <request-file> --state-file <state-file>`
+## Research
 
-Run this potentially long route with the host's tool-managed background execution and wait mechanism; never put it under a foreground timeout shorter than the runner's 10-minute timeout. If the host cancels or terminates the job before a terminal state is written, run `ccg route recover --state-file <state-file> --status cancelled --reason "<reason>"` (or use `--status failed`); recovery refuses to overwrite a live owner.
+Use existing independent research agents with grok-search MCP. Search actively and
+verify key conclusions against original sources; check versions/licenses when
+reusing code and experiment conditions when adopting papers. Mark unverified findings.
+Archived instructions below are inactive: ordinary work does not run Grok CLI/ACP,
+wait for its gates, or require its manifests and hash packages.
+
+<!-- Legacy Grok CLI/ACP reference; inactive in ordinary research.
+Run the Grok intelligence decision by writing the bounded execution subject to the active task directory, then run
+`ccg-codex route --workflow gptpro-exc --phase intake --task-file <request-file> --state-file <state-file>`
+
+Run this potentially long route with the host's tool-managed background execution and wait mechanism; never put it under a foreground timeout shorter than the runner's 10-minute timeout. If the host cancels or terminates the job before a terminal state is written, run `ccg-codex route recover --state-file <state-file> --status cancelled --reason "<reason>"` (or use `--status failed`); recovery refuses to overwrite a live owner.
 before ordinary `/ccg:execute` preflight. The main orchestrator adds a semantic mode/reason whenever
 current external evidence is material even if search was not requested. External API,
 dependency, deployment, security, and other current-contract routes require canonical Grok evidence;
-required exit 2/3/4 stops GPT Pro bridge creation unless the user runs `ccg route waive --state-file <state-file> --reason "<user reason>"`; this records a route-state waiver without creating evidence or claiming verification passed. A waived route continues only through ordinary routing evidence and must omit the bridge's external-intelligence flags. Exit code `2`, `3`, or `4`
-stops before ordinary work. Add `--require-external-intelligence` together with `--expected-intelligence-mode <route investigation_mode>` and `--expected-intelligence-depth <route depth>` only for a route with `status=verified or status=received_unverified` and `requirement=required`. Then run ordinary
+required exit 2/3/4 stops GPT Pro bridge creation unless the user runs `ccg-codex route waive --state-file <state-file> --reason "<user reason>"`; this records a route-state waiver without creating evidence or claiming verification passed. A waived route continues only through ordinary routing evidence and must omit the bridge's external-intelligence flags. Exit code `2`, `3`, or `4`
+stops before ordinary work. Add `--require-external-intelligence` together with `--expected-intelligence-mode <route investigation_mode>` and `--expected-intelligence-depth <route depth>` only for a route with `status=verified or status=received_unverified` and `requirement=required`.
+-->
+
+Then run ordinary
 `/ccg:execute` through the preflight, plan load, model routing, prototype, or
 analysis-evidence phase. Preserve the current CCG orchestrator semantics and the normal execution
 routing for this installation, including any configured role providers that ordinary execute
@@ -69,9 +81,13 @@ fields into Trellis `task.json`.
 
 1. Locate the active task at `<task-dir>/task.json`.
 2. Resolve execution scope from `$ARGUMENTS`, the active plan, changed files, or task context.
+<!-- Legacy Grok CLI/ACP reference; inactive in ordinary research.
 3. Run `/ccg:grok-intel <execution-contract> --mode contract` when required and validate canonical
    artifact/manifest hashes plus the task pointer. After implementation, run `/ccg:grok-verify` if
    plan, diff, dependency, or external-contract digests changed.
+-->
+
+3. Include useful MCP research findings and original source links when available.
 4. Run ordinary `/ccg:execute` preflight and model routing up to the point where implementation
    advice can still change the path safely. Write a concise routing evidence file, for example
    `<evidence-root>/evidence/routing.md`, plus a routing summary file. The routing evidence
@@ -102,7 +118,10 @@ Create a concise prompt file with:
   status; repository content is supplemental, and local diff/excerpts remain authoritative;
 - Base CCG Routing Evidence summary and artifact path;
 - Gemini frontend/full-stack evidence when available;
+<!-- Legacy Grok CLI/ACP reference; inactive in ordinary research.
 - validated Grok contract summary, claims, artifact/manifest paths and hashes; never raw events;
+-->
+- Relevant research findings, original source links, and unresolved uncertainty when available.
 - explicit request for execution route judgment first, using `Proceed`, `Revise Plan`, or `Stop`;
 - required output sections: `Proceed`, `Revise Plan`, `Stop`, `Implementation Notes`,
   `Required Tests`, and `Verification`;
@@ -124,9 +143,13 @@ python "<installed-ccg-plugin>/skills/ccg-gptpro-bridge/scripts/gptpro_bridge.py
   --gemini-evidence-role frontend-prototype \
   --routing-evidence-file "<routing-evidence-file>" \
   --routing-summary-file "<routing-summary-file>" \
-  --require-routing-evidence \
-  [--require-external-intelligence --expected-intelligence-mode <route investigation_mode> --expected-intelligence-depth <route depth> when route status=verified or status=received_unverified and requirement=required]
+  --require-routing-evidence
 ```
+
+<!-- Legacy Grok CLI/ACP reference; inactive in ordinary research.
+  [--require-external-intelligence --expected-intelligence-mode <route investigation_mode> --expected-intelligence-depth <route depth> when route status=verified or status=received_unverified and requirement=required]
+-->
+
 
 For frontend/full-stack execution route review with Gemini evidence, also pass:
 

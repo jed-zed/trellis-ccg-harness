@@ -157,7 +157,7 @@ function copyThirdPartySourceAssets(harnessRoot) {
     TRUSTED_COMMAND_RESOLVER,
     path.join(harnessInit, "scripts", "trusted-command-resolver.mjs"),
   );
-  for (const name of ["windows-process-identity.mjs", "python-resolver.mjs"]) {
+  for (const name of ["codex-home.mjs", "windows-process-identity.mjs", "python-resolver.mjs"]) {
     cpSync(path.join(path.dirname(THIRD_PARTY_VALIDATOR), name), path.join(harnessInit, "scripts", name));
   }
 }
@@ -360,12 +360,16 @@ $forbidden = @(
   "GIT_SSH_COMMAND"
 )
 foreach ($identity in @($git, $node)) {
-  $startInfo = New-TrustedProcessStartInfo -Identity $identity -Arguments @("--version")
-  foreach ($name in $forbidden) {
-    if ($startInfo.Environment.ContainsKey($name)) {
-      throw "$($identity.Name) child inherited forbidden environment variable: $name"
+  $configLease = Open-TrustedGitConfigLease -Identity $identity
+  try {
+    $startInfo = New-TrustedProcessStartInfo -Identity $identity -Arguments @("--version") -GitConfigLease $configLease
+    foreach ($name in $forbidden) {
+      if ($startInfo.Environment.ContainsKey($name)) {
+        throw "$($identity.Name) child inherited forbidden environment variable: $name"
+      }
     }
   }
+  finally { Close-TrustedGitConfigLease -Lease $configLease }
 }
 $gitResult = Invoke-TrustedTextCommand -Identity $git -Arguments @("--version")
 $nodeResult = Invoke-TrustedTextCommand -Identity $node -Arguments @("--version")
@@ -931,8 +935,8 @@ test("native dependency assertions preserve wrapped PowerShell error text", () =
   }
 });
 
-for (const name of ["windows-process-identity.mjs", "python-resolver.mjs"]) {
-  test(`source verification binds native identity dependency ${name} in worktree and index`, () => {
+for (const name of ["codex-home.mjs", "windows-process-identity.mjs", "python-resolver.mjs"]) {
+  test(`source verification binds validator dependency ${name} in worktree and index`, () => {
     const value = fixture();
     const relativePath = `.agents/skills/harness-init/scripts/${name}`;
     const dependencyPath = path.join(value.harnessRoot, relativePath);
@@ -958,3 +962,92 @@ for (const name of ["windows-process-identity.mjs", "python-resolver.mjs"]) {
     }
   });
 }
+
+
+test("Windows Git empty config is leased across real text/blob children and removed after start failure", { skip: process.platform !== "win32" }, () => {
+  const value = fixture();
+  try {
+    const powershell = `
+$errors = $null
+$tokens = $null
+$ast = [System.Management.Automation.Language.Parser]::ParseFile($env:HARNESS_TEST_VERIFY_SCRIPT, [ref]$tokens, [ref]$errors)
+if ($errors.Count -ne 0) { throw "Unable to parse verifier functions." }
+foreach ($function in $ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)) {
+  Invoke-Expression $function.Extent.Text
+}
+$git = Resolve-TrustedNativeCommand -Name "git"
+$script:GitCommandIdentity = $git
+$script:RepoRoot = $env:HARNESS_TEST_SOURCE_ROOT
+$script:createdConfigs = [System.Collections.Generic.List[string]]::new()
+$script:originalOpenConfig = (Get-Item Function:Open-TrustedGitConfigLease).ScriptBlock
+function Open-TrustedGitConfigLease {
+  param($Identity)
+  $lease = & $script:originalOpenConfig -Identity $Identity
+  if ($null -ne $lease) { $script:createdConfigs.Add($lease.Path) }
+  return $lease
+}
+function Assert-ConfigsRemoved {
+  foreach ($path in $script:createdConfigs) {
+    if ([System.IO.File]::Exists($path)) { throw "Owned Git config leaked: $path" }
+  }
+}
+$tree = Invoke-TrustedTextCommand -Identity $git -Arguments @("-C", $script:RepoRoot, "write-tree")
+if ($tree.ExitCode -ne 0 -or $tree.Stdout.Trim() -notmatch '^[0-9a-f]{40}$') { throw "Actual write-tree failed: $($tree.Stderr)" }
+$bytes = Get-GitTreeBytes -Treeish "HEAD" -RelativePath "package.json"
+if ($bytes.Length -eq 0) { throw "Actual Git blob read was empty." }
+$bad = Invoke-TrustedTextCommand -Identity $git -Arguments @("--harness-nonexistent-option")
+if ($bad.ExitCode -eq 0) { throw "Expected failed Git child." }
+Assert-ConfigsRemoved
+$lease = Open-TrustedGitConfigLease -Identity $git
+try {
+  $writeBlocked = $false
+  try { [System.IO.File]::WriteAllText($lease.Path, "[alias]") } catch { $writeBlocked = $true }
+  if (-not $writeBlocked) { throw "Config write was allowed during its read lease." }
+  $renameBlocked = $false
+  try { [System.IO.File]::Move($lease.Path, "$($lease.Path).moved") } catch { $renameBlocked = $true }
+  if (-not $renameBlocked) { throw "Config rename was allowed during its read lease." }
+}
+finally { Close-TrustedGitConfigLease -Lease $lease }
+Assert-ConfigsRemoved
+$script:originalStartInfo = (Get-Item Function:New-TrustedProcessStartInfo).ScriptBlock
+function New-TrustedProcessStartInfo {
+  param($Identity, [string[]]$Arguments, [switch]$RedirectStandardInput, $GitConfigLease)
+  $info = & $script:originalStartInfo -Identity $Identity -Arguments $Arguments -RedirectStandardInput:$RedirectStandardInput -GitConfigLease $GitConfigLease
+  $info.FileName = Join-Path $env:HARNESS_TEST_SOURCE_ROOT "missing-owned-test-command.exe"
+  return $info
+}
+$startRejected = $false
+try { $null = Invoke-TrustedTextCommand -Identity $git -Arguments @("--version") } catch { $startRejected = $true }
+if (-not $startRejected) { throw "Expected a trusted child start failure." }
+Assert-ConfigsRemoved
+Set-Item Function:New-TrustedProcessStartInfo -Value $script:originalStartInfo
+$lease = Open-TrustedGitConfigLease -Identity $git
+$ownedPath = $lease.Path
+$sentinel = Join-Path $env:HARNESS_TEST_SOURCE_ROOT "config-cleanup-sentinel"
+[System.IO.File]::WriteAllText($sentinel, "sentinel")
+$lease.Path = $sentinel
+$driftRejected = $false
+try { Close-TrustedGitConfigLease -Lease $lease } catch { $driftRejected = $true }
+if (-not $driftRejected -or [System.IO.File]::ReadAllText($sentinel) -cne "sentinel") { throw "Path drift cleanup touched another file." }
+if ([System.IO.File]::Exists($ownedPath)) { throw "Path drift left the original owned file behind." }
+Assert-ConfigsRemoved
+$lease = Open-TrustedGitConfigLease -Identity $git
+$lease.Stream.WriteByte(1)
+$lease.Stream.Flush()
+$contentRejected = $false
+try { Close-TrustedGitConfigLease -Lease $lease } catch { $contentRejected = $true }
+if (-not $contentRejected) { throw "Empty config content drift was accepted." }
+Assert-ConfigsRemoved
+@{ configCount = $script:createdConfigs.Count; textWriteTree = $true; binaryBlob = $true; nonzeroExitCleanup = $true; startFailureCleanup = $true; writeAndRenameBlocked = $true; pathDriftRejected = $true; contentDriftCleanup = $true; remainingConfigs = 0 } | ConvertTo-Json -Compress
+`;
+    const result = run("pwsh", ["-NoProfile", "-Command", powershell], {
+      allowFailure: true,
+      env: { ...process.env, HARNESS_TEST_VERIFY_SCRIPT: VERIFY_SCRIPT, HARNESS_TEST_SOURCE_ROOT: value.sourceRoot },
+    });
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+    const proof = JSON.parse(result.stdout.trim());
+    assert.equal(proof.remainingConfigs, 0);
+    assert.ok(proof.configCount >= 6);
+    for (const key of ["textWriteTree", "binaryBlob", "nonzeroExitCleanup", "startFailureCleanup", "writeAndRenameBlocked", "pathDriftRejected", "contentDriftCleanup"]) assert.equal(proof[key], true, key);
+  } finally { value.cleanup(); }
+});

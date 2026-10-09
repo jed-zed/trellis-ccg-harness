@@ -1,8 +1,12 @@
 #!/usr/bin/env node
 
+import { assertCodexMutationHost } from "../.agents/skills/harness-init/scripts/codex-host-boundary.mjs";
+import { createHash } from "node:crypto";
+
 import { spawnSync } from "node:child_process";
 import {
   mkdtemp,
+  lstat,
   readFile,
   rm,
   stat,
@@ -23,6 +27,8 @@ import {
   compareSemanticVersions,
   globalPackageRootFromNpmPrefix,
   globalPackageSnapshotsEqual,
+  inspectCcgCommandFiles,
+  ccgCommandFilesEqual,
   inspectGlobalPackage,
   parseSparseArchiveExclusions,
   parseLifecycleArgs,
@@ -33,12 +39,15 @@ import {
   validateUpdateSource,
 } from "./lib/harness-lifecycle.mjs";
 import { runCcgGates, runHarnessTests } from "./lib/harness-gates.mjs";
+import { resolveCcgRuntimePackage, validateCcgRuntimePackage } from "./ccg-runtime.mjs";
 import {
+  acquireTransactionLock,
   recoverInterruptedTransaction,
   replaceComponentTransaction,
   replaceManagedFilesTransaction,
   rollbackLastTransaction,
 } from "./lib/harness-transaction.mjs";
+import { assertLegacyClaimMutationAllowed } from "./lib/ccg-legacy-claim-guard.mjs";
 import {
   assertSafeRegularFileOrAbsent,
   ensureSafeDirectoryChain,
@@ -126,7 +135,7 @@ function samePath(left, right) {
   return normalize(left) === normalize(right);
 }
 
-async function observeGlobalPackages() {
+async function observeGlobalPackages(ccgPackage = "ccg-workflow") {
   // npm 11 redacts UUID path segments in `npm root -g` output. An explicit
   // prefix is already the authoritative install location, so derive it here.
   const globalRoot = globalPackageRootFromNpmPrefix(
@@ -135,12 +144,127 @@ async function observeGlobalPackages() {
   ) ?? run("npm", ["root", "-g"], { capture: true });
   const [trellis, ccg] = await Promise.all([
     inspectGlobalPackage(globalRoot, "@mindfoldhq/trellis"),
-    inspectGlobalPackage(globalRoot, "ccg-workflow"),
+    inspectGlobalPackage(globalRoot, resolveCcgRuntimePackage(ccgPackage).packageName),
   ]);
   return {
     trellis,
     ccg,
   };
+}
+
+const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
+const jsonBytes = (value) => `${JSON.stringify(value, null, 2)}\n`;
+
+async function boundedRegularBytes(filename, label) {
+  const details = await lstat(filename);
+  if (!details.isFile() || details.isSymbolicLink() || details.size > 4 * 1024 * 1024) throw new Error(`${label} must be a bounded regular file.`);
+  return readFile(filename);
+}
+
+function migrationPrefix() {
+  const prefix = process.env.NPM_CONFIG_PREFIX;
+  if (!prefix || !path.isAbsolute(prefix)) throw new Error("CCG namespace migration requires an explicit absolute NPM_CONFIG_PREFIX.");
+  return path.resolve(prefix);
+}
+
+async function inspectRetainedSlot(ownership, { requireRetained = false } = {}) {
+  const slot = ownership.entries.find(entry => entry.id === "ccg-legacy-retained");
+  if (!slot || (slot.disposition !== "retained" && !requireRetained)) return null;
+  if (slot.disposition !== "retained") throw new Error("Legacy CCG slot has already been released.");
+  const globalRoot = globalPackageRootFromNpmPrefix(migrationPrefix(), { platform: process.platform });
+  const observed = await inspectGlobalPackage(globalRoot, "ccg-workflow");
+  if (!globalPackageSnapshotsEqual(observed, slot.installedByHarness) ||
+      !ccgCommandFilesEqual(await inspectCcgCommandFiles(slot.installedByHarness.entryPath, slot.package), slot.commandFiles)) throw new Error("Retained legacy CCG package or command changed; refusing ownership handoff.");
+  return slot;
+}
+
+async function buildNamespaceMigrationPlan(repoRoot) {
+  const prefix = migrationPrefix();
+  const globalRoot = globalPackageRootFromNpmPrefix(prefix, { platform: process.platform });
+  const manifestBytes = await boundedRegularBytes(path.join(repoRoot, "harness.sources.json"), "Harness source manifest");
+  const manifest = JSON.parse(manifestBytes);
+  const runtime = resolveCcgRuntimePackage(manifest.ccg.package);
+  if (runtime.packageName !== "@jed-zed/ccg-codex-workflow") throw new Error("Namespace migration only accepts the personal scoped Codex runtime.");
+  const componentRoot = path.resolve(repoRoot, String(manifest.ccg.snapshotPath));
+  await ensureSafeDirectoryChain(repoRoot, componentRoot, "CCG migration source");
+  const packageBytes = await boundedRegularBytes(path.join(componentRoot, "package.json"), "CCG source package");
+  validateCcgRuntimePackage(JSON.parse(packageBytes), manifest);
+  const ownershipPath = cachePath(repoRoot, "ownership.json");
+  await assertSafeRegularFileOrAbsent(repoRoot, ownershipPath, "CCG migration ownership");
+  const ownershipBytes = await boundedRegularBytes(ownershipPath, "CCG migration ownership");
+  const ownership = validateBootstrapOwnership(JSON.parse(ownershipBytes), repoRoot);
+  const entry = ownership.entries.find(item => item.id === "ccg-link");
+  if (!entry || entry.package !== "ccg-workflow" || entry.kind !== "npm-global-package" || ownership.entries.some(item => item.id === "ccg-legacy-retained")) throw new Error("Namespace migration requires an intact, packaged legacy CCG owned entry.");
+  const legacyRuntime = await inspectGlobalPackage(globalRoot, "ccg-workflow");
+  if (!globalPackageSnapshotsEqual(legacyRuntime, entry.installedByHarness)) throw new Error("Legacy CCG package changed after Harness management; refusing namespace migration.");
+  const legacyCommandFiles = await inspectCcgCommandFiles(entry.installedByHarness.entryPath, entry.package);
+  if (legacyCommandFiles.some(file => file.kind === "absent") || (entry.commandFiles && !ccgCommandFilesEqual(entry.commandFiles, legacyCommandFiles))) throw new Error("Legacy owned CCG commands are missing or changed.");
+  const targetPath = path.join(globalRoot, ...runtime.packageName.split("/"));
+  const targetRuntime = await inspectGlobalPackage(globalRoot, runtime.packageName);
+  const targetCommandFiles = await inspectCcgCommandFiles(targetPath, runtime.packageName);
+  if (targetRuntime || targetCommandFiles.some(file => file.kind !== "absent")) throw new Error("Scoped CCG runtime or command already exists; refusing foreign namespace adoption.");
+  return { schemaVersion: 1, kind: "ccg-owned-runtime-namespace-migration", repoRoot: path.resolve(repoRoot), prefix,
+    fromPackage: entry.package, toPackage: runtime.packageName, targetVersion: manifest.ccg.version,
+    manifestSha256: sha256(manifestBytes), sourcePackageSha256: sha256(packageBytes), ownershipSha256: sha256(ownershipBytes),
+    legacyRuntime, legacyCommandFiles, targetRuntime, targetCommandFiles };
+}
+
+async function readPinnedPlan(args) {
+  const bytes = await boundedRegularBytes(args.ccgMigrationPlan, "CCG migration plan");
+  if (sha256(bytes) !== args.ccgMigrationPlanSha256) throw new Error("CCG migration plan SHA-256 mismatch.");
+  return JSON.parse(bytes);
+}
+
+async function assertScopedCommandContinuity(ownership, observed) {
+  const entry = ownership.entries.find(item => item.id === "ccg-link");
+  if (entry?.commandFiles && (!observed || !ccgCommandFilesEqual(await inspectCcgCommandFiles(entry.installedByHarness.entryPath, entry.package), entry.commandFiles))) throw new Error("Owned CCG command changed after Harness management; refusing bootstrap.");
+}
+
+async function buildLegacyDispositionPlan(repoRoot, recipientPath, recipientSha256) {
+  const recipientBytes = await boundedRegularBytes(recipientPath, "Stock Claude recipient plan");
+  if (sha256(recipientBytes) !== recipientSha256) throw new Error("Stock Claude recipient plan SHA-256 mismatch.");
+  const recipient = JSON.parse(recipientBytes);
+  const prefix = migrationPrefix();
+  if (recipient.kind !== "ccg-stock-npm-prefix-file-plan" || !samePath(recipient.prefix, prefix) ||
+      ![recipient.stageReceiptSha256, recipient.baselineManifestSha256].every(value => /^[a-f0-9]{64}$/.test(value)) ||
+      !Array.isArray(recipient.rows) || recipient.rows.length === 0) throw new Error("Legacy handoff requires the exact stock npm file plan for this prefix.");
+  const ownershipPath = cachePath(repoRoot, "ownership.json");
+  await assertSafeRegularFileOrAbsent(repoRoot, ownershipPath, "Legacy disposition ownership");
+  const ownershipBytes = await boundedRegularBytes(ownershipPath, "Legacy disposition ownership");
+  const ownership = validateBootstrapOwnership(JSON.parse(ownershipBytes), repoRoot);
+  const slot = await inspectRetainedSlot(ownership, { requireRetained: true });
+  if (!slot) throw new Error("No retained legacy CCG owner is available for stock handoff.");
+  const scoped = ownership.entries.find(entry => entry.id === "ccg-link");
+  if (!scoped || scoped.package !== "@jed-zed/ccg-codex-workflow") throw new Error("Stock handoff requires the installed owned Codex namespace.");
+  const observed = await observeGlobalPackages(scoped.package);
+  assertBootstrapOwnershipContinuity(ownership, observed, { ccg: true, ccgPackage: scoped.package }, repoRoot);
+  await assertScopedCommandContinuity(ownership, observed.ccg);
+  return { schemaVersion: 1, kind: "ccg-legacy-runtime-disposition", repoRoot: path.resolve(repoRoot), prefix,
+    disposition: "released-for-stock-claude", ownershipSha256: sha256(ownershipBytes), legacyEntry: slot,
+    scopedRuntime: observed.ccg, recipientPlan: path.resolve(recipientPath), recipientPlanSha256: recipientSha256,
+    recipientKind: recipient.kind, stageReceiptSha256: recipient.stageReceiptSha256, baselineManifestSha256: recipient.baselineManifestSha256 };
+}
+
+async function releaseLegacyRuntime(args) {
+  const plan = await readPinnedPlan(args);
+  if (plan.kind !== "ccg-legacy-runtime-disposition" || plan.disposition !== "released-for-stock-claude" ||
+      !samePath(plan.repoRoot, args.repoRoot) || !samePath(plan.prefix, migrationPrefix())) throw new Error("Legacy disposition plan has an invalid identity.");
+  const ownershipPath = cachePath(args.repoRoot, "ownership.json");
+  const ownership = await readExistingOwnership(ownershipPath, args.repoRoot);
+  const slot = ownership.entries.find(entry => entry.id === "ccg-legacy-retained");
+  if (slot?.disposition === "released-for-stock-claude" && slot.release.dispositionPlanSha256 === args.ccgMigrationPlanSha256 &&
+      slot.release.recipientPlanSha256 === plan.recipientPlanSha256) {
+    process.stdout.write(`${jsonBytes({ status: "unchanged", disposition: slot.disposition })}`);
+    return;
+  }
+  const rebuilt = await buildLegacyDispositionPlan(args.repoRoot, plan.recipientPlan, plan.recipientPlanSha256);
+  if (jsonBytes(plan) !== jsonBytes(rebuilt)) throw new Error("Legacy disposition plan is stale; ownership, runtime or stock recipient changed.");
+  slot.disposition = "released-for-stock-claude";
+  slot.release = { recipientPlanSha256: plan.recipientPlanSha256, dispositionPlanSha256: args.ccgMigrationPlanSha256, releasedAt: new Date().toISOString() };
+  ownership.updatedAt = new Date().toISOString();
+  validateBootstrapOwnership(ownership, args.repoRoot);
+  await atomicWrite(args.repoRoot, ownershipPath, jsonBytes(ownership), "Legacy CCG owner disposition");
+  process.stdout.write(jsonBytes({ status: "released", disposition: slot.disposition, recipientPlanSha256: plan.recipientPlanSha256, runtimeBytesChanged: false }));
 }
 
 async function beginBootstrap(args) {
@@ -149,17 +273,32 @@ async function beginBootstrap(args) {
   const manifest = await readJson(
     path.join(args.repoRoot, "harness.sources.json"),
   );
-  const before = await observeGlobalPackages();
+  const ccgPackage = resolveCcgRuntimePackage(manifest.ccg.package).packageName;
+  const before = await observeGlobalPackages(ccgPackage);
   const existing = await readExistingOwnership(
     ownershipPath,
     args.repoRoot,
   );
+  let ccgMigrationPlan;
+  let legacyCcg;
+  if (args.ccgMigrationPlan) {
+    ccgMigrationPlan = await readPinnedPlan(args);
+    const rebuilt = await buildNamespaceMigrationPlan(args.repoRoot);
+    if (jsonBytes(ccgMigrationPlan) !== jsonBytes(rebuilt)) throw new Error("CCG migration plan is stale; runtime, ownership or source changed.");
+    legacyCcg = rebuilt.legacyRuntime;
+  } else {
+    await assertScopedCommandContinuity(existing, before.ccg);
+    await inspectRetainedSlot(existing);
+  }
   assertBootstrapOwnershipContinuity(
     existing,
     before,
     {
       trellis: args.manageTrellis,
       ccg: args.manageCcg,
+      ccgPackage,
+      ccgMigrationPlan,
+      legacyCcg,
     },
     args.repoRoot,
   );
@@ -174,12 +313,14 @@ async function beginBootstrap(args) {
     expected: {
       trellisVersion: String(manifest.trellis.version),
       ccgVersion: String(manifest.ccg.version),
+      ccgPackage,
     },
     ccgSourcePath: path.resolve(
       args.repoRoot,
       String(manifest.ccg.snapshotPath),
     ),
     before,
+    ...(ccgMigrationPlan ? { ccgMigration: { plan: ccgMigrationPlan, planSha256: args.ccgMigrationPlanSha256 } } : {}),
   };
   await ensureSafeDirectoryChain(
     args.repoRoot,
@@ -215,9 +356,10 @@ function assertBootstrapTransaction(pending, repoRoot) {
     "before",
   ];
   const keys = Object.keys(pending ?? {});
+  const optional = ["ccgMigration", "installedCcg"];
   if (
     pending?.schemaVersion !== 2 ||
-    keys.length !== required.length ||
+    keys.some(key => !required.includes(key) && !optional.includes(key)) ||
     required.some((key) => !keys.includes(key)) ||
     typeof pending.createdAt !== "string" ||
     typeof pending.managed?.trellis !== "boolean" ||
@@ -225,13 +367,31 @@ function assertBootstrapTransaction(pending, repoRoot) {
     Object.keys(pending.managed).sort().join(",") !== "ccg,trellis" ||
     typeof pending.expected?.trellisVersion !== "string" ||
     typeof pending.expected?.ccgVersion !== "string" ||
-    Object.keys(pending.expected).sort().join(",") !==
-      "ccgVersion,trellisVersion" ||
+    !["ccgVersion,trellisVersion", "ccgPackage,ccgVersion,trellisVersion"].includes(
+      Object.keys(pending.expected).sort().join(",")
+    ) ||
     typeof pending.ccgSourcePath !== "string" ||
     !path.isAbsolute(pending.ccgSourcePath) ||
     Object.keys(pending.before ?? {}).sort().join(",") !== "ccg,trellis"
   ) {
     throw new Error("Bootstrap ownership transaction has an invalid schema.");
+  }
+  resolveCcgRuntimePackage(pending.expected.ccgPackage ?? "ccg-workflow");
+  if (pending.ccgMigration !== undefined) {
+    const migration = pending.ccgMigration;
+    if (Object.keys(migration).sort().join(",") !== "plan,planSha256" ||
+        !/^[a-f0-9]{64}$/.test(migration.planSha256) ||
+        migration.plan?.kind !== "ccg-owned-runtime-namespace-migration" ||
+        migration.plan?.fromPackage !== "ccg-workflow" ||
+        migration.plan?.toPackage !== pending.expected.ccgPackage ||
+        migration.plan?.targetVersion !== pending.expected.ccgVersion ||
+        !samePath(migration.plan?.repoRoot, repoRoot) ||
+        !samePath(migration.plan?.prefix, migrationPrefix())) throw new Error("Bootstrap CCG namespace migration binding is invalid.");
+    validateGlobalPackageSnapshot(migration.plan.legacyRuntime, "Migration legacy CCG");
+  }
+  if (pending.installedCcg !== undefined) {
+    if (Object.keys(pending.installedCcg).sort().join(",") !== "commandFiles,runtime") throw new Error("Bootstrap installed CCG checkpoint is invalid.");
+    validateGlobalPackageSnapshot(pending.installedCcg.runtime, "Bootstrap installed CCG checkpoint");
   }
   validateGlobalPackageSnapshot(
     pending.before.trellis,
@@ -244,6 +404,40 @@ function assertBootstrapTransaction(pending, repoRoot) {
   if (!samePath(pending.repoRoot, repoRoot)) {
     throw new Error("Bootstrap ownership transaction belongs to another repo.");
   }
+}
+
+async function assertPendingMigrationInputs(pending, repoRoot) {
+  const plan = pending.ccgMigration?.plan;
+  if (!plan) return;
+  const ownershipBytes = await boundedRegularBytes(cachePath(repoRoot, "ownership.json"), "Migration baseline ownership");
+  if (sha256(ownershipBytes) !== plan.ownershipSha256) throw new Error("CCG migration baseline ownership changed during bootstrap.");
+  const ownership = validateBootstrapOwnership(JSON.parse(ownershipBytes), repoRoot);
+  const entry = ownership.entries.find(item => item.id === "ccg-link");
+  if (!entry || entry.package !== plan.fromPackage || !globalPackageSnapshotsEqual(entry.installedByHarness, plan.legacyRuntime)) throw new Error("CCG migration old owner changed during bootstrap.");
+  const manifestBytes = await boundedRegularBytes(path.join(repoRoot, "harness.sources.json"), "Migration source manifest");
+  const packageBytes = await boundedRegularBytes(path.join(pending.ccgSourcePath, "package.json"), "Migration source package");
+  if (sha256(manifestBytes) !== plan.manifestSha256 || sha256(packageBytes) !== plan.sourcePackageSha256) throw new Error("CCG migration source identity changed during bootstrap.");
+  const legacy = await observeGlobalPackages(plan.fromPackage);
+  if (!globalPackageSnapshotsEqual(legacy.ccg, plan.legacyRuntime) ||
+      !ccgCommandFilesEqual(await inspectCcgCommandFiles(plan.legacyRuntime.entryPath, plan.fromPackage), plan.legacyCommandFiles)) throw new Error("Legacy CCG runtime changed during scoped bootstrap.");
+}
+
+async function checkpointBootstrapRuntime(args) {
+  const pendingPath = cachePath(args.repoRoot, "bootstrap-pending.json");
+  await assertSafeRegularFileOrAbsent(args.repoRoot, pendingPath, "Bootstrap pending record");
+  const pending = await readJson(pendingPath);
+  assertBootstrapTransaction(pending, args.repoRoot);
+  if (!pending.managed.ccg) return;
+  await assertPendingMigrationInputs(pending, args.repoRoot);
+  const after = await observeGlobalPackages(pending.expected.ccgPackage ?? "ccg-workflow");
+  assertManagedCcg(pending, after);
+  validateCcgRuntimePackage(await readJson(path.join(after.ccg.entryPath, "package.json")), { ccg: { package: pending.expected.ccgPackage ?? "ccg-workflow", version: pending.expected.ccgVersion } });
+  const commandFiles = await inspectCcgCommandFiles(after.ccg.entryPath, pending.expected.ccgPackage ?? "ccg-workflow");
+  if (commandFiles.some(file => file.kind === "absent")) throw new Error("Installed CCG checkpoint has a missing command.");
+  if (pending.installedCcg && (!globalPackageSnapshotsEqual(pending.installedCcg.runtime, after.ccg) ||
+      !ccgCommandFilesEqual(pending.installedCcg.commandFiles, commandFiles))) throw new Error("Installed CCG changed after its bootstrap checkpoint.");
+  pending.installedCcg = { runtime: after.ccg, commandFiles };
+  await atomicWrite(args.repoRoot, pendingPath, jsonBytes(pending), "Bootstrap runtime checkpoint");
 }
 
 function assertManagedTrellis(pending, after) {
@@ -317,16 +511,24 @@ async function completeBootstrap(args) {
   );
   const pending = await readJson(pendingPath);
   assertBootstrapTransaction(pending, args.repoRoot);
-  const after = await observeGlobalPackages();
+  await assertPendingMigrationInputs(pending, args.repoRoot);
+  const after = await observeGlobalPackages(pending.expected.ccgPackage ?? "ccg-workflow");
   assertManagedTrellis(pending, after);
   assertManagedCcg(pending, after);
+  if ((pending.ccgMigration || pending.installedCcg) && (!pending.installedCcg ||
+      !globalPackageSnapshotsEqual(pending.installedCcg.runtime, after.ccg) ||
+      !ccgCommandFilesEqual(pending.installedCcg.commandFiles, await inspectCcgCommandFiles(after.ccg.entryPath, pending.expected.ccgPackage)))) throw new Error("Scoped namespace migration requires an unchanged installed-runtime checkpoint.");
 
   const recorded = buildBootstrapOwnership({
     repoRoot: args.repoRoot,
     ccgSourcePath: pending.ccgSourcePath,
+    ccgPackage: pending.expected.ccgPackage ?? "ccg-workflow",
     managed: pending.managed,
     before: pending.before,
     after,
+    ccgMigrationPlan: pending.ccgMigration?.plan,
+    beforeLegacyCcg: pending.ccgMigration?.plan.legacyRuntime,
+    ccgCommandFiles: pending.installedCcg?.commandFiles,
     existingOwnership: await readExistingOwnership(
       ownershipPath,
       args.repoRoot,
@@ -337,6 +539,7 @@ async function completeBootstrap(args) {
     args.repoRoot,
   );
   recorded.entries = mergeOwnershipEntries(existing, recorded);
+  validateBootstrapOwnership(recorded, args.repoRoot);
   await atomicWrite(
     args.repoRoot,
     ownershipPath,
@@ -375,7 +578,14 @@ async function abortBootstrap(args) {
     throw error;
   }
   assertBootstrapTransaction(pending, args.repoRoot);
-  const current = await observeGlobalPackages();
+  const current = await observeGlobalPackages(pending.expected.ccgPackage ?? "ccg-workflow");
+  if (pending.ccgMigration) {
+    await assertPendingMigrationInputs(pending, args.repoRoot);
+    if (current.ccg && (!pending.installedCcg ||
+        !globalPackageSnapshotsEqual(current.ccg, pending.installedCcg.runtime) ||
+        !ccgCommandFilesEqual(await inspectCcgCommandFiles(current.ccg.entryPath, pending.expected.ccgPackage), pending.installedCcg.commandFiles))) throw new Error("Scoped migration rollback holds uncheckpointed or user-modified runtime; no files changed.");
+    if (!current.ccg && !ccgCommandFilesEqual(await inspectCcgCommandFiles(path.join(globalPackageRootFromNpmPrefix(migrationPrefix(), { platform: process.platform }), ...pending.expected.ccgPackage.split("/")), pending.expected.ccgPackage), pending.ccgMigration.plan.targetCommandFiles)) throw new Error("Scoped migration rollback holds command files without an installed package; no files changed.");
+  }
   const candidates = [
     pending.managed.trellis
       ? {
@@ -388,7 +598,7 @@ async function abortBootstrap(args) {
     pending.managed.ccg
       ? {
           id: "ccg-link",
-          package: "ccg-workflow",
+          package: pending.expected.ccgPackage ?? "ccg-workflow",
           before: pending.before.ccg,
           current: current.ccg,
         }
@@ -585,6 +795,7 @@ function readTargetCcgVersion(resolved, source, manifest) {
       + `got ${targetPackage.name ?? "missing"}.`,
     );
   }
+  validateCcgRuntimePackage(targetPackage, { ccg: { ...manifest.ccg, version: targetPackage.version } });
   const version = String(targetPackage.version ?? "");
   compareSemanticVersions(version, version);
   return version;
@@ -707,9 +918,10 @@ async function runActivatedCcgCliSmokes(
   const packageManifest = await readJson(
     path.join(componentRoot, "package.json"),
   );
+  const runtime = validateCcgRuntimePackage(packageManifest, { ccg: { package: packageManifest.name, version: packageManifest.version } });
   const localVersion = run(
     process.execPath,
-    [path.join(componentRoot, "bin", "ccg.mjs"), "--version"],
+    [path.join(componentRoot, runtime.entrypoint), "--version"],
     { cwd: componentRoot, capture: true },
   );
   assertVersionOutput(
@@ -725,16 +937,17 @@ async function runActivatedCcgCliSmokes(
     (entry) => entry.id === "ccg-link",
   );
   if (ccgOwnership) {
-    const globalPackages = await observeGlobalPackages();
+    if (ccgOwnership.package !== runtime.packageName) throw new Error("Managed CCG package identity differs from the source snapshot.");
+    const globalPackages = await observeGlobalPackages(runtime.packageName);
     assertManagedCcgRuntimePackage(ccgOwnership, globalPackages.ccg);
     const globalVersion =
       process.platform === "win32"
         ? run(
             process.env.ComSpec || "cmd.exe",
-            ["/d", "/s", "/c", "ccg --version"],
+            ["/d", "/s", "/c", `${runtime.command} --version`],
             { cwd: repoRoot, capture: true },
           )
-        : run("ccg", ["--version"], {
+        : run(runtime.command, ["--version"], {
             cwd: repoRoot,
             capture: true,
           });
@@ -743,7 +956,7 @@ async function runActivatedCcgCliSmokes(
       String(packageManifest.version),
       "Harness-managed global CCG CLI",
     );
-    commands.push("ccg --version");
+    commands.push(`${runtime.command} --version`);
   }
   return commands;
 }
@@ -1219,10 +1432,14 @@ async function uninstallHarness(args) {
     throw error;
   }
 
-  const current = await observeGlobalPackages();
+  const ccgPackage = ownership.entries.find((entry) => entry.id === "ccg-link")?.package ?? "ccg-workflow";
+  const current = await observeGlobalPackages(ccgPackage);
   const observations = {
     "trellis-global": current.trellis,
     "ccg-link": current.ccg,
+    commandFiles: {
+      "ccg-link": current.ccg ? await inspectCcgCommandFiles(current.ccg.entryPath, ccgPackage) : null,
+    },
   };
   const plan = buildOwnedUninstallPlan(
     ownership,
@@ -1231,7 +1448,7 @@ async function uninstallHarness(args) {
   );
   for (const entry of plan.remove) restoreGlobalEntry(entry);
 
-  ownership.entries = plan.skip;
+  ownership.entries = [...plan.skip, ...ownership.entries.filter(entry => entry.id === "ccg-legacy-retained")];
   ownership.updatedAt = new Date().toISOString();
   await atomicWrite(
     args.repoRoot,
@@ -1253,14 +1470,32 @@ async function uninstallHarness(args) {
 }
 
 async function main() {
+  assertCodexMutationHost();
   const args = parseLifecycleArgs(process.argv.slice(2));
-  if (args.command === "bootstrap-begin") return beginBootstrap(args);
-  if (args.command === "bootstrap-complete") return completeBootstrap(args);
-  if (args.command === "bootstrap-abort") return abortBootstrap(args);
+  if (args.command === "ccg-runtime-migration-plan") {
+    process.stdout.write(jsonBytes(await buildNamespaceMigrationPlan(args.repoRoot)));
+    return;
+  }
+  if (args.command === "ccg-legacy-disposition-plan") {
+    process.stdout.write(jsonBytes(await buildLegacyDispositionPlan(args.repoRoot, args.recipientPlan, args.recipientPlanSha256)));
+    return;
+  }
+  await assertLegacyClaimMutationAllowed(args.repoRoot);
   if (args.command === "update") return updateHarness(args);
   if (args.command === "rollback") return rollbackHarness(args);
   if (args.command === "recover") return recoverHarness(args);
-  return uninstallHarness(args);
+  const pendingOperation = ["bootstrap-complete", "bootstrap-abort", "bootstrap-runtime-checkpoint"].includes(args.command) ? "bootstrap-resume" : null;
+  const lock = await acquireTransactionLock(args.repoRoot, { pendingOperation });
+  try {
+    if (args.command === "ccg-legacy-disposition") return await releaseLegacyRuntime(args);
+    if (args.command === "bootstrap-begin") return await beginBootstrap(args);
+    if (args.command === "bootstrap-complete") return await completeBootstrap(args);
+    if (args.command === "bootstrap-abort") return await abortBootstrap(args);
+    if (args.command === "bootstrap-runtime-checkpoint") return await checkpointBootstrapRuntime(args);
+    return await uninstallHarness(args);
+  } finally {
+    await lock.release();
+  }
 }
 
 const invokedPath = process.argv[1]

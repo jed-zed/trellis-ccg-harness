@@ -117,13 +117,15 @@ function adapterReport(
   };
 }
 
-function fixture() {
+function fixture({ ccgPackage = "ccg-workflow" } = {}) {
+  const ccgCommand = ccgPackage === "@jed-zed/ccg-codex-workflow" ? "ccg-codex" : "ccg";
   const fixtureRoot = mkdtempSync(path.join(tmpdir(), "harness-doctor-"));
   const scriptsRoot = path.join(fixtureRoot, "scripts");
   const binRoot = path.join(fixtureRoot, "bin");
   mkdirSync(scriptsRoot, { recursive: true });
   mkdirSync(binRoot, { recursive: true });
   cpSync(path.join(ROOT, "scripts", "doctor.ps1"), path.join(scriptsRoot, "doctor.ps1"));
+  cpSync(path.join(ROOT, "scripts", "ccg-runtime.mjs"), path.join(scriptsRoot, "ccg-runtime.mjs"));
   write(
     path.join(fixtureRoot, "harness.sources.json"),
     `${JSON.stringify(
@@ -134,6 +136,7 @@ function fixture() {
         },
         trellis: { version: "0.6.9" },
         ccg: {
+          package: ccgPackage,
           snapshotPath: "components/ccg-workflow",
           version: CURRENT_VERSION,
         },
@@ -172,7 +175,7 @@ function fixture() {
     ["trellis", "0.6.9"],
     ["pnpm", "10.17.1"],
     ["go", "go version go1.26.5 test/amd64"],
-    ["ccg", `ccg/${TARGET_VERSION} test-runtime`],
+    [ccgCommand, `${ccgCommand}/${TARGET_VERSION} test-runtime`],
     ["git", "https://github.com/jed-zed/trellis-ccg-harness.git"],
     ["gh", "false"],
   ]) {
@@ -187,7 +190,7 @@ function fixture() {
       return reportPath;
     },
     setCcgVersion(version) {
-      writeCommand(binRoot, "ccg", `ccg/${version} test-runtime`);
+      writeCommand(binRoot, ccgCommand, `${ccgCommand}/${version} test-runtime`);
     },
     cleanup() {
       rmSync(fixtureRoot, { recursive: true, force: true });
@@ -436,4 +439,15 @@ test("CCG setup doctor permits only the exact preflight plugin transition", () =
   } finally {
     value.cleanup();
   }
+});
+
+
+test("doctor chooses the scoped Codex CCG command and keeps prerelease identity exact", () => {
+  const value = fixture({ ccgPackage: "@jed-zed/ccg-codex-workflow" });
+  try {
+    const reportPath = value.writeReport("scoped-runtime.json", adapterReport());
+    const result = runDoctor(value, reportPath);
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+    assert.match(result.stdout, /Installed personal CCG CLI is available/i);
+  } finally { value.cleanup(); }
 });

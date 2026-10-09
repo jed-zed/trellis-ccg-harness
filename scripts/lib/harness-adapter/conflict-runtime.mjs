@@ -1,5 +1,6 @@
 import { existsSync, readdirSync } from "node:fs";
 import path from "node:path";
+import { resolveCcgRuntimePackage } from "../../ccg-runtime.mjs";
 
 import {
   collectHookCommands,
@@ -62,14 +63,16 @@ export function buildWindowsPowerShellRuntimeInvocation(
   };
 }
 
-function runtimeInvocations(contract, env) {
+function runtimeInvocations(contract, env, sources) {
+  const target = resolveCcgRuntimePackage(sources.ccg.package);
+  if (contract.runtime.ccg.command !== target.command) throw new Error("CCG source package and adapter command identity differ.");
   const invocations = [];
   if (process.platform === "win32" && env.APPDATA) {
     const npmCliPath = path.join(
       env.APPDATA,
       "npm",
       "node_modules",
-      "ccg-workflow",
+      ...target.packageName.split("/"),
       "bin",
       "ccg.mjs",
     );
@@ -118,6 +121,7 @@ function runtimeInvocations(contract, env) {
 export async function runCcgRuntimeCheck({
   repoRoot,
   contract,
+  sources,
   add,
   runner = defaultAsyncRunner,
   env = process.env,
@@ -134,7 +138,13 @@ export async function runCcgRuntimeCheck({
   }
   let result = null;
   let selectedInvocation = null;
-  for (const invocation of runtimeInvocations(contract, env)) {
+  let invocations;
+  try { invocations = runtimeInvocations(contract, env, sources); }
+  catch (error) {
+    add("ccg-runtime-cli", "blocking", "conflict", "Installed CCG identity could not be verified.", error.message);
+    return;
+  }
+  for (const invocation of invocations) {
     const attempt = await runCommandAsync(
       invocation.command,
       invocation.args,
@@ -184,11 +194,10 @@ export async function runCcgRuntimeCheck({
 
 function checkPluginCache({
   add,
-  homeDir,
+  codexHome,
 }) {
   const pluginCacheRoot = path.join(
-    homeDir,
-    ".codex",
+    codexHome,
     "plugins",
     "cache",
     "ccg-gptpro-worflow",
@@ -263,10 +272,10 @@ function checkPromptHookOverlap({
   repoRoot,
   contract,
   add,
-  homeDir,
+  codexHome,
 }) {
   const projectHooks = readHooks(path.join(repoRoot, ".codex", "hooks.json"));
-  const userHooks = readHooks(path.join(homeDir, ".codex", "hooks.json"));
+  const userHooks = readHooks(path.join(codexHome, "hooks.json"));
   const eventName = contract.hooks.promptEvent;
   const projectHookCount = countHookCommands(projectHooks, eventName);
   const userHookCount = countHookCommands(userHooks, eventName);
@@ -282,7 +291,7 @@ function checkPromptHookOverlap({
     projectWorkflowHooks.length > 0 && userWorkflowHooks.length > 0;
   const yieldMarker = contract.hooks.globalYieldMarker;
   const globalHookSource = readTextIfPresent(
-    path.join(homeDir, ".codex", "hooks", "inject-workflow-state.py"),
+    path.join(codexHome, "hooks", "inject-workflow-state.py"),
   );
   const projectLocalPrecedence =
     duplicates &&

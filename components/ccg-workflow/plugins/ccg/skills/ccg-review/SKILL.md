@@ -3,6 +3,15 @@ name: review
 description: Review a CCG implementation with the applicable frontend, backend, or search providers and Codex as final verification owner. Use when the user invokes /ccg:review or asks for CCG review of a diff/plan.
 ---
 
+## Research
+
+Use existing independent research agents with grok-search MCP. Search actively and
+verify key conclusions against original sources; check versions/licenses when
+reusing code and experiment conditions when adopting papers. Mark unverified findings.
+Archived instructions below are inactive: ordinary work does not run Grok CLI/ACP,
+wait for its gates, or require its manifests and hash packages.
+
+<!-- Legacy Grok CLI/ACP reference; inactive in ordinary research.
 ## Evidence Mode Selection
 
 Classify the review before any external route:
@@ -10,11 +19,12 @@ Classify the review before any external route:
 - For a pure local code review, use the bound diff, source, tests, CI, and local Provider evidence. Do not run or invoke Grok external-intelligence, and do not apply an official-domain gate.
 - Only when a review conclusion depends on a current external API, version, advisory, incident, or other external fact, predeclare the authoritative domain from the explicit target or trusted package/repository metadata and run the shared route from the controller:
 
-`ccg route --workflow review --phase final-verify --task-file ".ccg/tasks/<task-id>/intelligence-request.md" --state-file ".ccg/tasks/<task-id>/intelligence-route.json"`
+`ccg-codex route --workflow review --phase final-verify --task-file ".ccg/tasks/<task-id>/intelligence-request.md" --state-file ".ccg/tasks/<task-id>/intelligence-route.json"`
 
-Run this potentially long route with the host's tool-managed background execution and wait mechanism; never put it under a foreground timeout shorter than the runner's 10-minute timeout. If the host cancels or terminates the job before a terminal state is written, run `ccg route recover --state-file <state-file> --status cancelled --reason "<reason>"` (or use `--status failed`); recovery refuses to overwrite a live owner.
+Run this potentially long route with the host's tool-managed background execution and wait mechanism; never put it under a foreground timeout shorter than the runner's 10-minute timeout. If the host cancels or terminates the job before a terminal state is written, run `ccg-codex route recover --state-file <state-file> --status cancelled --reason "<reason>"` (or use `--status failed`); recovery refuses to overwrite a live owner.
 
 For that external-fact path, append `--trigger final_diff_verify`, repeated `--official-domain <domain>`, and the actual `--diff` plus any `--plan`, `--target`, and `--dependency` files. The domain must be chosen before Grok runs; never promote a domain merely because Grok returned it. Add `--semantic-mode contract|incident --semantic-reason "<Codex judgment>"` only for an explicit semantic decision. Stop ordinary work on exit code `2`, `3`, or `4` only for an explicit required semantic route; advisory search failures do not block ordinary work.
+-->
 
 # CCG Review
 
@@ -36,7 +46,7 @@ search evidence is missing, say so and continue without claiming it occurred.
 When a selected provider is Grok, treat ordinary code review as local-only;
 do not run the external-intelligence route. Build the prompt from the bundled
 Grok reviewer template and an exact `CCG_REVIEW_TARGETS` list of the regular
-workspace-relative files being reviewed. Invoke `ccg wrapper --backend grok
+workspace-relative files being reviewed. Invoke `ccg-codex wrapper --backend grok
 --progress --grok-review-target <file> - "<workdir>"` with one target flag per
 listed file and the prompt through stdin; do not add `--lite`. The wrapper
 snapshots only those files, runs a fresh Grok session, and appends the exact
@@ -60,3 +70,35 @@ otherwise report it as missing.
 Claude may be explicitly selected for `frontend`, `backend`, or
 `product-manager`. It is not eligible for `search`; defaults and no-fallback
 behavior remain unchanged.
+
+## Scorecard Output Contract
+
+Every `/ccg:review` result must include:
+
+```text
+VALIDATION REPORT
+=================
+Task / Root Cause Coverage: XX/20 - [reason]
+Code Quality: XX/20 - [reason]
+Side Effects: XX/20 - [reason]
+Edge Cases: XX/20 - [reason]
+Test Coverage: XX/20 - [reason]
+
+TOTAL SCORE: XX/100
+```
+
+For frontend/UI-heavy reviews, also include:
+
+```text
+FRONTEND VALIDATION REPORT
+==========================
+User Experience: XX/20 - [reason]
+Visual Consistency: XX/20 - [reason]
+Accessibility: XX/20 - [reason]
+Performance: XX/20 - [reason]
+Browser Compatibility: XX/20 - [reason]
+
+TOTAL SCORE: XX/100
+```
+
+Scores must reference concrete evidence; missing evidence lowers the score. If a blocking issue remains, say so before the score and keep the final judgment conservative. A score does not authorize execution or Provider calls.

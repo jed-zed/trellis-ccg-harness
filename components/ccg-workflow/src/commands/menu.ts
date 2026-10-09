@@ -12,7 +12,7 @@ import { parse as parseTOML } from 'smol-toml'
 import { version } from '../../package.json'
 import { showCompanionAddons } from './addons'
 import { configMcp } from './config-mcp'
-import { configRouting, readCodexRoutingConfig } from './config-routing'
+import { configRouting, configureProviderRouting, readCodexRoutingConfig } from './config-routing'
 import { i18n } from '../i18n'
 import { installCodexMode, uninstallCodexMode, uninstallWorkflows } from '../utils/installer'
 import { readCcgConfig, writeCcgConfig } from '../utils/config'
@@ -20,8 +20,8 @@ import { init } from './init'
 import { update } from './update'
 import { isWindows } from '../utils/platform'
 import { npmSelector } from '../utils/third-party-sources'
-import { REGISTERED_MODEL_TYPES, STANDARD_ROUTING_ROLES } from '../types'
-import { setRoleProvider } from '../utils/model-routing'
+import { STANDARD_ROUTING_ROLES } from '../types'
+import { allowedProvidersForRole, setRoleProvider } from '../utils/model-routing'
 
 const execAsync = promisify(exec)
 
@@ -485,7 +485,7 @@ async function configModelRouting(): Promise<void> {
     type: 'list',
     name: 'selectedProvider',
     message: `Select provider for ${selectedRole}`,
-    choices: REGISTERED_MODEL_TYPES.map(provider => ({
+    choices: allowedProvidersForRole(selectedRole).map(provider => ({
       name: provider === currentProvider ? `${provider} ${ansis.green('(current)')}` : provider,
       value: provider,
     })),
@@ -548,10 +548,28 @@ async function configModelRouting(): Promise<void> {
     }
   }
 
+  let kimiModel = config.routing.kimiModel || ''
+  let opencodeModel = config.routing.opencodeModel || ''
+  if (selectedProvider === 'kimi' || selectedProvider === 'opencode') {
+    const { model } = await inquirer.prompt<{ model: string }>([{
+      type: 'input',
+      name: 'model',
+      message: `${selectedProvider} model (blank keeps its CLI default; OpenCode uses provider/model)`,
+      default: selectedProvider === 'kimi' ? kimiModel : opencodeModel,
+      validate: (value: string) => !/[\u0000-\u001F\u007F]/.test(value) || 'Use a single-line model identifier',
+    }])
+    if (selectedProvider === 'kimi')
+      kimiModel = model.trim()
+    else
+      opencodeModel = model.trim()
+  }
+
   if (
     selectedProvider === currentProvider
     && geminiModel === (config.routing.geminiModel || '')
     && grokModel === (config.routing.grokModel || '')
+    && kimiModel === (config.routing.kimiModel || '')
+    && opencodeModel === (config.routing.opencodeModel || '')
   ) {
     console.log(ansis.gray(`  ${i18n.t('common:configNotModified')}`))
     return
@@ -560,6 +578,8 @@ async function configModelRouting(): Promise<void> {
   config.routing = setRoleProvider(config.routing, selectedRole, selectedProvider)
   config.routing.geminiModel = geminiModel
   config.routing.grokModel = grokModel
+  config.routing.kimiModel = kimiModel
+  config.routing.opencodeModel = opencodeModel
   await writeCcgConfig(config)
 
   console.log()
@@ -686,9 +706,20 @@ async function handleCodexMode(): Promise<void> {
       type: 'list',
       name: 'provider',
       message: isZh ? `选择 ${role} 的 Provider` : `Select provider for ${role}`,
-      choices: REGISTERED_MODEL_TYPES,
+      choices: allowedProvidersForRole(role),
       default: routing[role].primary,
     }])
+    if (provider === 'kimi' || provider === 'opencode') {
+      const { model } = await inquirer.prompt<{ model: string }>([{
+        type: 'input',
+        name: 'model',
+        message: `${provider} model (blank keeps its CLI default; OpenCode uses provider/model)`,
+        default: routing[provider === 'kimi' ? 'kimiModel' : 'opencodeModel'] || '',
+        validate: (value: string) => !/[\u0000-\u001F\u007F]/.test(value) || 'Use a single-line model identifier',
+      }])
+      await configureProviderRouting(provider, { model, role })
+      return
+    }
     if (provider === routing[role].primary) {
       console.log(ansis.gray(`  ${i18n.t('common:configNotModified')}`))
       return

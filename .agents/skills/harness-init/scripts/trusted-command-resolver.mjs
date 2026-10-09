@@ -357,7 +357,7 @@ async function resolveNodePackage({
         binName,
         label,
         dependencySurface:
-          packageName === "ccg-workflow" ? "package" : "trusted-root",
+          ["ccg-workflow", "@jed-zed/ccg-codex-workflow"].includes(packageName) ? "package" : "trusted-root",
       });
       if (resolved) return resolved;
     } catch (error) {
@@ -437,6 +437,7 @@ function executableNamesFor(logicalName, platform) {
 const NODE_PACKAGE_COMMANDS = Object.freeze({
   npm: { packageName: "npm" },
   ccg: { packageName: "ccg-workflow" },
+  "ccg-codex": { packageName: "@jed-zed/ccg-codex-workflow" },
   codex: { packageName: "@openai/codex" },
   gemini: { packageName: "@google/gemini-cli" },
 });
@@ -601,6 +602,7 @@ async function resolveCodex({
 }
 
 async function resolveCcg({
+  logicalName,
   nodePath,
   env,
   platform,
@@ -611,8 +613,8 @@ async function resolveCcg({
     env,
     platform,
     approvedPackageRoots,
-    packageName: "ccg-workflow",
-    binName: "ccg",
+    packageName: NODE_PACKAGE_COMMANDS[logicalName].packageName,
+    binName: logicalName,
     label: "CCG CLI",
   });
   if (resolved) return resolved;
@@ -675,8 +677,9 @@ export async function resolveTrustedCommand(logicalName, {
       approvedCommandRoots,
     });
   }
-  if (logicalName === "ccg") {
+  if (logicalName === "ccg" || logicalName === "ccg-codex") {
     return resolveCcg({
+      logicalName,
       nodePath,
       env,
       platform,

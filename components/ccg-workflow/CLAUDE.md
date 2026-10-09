@@ -111,7 +111,7 @@
 
 ### 2026-07-22 (v3.3.0)
 - ✨ **Grok 外部情报层**：新增显式同意、自动路由、官方 Grok CLI ACP 隔离执行、Web/X 证据验证、缓存/保留/导出和 canonical task evidence。
-- ✨ **命令接入**：新增 `/ccg:grok-intel`、`/ccg:grok-verify` 与 GPT Pro plan/review/execute 证据入口；CLI 新增 `ccg grok login|status|logout` 和 Grok 本地/付费 doctor 分层。
+- ✨ **命令接入**：新增 `ccg-codex route`、`ccg-codex route` 与 GPT Pro plan/review/execute 证据入口；CLI 新增 `ccg grok login|status|logout` 和 Grok 本地/付费 doctor 分层。
 - 🔒 **安全边界**：Grok 情报层固定空 MCP、取消权限请求、禁用终端命令、严格禁止 provider fallback；CI 仅通过环境密钥运行手动 live smoke。
 - 🔄 **分发口径**：17 个 core + 18 个 legacy 命令，Codex 插件暴露 44 个入口；36 个专家提示词；通用 wrapper 升级到 v5.12.5。
 
@@ -485,11 +485,11 @@ npx ccg-workflow menu
 **外部证据与 GPT Pro**：
 | 命令 | 用途 |
 |------|------|
-| `/ccg:grok-intel` | 按 contract/compatibility/research 等模式收集 Web/X 证据 |
-| `/ccg:grok-verify` | 用当前外部证据验证实现、diff 或计划 |
-| `/ccg:gptpro-plan` | 将 canonical Grok 证据纳入 GPT Pro 规划 |
-| `/ccg:gptpro-review` | 将 canonical Grok 证据纳入 GPT Pro 审查 |
-| `/ccg:gptpro-exc` | 将 canonical Grok 证据纳入 GPT Pro 执行 |
+| `ccg-codex route` | 按 contract/compatibility/research 等模式收集 Web/X 证据 |
+| `ccg-codex route` | 用当前外部证据验证实现、diff 或计划 |
+| `/ccg-gptpro-bridge:gptpro-plan` | 将 canonical Grok 证据纳入 GPT Pro 规划 |
+| `/ccg-gptpro-bridge:gptpro-review` | 将 canonical Grok 证据纳入 GPT Pro 审查 |
+| `/ccg-gptpro-bridge:gptpro-exc` | 将 canonical Grok 证据纳入 GPT Pro 执行 |
 
 **OpenSpec (OPSX) 封装**：
 | 命令 | 用途 |
@@ -801,7 +801,7 @@ git push origin main
   - [ ] `codeagent-wrapper/main.go` → `version = "x.y.z"`
   - [ ] `src/utils/installer.ts` → `EXPECTED_BINARY_VERSION = 'x.y.z'`
   - 两边版本必须一致，否则用户 update 时无法触发 binary 重新下载
-  - **⛔ 禁止手动 `gh release upload`！** 推送 Go 代码后 CI（`.github/workflows/build-binaries.yml`）会自动编译 + 上传 GitHub Release + 同步 Cloudflare R2 镜像。手动上传会覆盖 CI 产物且 R2 不会同步
+  - **⛔ 禁止手动 `gh release upload`！** 推送 Go 代码后 CI（`.github/workflows/build-binaries.yml`）会自动双次编译并校验固定摘要；仅在 main 上手动运行并选择 `publish_assets` 才会发布版本化 GitHub Release。
 - [ ] `pnpm typecheck` 通过（tsc --noEmit，不可跳过）
 - [ ] `pnpm build` 通过
 - [ ] `pnpm test` 通过

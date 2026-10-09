@@ -3,8 +3,8 @@ import { REGISTERED_MODEL_TYPES, STANDARD_ROUTING_ROLES } from '../types'
 
 const REGISTERED_MODELS = new Set<ModelType>(REGISTERED_MODEL_TYPES)
 const ROLE_PROVIDER_CAPABILITIES: Record<RoutingRole, readonly ModelType[]> = {
-  frontend: ['codex', 'gemini', 'claude', 'antigravity', 'grok', 'pi'],
-  backend: ['codex', 'gemini', 'claude', 'antigravity', 'grok', 'pi'],
+  frontend: ['codex', 'gemini', 'claude', 'antigravity', 'grok', 'pi', 'kimi', 'opencode'],
+  backend: ['codex', 'gemini', 'claude', 'antigravity', 'grok', 'pi', 'kimi', 'opencode'],
   search: ['codex', 'grok'],
   'product-manager': ['codex', 'gemini', 'claude'],
 }
@@ -87,6 +87,8 @@ export function normalizeModelRouting(value: Partial<ModelRouting> | undefined):
     mode: input.mode || defaults.mode,
     geminiModel: input.geminiModel,
     grokModel: input.grokModel,
+    kimiModel: normalizeProviderModel(input.kimiModel, 'kimiModel'),
+    opencodeModel: normalizeProviderModel(input.opencodeModel, 'opencodeModel'),
   }
 }
 
@@ -114,4 +116,12 @@ export function isRoutingRole(value: string): value is RoutingRole {
 
 export function isRegisteredModel(value: string): value is ModelType {
   return REGISTERED_MODELS.has(value as ModelType)
+}
+
+export function normalizeProviderModel(value: unknown, field: string): string | undefined {
+  if (value == null)
+    return undefined
+  if (typeof value !== 'string' || /[\u0000-\u001F\u007F]/.test(value))
+    throw new TypeError(`routing.${field} must be a single-line model identifier`)
+  return value.trim()
 }

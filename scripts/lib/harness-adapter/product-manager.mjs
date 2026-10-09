@@ -14,6 +14,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
+import { resolveCcgRuntimePackage } from "../../ccg-runtime.mjs";
 
 import { assertInside, readJson, sha256 } from "./process.mjs";
 import { commandError, defaultRunner, runCommand } from "./process.mjs";
@@ -331,13 +332,16 @@ function isNonemptyString(value) {
   return typeof value === "string" && Boolean(value.trim());
 }
 
-function isProductManagerRequired(taskDirectory) {
+function isProductManagerRequired(taskDirectory, state = null) {
   const { taskPath } = assertCanonicalTaskDirectory(taskDirectory);
   const required = readJson(taskPath).meta?.productManager?.required;
   if (required !== undefined && typeof required !== "boolean") {
     throw new Error("task.json meta.productManager.required must be a boolean.");
   }
-  return required === true;
+  // Existing required/legacy reviews keep their completion contract.
+  return required === true ||
+    Boolean(state?.milestones.some((item) => item.pmReview && item.pmReview.required !== false)) ||
+    Boolean(state?.finalReview && state.finalReview.required !== false);
 }
 
 function isValidTimestamp(value) {
@@ -737,7 +741,7 @@ export function prepareProductManagerReview(
   const canonical = assertCanonicalTaskDirectory(taskDirectory);
   const task = readJson(canonical.taskPath);
   const state = readProductManagerState(canonical.taskDirectory);
-  const reviewRequired = isProductManagerRequired(canonical.taskDirectory);
+  const reviewRequired = isProductManagerRequired(canonical.taskDirectory, state);
   const prdPath = path.join(canonical.taskDirectory, "prd.md");
   const designPath = path.join(canonical.taskDirectory, "design.md");
   const implementPath = path.join(canonical.taskDirectory, "implement.md");
@@ -1336,11 +1340,14 @@ export async function runInstalledProductManagerReview(
   },
 ) {
   if (!responseFile && !allowProviderCall) {
-    if (isProductManagerRequired(taskDirectory)) {
+    const state = readProductManagerState(taskDirectory, { required: false });
+    if (isProductManagerRequired(taskDirectory, state)) {
       throw new Error("Required product-manager review needs an authorized Provider call or a saved response.");
     }
     return {
-      ...buildProductManagerStatus(taskDirectory),
+      ...(state ? buildProductManagerStatus(taskDirectory) : {
+        reviewRequired: false, currentGate: null, latestAdvice: null,
+      }),
       reviewStatus: "authorization_required",
       nextAction: "Optional PM was not called. Continue approved Trellis work within existing authorization.",
     };
@@ -1354,8 +1361,10 @@ export async function runInstalledProductManagerReview(
       "Harness policy allows no product-manager provider.",
     );
   }
-  const roots = await discoverRoots(["ccg"], { env });
-  const binding = await resolveCommand("ccg", {
+  const ccgTarget = resolveCcgRuntimePackage(sources.ccg.package);
+  if (contract.runtime?.ccg?.command !== ccgTarget.command) throw new Error("CCG source package and adapter command identity differ.");
+  const roots = await discoverRoots([ccgTarget.command], { env });
+  const binding = await resolveCommand(ccgTarget.command, {
     env,
     approvedPackageRoots: roots.approvedPackageRoots,
     approvedCommandRoots: roots.approvedCommandRoots,
@@ -1792,10 +1801,7 @@ export function determineProductManagerFinalEligibility(state, { required = true
 
 export function buildProductManagerStatus(taskDirectory) {
   const state = readProductManagerState(taskDirectory);
-  // Legacy accepted/required reviews retain their completion contract.
-  const required = isProductManagerRequired(taskDirectory) ||
-    state.milestones.some((item) => item.pmReview && item.pmReview.required !== false) ||
-    Boolean(state.finalReview && state.finalReview.required !== false);
+  const required = isProductManagerRequired(taskDirectory, state);
   return {
     schemaVersion: 1,
     taskId: state.taskId,

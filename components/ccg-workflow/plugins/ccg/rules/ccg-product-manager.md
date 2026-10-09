@@ -18,7 +18,7 @@ and completion authority.
 - `FINAL_REVIEW` is prepared only after milestone evidence and required quality
   gates are complete. It does not replace the final milestone review.
 - Skills, commands, hooks, and helpers report event candidates only. The current
-  Codex task explicitly invokes `ccg product-manager review`, validates the
+  Codex task explicitly invokes `ccg-codex product-manager review`, validates the
   result, applies it through the Harness adapter, and presents any user hard
   gate.
 - Candidate detection automatically opens the explicit per-call authorization
@@ -26,7 +26,7 @@ and completion authority.
   Provider. Record `authorization_required`, `declined`, `disabled`, or
   `unavailable` when no valid call completes; never fabricate review evidence.
 - `product-manager` is the fourth formal CCG unified routing role. Read or
-  change its selected Provider only through `ccg routing get/set
+  change its selected Provider only through `ccg-codex routing get/set
   product-manager`; `[product_manager]` stores behavior parameters only.
 - Harness and project `allowedProviders` may reject the unified selection but
   must never select or fall back to another Provider.

@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 "use strict";
 
-const fs = require("fs");
-const path = require("path");
+// CLI works both in this ESM repository and in a copied CommonJS skill directory.
+let fs;
+let path;
 
 const SECTION_ALIASES = {
   workers: ["Workers", "工作分工"],
@@ -69,13 +70,13 @@ function findSection(markdown, aliases) {
   return match ? match.lines.join("\n").trim() : "";
 }
 
-function splitFiles(cell) {
+function splitFiles(cell = "") {
   return cell
     .split(/<br\s*\/?>|,|;|\r?\n/g)
     .map((item) => item.trim().replace(/^`|`$/g, ""))
     .map((item) => item.replace(/\\/g, "/"))
     .map((item) => item.replace(/^\.\//, ""))
-    .filter(Boolean);
+    .filter((item) => item && !/^(?:-|none|n\/a|无)$/i.test(item));
 }
 
 function parseTableRow(line) {
@@ -90,54 +91,80 @@ function isSeparatorRow(cells) {
   return cells.every((cell) => /^:?-{3,}:?$/.test(cell.replace(/\s+/g, "")));
 }
 
-function parseWorkers(markdown) {
+function parseWorkerTable(markdown) {
   const section = findSection(markdown, SECTION_ALIASES.workers);
-  if (!section) return [];
+  if (!section) return { valid: false, workers: [] };
   const lines = section
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean)
     .filter((line) => line.startsWith("|"));
-  if (lines.length < 2) return [];
+  if (lines.length < 2) return { valid: false, workers: [] };
   const rows = lines.map(parseTableRow);
-  const header = rows[0];
-  if (header.length < 4) return [];
+  const header = rows[0].map(normalizeHeading);
+  const column = (...names) => header.findIndex((name) => names.includes(name));
+  const nameColumn = column("worker", "name", "工作者", "子代理");
+  const scopeColumn = column("scope", "范围");
+  const readsColumn = column("reads", "read", "读取");
+  const writesColumn = column("writes", "write", "写入");
+  const filesColumn = column("files", "文件");
+  const depsColumn = column("deps", "depends on", "dependencies", "依赖");
+  const constraintsColumn = column("constraints", "约束");
+  if (nameColumn < 0 || scopeColumn < 0 || (writesColumn < 0 && filesColumn < 0) || !isSeparatorRow(rows[1])) {
+    return { valid: false, workers: [] };
+  }
 
   const workers = [];
   for (const row of rows.slice(1)) {
-    if (row.length < 4 || isSeparatorRow(row)) continue;
+    if (isSeparatorRow(row)) continue;
+    if (row.length !== header.length) return { valid: false, workers: [] };
+    const writes = splitFiles(row[writesColumn >= 0 ? writesColumn : filesColumn]);
+    const reads = readsColumn >= 0 ? splitFiles(row[readsColumn]) : [];
     workers.push({
-      name: row[0],
-      scope: row[1],
-      files: splitFiles(row[2]),
-      constraints: row[3],
+      name: row[nameColumn],
+      scope: row[scopeColumn],
+      reads,
+      writes,
+      files: [...new Set([...reads, ...writes])],
+      deps: depsColumn >= 0 ? splitFiles(row[depsColumn]) : [],
+      constraints: constraintsColumn >= 0 ? row[constraintsColumn] : "",
     });
   }
-  return workers.filter((worker) => worker.name);
+  return { valid: workers.every((worker) => worker.name), workers };
+}
+
+function parseWorkers(markdown) {
+  return parseWorkerTable(markdown).workers;
+}
+
+function dependsOn(workers, name, target, seen = new Set()) {
+  if (seen.has(name)) return false;
+  seen.add(name);
+  const worker = workers.find((item) => item.name === name);
+  return Boolean(worker && worker.deps.some((dep) => dep === target || dependsOn(workers, dep, target, seen)));
 }
 
 function findConflicts(workers) {
-  const ownership = new Map();
-  for (const worker of workers) {
-    for (const file of worker.files) {
-      if (!ownership.has(file)) ownership.set(file, new Set());
-      ownership.get(file).add(worker.name);
+  const conflicts = [];
+  const normalized = (file) => path.posix.normalize(file.replace(/\\/g, "/")).replace(/\/$/, "").toLowerCase();
+  const overlap = (a, b) => a === b || a.startsWith(`${b}/`) || b.startsWith(`${a}/`);
+  for (let i = 0; i < workers.length; i++) {
+    for (const b of workers.slice(i + 1)) {
+      const a = workers[i];
+      const pairs = [...a.writes.flatMap((x) => [...b.reads, ...b.writes].map((y) => [x, y])),
+        ...b.writes.flatMap((x) => a.reads.map((y) => [x, y]))];
+      const seen = new Set();
+      for (const [x, y] of pairs) {
+        if (!overlap(normalized(x), normalized(y))) continue;
+        const file = normalized(x).length <= normalized(y).length ? x : y;
+        if (seen.has(normalized(file))) continue;
+        seen.add(normalized(file));
+        conflicts.push({ file, owners: [a.name, b.name].sort(),
+          serialized: dependsOn(workers, a.name, b.name) || dependsOn(workers, b.name, a.name) });
+      }
     }
   }
-  return [...ownership.entries()]
-    .filter(([, owners]) => owners.size > 1)
-    .map(([file, owners]) => ({
-      file,
-      owners: [...owners].sort(),
-    }));
-}
-
-function mergeStrategyCoversConflict(conflict, mergeStrategyText) {
-  if (!mergeStrategyText.trim()) return false;
-  const mentionsFile = mergeStrategyText.includes(conflict.file);
-  const mentionsOwners = conflict.owners.every((owner) => mergeStrategyText.includes(owner));
-  const hasAction = CONFLICT_ACTION_PATTERNS.some((pattern) => pattern.test(mergeStrategyText));
-  return hasAction && (mentionsFile || mentionsOwners);
+  return conflicts;
 }
 
 function extractVerificationCommands(sectionText) {
@@ -162,19 +189,26 @@ function writeStatus(planPath, result) {
   const statusPath = statusPathForPlan(planPath);
   if (!statusPath) return null;
   const task = path.basename(path.dirname(path.resolve(planPath)));
+  const previous = fs.existsSync(statusPath) ? JSON.parse(fs.readFileSync(statusPath, "utf8")) : {};
   const status = {
+    ...previous,
     task,
-    workers: Object.fromEntries(
+    workers: { ...previous.workers, ...Object.fromEntries(
       result.workers.map((worker) => [
         worker.name,
         {
           status: "planned",
           files: worker.files,
+          reads: worker.reads,
+          writes: worker.writes,
+          ...(previous.workers && previous.workers[worker.name]),
+          plan: { reads: worker.reads, writes: worker.writes, deps: worker.deps },
         },
       ])
-    ),
+    ) },
     conflicts: result.same_file_conflicts,
     verification: {
+      ...previous.verification,
       required: result.has_verification_strategy,
       commands: extractVerificationCommands(result.verification_strategy_text),
     },
@@ -187,21 +221,29 @@ function validatePlan(planPath, options = {}) {
   if (!planPath) throw new CliError("plan path is required");
   if (!fs.existsSync(planPath)) throw new CliError(`plan does not exist: ${planPath}`);
   const markdown = fs.readFileSync(planPath, "utf8");
-  const workers = parseWorkers(markdown);
+  const table = parseWorkerTable(markdown);
+  const workers = table.workers;
   const mergeStrategyText = findSection(markdown, SECTION_ALIASES.mergeStrategy);
   const verificationStrategyText = findSection(markdown, SECTION_ALIASES.verificationStrategy);
   const conflictRisksText = findSection(markdown, SECTION_ALIASES.conflictRisks);
   const sameFileConflicts = findConflicts(workers);
 
   const blockingReasons = [];
-  if (!workers.length) blockingReasons.push("workers table is missing or empty");
+  if (!table.valid) blockingReasons.push("workers table is missing or malformed (an empty valid table is allowed)");
+  if (new Set(workers.map((worker) => worker.name)).size !== workers.length) blockingReasons.push("duplicate worker names");
   if (!mergeStrategyText) blockingReasons.push("missing Merge Strategy section");
   if (!verificationStrategyText) blockingReasons.push("missing Verification Strategy section");
   if (!conflictRisksText) blockingReasons.push("missing Conflict Risks section");
 
   for (const conflict of sameFileConflicts) {
-    if (!mergeStrategyCoversConflict(conflict, mergeStrategyText)) {
-      blockingReasons.push(`same file conflict without explicit merge strategy: ${conflict.file}`);
+    if (!conflict.serialized) {
+      blockingReasons.push(`same file conflict requires ordered Deps or separate ownership: ${conflict.file}`);
+    }
+  }
+  for (const worker of workers) {
+    if (dependsOn(workers, worker.name, worker.name)) blockingReasons.push(`dependency cycle: ${worker.name}`);
+    for (const dep of worker.deps) {
+      if (!workers.some((item) => item.name === dep)) blockingReasons.push(`unknown dependency: ${dep}`);
     }
   }
 
@@ -292,7 +334,7 @@ function main(argv = process.argv.slice(2)) {
   if (command === "validate" && !result.can_execute) process.exit(1);
 }
 
-if (require.main === module) {
+function runCli() {
   try {
     main();
   } catch (error) {
@@ -304,10 +346,23 @@ if (require.main === module) {
   }
 }
 
-module.exports = {
+const api = {
   conflictsOnly,
   parseWorkers,
   summarizePlan,
   validatePlan,
   writeStatus,
 };
+
+if (typeof module !== "undefined" && typeof require === "function") {
+  fs = require("node:fs");
+  path = require("node:path");
+  module.exports = api;
+  if (require.main === module) runCli();
+} else {
+  Promise.all([import("node:fs"), import("node:path")]).then(([fsModule, pathModule]) => {
+    fs = fsModule.default;
+    path = pathModule.default;
+    runCli();
+  });
+}

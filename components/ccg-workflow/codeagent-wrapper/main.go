@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	version               = "5.12.13"
+	version               = "5.12.14-personal.20261003.1"
 	defaultWorkdir        = "."
 	defaultTimeout        = 7200 // seconds (2 hours)
 	defaultCoverageTarget = 90.0
@@ -206,8 +206,13 @@ func run() (exitCode int) {
 			backendName := defaultBackendName
 			fullOutput := false
 			progressFlag := false
+			allowNativeAutoApproval := false
+			allowChildPluginDisable := false
+			mcpMode := ""
 			parallelGeminiModel := strings.TrimSpace(os.Getenv("GEMINI_MODEL"))
 			parallelGrokModel := strings.TrimSpace(os.Getenv("GROK_MODEL"))
+			parallelKimiModel := strings.TrimSpace(os.Getenv("KIMI_MODEL"))
+			parallelOpencodeModel := strings.TrimSpace(os.Getenv("OPENCODE_MODEL"))
 			var extras []string
 
 			for i := 0; i < len(args); i++ {
@@ -223,6 +228,20 @@ func run() (exitCode int) {
 					liteMode = true
 				case arg == "--progress":
 					progressFlag = true
+				case arg == "--allow-native-auto-approval":
+					allowNativeAutoApproval = true
+				case arg == "--allow-child-plugin-disable":
+					allowChildPluginDisable = true
+				case arg == "--with-mcp", arg == "--without-mcp":
+					mode := "inherit"
+					if arg == "--without-mcp" {
+						mode = "off"
+					}
+					if mcpMode != "" && mcpMode != mode {
+						fmt.Fprintln(os.Stderr, "ERROR: --with-mcp and --without-mcp cannot be combined")
+						return 1
+					}
+					mcpMode = mode
 				case arg == "--backend":
 					if i+1 >= len(args) {
 						fmt.Fprintln(os.Stderr, "ERROR: --backend flag requires a value")
@@ -257,6 +276,29 @@ func run() (exitCode int) {
 						fmt.Fprintln(os.Stderr, "ERROR: --gemini-model flag requires a non-empty model name")
 						return 1
 					}
+				case arg == "--kimi-model", arg == "--opencode-model":
+					if i+1 >= len(args) || strings.HasPrefix(args[i+1], "-") || strings.TrimSpace(args[i+1]) == "" {
+						fmt.Fprintf(os.Stderr, "ERROR: %s flag requires a non-empty model name\n", arg)
+						return 1
+					}
+					if arg == "--kimi-model" {
+						parallelKimiModel = strings.TrimSpace(args[i+1])
+					} else {
+						parallelOpencodeModel = strings.TrimSpace(args[i+1])
+					}
+					i++
+				case strings.HasPrefix(arg, "--kimi-model="), strings.HasPrefix(arg, "--opencode-model="):
+					flag, value, _ := strings.Cut(arg, "=")
+					value = strings.TrimSpace(value)
+					if value == "" {
+						fmt.Fprintf(os.Stderr, "ERROR: %s flag requires a non-empty model name\n", flag)
+						return 1
+					}
+					if flag == "--kimi-model" {
+						parallelKimiModel = value
+					} else {
+						parallelOpencodeModel = value
+					}
 				case strings.HasPrefix(arg, "--grok-model="):
 					parallelGrokModel = strings.TrimSpace(strings.TrimPrefix(arg, "--grok-model="))
 					if parallelGrokModel == "" {
@@ -269,7 +311,7 @@ func run() (exitCode int) {
 			}
 
 			if len(extras) > 0 {
-				fmt.Fprintln(os.Stderr, "ERROR: --parallel reads its task configuration from stdin; only --backend and --full-output are allowed.")
+				fmt.Fprintln(os.Stderr, "ERROR: --parallel reads its task configuration from stdin; unsupported argument.")
 				fmt.Fprintln(os.Stderr, "Usage examples:")
 				fmt.Fprintf(os.Stderr, "  %s --parallel < tasks.txt\n", name)
 				fmt.Fprintf(os.Stderr, "  echo '...' | %s --parallel\n", name)
@@ -303,8 +345,42 @@ func run() (exitCode int) {
 					cfg.Tasks[i].Backend = backendName
 				}
 				cfg.Tasks[i].Progress = progressFlag
+				if !cfg.Tasks[i].NativeAutoApprovalSet {
+					cfg.Tasks[i].AllowNativeAutoApproval = allowNativeAutoApproval
+				}
+				if !cfg.Tasks[i].ChildPluginDisableSet {
+					cfg.Tasks[i].AllowChildPluginDisable = allowChildPluginDisable
+				}
 				cfg.Tasks[i].GeminiModel = parallelGeminiModel
 				cfg.Tasks[i].GrokModel = parallelGrokModel
+				cfg.Tasks[i].KimiModel = parallelKimiModel
+				cfg.Tasks[i].OpencodeModel = parallelOpencodeModel
+				cfg.Tasks[i].DisableMCP = mcpMode == "off"
+				if cfg.Tasks[i].MCPMode != "" {
+					cfg.Tasks[i].DisableMCP = cfg.Tasks[i].MCPMode == "off"
+				}
+				taskBackend, err := selectBackendFn(cfg.Tasks[i].Backend)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "ERROR: task %s: %v\n", cfg.Tasks[i].ID, err)
+					return 1
+				}
+				if err := validateMCPMode(taskBackend.Name(), cfg.Tasks[i].DisableMCP); err != nil {
+					fmt.Fprintf(os.Stderr, "ERROR: task %s: %v\n", cfg.Tasks[i].ID, err)
+					return 1
+				}
+				if (taskBackend.Name() == "kimi" || taskBackend.Name() == "opencode") && !cfg.Tasks[i].AllowNativeAutoApproval {
+					fmt.Fprintf(os.Stderr, "ERROR: task %s: explicitly acknowledge native noninteractive permissions with --allow-native-auto-approval or native_auto_approval: true\n", cfg.Tasks[i].ID)
+					return 1
+				}
+				{
+					preflight := &Config{Backend: taskBackend.Name(), Mode: cfg.Tasks[i].Mode, WorkDir: cfg.Tasks[i].WorkDir, DisableMCP: cfg.Tasks[i].DisableMCP, AllowChildPluginDisable: cfg.Tasks[i].AllowChildPluginDisable}
+					if err := prepareMCPMode(preflight); err != nil {
+						fmt.Fprintf(os.Stderr, "ERROR: task %s: %v\n", cfg.Tasks[i].ID, err)
+						return 1
+					}
+					cfg.Tasks[i].CodexMCPOverrides = preflight.CodexMCPOverrides
+					cfg.Tasks[i].CodexMCPPrepared = preflight.CodexMCPPrepared
+				}
 				// Inject ROLE_FILE content if present
 				injectedTask, err := injectRoleFile(cfg.Tasks[i].Task)
 				if err != nil {
@@ -384,6 +460,10 @@ func run() (exitCode int) {
 		return 1
 	}
 	cfg.Backend = backend.Name()
+	if err := prepareMCPMode(cfg); err != nil {
+		logError(err.Error())
+		return 1
+	}
 	retainGrokFailureLog = cfg.Backend == "grok" && envFlagEnabled("CODEAGENT_RETAIN_LOG_ON_FAILURE")
 	cmdInjected := codexCommand != defaultCodexCommand
 	argsInjected := buildCodexArgsFn != nil && reflect.ValueOf(buildCodexArgsFn).Pointer() != reflect.ValueOf(defaultBuildArgsFn).Pointer()
@@ -464,8 +544,8 @@ func run() (exitCode int) {
 	// Claude/Gemini/Antigravity/Grok/Pi CLI doesn't support "-" as stdin marker.
 	// Keep in sync with runCodexTaskWithContext (executor.go): Pi always uses
 	// stdin; Gemini uses it on Windows.
-	promptDirect := useStdin && ((cfg.Backend == "gemini" && !isWindows()) || cfg.Backend == "antigravity" || cfg.Backend == "grok")
-	promptStdinPipe := useStdin && ((cfg.Backend == "gemini" && isWindows()) || cfg.Backend == "claude" || cfg.Backend == "pi")
+	promptDirect := useStdin && ((cfg.Backend == "gemini" && !isWindows()) || cfg.Backend == "antigravity" || cfg.Backend == "grok" || cfg.Backend == "kimi")
+	promptStdinPipe := useStdin && ((cfg.Backend == "gemini" && isWindows()) || cfg.Backend == "claude" || cfg.Backend == "pi" || cfg.Backend == "opencode")
 	if useStdin && !promptDirect && !promptStdinPipe {
 		targetArg = "-"
 	}
@@ -522,19 +602,24 @@ func run() (exitCode int) {
 	logInfo(fmt.Sprintf("%s running...", cfg.Backend))
 
 	taskSpec := TaskSpec{
-		Task:              taskText,
-		WorkDir:           cfg.WorkDir,
-		Mode:              cfg.Mode,
-		SessionID:         cfg.SessionID,
-		UseStdin:          useStdin,
-		Progress:          cfg.Progress,
-		Backend:           cfg.Backend,
-		SkipPermissions:   cfg.SkipPermissions,
-		GeminiModel:       cfg.GeminiModel,
-		GrokModel:         cfg.GrokModel,
-		GrokReviewTargets: cfg.GrokReviewTargets,
-		AntigravityReview: cfg.AntigravityReview,
-		ReadOnly:          cfg.ReadOnly,
+		Task:                    taskText,
+		WorkDir:                 cfg.WorkDir,
+		Mode:                    cfg.Mode,
+		SessionID:               cfg.SessionID,
+		UseStdin:                useStdin,
+		Progress:                cfg.Progress,
+		Backend:                 cfg.Backend,
+		SkipPermissions:         cfg.SkipPermissions,
+		AllowNativeAutoApproval: cfg.AllowNativeAutoApproval,
+		AllowChildPluginDisable: cfg.AllowChildPluginDisable,
+		GeminiModel:             cfg.GeminiModel,
+		GrokModel:               cfg.GrokModel,
+		KimiModel:               cfg.KimiModel,
+		OpencodeModel:           cfg.OpencodeModel,
+		GrokReviewTargets:       cfg.GrokReviewTargets,
+		AntigravityReview:       cfg.AntigravityReview,
+		ReadOnly:                cfg.ReadOnly,
+		DisableMCP:              cfg.DisableMCP,
 	}
 
 	result := runTaskFn(taskSpec, false, cfg.Timeout)
@@ -624,7 +709,12 @@ Parallel mode examples:
 
 Options:
     --lite, -L            Lite mode: disable Web UI, faster response
-    --backend <name>      Select backend (codex, gemini, claude, antigravity, grok, pi)
+    --backend <name>      Select backend (codex, gemini, claude, antigravity, grok, pi, kimi, opencode)
+    --with-mcp            Inherit approved MCP settings (default; does not install servers)
+    --without-mcp         Explicit child-only MCP opt-out for verified Codex/Gemini contracts
+                          Unknown configuration sources fail closed; task header mcp: inherit|off
+    --allow-child-plugin-disable
+                          Codex off only: acknowledge disabling this child's plugin-provided skills
     --gemini-model <name> Specify Gemini model (gemini backend only)
                           Can also be set via GEMINI_MODEL environment variable
                           CLI parameter takes precedence over environment variable
@@ -633,6 +723,10 @@ Options:
                           Can also be set via GROK_MODEL environment variable
                           CLI parameter takes precedence over environment variable
                           Examples: grok-4.5, grok-composer-2.5-fast
+    --kimi-model <name>   Kimi Code model; KIMI_MODEL is the environment fallback
+    --opencode-model <id> OpenCode provider/model; OPENCODE_MODEL is the fallback
+    --allow-native-auto-approval
+                          Explicitly acknowledge Kimi/OpenCode noninteractive native permissions
 	    --grok-review-target <path>
 	                          Embed this exact file in a fresh Grok review
 	                          Repeat once per workspace-relative regular file

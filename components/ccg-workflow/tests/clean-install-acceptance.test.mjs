@@ -39,7 +39,7 @@ function expectSuccess(result, label) {
 
 acceptance('runs the offline clean-home Codex provider lifecycle', async () => {
   const goExecutable = process.env.CCG_CLEAN_INSTALL_GO
-  expect(goExecutable, 'CCG_CLEAN_INSTALL_GO must point to Go 1.21.13').toBeTruthy()
+  expect(goExecutable, 'CCG_CLEAN_INSTALL_GO must point to Go 1.26.2').toBeTruthy()
 
   const root = await mkdtemp(join(tmpdir(), 'ccg clean install '))
   const codexHome = join(root, 'custom-codex')

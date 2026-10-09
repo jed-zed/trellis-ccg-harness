@@ -349,7 +349,7 @@ describe('product-manager command', () => {
       expect(status.effective).toMatchObject({ status: 'ready', provider: 'codex' })
     }
     finally {
-      await rm(value.root, { recursive: true, force: true })
+      await rm(value.root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
     }
   })
 
@@ -393,7 +393,7 @@ describe('product-manager command', () => {
       })
     }
     finally {
-      await rm(value.root, { recursive: true, force: true })
+      await rm(value.root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
     }
   })
 
@@ -470,7 +470,7 @@ describe('product-manager command', () => {
       await expect(readFile(value.manifestFile, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
     }
     finally {
-      await rm(value.root, { recursive: true, force: true })
+      await rm(value.root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
     }
   })
 
@@ -509,7 +509,7 @@ describe('product-manager command', () => {
       await expect(readFile(value.manifestFile, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
     }
     finally {
-      await rm(value.root, { recursive: true, force: true })
+      await rm(value.root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
     }
   })
 
@@ -538,7 +538,7 @@ describe('product-manager command', () => {
       expect(result.verdict).toBe('accepted')
     }
     finally {
-      await rm(value.root, { recursive: true, force: true })
+      await rm(value.root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
     }
   })
 
@@ -568,7 +568,7 @@ describe('product-manager command', () => {
       expect(result.verdict).toBe('unavailable')
     }
     finally {
-      await rm(value.root, { recursive: true, force: true })
+      await rm(value.root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
     }
   })
 })

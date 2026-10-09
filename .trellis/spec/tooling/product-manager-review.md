@@ -205,6 +205,14 @@ second verdict, authorize fallback, or expose raw credentials.
   invocation; report `authorization_required` and continue independently
   authorized work. Required reviews without authorization or a saved response
   still fail before execution. Existing scoped user authorization can be reused.
+- This optional skip also works before `product-manager.json` or `implement.md`
+  exists, without creating either file. Existing state is still validated;
+  corrupt state fails and a pending card remains unchanged.
+- Preparation, authorization and status use the same required policy: explicit
+  task requirement or an existing required/legacy milestone or final review.
+  A legacy review lacking `required` retains its contract through later reviews;
+  new reviews bind that requirement and create a respondable acceptance card.
+  Tasks with only `required: false` advice remain advisory.
 - Optional `unavailable` or rejected reviews retain advice without creating a
   user gate, marking a milestone completed, or fabricating acceptance.
 - Required `MILESTONE_REVIEW` and `FINAL_REVIEW` create user hard gates.

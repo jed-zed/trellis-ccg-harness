@@ -14,7 +14,7 @@
   "runtime": {
     "ccg": {
       "mode": "installed-cli-plugin",
-      "command": "ccg",
+      "command": "ccg-codex",
       "sourceSnapshotExecutable": false
     }
   },

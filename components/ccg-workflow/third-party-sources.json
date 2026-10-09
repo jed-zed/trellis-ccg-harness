@@ -88,5 +88,13 @@
       "commit": "8f0ae3c7f25ec419631ade7e431fa2531503433e",
       "selector": "git+https://github.com/GuDaStudio/GrokSearch.git@8f0ae3c7f25ec419631ade7e431fa2531503433e"
     }
+  },
+  "goModules": {
+    "github.com/BurntSushi/toml": {
+      "version": "v1.6.0",
+      "sum": "h1:dRaEfpa2VI55EwlIW72hMRHdWouJeRF7TPYhI+AUQjk=",
+      "license": "MIT",
+      "repository": "https://github.com/BurntSushi/toml"
+    }
   }
 }

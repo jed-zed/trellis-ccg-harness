@@ -46,7 +46,7 @@ class ProviderReviewSnapshotTest(unittest.TestCase):
                         return SimpleNamespace(returncode=0)
 
                     with (
-                        patch.object(MODULE.shutil, "which", return_value="ccg"),
+                        patch.object(MODULE.shutil, "which", return_value="ccg-codex") as which_cli,
                         patch.object(MODULE.subprocess, "run", side_effect=fake_run),
                         patch.object(MODULE.sys, "stdin", io.StringIO("review the bound file")),
                     ):
@@ -56,6 +56,7 @@ class ProviderReviewSnapshotTest(unittest.TestCase):
                             "--target", "review.py",
                         ])
 
+                    which_cli.assert_called_once_with("ccg-codex")
                     self.assertEqual(code, 0)
                     self.assertEqual(
                         "--antigravity-review" in observed["command"],
@@ -160,7 +161,7 @@ class ProviderReviewSnapshotTest(unittest.TestCase):
                     with self.assertRaisesRegex(ValueError, "safe snapshot"):
                         MODULE.build_snapshot(workdir, targets, temp_root)
             finally:
-                if approved.is_symlink() or getattr(approved, "is_junction", lambda: False)():
+                if approved.is_symlink() or (approved.exists() and getattr(approved.lstat(), "st_file_attributes", 0) & 0x400):
                     if os.name == "nt":
                         os.rmdir(approved)
                     else:

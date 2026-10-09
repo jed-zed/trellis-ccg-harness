@@ -28,7 +28,11 @@ test("root CI owns the cross-platform Node, Go, PowerShell, and offline gates", 
   assert.match(workflow, /go build \./)
   assert.match(workflow, /go test -short \.\/\.\.\./)
   assert.match(workflow, /bootstrap\.ps1.*-LinkCcg/)
-  assert.match(workflow, /ccg --version/)
+  assert.match(workflow, /\$env:NPM_CONFIG_PREFIX = \$npmPrefix/)
+  assert.match(workflow, /ccg-runtime\.mjs --repo-root/)
+  assert.match(workflow, /& \$cliSource --version/)
+  assert.match(workflow, /\$versionText -ne \$expectedVersion/)
+  assert.doesNotMatch(workflow, /^\s*ccg --version\s*$/m)
   assert.match(workflow, /harness:uninstall/)
   assert.match(workflow, /plugins\/ccg\/scripts\/doctor\.ps1/)
   assert.doesNotMatch(workflow, /pnpm --dir components\/ccg-workflow/)
@@ -63,7 +67,8 @@ test("doctor natively verifies CCG before skipping only the duplicate adapter pr
     path.join(ROOT, "scripts", "doctor.ps1"),
     "utf8",
   )
-  assert.match(doctor, /Read-Version\s+"ccg"/)
+  assert.match(doctor, /ccg-runtime\.mjs/)
+  assert.match(doctor, /Read-Version\s+\(\[string\]\$ccgTarget\.command\)/)
   assert.match(doctor, /conflicts",\s*"--skip-runtime"/)
 })
 

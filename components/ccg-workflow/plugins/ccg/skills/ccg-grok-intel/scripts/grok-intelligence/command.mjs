@@ -2,7 +2,7 @@
 import { createHash } from 'node:crypto'
 import { createReadStream } from 'node:fs'
 import { access, lstat, readFile, readlink, realpath, stat } from 'node:fs/promises'
-import { homedir } from 'node:os'
+import { resolveCodexConfigPath } from './lib/host-boundary.mjs'
 import { basename, dirname, isAbsolute, relative, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { exportIntelligenceBundle, writeIntelligenceBundle } from './lib/artifacts.mjs'
@@ -49,6 +49,7 @@ const CACHE_TTL = Object.freeze({
 })
 
 function parseArgs(argv) {
+  argv = argv.flatMap(value => value.startsWith('--config=') ? ['--config', value.slice('--config='.length)] : [value])
   const output = { files: [], dependencies: [], officialDomains: [] }
   for (let index = 0; index < argv.length; index++) {
     const value = argv[index]
@@ -382,7 +383,7 @@ export async function runManualCommand(action, options, runtime = {}) {
   if (!['intel', 'verify'].includes(action)) throw new Error('Action must be intel or verify')
   if (typeof options.task !== 'string' || !options.task.trim()) throw new Error('--task is required')
   const repoRoot = await realpath(resolve(runtime.repoRoot || process.cwd()))
-  const configPath = resolve(options.config || runtime.configPath || resolve(homedir(), '.codex', 'ccg', 'config.toml'))
+  const configPath = resolveCodexConfigPath(options.config || runtime.configPath)
   const config = parseIntelligenceToml(await readFile(configPath, 'utf8'))
   const mode = options.mode || (action === 'verify' ? 'contract' : 'discover')
   if (!['discover', 'contract', 'incident', 'landscape'].includes(mode)) throw new Error(`Unsupported mode: ${mode}`)

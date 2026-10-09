@@ -2,6 +2,9 @@
 param(
   [string]$CodexHome = $env:CODEX_HOME,
   [string]$PluginRoot = "",
+  [string]$ProjectRoot = (Get-Location).Path,
+  [string]$UserHome = $HOME,
+  [switch]$GptPro,
   [switch]$Fix,
   [switch]$CheckGeminiModel,
   [string]$GeminiModel = "",
@@ -83,6 +86,63 @@ function Join-PathMany {
     $path = Join-Path $path $child
   }
   return $path
+}
+
+function Test-SidebarSkillFiles {
+  $directories = @(
+    (Join-PathMany $ProjectRoot ".agents" "skills" "chatgpt-pro-sidebar"),
+    (Join-PathMany $CodexHome "skills" "chatgpt-pro-sidebar"),
+    (Join-PathMany $UserHome ".agents" "skills" "chatgpt-pro-sidebar")
+  )
+  $state = "missing"
+  $detail = "SKILL.md absent in: " + ($directories -join "; ")
+  foreach ($directory in $directories) {
+    $skillPath = Join-Path $directory "SKILL.md"
+    try {
+      $attributes = [System.IO.File]::GetAttributes($skillPath)
+    } catch [System.IO.FileNotFoundException] {
+      continue
+    } catch [System.IO.DirectoryNotFoundException] {
+      continue
+    } catch {
+      $state = "broken"
+      $detail = "Cannot inspect ${skillPath}: $($_.Exception.Message)"
+      break
+    }
+    $state = "broken"
+    try {
+      foreach ($relativePath in @(
+        "SKILL.md",
+        "scripts/chatgpt-pro-sidebar.ps1",
+        "scripts/chatgpt-pro-sidebar-watch.ps1",
+        "scripts/chatgpt-pro-agent-browser-v2.js",
+        "scripts/chatgpt-pro-agent-browser-select-pro.js"
+      )) {
+        $filePath = Join-Path $directory $relativePath
+        $attributes = [System.IO.File]::GetAttributes($filePath)
+        if (($attributes -band [System.IO.FileAttributes]::Directory) -or
+            ($attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
+          throw "Not a regular file: $filePath"
+        }
+        if ([string]::IsNullOrWhiteSpace([System.IO.File]::ReadAllText($filePath))) {
+          throw "Empty required file: $filePath"
+        }
+      }
+      $state = "installed"
+      $detail = "Installed local files: ${directory}; browser connection and login were not checked"
+    } catch {
+      $detail = "Required file unavailable: ${filePath}: $($_.Exception.Message)"
+    }
+    # Once SKILL.md exists, lower-priority installations cannot supply missing files.
+    break
+  }
+  $recommendation = ""
+  if ($state -ne "installed") {
+    $recommendation = "Install the complete independent chatgpt-pro-sidebar Skill with your approved Harness installer: Global Init (node scripts/harness-init.mjs global-init; use the reviewed plan and approvals described in scripts/README.md), or approved Skill installer, into one of: " + ($directories -join "; ") + ". Repair an existing higher-priority installation first. CCG installation does not deploy this dependency."
+  }
+  $status = if ($state -eq "installed") { "PASS" } elseif ($GptPro) { "FAIL" } else { "WARN" }
+  Add-Check "GPT Pro sidebar files" $status "${state}: $detail" $recommendation
+  Add-Check "GPT Pro live transport" "SKIP" "Not checked; local file inspection does not verify browser connection or login."
 }
 
 function Test-JsonFile {
@@ -256,7 +316,7 @@ function Get-TreeDigest {
 }
 
 if ([string]::IsNullOrWhiteSpace($CodexHome)) {
-  $CodexHome = Join-Path $HOME ".codex"
+  $CodexHome = Join-Path $UserHome ".codex"
 }
 $CodexHome = [System.IO.Path]::GetFullPath($CodexHome)
 
@@ -264,6 +324,27 @@ if ([string]::IsNullOrWhiteSpace($PluginRoot)) {
   $PluginRoot = Join-Path $PSScriptRoot ".."
 }
 $PluginRoot = [System.IO.Path]::GetFullPath($PluginRoot)
+
+# Like ccg-codex doctor --gptpro, this explicit mode reads only the independent Skill files.
+if ($GptPro) {
+  Test-SidebarSkillFiles
+  $counts = @{
+    PASS = @($script:Checks | Where-Object { $_.status -eq "PASS" }).Count
+    WARN = @($script:Checks | Where-Object { $_.status -eq "WARN" }).Count
+    FAIL = @($script:Checks | Where-Object { $_.status -eq "FAIL" }).Count
+    SKIP = @($script:Checks | Where-Object { $_.status -eq "SKIP" }).Count
+  }
+  if ($Json) {
+    [pscustomobject]@{ codex_home = $CodexHome; plugin_root = $PluginRoot; counts = $counts; checks = $script:Checks } | ConvertTo-Json -Depth 6
+  } else {
+    foreach ($check in $script:Checks) {
+      Write-Output "[$($check.status)] $($check.name) - $($check.detail)"
+      if ($check.recommendation) { Write-Output "  $($check.recommendation)" }
+    }
+  }
+  if ($counts.FAIL -gt 0) { exit 1 }
+  exit 0
+}
 
 Add-Check "codex home" "PASS" $CodexHome
 Add-Check "plugin root" "PASS" $PluginRoot
@@ -430,11 +511,11 @@ $gptproRequiredPaths = @(
 )
 $gptproMissing = @($gptproRequiredPaths | Where-Object { -not (Test-Path -LiteralPath $_) })
 if ($gptproMissing.Count -eq 0) {
-  Add-Check "GPT Pro sidebar bridge" "PASS" "Required command, skill, script, and template files are present."
+  Add-Check "CCG GPT Pro bridge assets" "PASS" "CCG command, skill, script, and template files are present; the independent sidebar Skill is checked separately."
 } else {
-  Add-Check "GPT Pro sidebar bridge" "FAIL" ("Missing: " + ($gptproMissing -join "; ")) "Restore the GPT Pro sidebar bridge files."
+  Add-Check "CCG GPT Pro bridge assets" "FAIL" ("Missing: " + ($gptproMissing -join "; ")) "Restore the CCG GPT Pro bridge files."
 }
-Add-Check "ChatGPT web automation" "PASS" "intentionally unsupported"
+Test-SidebarSkillFiles
 
 if ($pluginManifest -and $pluginManifest.version) {
   $cacheRoot = Join-PathMany $CodexHome "plugins" "cache" "ccg-gptpro-worflow" "ccg" "$($pluginManifest.version)"

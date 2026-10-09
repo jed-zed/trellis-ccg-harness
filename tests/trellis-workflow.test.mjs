@@ -157,6 +157,18 @@ test("the real Codex hook distinguishes broken task records and retains the prod
   });
   assert.equal(valid.status, 0, valid.stderr || String(valid.error));
   assert.match(JSON.parse(valid.stdout).hookSpecificOutput.additionalContext, /<product-manager-gate>[\s\S]*HARD STOP/);
+  const inlineContext = JSON.parse(valid.stdout).hookSpecificOutput.additionalContext;
+  assert.match(inlineContext, /Codex native leaf workers/);
+  assert.match(inlineContext, /independent research, bounded implementation and verification/);
+  assert.doesNotMatch(inlineContext, /do not dispatch implement\/check sub-agents/i);
+  for (const marker of [{ CLAUDECODE: "1" }, { CCG_HOST: " CLAUDE " }]) {
+    const claude = spawnSync(python.command, [...python.argsPrefix, path.join(root, ".codex/hooks/inject-workflow-state.py")], {
+      cwd: fixture, env: { ...env, ...marker }, encoding: "utf8", windowsHide: true, timeout: 15000,
+      input: JSON.stringify({ cwd: fixture, session_id: sessionId, prompt: "continue" }),
+    });
+    assert.equal(claude.status, 0, claude.stderr || String(claude.error));
+    assert.doesNotMatch(claude.stdout, /Codex native leaf workers|<codex-mode>/);
+  }
   assert.equal(JSON.parse(readFileSync(path.join(taskDir, "task.json"), "utf8")).status, "in_progress");
   // A vanished task directory keeps its stale-session identity and the same
   // four-field hook contract used by the product-manager path.

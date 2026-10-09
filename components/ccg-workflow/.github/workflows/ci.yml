@@ -5,7 +5,7 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
+    branches: [main, codex/host-isolation-daily-20261004]
 
 jobs:
   test:
@@ -33,7 +33,11 @@ jobs:
       - uses: actions/setup-go@v5
         if: matrix.node-version == 22
         with:
-          go-version: '1.21.13'
+          go-version: '1.26.2'
+
+      - name: Verify exact wrapper source and release recipe
+        if: matrix.node-version == 22
+        run: node scripts/verify-wrapper-release.mjs
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -45,6 +49,16 @@ jobs:
       - name: Type check
         run: pnpm typecheck
 
+      - name: Build
+        run: pnpm build
+
+      - name: Verify npm package contents and worker dispatch
+        if: matrix.node-version == 22
+        run: |
+          pnpm test:package
+          pnpm test:workers
+          pnpm check:package
+
       - name: Run tests with coverage
         run: pnpm test -- --coverage
 
@@ -53,9 +67,6 @@ jobs:
         uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-
-      - name: Build
-        run: pnpm build
 
       - name: Clean Codex install acceptance
         if: matrix.node-version == 22
@@ -108,4 +119,7 @@ jobs:
 
       - name: Go test
         working-directory: codeagent-wrapper
+        env:
+          TEMP: ${{ runner.temp }}
+          TMP: ${{ runner.temp }}
         run: go test -short ./...

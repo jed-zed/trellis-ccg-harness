@@ -1,16 +1,16 @@
 {
-  "name": "ccg-gptpro-worflow",
-  "description": "Marketplace for the GPT Pro-enhanced CCG workflow plugin.",
+  "name": "ccg-claude-gptpro-addon",
+  "description": "Independent GPTPro bridge addon for upstream Claude CCG.",
   "owner": {
     "name": "jed-zed",
     "email": "noreply@example.com"
   },
   "plugins": [
     {
-      "name": "ccg",
-      "description": "Codex-side CCG workflow with automatic Grok external intelligence, GPT Pro evidence, spec, team, and quality gates.",
-      "version": "3.4.15",
-      "source": "./plugins/ccg",
+      "name": "ccg-gptpro-bridge",
+      "description": "Claude-only GPTPro evidence bridge without personal Harness routing, hooks or MCP registration.",
+      "version": "0.1.1-local.20261003",
+      "source": "./plugins/ccg-gptpro-bridge",
       "author": {
         "name": "jed-zed",
         "email": "noreply@example.com"

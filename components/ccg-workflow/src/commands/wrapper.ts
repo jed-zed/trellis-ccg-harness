@@ -8,6 +8,7 @@ import { resolveCodexHome } from '../utils/codex-mode'
 import { verifyBinaryVersion } from '../utils/installer'
 import { assertManagedPath } from '../utils/managed-path'
 import { isRegisteredModel } from '../utils/model-routing'
+import { doctorProviderTool, providerToolEnvironment } from '../utils/provider-tools'
 import { resolveClaudeExecutable } from './product-manager'
 
 type Spawn = typeof nodeSpawn
@@ -49,7 +50,7 @@ async function resolveVerifiedWrapper(codexHome: string): Promise<string> {
   const digest = createHash('sha256').update(await fs.readFile(wrapperPath)).digest('hex')
   if (!owned || owned.installedSha256 !== digest || !(await verifyBinaryVersion(join(codexHome, 'ccg')))) {
     throw new Error(
-      'Managed codeagent-wrapper is missing or invalid. Run `ccg codex-mode install` to repair it.',
+      'Managed codeagent-wrapper is missing or invalid. Run `ccg-codex codex-mode install` to repair it.',
     )
   }
   return wrapperPath
@@ -79,6 +80,15 @@ export function spawnWrapperProcess(
 export async function runWrapper(args: readonly string[]): Promise<number> {
   const backend = parseWrapperBackend(args)
   const wrapperPath = await resolveVerifiedWrapper(resolveCodexHome())
+  if (backend === 'kimi' || backend === 'opencode') {
+    const prefix = process.env[`CCG_${backend.toUpperCase()}_PREFIX`]
+    if (prefix) {
+      const report = await doctorProviderTool({ backend, prefix })
+      if (!report.ok)
+        throw new Error(`Optional ${backend} provider is not ready: ${report.issues.join('; ')}`)
+      return spawnWrapperProcess(wrapperPath, args, spawn, providerToolEnvironment(backend, prefix))
+    }
+  }
   if (backend !== 'claude')
     return spawnWrapperProcess(wrapperPath, args)
   const claudeExecutable = resolveClaudeExecutable()
