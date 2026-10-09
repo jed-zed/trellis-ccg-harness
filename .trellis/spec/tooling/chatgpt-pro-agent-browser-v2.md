@@ -66,6 +66,11 @@ provider. It controls a user-approved external Chrome tab through
   label is not exactly `Pro`, it may open only that control, the unique matching
   thinking-mode submenu, and the unique exact `Pro` radio option; it then
   re-reads the fixed page snapshot and requires `Pro`.
+- The same-form `选择 ChatGPT 模型` control may change from `Medium` to
+  `思考强度` while `aria-expanded=true`. Both fixed scripts retain that unique
+  expanded control; this label is never proof of selected `Pro`.
+- A new-chat error preserves its original `errorDetails`. The outer
+  `lastObservedSnapshot` is explicitly separate and may precede model selection.
 - The prompt is filled once, then its normalized SHA-256 and one Send control
   are re-proved immediately before one click. ChatGPT may hide the model
   control after fill; the exact pre-fill `Pro` proof remains valid only while
@@ -290,6 +295,14 @@ provider. It controls a user-approved external Chrome tab through
   already post-send evidence directory.
 - The hidden local watcher calls only adapter `status` and `wait`; RootWait polls
   local state/event files. Neither operation invokes a model polling turn.
+- `AssistantOwnerMissing` is pending only with a genuine boolean
+  `generating=true`; unowned activity is omitted from response candidates.
+  Missing ownership after generation or another ownership ambiguity still fails.
+- A stopped `probe-failed` watcher with `MessageOwnershipAmbiguous` may reconcile
+  an already completed adapter readback through `wait-root`. The adapter must
+  verify the durable response; thread, request hashes, target and original
+  deadline must match. Preserve the old event in `previousProbeFailure`, reuse
+  the watcher identity and deadline, and never resend or accept expired evidence.
 - Adapter status exit `GenerationAlreadyActive` is a valid watcher observation
   only when its structured details also prove `ok=true`, `command=status`, and
   `generating=true`. Malformed or contradictory details remain failures.

@@ -168,6 +168,12 @@ create a replacement directory to bypass uncertain evidence.
   after it is not accepted. Local watcher polling does not consume model tokens.
 - Temporary browser loss during wait is observational only. Exact URL recovery
   may reopen in background; no recovery path may send.
+- Missing assistant ownership during proved generation stays pending without
+  capturing activity text. Once generation ends, ownership must be proved.
+  For an old `MessageOwnershipAmbiguous` probe failure, run adapter `wait` on
+  that same evidence directory, then `wait-root`. Reconciliation requires a
+  verified completed response, identical round binding and an unexpired original
+  deadline; it preserves the failed event in `previousProbeFailure`.
 - Batch slot timeout is `queued-timeout` with `ConcurrencySlotTimeout` and
   `submissionAcknowledged=false`. A dead owner never releases a slot by itself;
   unproved post-send state returns `ConcurrencySlotRecoveryRequired`. `slots` is

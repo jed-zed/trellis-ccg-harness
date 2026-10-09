@@ -2638,11 +2638,14 @@ Describe 'agent-browser-cli V2 transport' {
         Should -Invoke Invoke-AgentBrowserCliJson -Times 0 -Exactly
     }
 
-    It 'switches one unique thinking-mode control to Pro and verifies it before send preparation' {
+    It 'switches one unique thinking-mode control to Pro and verifies it before send preparation' -ForEach @(
+        @{ InitialLabel = '极高'; ExpandedLabel = '极高' }
+        @{ InitialLabel = 'Medium'; ExpandedLabel = '思考强度' }
+    ) {
         $extreme = [pscustomobject]@{
             Url = 'https://chatgpt.com/'; UrlExact = $false; ComposerCount = 1; ComposerValue = ''; SendCount = 0
             SendSelector = 'form:has(#prompt-textarea) > button[data-testid="send-button"]:nth-child(1):not(:disabled, [aria-disabled="true"], [hidden], [aria-hidden="true"])'
-            LoginCount = 0; ProCount = 0; SelectedModeControlCount = 1; SelectedModeLabel = '极高'; SelectedModeIsPro = $false
+            LoginCount = 0; ProCount = 0; SelectedModeControlCount = 1; SelectedModeLabel = $InitialLabel; SelectedModeIsPro = $false
             SecurityChallengeCount = 0; Generating = $false; UserTurns = @(); Responses = @(); Target = $script:v2Target
         }
         $pro = [pscustomobject]@{
@@ -2656,8 +2659,10 @@ Describe 'agent-browser-cli V2 transport' {
         $script:v2ModelActions.Enqueue([pscustomobject]@{ ok = $true; phase = 'open-submenu' })
         $script:v2ModelActions.Enqueue([pscustomobject]@{ ok = $true; phase = 'select-pro' })
         $script:v2ModelSnapshots = [System.Collections.Queue]::new()
-        $script:v2ModelSnapshots.Enqueue($extreme)
-        $script:v2ModelSnapshots.Enqueue($extreme)
+        $expanded = $extreme | Select-Object *
+        $expanded.SelectedModeLabel = $ExpandedLabel
+        $script:v2ModelSnapshots.Enqueue($expanded)
+        $script:v2ModelSnapshots.Enqueue($expanded)
         $script:v2ModelSnapshots.Enqueue($pro)
         $script:v2ModelClicks = [System.Collections.Generic.List[string]]::new()
         Mock Get-AgentBrowserProSelectionAction { $script:v2ModelActions.Dequeue() }
@@ -2671,6 +2676,70 @@ Describe 'agent-browser-cli V2 transport' {
         $script:v2ModelClicks.Count | Should -Be 2
         $script:v2ModelClicks[0] | Should -Be 'button[data-codex-gptpro-mode-control="true"]'
         $script:v2ModelClicks[1] | Should -Be '[data-codex-gptpro-pro-option="true"]'
+    }
+
+    It 'preserves selection failure details separately from the outer new-chat snapshot' {
+        Mock Invoke-AgentBrowserOpenFreshTab { $script:v2Target }
+        Mock Enter-UiMutex { $null }
+        Mock Exit-UiMutex {}
+        Mock Get-AgentBrowserPageSnapshot {
+            [pscustomobject]@{
+                Url = 'https://chatgpt.com/'; UrlExact = $false; ComposerCount = 1; ComposerValue = ''
+                LoginCount = 0; SecurityChallengeCount = 0; Generating = $false
+                SelectedModeControlCount = 1; SelectedModeLabel = 'Medium'; SelectedModeIsPro = $false
+                UserTurns = @(); Responses = @()
+            }
+        }
+        Mock Ensure-AgentBrowserProMode {
+            Throw-SidebarError -ExitCode 23 -Category 'SelectedModeSwitchUnproved' -Message 'Mode disappeared after opening.' -Details @{ reason = 'mode-control-count'; candidateCount = 0 }
+        }
+        Mock Invoke-AgentBrowserCliJson { throw 'Failure diagnostics must not touch the page.' }
+        $caught = $null
+        try { Invoke-AgentBrowserNewChat -Target $script:v2Target } catch { $caught = $_.Exception }
+        $caught | Should -Not -BeNullOrEmpty
+        Get-ExceptionCategory -Exception $caught | Should -Be 'SelectedModeSwitchUnproved'
+        $details = Get-ExceptionDetails -Exception $caught
+        $details.errorDetails.reason | Should -Be 'mode-control-count'
+        $details.errorDetails.candidateCount | Should -Be 0
+        $details.lastObservedSnapshot.selectedModeControlCount | Should -Be 1
+        $details.lastObservedSnapshot.selectedModeLabel | Should -Be 'Medium'
+        $details.targetBinding.tabId | Should -Be '101'
+        Should -Invoke Invoke-AgentBrowserCliJson -Times 0 -Exactly
+    }
+
+    It 'keeps missing assistant ownership pending only during proved generation' -ForEach @(
+        @{ GeneratingValue = $true; OwnershipIssue = 'AssistantOwnerMissing'; Pending = $true }
+        @{ GeneratingValue = $false; OwnershipIssue = 'AssistantOwnerMissing'; Pending = $false }
+        @{ GeneratingValue = 'true'; OwnershipIssue = 'AssistantOwnerMissing'; Pending = $false }
+        @{ GeneratingValue = $true; OwnershipIssue = 'AssistantContextAmbiguous'; Pending = $false }
+    ) {
+        Mock Invoke-AgentBrowserCliJson {
+            [pscustomobject]@{ result = [pscustomobject]@{
+                tab_id = '101'; session_key = 'browser-1:profile-1:101'
+                js_return = [pscustomobject]@{
+                    schemaVersion = 1; origin = 'https://chatgpt.com'; url = 'https://chatgpt.com/'
+                    composer = [pscustomobject]@{ count = 1; value = '' }
+                    send = [pscustomobject]@{ count = 0 }
+                    auth = [pscustomobject]@{ loginCount = 0; challengeCount = 0; proIndicatorCount = 1 }
+                    model = [pscustomobject]@{ controlCount = 1; selectedLabel = 'Pro'; proSelected = $true }
+                    generating = $GeneratingValue; turnExtractionIssue = $OwnershipIssue; userTurns = @()
+                    assistantTurns = @([pscustomobject]@{ ordinal = 0; key = 'activity'; content = 'reasoning only'; truncated = $false })
+                }
+            } }
+        }
+        if ($Pending) {
+            $snapshot = Get-AgentBrowserPageSnapshot -Target $script:v2Target
+            $snapshot.ResponseOwnershipPending | Should -BeTrue
+            $snapshot.Responses.Count | Should -Be 0
+            $status = New-AgentBrowserStatusPayload -Target $script:v2Target -Snapshot $snapshot
+            $status.generating | Should -BeTrue
+            $status.responseOwnershipPending | Should -BeTrue
+            $status.ready | Should -BeFalse
+            Assert-ThrowsCategory -Category 'GenerationAlreadyActive' -ExitCode 24 -Action { Assert-AgentBrowserBaseReady -Snapshot $snapshot }
+        }
+        else {
+            Assert-ThrowsCategory -Category 'MessageOwnershipAmbiguous' -ExitCode 28 -Action { Get-AgentBrowserPageSnapshot -Target $script:v2Target }
+        }
     }
 
     It 'fails before the send click when the selected mode drifts away from Pro after fill' {

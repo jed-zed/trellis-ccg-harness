@@ -1552,6 +1552,70 @@ function Wait-RootWatchEvent {
                 if ([string](Get-WatchProperty $validated.State 'terminalStatus' '') -ne $validated.Status) {
                     throw 'Root-wait terminal state does not match its event.'
                 }
+                $adapterState = Read-WatchJson -Path (Join-Path $EvidenceDirectory 'state.json')
+                if ($validated.Status -eq 'probe-failed' -and
+                    [string](Get-WatchProperty $validated.Event 'recoveryCategory' '') -ceq 'MessageOwnershipAmbiguous' -and
+                    [string](Get-WatchProperty $adapterState 'phase' '') -ceq 'completed') {
+                    $mutex = Enter-WatchStartMutex -EvidenceDirectory $EvidenceDirectory
+                    try {
+                        $validated = Get-ValidatedLocalContinuationEvent -EvidenceDirectory $EvidenceDirectory -ThreadId $expectedThreadId -Transport 'codex-root-wait' -ModeLabel 'Root-wait'
+                        $adapterState = Read-WatchJson -Path (Join-Path $EvidenceDirectory 'state.json') -Required
+                        if ($validated.Status -eq 'probe-failed') {
+                            if ([string](Get-WatchProperty $validated.State 'phase' '') -cne 'terminal' -or
+                                [string](Get-WatchProperty $validated.State 'terminalStatus' '') -cne 'probe-failed' -or
+                                $validated.WatcherId -cne $watcherId -or
+                                [string](Get-WatchProperty $validated.Event 'recoveryCategory' '') -cne 'MessageOwnershipAmbiguous' -or
+                                [string](Get-WatchProperty $adapterState 'phase' '') -cne 'completed' -or
+                                [string](Get-WatchProperty $adapterState 'codexThreadId' '') -cne $expectedThreadId -or
+                                [string](Get-WatchProperty $adapterState 'transport' '') -cne 'agent-browser-cli-v2' -or
+                                [string](Get-WatchProperty $adapterState 'conversationUrlBound' '') -cne [string](Get-WatchProperty $validated.Event 'conversationUrl' '') -or
+                                [string](Get-WatchProperty $adapterState 'conversationUrlBound' '') -cne [string](Get-WatchProperty $validated.State 'conversationUrl' '') -or
+                                [string](Get-WatchProperty $adapterState 'responseDeadlineAtUtc' '') -cne $responseDeadlineAtUtc -or
+                                [string](Get-WatchProperty $validated.State 'responseDeadlineAtUtc' '') -cne $responseDeadlineAtUtc) {
+                                throw 'Completed adapter evidence does not match the failed root-wait round.'
+                            }
+                            foreach ($field in @('promptSha256', 'idempotencyKeySha256')) {
+                                $value = [string](Get-WatchProperty $adapterState $field '')
+                                if ($value -cnotmatch '^[0-9a-f]{64}$' -or $value -cne [string](Get-WatchProperty $validated.State $field '')) {
+                                    throw 'Completed adapter evidence does not match the failed root-wait request.'
+                                }
+                            }
+                            foreach ($field in @('browserId', 'profileId', 'tabId', 'sessionKey', 'url')) {
+                                $value = [string](Get-WatchProperty $adapterState.targetBinding $field '')
+                                if ([string]::IsNullOrWhiteSpace($value) -or
+                                    $value -cne [string](Get-WatchProperty $validated.State.targetBinding $field '') -or
+                                    $value -cne [string](Get-WatchProperty $validated.Event.targetBinding $field '')) {
+                                    throw 'Completed adapter evidence does not match the failed root-wait target.'
+                                }
+                            }
+                            $processId = [int](Get-WatchProperty $validated.State 'processId' 0)
+                            if ($processId -gt 0 -and [bool](& $ProcessAliveAction $processId)) {
+                                throw 'The failed root-wait worker must stop before recovery.'
+                            }
+                            $remaining = Get-WatchRemainingDeadlineSeconds -DeadlineAtUtc $responseDeadlineAtUtc -RequestedTimeoutSeconds $WaitTimeoutSeconds -NowAction $NowAction
+                            if ($remaining -le 0) { throw 'The original response deadline expired before root-wait recovery.' }
+                            $finalize = Invoke-WatchAdapterFinalize -AdapterPath (Get-WatchAdapterPath) -EvidenceDirectory $EvidenceDirectory -FinalizeTimeout $remaining -CodexThreadIdValue $expectedThreadId
+                            $payload = Get-WatchProperty $finalize 'Payload' $null
+                            if ([int](Get-WatchProperty $finalize 'ExitCode' 99) -ne 0 -or
+                                (Get-WatchProperty $payload 'completed' $null) -isnot [bool] -or -not $payload.completed -or
+                                (Get-WatchProperty $payload 'ok' $null) -isnot [bool] -or -not $payload.ok -or
+                                [string](Get-WatchProperty $payload 'codexThreadId' '') -cne $expectedThreadId -or
+                                [string](Get-WatchProperty $payload 'conversationUrl' '') -cne [string](Get-WatchProperty $adapterState 'conversationUrlBound' '') -or
+                                [string](Get-WatchProperty $payload 'responseSha256' '') -cnotmatch '^[0-9a-f]{64}$' -or
+                                [string](Get-WatchProperty $payload 'responseSha256' '') -cne [string](Get-WatchProperty $adapterState 'responseSha256' '')) {
+                                throw 'Completed root-wait recovery failed adapter evidence verification.'
+                            }
+                            if ((Get-WatchRemainingDeadlineSeconds -DeadlineAtUtc $responseDeadlineAtUtc -RequestedTimeoutSeconds $WaitTimeoutSeconds -NowAction $NowAction) -le 0) {
+                                throw 'The original response deadline expired during root-wait recovery.'
+                            }
+                            $validated.State | Add-Member -NotePropertyName previousProbeFailure -NotePropertyValue $validated.Event -Force
+                            $loopResult = [pscustomobject]@{ Status = 'completed'; Reason = 'verified-post-send-recovery'; FinalizeResult = $finalize }
+                            $null = Complete-WatchTerminalEvidence -StatePath $statePath -EventPath $eventPath -State $validated.State -LoopResult $loopResult
+                            $validated = Get-ValidatedLocalContinuationEvent -EvidenceDirectory $EvidenceDirectory -ThreadId $expectedThreadId -Transport 'codex-root-wait' -ModeLabel 'Root-wait'
+                        }
+                    }
+                    finally { Exit-WatchStartMutex -Mutex $mutex }
+                }
                 if ((Get-WatchRemainingDeadlineSeconds -DeadlineAtUtc $responseDeadlineAtUtc -RequestedTimeoutSeconds $WaitTimeoutSeconds -NowAction $NowAction) -le 0) {
                     throw 'The original response deadline expired before the root-wait terminal event was accepted.'
                 }

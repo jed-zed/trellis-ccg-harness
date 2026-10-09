@@ -29,7 +29,8 @@ return (() => {
     const verticalGap = Math.max(composerRect.top - rect.bottom, rect.top - composerRect.bottom, 0);
     const horizontallyAdjacent = rect.right >= composerRect.left - 40 && rect.left <= composerRect.right + 40;
     return !element.closest('[role="menu"]') && (text === 'Pro' || text === '极高' ||
-        (text === 'Medium' && composerForm && element.closest('form') === composerForm && element.form === composerForm &&
+        ((text === 'Medium' || (text === '思考强度' && element.getAttribute('aria-expanded') === 'true')) &&
+          composerForm && element.closest('form') === composerForm && element.form === composerForm &&
           element.getAttribute('aria-label') === '选择 ChatGPT 模型')) &&
       horizontallyAdjacent && verticalGap <= 40;
   });

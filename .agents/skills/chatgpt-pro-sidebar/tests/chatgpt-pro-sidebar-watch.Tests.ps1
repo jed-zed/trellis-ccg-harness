@@ -2682,6 +2682,74 @@ Describe 'Local continuation contract' {
         $acknowledgement.acknowledgementType | Should -Be 'codex-root-wait-reviewed'
     }
 
+    It 'recovers only verified completed evidence from an ownership probe failure: <Case>' -TestCases @(
+        @{ Case = 'same-round'; ExpectedError = '' }
+        @{ Case = 'changed-url'; ExpectedError = '*failed root-wait round*' }
+        @{ Case = 'changed-request'; ExpectedError = '*failed root-wait request*' }
+        @{ Case = 'failed-verification'; ExpectedError = '*failed adapter evidence verification*' }
+        @{ Case = 'deadline-expired'; ExpectedError = '*deadline expired during*' }
+    ) {
+        param($Case, $ExpectedError)
+        $directory = Join-Path $TestDrive "root-wait-recovery-$Case"
+        New-WatchFixtureEvidence -Directory $directory -Phase 'completed'
+        $adapterPath = Join-Path $directory 'state.json'
+        $adapter = Read-WatchJson -Path $adapterPath -Required
+        $adapter | Add-Member -NotePropertyName codexThreadId -NotePropertyValue $script:ThreadId -Force
+        $adapter | Add-Member -NotePropertyName responseSha256 -NotePropertyValue ('c' * 64) -Force
+        $adapter | Add-Member -NotePropertyName attemptCount -NotePropertyValue 1 -Force
+        Write-WatchJsonAtomic -Path $adapterPath -Value $adapter
+        New-WorkerState -Directory $directory -Token 'worker-token' -DisableWake $true
+        $statePath = Join-Path $directory $Script:StateFileName
+        $eventPath = Join-Path $directory $Script:EventFileName
+        $state = Read-WatchJson -Path $statePath -Required
+        $state | Add-Member -NotePropertyName rootWait -NotePropertyValue $true -Force
+        foreach ($field in @('promptSha256', 'idempotencyKeySha256', 'responseDeadlineAtUtc')) {
+            $state | Add-Member -NotePropertyName $field -NotePropertyValue $adapter.$field -Force
+        }
+        $null = Complete-WatchTerminalEvidence -StatePath $statePath -EventPath $eventPath -State $state -LoopResult ([pscustomobject]@{
+            Status = 'probe-failed'; Reason = 'consecutive-probe-failures'; LastFailureCategory = 'MessageOwnershipAmbiguous'
+        })
+        $failedEvent = [System.IO.File]::ReadAllText($eventPath)
+        if ($Case -eq 'changed-url') { $adapter.conversationUrlBound = 'https://chatgpt.com/c/87654321-1234-1234-1234-123456789abc' }
+        if ($Case -eq 'changed-request') { $adapter.promptSha256 = ('d' * 64) }
+        Write-WatchJsonAtomic -Path $adapterPath -Value $adapter
+        $script:RecoveryFinalizeFails = $Case -eq 'failed-verification'
+        $script:RecoveryExpired = $false
+        $script:ExpireOnFinalize = $Case -eq 'deadline-expired'
+        Mock Invoke-WatchAdapterSend { throw 'Recovery must not send.' }
+        Mock Invoke-WatchAdapterFinalize {
+            $script:RecoveryExpired = $script:ExpireOnFinalize
+            [pscustomobject]@{ ExitCode = if ($script:RecoveryFinalizeFails) { 28 } else { 0 }; Payload = [pscustomobject]@{
+                ok = -not $script:RecoveryFinalizeFails; completed = -not $script:RecoveryFinalizeFails
+                codexThreadId = $script:ThreadId; conversationUrl = $script:BoundUrl; responseSha256 = ('c' * 64)
+            } }
+        }
+        $wait = {
+            Wait-RootWatchEvent -EvidenceDirectory $directory -ThreadId $script:ThreadId -WaitTimeoutSeconds 30 `
+                -ProcessAliveAction { $false } -NowAction {
+                    if ($script:RecoveryExpired) { [datetime]::UtcNow.AddHours(3) } else { [datetime]::UtcNow }
+                }
+        }
+        if ($ExpectedError) {
+            $wait | Should -Throw $ExpectedError
+            [System.IO.File]::ReadAllText($eventPath) | Should -BeExactly $failedEvent
+            (Read-WatchJson -Path $statePath -Required).terminalStatus | Should -Be 'probe-failed'
+        }
+        else {
+            (& $wait).terminalStatus | Should -Be 'completed'
+            (& $wait).terminalStatus | Should -Be 'completed'
+            $recovered = Read-WatchJson -Path $statePath -Required
+            $recovered.watcherId | Should -Be $state.watcherId
+            $recovered.responseDeadlineAtUtc | Should -Be $adapter.responseDeadlineAtUtc
+            $recovered.previousProbeFailure.status | Should -Be 'probe-failed'
+            $recovered.previousProbeFailure.recoveryCategory | Should -Be 'MessageOwnershipAmbiguous'
+            (Read-WatchJson -Path $eventPath -Required).finalize.completed | Should -BeTrue
+            Should -Invoke Invoke-WatchAdapterFinalize -Times 1 -Exactly
+        }
+        (Read-WatchJson -Path $adapterPath -Required).attemptCount | Should -Be 1
+        Should -Invoke Invoke-WatchAdapterSend -Times 0 -Exactly
+    }
+
     It 'rejects a root-wait event from another watcher' {
         $directory = Join-Path $TestDrive 'root-wait-watcher-mismatch'
         $null = New-Item -ItemType Directory -Path $directory -Force

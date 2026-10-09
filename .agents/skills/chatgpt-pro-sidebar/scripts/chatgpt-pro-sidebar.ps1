@@ -4858,13 +4858,18 @@ function Get-AgentBrowserPageSnapshot {
         Throw-SidebarError -ExitCode $Script:ExitCodes.ControlSelection -Category 'ComposerSelectorAmbiguous' -Message 'The approved composer selector did not match exactly one DOM node.'
     }
     $turnExtractionIssue = [string](Get-ObjectProperty $page 'turnExtractionIssue' '')
-    if (-not [string]::IsNullOrWhiteSpace($turnExtractionIssue)) {
+    $responseOwnershipPending = $turnExtractionIssue -ceq 'AssistantOwnerMissing' -and
+        (Get-ObjectProperty $page 'generating' $null) -is [bool] -and [bool]$page.generating
+    if (-not [string]::IsNullOrWhiteSpace($turnExtractionIssue) -and -not $responseOwnershipPending) {
         $turnInspection = Get-ObjectProperty $page 'turnInspection' $null
         $ownershipInspection = ConvertTo-AgentBrowserOwnershipInspection -Inspection (Get-ObjectProperty $turnInspection 'ownershipInspection' $null)
         Throw-SidebarError -ExitCode $Script:ExitCodes.ResponseIsolation -Category 'MessageOwnershipAmbiguous' -Message 'The fixed DOM did not prove isolated message ownership.' -Details ([ordered]@{ reason = $turnExtractionIssue; ownershipInspection = $ownershipInspection; generating = $(if ((Get-ObjectProperty $page 'generating' $null) -is [bool]) { $page.generating } else { $null }); url = [string]$canonical.Url })
     }
     $userTurns = @(ConvertTo-AgentBrowserTurnRecords -Turns @((Get-ObjectProperty $page 'userTurns' @())) -Role 'user')
-    $assistantTurns = @(ConvertTo-AgentBrowserTurnRecords -Turns @((Get-ObjectProperty $page 'assistantTurns' @())) -Role 'assistant')
+    # Generating activity is not a final response; require ownership again once stopped.
+    $assistantTurns = @(if (-not $responseOwnershipPending) {
+        ConvertTo-AgentBrowserTurnRecords -Turns @((Get-ObjectProperty $page 'assistantTurns' @())) -Role 'assistant'
+    })
     $sendCount = [int](Get-ObjectProperty $send 'count' 0)
     $sendSelector = [string](Get-ObjectProperty $send 'selector' '')
     $sendSelectorMatchCount = [int](Get-ObjectProperty $send 'selectorMatchCount' 0)
@@ -4900,6 +4905,7 @@ function Get-AgentBrowserPageSnapshot {
         SelectedModeIsPro = $proSelected
         SecurityChallengeCount = [int](Get-ObjectProperty $auth 'challengeCount' 0)
         Generating = [bool](Get-ObjectProperty $page 'generating' $false)
+        ResponseOwnershipPending = $responseOwnershipPending
         UserTurns = $userTurns
         Responses = $assistantTurns
         Target = $Target
@@ -5073,6 +5079,7 @@ function New-AgentBrowserStatusPayload {
         selectedModeIsPro = $Snapshot.SelectedModeIsPro
         securityChallengeControlCount = $Snapshot.SecurityChallengeCount
         generating = $Snapshot.Generating
+        responseOwnershipPending = [bool](Get-ObjectProperty $Snapshot 'ResponseOwnershipPending' $false)
         url = $Snapshot.Url
         urlExact = $Snapshot.UrlExact
         clipboardUsed = $false
@@ -5193,12 +5200,15 @@ function Invoke-AgentBrowserNewChat {
         $exception = $_.Exception
         Throw-SidebarError -ExitCode (Get-ExceptionExitCode -Exception $exception) -Category (Get-ExceptionCategory -Exception $exception) -Message $exception.Message -Details ([ordered]@{
             newChatTargetOpened = $true; targetBinding = $newBinding
-            url = [string](Get-ObjectProperty $snapshot 'Url' 'https://chatgpt.com/')
-            selectedModeControlCount = [int](Get-ObjectProperty $snapshot 'SelectedModeControlCount' 0)
-            selectedModeLabel = [string](Get-ObjectProperty $snapshot 'SelectedModeLabel' '')
-            selectedModeIsPro = [bool](Get-ObjectProperty $snapshot 'SelectedModeIsPro' $false)
-            composerCount = [int](Get-ObjectProperty $snapshot 'ComposerCount' 0)
-            domInspection = Get-ObjectProperty $snapshot 'DomInspection' $null
+            errorDetails = Get-ExceptionDetails -Exception $exception
+            lastObservedSnapshot = [ordered]@{
+                url = [string](Get-ObjectProperty $snapshot 'Url' 'https://chatgpt.com/')
+                selectedModeControlCount = [int](Get-ObjectProperty $snapshot 'SelectedModeControlCount' 0)
+                selectedModeLabel = [string](Get-ObjectProperty $snapshot 'SelectedModeLabel' '')
+                selectedModeIsPro = [bool](Get-ObjectProperty $snapshot 'SelectedModeIsPro' $false)
+                composerCount = [int](Get-ObjectProperty $snapshot 'ComposerCount' 0)
+                domInspection = Get-ObjectProperty $snapshot 'DomInspection' $null
+            }
         })
     }
     finally { Exit-UiMutex -Lease $newLease }
