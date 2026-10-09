@@ -6,6 +6,7 @@ import {
   mkdtempSync,
   existsSync,
   readFileSync,
+  readdirSync,
   renameSync,
   rmSync,
   writeFileSync,
@@ -67,6 +68,7 @@ function fixture(name) {
       id: "product-manager",
       title: "Product manager E2E",
       status: "in_progress",
+      meta: { productManager: { required: true } },
     })}\n`,
   );
   writeFileSync(path.join(taskDir, "prd.md"), "# Product outcome\n");
@@ -429,6 +431,114 @@ test("Codex hook injects the tracked pending gate and exactly three responses", 
   } finally {
     value.cleanup();
   }
+});
+
+test("optional authorization skips runtime work while required authorization still stops the call", async () => {
+  const value = fixture("authorization");
+  try {
+    syncProductManagerPlan(value.taskDir);
+    const taskPath = path.join(value.taskDir, "task.json");
+    const task = JSON.parse(readFileSync(taskPath, "utf8"));
+    const options = {
+      triggerType: "PLAN_REVIEW", checkpointId: "PLAN",
+      discoverRoots: () => { throw new Error("Runtime must not be reached without authorization"); },
+    };
+    await assert.rejects(runInstalledProductManagerReview(value.repoRoot, value.taskDir, options), /authorized Provider call/i);
+    delete task.meta;
+    writeFileSync(taskPath, JSON.stringify(task));
+    const before = readFileSync(path.join(value.taskDir, "product-manager.json"), "utf8");
+    const result = await runInstalledProductManagerReview(value.repoRoot, value.taskDir, options);
+    assert.equal(result.reviewStatus, "authorization_required");
+    assert.equal(result.currentGate, null);
+    assert.equal(result.finalEligibility.conclusion, "not_required");
+    assert.equal(readFileSync(path.join(value.taskDir, "product-manager.json"), "utf8"), before);
+    assert.equal(existsSync(path.join(value.taskDir, ".ccg-evidence")), false);
+  } finally { value.cleanup(); }
+});
+
+test("first optional unauthorized review needs neither PM state nor implement.md", async () => {
+  for (const required of [undefined, false, true, "false", "corrupt-state"]) {
+    const value = fixture("first-authorization");
+    try {
+      const taskPath = path.join(value.taskDir, "task.json");
+      const task = JSON.parse(readFileSync(taskPath, "utf8"));
+      delete task.meta;
+      if (required !== undefined && required !== "corrupt-state") {
+        task.meta = { productManager: { required } };
+      }
+      writeFileSync(taskPath, JSON.stringify(task));
+      rmSync(path.join(value.taskDir, "implement.md"));
+      const statePath = path.join(value.taskDir, "product-manager.json");
+      if (required === "corrupt-state") writeFileSync(statePath, "{broken");
+      const before = readdirSync(value.taskDir).map((name) => [name, readFileSync(path.join(value.taskDir, name), "utf8")]);
+      const call = () => runInstalledProductManagerReview(value.repoRoot, value.taskDir, {
+        triggerType: "PLAN_REVIEW", checkpointId: "PLAN",
+        runner: () => { throw new Error("Runtime must not be called"); },
+        discoverRoots: () => { throw new Error("Runtime discovery must not be called"); },
+      });
+      if (required === true || typeof required === "string") {
+        await assert.rejects(call, required === true ? /authorized Provider call/i
+          : required === "false" ? /required.*boolean/i : /JSON|Unexpected|Expected/i);
+      } else {
+        const result = await call();
+        assert.equal(result.reviewStatus, "authorization_required");
+        assert.equal(result.reviewRequired, false);
+        assert.equal(result.currentGate, null);
+      }
+      assert.deepEqual(readdirSync(value.taskDir).map((name) => [name, readFileSync(path.join(value.taskDir, name), "utf8")]), before);
+    } finally { value.cleanup(); }
+  }
+});
+
+test("optional unauthorized review preserves an existing decision card", async () => {
+  const value = fixture("pending-authorization");
+  try {
+    const taskPath = path.join(value.taskDir, "task.json");
+    const task = JSON.parse(readFileSync(taskPath, "utf8"));
+    delete task.meta;
+    writeFileSync(taskPath, JSON.stringify(task));
+    syncProductManagerPlan(value.taskDir);
+    const pending = review(value, "PLAN_REVIEW", "PLAN", [], { verdict: "needs_user_decision" });
+    const statePath = path.join(value.taskDir, "product-manager.json");
+    const before = readFileSync(statePath, "utf8");
+    const skipped = await runInstalledProductManagerReview(value.repoRoot, value.taskDir, {
+      triggerType: "PLAN_REVIEW", checkpointId: "PLAN",
+      discoverRoots: () => { throw new Error("Runtime must not be reached"); },
+    });
+    assert.equal(skipped.reviewStatus, "authorization_required");
+    assert.deepEqual(skipped.currentGate, pending.currentGate);
+    assert.equal(skipped.finalEligibility.eligible, false);
+    assert.equal(readFileSync(statePath, "utf8"), before);
+    assert.equal(existsSync(path.join(value.taskDir, ".ccg-evidence")), false);
+  } finally { value.cleanup(); }
+});
+
+test("Codex hook reports unavailable optional advice without a hard stop", () => {
+  const value = fixture("advisory-hook");
+  try {
+    const taskPath = path.join(value.taskDir, "task.json");
+    const task = JSON.parse(readFileSync(taskPath, "utf8"));
+    delete task.meta;
+    writeFileSync(taskPath, JSON.stringify(task));
+    syncProductManagerPlan(value.taskDir);
+    review(value, "PLAN_REVIEW", "PLAN", [], { verdict: "unavailable" });
+    const python = resolvePython();
+    const program = [
+      "import importlib.util, pathlib, sys",
+      "spec = importlib.util.spec_from_file_location('hook', sys.argv[1])",
+      "module = importlib.util.module_from_spec(spec)",
+      "spec.loader.exec_module(module)",
+      "print(module.load_product_manager_gate(pathlib.Path(sys.argv[2])) or '')",
+    ].join("\n");
+    const result = spawnSync(python.command, [...python.argsPrefix, "-c", program,
+      path.join(ROOT, ".codex/hooks/inject-workflow-state.py"), value.taskDir], {
+      encoding: "utf8", shell: false, windowsHide: true, timeout: 30_000,
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /Product-manager evidence is unavailable/);
+    assert.match(result.stdout, /Do not bypass a required review/);
+    assert.doesNotMatch(result.stdout, /HARD STOP|pm respond/);
+  } finally { value.cleanup(); }
 });
 
 test("installed review writes the complete ignored call evidence and projection revision", async () => {

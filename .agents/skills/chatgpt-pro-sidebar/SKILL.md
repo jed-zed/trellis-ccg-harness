@@ -86,19 +86,23 @@ transport.
 
 ## Workflow
 
-1. Run `status`; require `ok=true`, `ready=true`,
+1. Run `status` as a read-only target and safety probe; require `ok=true`,
    `transport=agent-browser-cli-v2`, one target binding, canonical ChatGPT URL,
-   `selectedModeControlCount=1`, `selectedModeLabel=Pro`,
-   `selectedModeIsPro=true`, no login/challenge, and `generating=false`.
-2. For a new independent task, call `run-root -FreshConversation` from a proved
-   empty canonical root homepage. Custom GPT and conversation URLs are not fresh.
-   `new-chat`/`run` remain available for their explicit single-process flows.
+   one composer, `selectedModeControlCount=1`, no login/challenge, and
+   `generating=false`. A non-Pro initial
+   mode may report `ready=false`; continue to automatic preparation instead of
+   asking the user to select Pro manually.
+2. For a new task, call `new-chat` or use `run`. `new-chat` always opens one
+   separate same-profile root homepage tab in background, preserving the source
+   tab and its draft. Use the returned exact target binding for the new round.
+   `new-chat` and `send` automatically select the unique exact Pro option,
+   then re-read and require one selected Pro control before filling a prompt.
 3. For an existing conversation, use ordinary `send`; it requires an exact
    canonical conversation URL. Use `-FreshConversation` only on a proved empty
    homepage.
 4. For a complete round, call watcher `run-root` once. New independent homepage
-   rounds must include `-FreshConversation`; exact-URL follow-ups omit it. The
-   watcher invokes one adapter
+   rounds must include `-FreshConversation`; exact-URL follow-ups omit it.
+   It invokes one adapter
    logical `send` request, including its one permitted proved-not-submitted
    retry, after acquiring one of the existing per-task/global capacity slots.
    It immediately starts the local RootWait watcher when ordinary post-send
@@ -164,6 +168,12 @@ create a replacement directory to bypass uncertain evidence.
   after it is not accepted. Local watcher polling does not consume model tokens.
 - Temporary browser loss during wait is observational only. Exact URL recovery
   may reopen in background; no recovery path may send.
+- Missing assistant ownership during proved generation stays pending without
+  capturing activity text. Once generation ends, ownership must be proved.
+  For an old `MessageOwnershipAmbiguous` probe failure, run adapter `wait` on
+  that same evidence directory, then `wait-root`. Reconciliation requires a
+  verified completed response, identical round binding and an unexpired original
+  deadline; it preserves the failed event in `previousProbeFailure`.
 - Batch slot timeout is `queued-timeout` with `ConcurrencySlotTimeout` and
   `submissionAcknowledged=false`. A dead owner never releases a slot by itself;
   unproved post-send state returns `ConcurrencySlotRecoveryRequired`. `slots` is

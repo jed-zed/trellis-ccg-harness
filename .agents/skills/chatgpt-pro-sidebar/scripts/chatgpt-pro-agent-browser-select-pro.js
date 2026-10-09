@@ -1,6 +1,8 @@
 return (() => {
   'use strict';
 
+  const COMPOSER_FALLBACK_SELECTOR = ":is(main, [role=\"main\"]) form div.ProseMirror[role=\"textbox\"][contenteditable=\"true\"]:not([data-message-author-role], [data-message-author-role] *, article[data-testid^=\"conversation-turn-\"] *)";
+
   const normalize = value => String(value ?? '').trim().replace(/\s+/g, ' ');
   const visible = element => {
     if (!element || element.hidden || element.getAttribute('aria-hidden') === 'true') return false;
@@ -15,15 +17,21 @@ return (() => {
 
   clearTag('data-codex-gptpro-mode-control');
   clearTag('data-codex-gptpro-pro-option');
-  const composers = visibleAll('#prompt-textarea').filter(element => !element.hasAttribute('disabled'));
+  const composers = visibleAll(`#prompt-textarea, ${COMPOSER_FALLBACK_SELECTOR}`).filter(element =>
+    !element.hasAttribute('disabled') && element.getAttribute('aria-disabled') !== 'true'
+  );
   if (composers.length !== 1) return { schemaVersion: 1, ok: false, reason: 'composer-count', count: composers.length };
   const composerRect = composers[0].getBoundingClientRect();
+  const composerForm = composers[0].closest('form');
   const controls = visibleAll('button[aria-haspopup="menu"]').filter(element => {
     const rect = element.getBoundingClientRect();
     const text = label(element);
     const verticalGap = Math.max(composerRect.top - rect.bottom, rect.top - composerRect.bottom, 0);
     const horizontallyAdjacent = rect.right >= composerRect.left - 40 && rect.left <= composerRect.right + 40;
-    return !element.closest('[role="menu"]') && (text === 'Pro' || text === '极高') &&
+    return !element.closest('[role="menu"]') && (text === 'Pro' || text === '极高' ||
+        ((text === 'Medium' || (text === '思考强度' && element.getAttribute('aria-expanded') === 'true')) &&
+          composerForm && element.closest('form') === composerForm && element.form === composerForm &&
+          element.getAttribute('aria-label') === '选择 ChatGPT 模型')) &&
       horizontallyAdjacent && verticalGap <= 40;
   });
   if (controls.length !== 1) return { schemaVersion: 1, ok: false, reason: 'mode-control-count', count: controls.length };

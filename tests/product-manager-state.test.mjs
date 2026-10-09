@@ -33,13 +33,16 @@ function prepareReview(repoRoot, taskDirectory, options) {
   });
 }
 
-function fixture() {
+function fixture({ required = true } = {}) {
   const root = mkdtempSync(path.join(tmpdir(), "harness-pm-state-"));
   const taskDir = path.join(root, ".trellis", "tasks", "07-27-pm");
   mkdirSync(taskDir, { recursive: true });
   writeFileSync(
     path.join(taskDir, "task.json"),
-    `${JSON.stringify({ id: "pm", title: "PM task", status: "in_progress" }, null, 2)}\n`,
+    `${JSON.stringify({
+      id: "pm", title: "PM task", status: "in_progress",
+      ...(required ? { meta: { productManager: { required: true } } } : {}),
+    }, null, 2)}\n`,
   );
   writeFileSync(
     path.join(taskDir, "implement.md"),
@@ -110,6 +113,145 @@ function acceptedResponse(prepared, provider = "gemini") {
     generated_at: "2026-07-27T00:00:00.000Z",
   };
 }
+
+test("optional reviews preserve unavailable advice without creating acceptance gates", () => {
+  for (const triggerType of ["INTAKE_REVIEW", "PLAN_REVIEW", "DRIFT_REVIEW", "MILESTONE_REVIEW", "FINAL_REVIEW"]) {
+    const value = fixture({ required: false });
+    try {
+      syncProductManagerPlan(value.taskDir);
+      const prepared = prepareReview(value.root, value.taskDir, { triggerType, checkpointId: "M1" });
+      const state = applyProductManagerReview(value.taskDir, prepared, {
+        ...acceptedResponse(prepared), verdict: "unavailable",
+        user_acceptance_summary: "The optional provider is unavailable.",
+      });
+      assert.equal(state.currentGate, null, triggerType);
+      assert.equal(state.latestAdvice.verdict, "unavailable");
+      assert.equal(state.milestones[0].status, "not_started");
+      assert.equal(state.milestones[0].userAcceptance, null);
+      assert.deepEqual(buildProductManagerStatus(value.taskDir).finalEligibility, {
+        eligible: true, conclusion: "not_required", reasons: [],
+      });
+    } finally { rmSync(value.root, { recursive: true, force: true }); }
+  }
+});
+
+test("legacy completion requirements survive milestone and final review updates without a task flag", () => {
+  for (const triggerType of ["MILESTONE_REVIEW", "FINAL_REVIEW"]) {
+    for (const legacySource of ["milestone", "final"]) {
+      const value = fixture();
+      try {
+        syncProductManagerPlan(value.taskDir);
+        const initial = prepareReview(value.root, value.taskDir, {
+          triggerType: legacySource === "milestone" ? "MILESTONE_REVIEW" : "FINAL_REVIEW", checkpointId: "M1",
+          evidenceRefs: ["test:legacy"],
+        });
+        let state = applyProductManagerReview(value.taskDir, initial, acceptedResponse(initial));
+        state = presentProductManagerGate(value.taskDir, { expectedRevision: state.stateRevision });
+        state = respondToProductManagerGate(value.taskDir, { response: "验收通过", expectedRevision: state.stateRevision });
+        const statePath = path.join(value.taskDir, "product-manager.json");
+        const legacy = JSON.parse(readFileSync(statePath, "utf8"));
+        delete (legacySource === "milestone" ? legacy.milestones[0].pmReview : legacy.finalReview).required;
+        writeFileSync(statePath, JSON.stringify(legacy));
+        const taskPath = path.join(value.taskDir, "task.json");
+        const task = JSON.parse(readFileSync(taskPath, "utf8"));
+        delete task.meta;
+        writeFileSync(taskPath, JSON.stringify(task));
+        assert.equal(buildProductManagerStatus(value.taskDir).reviewRequired, true);
+        const prepared = prepareReview(value.root, value.taskDir, { triggerType, checkpointId: "M1", evidenceRefs: ["test:update"] });
+        assert.equal(prepared.reviewRequired, true);
+        assert.ok(prepared.input.repository_facts.some((fact) => fact.product_manager_review_required === true));
+        state = applyProductManagerReview(value.taskDir, prepared, acceptedResponse(prepared));
+        assert.equal(buildProductManagerStatus(value.taskDir).reviewRequired, true);
+        assert.equal(state.currentGate.status, "awaiting_user_acceptance");
+        assert.equal(state.currentGate.kind, triggerType === "FINAL_REVIEW" ? "final" : "milestone");
+        assert.throws(() => respondToProductManagerGate(value.taskDir, {
+          response: "验收通过", expectedRevision: state.stateRevision,
+        }), /present/i);
+        state = presentProductManagerGate(value.taskDir, { expectedRevision: state.stateRevision });
+        state = respondToProductManagerGate(value.taskDir, { response: "验收通过", expectedRevision: state.stateRevision });
+        assert.equal(state.currentGate, null);
+        assert.equal(buildProductManagerStatus(value.taskDir).reviewRequired, true);
+        if (triggerType === "FINAL_REVIEW") assert.equal(state.finalReview.userAccepted, true);
+      } finally { rmSync(value.root, { recursive: true, force: true }); }
+    }
+  }
+});
+
+test("required review failures and optional material decisions still require a user decision", () => {
+  for (const required of [true, false]) {
+    const value = fixture({ required });
+    try {
+      syncProductManagerPlan(value.taskDir);
+      const prepared = prepareReview(value.root, value.taskDir, { triggerType: "PLAN_REVIEW", checkpointId: "PLAN" });
+      const state = applyProductManagerReview(value.taskDir, prepared, {
+        ...acceptedResponse(prepared),
+        verdict: required ? "unavailable" : "needs_user_decision",
+        material_change_proposal: required ? null : { change: "Expand approved scope" },
+      });
+      assert.equal(state.currentGate.status, "awaiting_user_acceptance");
+      assert.equal(buildProductManagerStatus(value.taskDir).finalEligibility.eligible, false);
+      assert.throws(() => respondToProductManagerGate(value.taskDir, {
+        response: "验收通过", expectedRevision: state.stateRevision,
+      }), /present/i);
+    } finally { rmSync(value.root, { recursive: true, force: true }); }
+  }
+});
+
+test("advisory review and plan sync cannot erase a legacy pending acceptance", () => {
+  const value = fixture({ required: false });
+  try {
+    let state = syncProductManagerPlan(value.taskDir);
+    const legacyGate = {
+      kind: "milestone", checkpointId: "M1", status: "awaiting_user_acceptance", pmVerdict: "accepted",
+    };
+    state.currentGate = legacyGate;
+    state = writeProductManagerState(value.taskDir, state, state.stateRevision);
+    const before = readFileSync(path.join(value.taskDir, "product-manager.json"), "utf8");
+    const prepared = prepareReview(value.root, value.taskDir, { triggerType: "INTAKE_REVIEW", checkpointId: "INTAKE" });
+    assert.throws(() => applyProductManagerReview(value.taskDir, prepared, acceptedResponse(prepared)), /pending/i);
+    writeFileSync(path.join(value.taskDir, "implement.md"), "# Changed plan\n");
+    assert.throws(() => syncProductManagerPlan(value.taskDir), /pending/i);
+    assert.equal(readFileSync(path.join(value.taskDir, "product-manager.json"), "utf8"), before);
+    assert.equal(buildProductManagerStatus(value.taskDir).finalEligibility.eligible, false);
+  } finally { rmSync(value.root, { recursive: true, force: true }); }
+});
+
+test("review requirement is task-owned and bound into the review identity", () => {
+  const value = fixture({ required: false });
+  try {
+    syncProductManagerPlan(value.taskDir);
+    const prepared = prepareReview(value.root, value.taskDir, { triggerType: "PLAN_REVIEW", checkpointId: "PLAN" });
+    const taskPath = path.join(value.taskDir, "task.json");
+    const task = JSON.parse(readFileSync(taskPath, "utf8"));
+    task.meta = { productManager: { required: true } };
+    writeFileSync(taskPath, JSON.stringify(task));
+    assert.throws(() => applyProductManagerReview(value.taskDir, prepared, acceptedResponse(prepared)), /stale/i);
+    task.meta.productManager.required = "false";
+    writeFileSync(taskPath, JSON.stringify(task));
+    assert.throws(() => prepareReview(value.root, value.taskDir, { triggerType: "PLAN_REVIEW", checkpointId: "PLAN" }), /required.*boolean/i);
+  } finally { rmSync(value.root, { recursive: true, force: true }); }
+});
+
+test("accepting an optional scope decision does not complete its milestone", () => {
+  const value = fixture({ required: false });
+  try {
+    syncProductManagerPlan(value.taskDir);
+    const prepared = prepareReview(value.root, value.taskDir, {
+      triggerType: "MILESTONE_REVIEW", checkpointId: "M1",
+    });
+    let state = applyProductManagerReview(value.taskDir, prepared, {
+      ...acceptedResponse(prepared), verdict: "needs_user_decision",
+      material_change_proposal: { change: "Adjust the approved scope" },
+    });
+    assert.equal(state.currentGate.kind, "decision");
+    state = presentProductManagerGate(value.taskDir, { expectedRevision: state.stateRevision });
+    state = respondToProductManagerGate(value.taskDir, {
+      response: "验收通过", expectedRevision: state.stateRevision,
+    });
+    assert.equal(state.milestones[0].status, "not_started");
+    assert.equal(state.milestones[0].userAcceptance, null);
+  } finally { rmSync(value.root, { recursive: true, force: true }); }
+});
 
 test("sync-plan creates one tracked projection without changing Trellis lifecycle", () => {
   const value = fixture();
@@ -519,6 +661,13 @@ test("legacy projections recover the latest rich advice from task-local evidence
     );
     assert.deepEqual(state.latestAdvice.findings, response.findings);
 
+    state = presentProductManagerGate(value.taskDir, {
+      expectedRevision: state.stateRevision,
+    });
+    state = respondToProductManagerGate(value.taskDir, {
+      response: "验收通过",
+      expectedRevision: state.stateRevision,
+    });
     writeFileSync(
       path.join(value.taskDir, "implement.md"),
       `${readFileSync(path.join(value.taskDir, "implement.md"), "utf8")}\n<!-- revision -->\n`,

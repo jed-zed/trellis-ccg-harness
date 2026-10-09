@@ -40,14 +40,14 @@ Use the matching Request Triage and Planning Artifacts in
   paid calls, install/sync/publish, destructive operations, shared core and
   multiple modules also require structured work with the applicable gates.
   File or line counts alone never establish low risk.
-- Reuse a matching Trellis task; obtain creation consent only when a new task
-  is needed and consent is missing. Keep task identity, accepted requirements,
+- Reuse or create a matching Trellis task automatically for authorized structured
+  development unless the user opted out for the scope/session. Keep task identity, accepted requirements,
   one authoritative execution plan, implementation, verification and a
   completion record. Complex tasks require `prd.md`, `design.md`, and
   `implement.md`; a lightweight task may keep its short plan in `prd.md`.
-  Task creation and implementation require separate approval. Present completed
-  planning artifacts for review and wait for explicit implementation approval
-  before starting implementation; creation or planning consent alone is insufficient.
+  Apply Shared plan approval before implementation: reuse actual same-scope user
+  approval; task bookkeeping is not another approval. A required original CCG
+  plan gate without prior approval still needs the presented plan and user response.
 - Run project lint, type-check and tests, including new-function unit tests,
   bug regressions and updates for changed behavior. Final verification covers
   the full affected task scope, not only the last edit. Preserve the quality
@@ -73,6 +73,27 @@ plans, acceptance criteria, and completion. CCG supplies bounded evidence and
 applicable quality gates without creating a second task or plan authority.
 Reference the existing canonical artifact instead of copying its requirements
 or plan into another layer.
+
+## Workflow gates and approval reuse
+
+- Preserve the selected original CCG strategy's required analysis, plan,
+  review and quality gates. Do not downgrade the strategy to avoid them.
+- Conversation and read-only inspection need no task. For authorized development,
+  Codex automatically maintains the Trellis task and necessary artifacts unless
+  the user opted out for the scope/session; task creation and phase transitions
+  are not extra approval questions.
+- Follow `.trellis/workflow.md#shared-plan-approval`: reuse an actual user
+  approval of the same task, plan scope, risks and action classes across CCG
+  handoff and resume. Restating a summary or changing formatting does not
+  invalidate approval. A missing original strategy approval or a material
+  scope/risk/external-effect change still requires a user decision.
+- Optional evidence failures remain visible but do not stop independent
+  authorized work. A new hard gate must identify an original strategy rule,
+  explicit user requirement, or concrete safety/data-loss/external-effect risk,
+  and name the affected action and recovery path.
+- Existing authorization remains valid within its stated scope. Never infer
+  paid/network-call, installation, publishing, deployment or destructive-action
+  authorization from an ordinary code-edit approval.
 
 ## Codex native leaf workers
 
@@ -123,26 +144,6 @@ leaves; a CCG/Trellis-managed task is not by itself a reason to refuse them.
   existing task/report. No duplicate audit documents or quota gate is needed.
   This is coordinator instruction, not a new automatic scheduler or sandbox.
 
-## Shared plan approval
-
-Follow the `Shared plan approval` section (`#shared-plan-approval`) in the
-project's canonical `.trellis/workflow.md`. If the user has already explicitly
-authorized task creation, create its planning record without asking again;
-that consent alone does not authorize implementation.
-
-After the user has reviewed and explicitly approved a concrete final plan,
-CCG and Trellis reuse that approval for the same task, plan version, scope,
-risk, and actions. A handoff, resume, or equivalent summary does not require a
-second approval. The Codex coordinator records the actual approval source and
-coverage in existing `task.json.meta.planApproval`; metadata without a real
-user source is not consent, and the record is not a mechanical approval gate.
-
-Keep the first final-plan review and all applicable planning artifacts,
-fast-lane boundaries, verification, and completion requirements. Material
-changes or withdrawal stop the affected implementation until covered by a
-valid approval; formatting or checklist updates alone do not invalidate it.
-Independent product-manager presentation gates and consequential actions keep
-their own required authorization and cannot be cleared by plan approval.
 
 ## Ponytail boundary
 
@@ -246,8 +247,17 @@ plans, milestones, status, completion, or workspace writes.
   `currentGate` after a user response must not clear or replace that advice
   with the generic Trellis resume action.
 - The current Codex task is the sole orchestrator. It prepares review input,
-  explicitly authorizes any network or paid provider call, validates the
-  response, and applies it through the Harness adapter.
+  checks user authorization for any network or paid provider call, validates
+  the response, and applies it through the Harness adapter. Reuse authorization
+  already covering the same Provider, data, action and cost scope.
+- PM is advisory by default. Only an explicit user requirement recorded by
+  Codex as `task.json.meta.productManager.required: true` makes its reviews
+  mandatory; the Provider cannot set this policy. An enabled Provider or a
+  candidate event alone is not a required review or call authorization.
+- If an installed CCG Skill reports `authorization_required` for an optional
+  PM candidate, skip that call and continue authorized work. This project rule
+  takes precedence over older per-candidate stop wording; never call a paid
+  Provider merely to avoid asking. Original CCG strategy gates still apply.
 - Provider executions inherit the personal CCG fork's upstream Provider
   permission mode. The task-local snapshot, schema, identity, timeout, output,
   retry, no-fallback, network/payment authorization, and user-gate contracts
@@ -268,9 +278,14 @@ plans, milestones, status, completion, or workspace writes.
   report its findings, risks, process adjustments, and recommended next
   action. `pm status` must keep the same `latestAdvice` visible after the gate
   is cleared.
-- Milestone and final acceptance remain hard user gates. A product-manager
-  verdict does not mutate Trellis lifecycle status or authorize finish/archive
-  by itself.
+- Optional reviews, including milestone/final reviews, retain advice and
+  failure diagnostics without creating acceptance gates or completing a
+  milestone. Required reviews, material decisions and existing user acceptance
+  cards remain hard gates for the dependent checkpoint. Unrelated authorized
+  work may continue. Never erase an old pending card during review or plan sync.
+- An advisory `final-eligibility` result of `not_required` means only that PM
+  adds no completion gate; it is not evidence of task completion. Trellis and
+  the selected original CCG strategy still own completion and verification.
 - For a hard gate, Codex must run `pm present`, show and restate that exact
   review, list the three allowed responses, and end the turn. `pm respond`
   requires the resulting presentation revision and a fresh explicit user

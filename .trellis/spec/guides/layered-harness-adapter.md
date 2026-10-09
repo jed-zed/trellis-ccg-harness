@@ -45,6 +45,13 @@ consequential-action approvals. A plan approval cannot answer a new PM card.
 
 ## Collaboration Policy Projection
 
+- `syncProjectPolicy` upgrades only the owned policy, its `AGENTS.md` block and
+  ownership record through the existing authenticated transaction. It preserves
+  contract/Schema bytes and rejects user-modified projections.
+- Approved structured work reuses actual same-scope plan approval across
+  Trellis/CCG handoff and resume. Fast-lane requests keep their existing route;
+  explicit task opt-outs remain effective.
+
 The `Codex native leaf workers` section is scoped to Codex. Trellis remains
 `inline`; native workers may research, implement exact owned paths or verify,
 while the coordinator retains lifecycle writes, shared control files, final

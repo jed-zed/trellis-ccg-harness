@@ -566,22 +566,22 @@ test("real Trellis consumers retain shared plan approval and the independent PM 
     const phase = run(contextScript, ["--mode", "phase", "--platform", "codex"]);
     assert.match(phase, /### Shared plan approval/);
     assert.match(phase, /task\.json\.meta\.planApproval/);
-    assert.match(phase, /source-less `approved` field is not approval/);
-    assert.match(phase, /SHA256 identifies the reviewed bytes; it does not decide approval by itself/);
+    assert.match(phase, /a plan file or an agent assertion alone is not approval/);
+    assert.match(phase, /direct-fix adds no plan approval; quick-implement requires its compact-plan approval/);
     assert.match(phase, /presentation revision and a fresh explicit user response/);
-    for (const step of ["1.0", "1.4"]) {
-      const detail = run(contextScript, ["--mode", "phase", "--step", step, "--platform", "codex"]);
-      assert.match(detail, /without another (?:question|start-review question)/);
-    }
+    const createDetail = run(contextScript, ["--mode", "phase", "--step", "1.0", "--platform", "codex"]);
+    assert.match(createDetail, /Automatically reuse or create.*unless the user opted out/);
+    const startDetail = run(contextScript, ["--mode", "phase", "--step", "1.4", "--platform", "codex"]);
+    assert.match(startDetail, /reuse an unchanged approved scope rather than asking again/);
     for (const skill of ["trellis-start", "trellis-brainstorm", "trellis-continue"]) {
-      assert.match(readFileSync(new URL(`../.agents/skills/${skill}/SKILL.md`, import.meta.url), "utf8"), /Shared plan approval/);
+      assert.match(readFileSync(new URL(`../.agents/skills/${skill}/SKILL.md`, import.meta.url), "utf8"), /workflow\.md#shared-plan-approval/);
     }
 
     const hookScript = fileURLToPath(new URL("../.codex/hooks/inject-workflow-state.py", import.meta.url));
     const hook = () => JSON.parse(run(hookScript, [], JSON.stringify({ cwd: fixture.repoRoot, prompt: "Resume this task" }))).hookSpecificOutput.additionalContext;
     const noTask = hook();
-    assert.match(noTask, /If already authorized, create the planning record without asking again/);
-    assert.match(noTask, /creation does not approve implementation/);
+    assert.match(noTask, /automatically reuse\/create.*unless the user opted out/);
+    assert.match(noTask, /preserve the original CCG strategy gates/);
     writeJson(path.join(fixture.taskDirectory, "task.json"), { id: "fixture-task", status: "planning" });
     writeJson(path.join(fixture.repoRoot, ".trellis", ".runtime", "sessions", "approval-consumer.json"), { current_task: ".trellis/tasks/fixture-task" });
     for (const mode of ["inline", "auto"]) {
@@ -589,15 +589,16 @@ test("real Trellis consumers retain shared plan approval and the independent PM 
       const planning = hook();
       assert.match(planning, /Task: fixture-task \(planning\)/);
       assert.match(planning, /Shared plan approval/);
-      assert.match(planning, /reuse verified approval for the same presented plan without asking again/);
-      assert.match(planning, /otherwise stay in planning for final review and explicit approval/);
-      assert.match(planning, mode === "inline" ? /Inline mode: skip jsonl curation/ : /Sub-agent mode: curate/);
+      assert.match(planning, /reuse an unchanged approved scope without asking again/);
+      assert.match(planning, /present a required unapproved plan once/);
+      assert.match(planning, mode === "inline" ? /Inline mode skips JSONL curation/ : /Curate context only for authorized sub-agent dispatch/);
     }
     writeText(path.join(fixture.repoRoot, ".trellis", "config.yaml"), "codex:\n  dispatch_mode: inline\n");
     writeJson(path.join(fixture.taskDirectory, "product-manager.json"), { currentGate: { status: "awaiting_user_acceptance", checkpointId: "M1", pmVerdict: "needs_decision" } });
     const pendingGate = hook();
     assert.match(pendingGate, /HARD STOP: product-manager user acceptance is pending/);
-    assert.match(pendingGate, /Do not continue implementation, finish, or archive until `pm respond`/);
+    assert.match(pendingGate, /Do not pass this checkpoint or finish\/archive until `pm respond`/);
+    assert.match(pendingGate, /Independent authorized work may continue/);
     assert.equal(JSON.parse(readFileSync(path.join(fixture.taskDirectory, "task.json"), "utf8")).status, "planning");
   } finally {
     fixture.cleanup();
@@ -1490,4 +1491,34 @@ test("Grok probe redacts provider failures and stays optional when unset", async
     "HARNESS_GROK_BASE_URL",
     "HARNESS_GROK_API_KEY",
   ]);
+});
+
+test("canonical context permits no active task without hiding task errors", () => {
+  const fixture = createFixture();
+  try {
+    const context = buildCanonicalContext(fixture.repoRoot, {
+      runner: (command, args, options) => args.at(-1) === "current"
+        ? { status: 1, stdout: "", stderr: "" }
+        : fixture.runner(command, args, options),
+    });
+    assert.equal(context.task, null);
+    assert.equal(context.sources.ccg.gitTree, "personal-tree");
+    assert.equal(context.authorities.lifecycle, "trellis");
+
+    fixture.state.taskPath = ".trellis/tasks/missing-task";
+    assert.throws(
+      () => buildCanonicalContext(fixture.repoRoot, { runner: fixture.runner }),
+      { code: "TASK_METADATA_MISSING" },
+    );
+    assert.throws(
+      () => buildCanonicalContext(fixture.repoRoot, {
+        runner: (command, args, options) => args.at(-1) === "current"
+          ? { status: 2, stdout: "", stderr: "Task pointer is malformed." }
+          : fixture.runner(command, args, options),
+      }),
+      { code: "TASK_RESOLUTION_FAILED" },
+    );
+  } finally {
+    fixture.cleanup();
+  }
 });

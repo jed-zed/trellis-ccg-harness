@@ -15,7 +15,7 @@ python ./.trellis/scripts/get_context.py --mode phase
 Follow Request Triage in `.trellis/workflow.md` when there is no matching task. An unrelated simple question can use the fast lane without mutating the active task.
 
 - `planning`: read requirements and planning artifacts. Complex tasks must have `prd.md`, `design.md`, and `implement.md`; missing design or implementation plans block complex-task implementation. Lightweight structured tasks may be PRD-only.
-- Apply workflow.md "Shared plan approval": reuse verified approval for the same already-presented final plan without asking again; otherwise present completed planning artifacts and stop for a subsequent explicit implementation approval before `task.py start`. Task-creation consent or a generic request to continue cannot replace that first review. Inline seed-only context uses the supported `--allow-empty-context` option.
+- Apply `.trellis/workflow.md#shared-plan-approval` before `task.py start`; reuse actual same-scope approval and ask only for a required unapproved plan or a material decision. Inline seed-only context uses the supported `--allow-empty-context` option.
 - `in_progress`: resume the first unfinished implementation or verification step. Follow the project lint/typecheck/tests and coverage checklist; the final pass covers all affected task scope.
 - Acceptance met: record results and use `trellis-finish-work`. A commit, journal or extra review is not an automatic completion prerequisite.
 

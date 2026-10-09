@@ -73,9 +73,9 @@ test("structured breadcrumbs restore complex artifacts and planning approval whi
   }
   assert.match(workflow, /one authoritative plan/);
   assert.match(workflow, /Complex tasks must have `prd\.md`, `design\.md`, and `implement\.md`/);
-  assert.match(workflow, /Before first implementation approval, present the complete final plan[\s\S]*then stop for a subsequent explicit user approval/);
-  assert.match(workflow, /reuse an explicit approval[\s\S]*checking its actual user source[\s\S]*same already-presented final plan/);
-  assert.match(workflow, /Task-creation consent, an initial implementation request, or an ambiguous "continue" does not approve an unseen plan/);
+  assert.match(workflow, /Apply Shared plan approval before `task\.py start`/);
+  assert.match(workflow, /When no required approval covers the presented plan, show it and wait once/);
+  assert.match(workflow, /Check the actual user message.*task\.json\.meta\.planApproval/);
   assert.match(workflow, /reproduced fault, accepted contract, or actual trust\/data boundary/);
   for (const name of ["start", "continue", "before-dev", "brainstorm", "check", "finish-work"]) {
     const skill = read(`.agents/skills/trellis-${name}/SKILL.md`);

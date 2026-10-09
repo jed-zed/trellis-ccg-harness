@@ -113,7 +113,7 @@ const PROJECT_SKILL_MAX_FILE_BYTES = 16 * 1024 * 1024;
 const PROJECT_SKILL_MAX_TOTAL_BYTES = 64 * 1024 * 1024;
 const COLLABORATION_BLOCK_START = "<!-- HARNESS-COLLABORATION:START -->";
 const COLLABORATION_BLOCK_END = "<!-- HARNESS-COLLABORATION:END -->";
-const PROJECT_POLICY_VERSION = 12;
+const PROJECT_POLICY_VERSION = 13;
 const COLLABORATION_MARKER_FORMAT_VERSION = 1;
 const PROJECT_OWNERSHIP_SCHEMA_VERSION = 2;
 const PROJECT_SKILL_OWNERSHIP_SCHEMA_VERSION = 3;
@@ -4165,6 +4165,80 @@ async function cleanupLegacyAgentsStage(stage) {
     "Legacy AGENTS.md staging file",
   );
   await rm(stage.path, { force: true });
+}
+
+export async function syncProjectPolicy({
+  repoRoot,
+  skillRoot = DEFAULT_SKILL_ROOT,
+  provenanceKeyPath,
+  faultInjector,
+}) {
+  const root = path.resolve(repoRoot);
+  const sourcePath = path.resolve(skillRoot, "assets", "collaboration-policy.md");
+  const source = await readFileFingerprint(sourcePath, "Harness collaboration policy asset");
+  if (!source.exists) throw new Error("Harness collaboration policy asset does not exist.");
+  const block = renderCollaborationBlock(source.bytes.toString("utf8"));
+  const provenanceKey = await loadProjectProvenanceKey(root, provenanceKeyPath);
+  const lock = await acquireProjectLock(root, { provenanceKey, faultInjector });
+  try {
+    await recoverProjectTransactions(root, { provenanceKey });
+    const inputs = new Map();
+    for (const name of [
+      "AGENTS.md", PROJECT_POLICY_RELATIVE_PATH, ".harness/ownership.json",
+      ".harness/project.json", ".harness/project.schema.json", ".harness/product-manager.schema.json",
+    ]) {
+      const fingerprint = await readFileFingerprint(path.join(root, name), name);
+      if (!fingerprint.exists) throw new Error(`Managed policy sync requires ${name}.`);
+      inputs.set(name, fingerprint);
+    }
+    const ownership = validateExistingProjectOwnership(
+      JSON.parse(inputs.get(".harness/ownership.json").bytes.toString("utf8")),
+      inputs.get(".harness/project.json").sha256,
+      inputs.get(".harness/project.schema.json").sha256,
+      inputs.get(".harness/product-manager.schema.json").sha256,
+    );
+    const currentAgents = inputs.get("AGENTS.md").bytes.toString("utf8");
+    const currentBlock = findCollaborationBlock(currentAgents);
+    const managedBlock = ownership.managedBlocks?.find((entry) => entry.path === "AGENTS.md");
+    if (!currentBlock || !managedBlock ||
+        managedBlock.startMarker !== COLLABORATION_BLOCK_START ||
+        managedBlock.endMarker !== COLLABORATION_BLOCK_END ||
+        sha256(currentBlock) !== managedBlock.renderedBlockSha256) {
+      throw new Error("The managed AGENTS.md collaboration block is missing or modified; refusing to overwrite user state.");
+    }
+    validateOwnedPolicyProjection(
+      ownership, managedBlock, inputs.get(PROJECT_POLICY_RELATIVE_PATH),
+      sha256(source.bytes), sha256(block),
+    );
+    ownership.policy = {
+      ...ownership.policy,
+      policyVersion: PROJECT_POLICY_VERSION,
+      sourceSha256: sha256(source.bytes),
+      renderedBlockSha256: sha256(block),
+    };
+    managedBlock.renderedBlockSha256 = sha256(block);
+    const replacements = new Map([
+      ["AGENTS.md", Buffer.from(replaceCollaborationBlock(currentAgents, currentBlock, block))],
+      [PROJECT_POLICY_RELATIVE_PATH, source.bytes],
+      [".harness/ownership.json", Buffer.from(canonicalJson(ownership))],
+    ]);
+    const targets = [];
+    const preconditions = [];
+    for (const [name, original] of inputs) {
+      const bytes = replacements.get(name);
+      if (bytes && sha256(bytes) !== original.sha256) {
+        targets.push({ path: name, bytes, mode: original.mode, expectedOriginal: original });
+      } else {
+        preconditions.push({ path: name, expected: original });
+      }
+    }
+    await assertFingerprintUnchanged(sourcePath, source, "Harness collaboration policy asset");
+    if (targets.length === 0) return { status: "unchanged", changedPaths: [] };
+    await runProjectTransaction({ root, lock, targets, preconditions, provenanceKey, faultInjector });
+    return { status: "upgraded", changedPaths: targets.map((target) => target.path) };
+  } finally {
+    await lock.release();
+  }
 }
 
 export async function applyProjectContract({
