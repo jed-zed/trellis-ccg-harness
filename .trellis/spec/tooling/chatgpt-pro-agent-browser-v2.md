@@ -5,7 +5,11 @@ message structures. It derives one bounded selector for the proved visible
 composer and keeps the Send selector on that exact form, including when hidden
 duplicates exist. Ambiguous message ownership or multiple raw selector matches
 fail before sending. Sanitized detached reply extraction preserves `<br>`
-newlines using the existing node traversal.
+newlines using the existing node traversal. Reply-only traversal carries block
+entry/exit boundaries through nested wrappers, uses blank lines for paragraphs
+and headings and line breaks for list items, and discards HTML indentation only
+at structural boundaries. Inline text stays adjacent and PRE whitespace stays
+verbatim. Composer traversal and its pre-click hashes keep their original joins.
 
 Initial `status` is read-only and may report non-Pro. `new-chat` opens its own
 background homepage and waits within the existing ten-second loading window for
@@ -67,7 +71,9 @@ provider. It controls a user-approved external Chrome tab through
   thinking-mode submenu, and the unique exact `Pro` radio option; it then
   re-reads the fixed page snapshot and requires `Pro`.
 - The same-form `选择 ChatGPT 模型` control may change from `Medium` to
-  `思考强度` while `aria-expanded=true`. Both fixed scripts retain that unique
+  `思考强度` while `aria-expanded=true`. English `Choose ChatGPT model` / `Select
+  ChatGPT model` names and expanded `Thinking effort` labels use the same bounded
+  recognition. Both fixed scripts retain that unique
   expanded control; this label is never proof of selected `Pro`.
 - A new-chat error preserves its original `errorDetails`. The outer
   `lastObservedSnapshot` is explicitly separate and may precede model selection.

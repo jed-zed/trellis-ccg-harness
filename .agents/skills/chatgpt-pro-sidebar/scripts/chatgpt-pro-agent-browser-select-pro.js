@@ -23,15 +23,19 @@ return (() => {
   if (composers.length !== 1) return { schemaVersion: 1, ok: false, reason: 'composer-count', count: composers.length };
   const composerRect = composers[0].getBoundingClientRect();
   const composerForm = composers[0].closest('form');
+  // Keep this identification rule aligned with the inspection script. A
+  // translated menu name is not Pro proof, and must not admit unrelated menus.
+  const isModelControl = element => /^(选择 ChatGPT 模型|(?:Choose|Select) ChatGPT model)$/i
+    .test(String(element.getAttribute('aria-label') || '').trim().replace(/\s+/g, ' '));
   const controls = visibleAll('button[aria-haspopup="menu"]').filter(element => {
     const rect = element.getBoundingClientRect();
     const text = label(element);
     const verticalGap = Math.max(composerRect.top - rect.bottom, rect.top - composerRect.bottom, 0);
     const horizontallyAdjacent = rect.right >= composerRect.left - 40 && rect.left <= composerRect.right + 40;
     return !element.closest('[role="menu"]') && (text === 'Pro' || text === '极高' ||
-        ((text === 'Medium' || (text === '思考强度' && element.getAttribute('aria-expanded') === 'true')) &&
+        ((text === 'Medium' || ((text === '思考强度' || text === 'Thinking effort') && element.getAttribute('aria-expanded') === 'true')) &&
           composerForm && element.closest('form') === composerForm && element.form === composerForm &&
-          element.getAttribute('aria-label') === '选择 ChatGPT 模型')) &&
+          isModelControl(element))) &&
       horizontallyAdjacent && verticalGap <= 40;
   });
   if (controls.length !== 1) return { schemaVersion: 1, ok: false, reason: 'mode-control-count', count: controls.length };
