@@ -61,6 +61,7 @@ powershell.exe -NoProfile -File $adapter send -PromptPath <prompt.md> -EvidenceD
 powershell.exe -NoProfile -File $adapter send -PromptPath <prompt.md> -EvidenceDir <empty-dir> -IdempotencyKey <opaque-key>
 powershell.exe -NoProfile -File $adapter wait -EvidenceDir <dir> -TimeoutSeconds 900
 powershell.exe -NoProfile -File $adapter response -EvidenceDir <dir>
+powershell.exe -NoProfile -File $adapter reextract -EvidenceDir <completed-dir> -CodexThreadId $env:CODEX_THREAD_ID
 powershell.exe -NoProfile -File $adapter run -PromptPath <prompt.md> -EvidenceDir <empty-dir> -IdempotencyKey <opaque-key> -ResponseTimeoutSeconds 7200
 
 # New independent round from the proved empty root homepage: declare fresh,
@@ -129,6 +130,24 @@ Use a new evidence directory for each independent round. At most two send
 clicks are permitted per directory, idempotency key, and logical request; the
 second is the adapter's single durable `retry-not-submitted` transition. Do not
 create a replacement directory to bypass uncertain evidence.
+
+## Complete code extraction and reextraction
+
+Assistant CodeMirror blocks are read from the complete document owned by that
+assistant body. Virtualized visible lines are never accepted as complete code.
+Missing ownership, an unavailable or oversized document, or a length mismatch
+fails closed. Detached plain text keeps line breaks and code indentation.
+
+A stopped, completed round can use `reextract` to read its original reply again.
+It verifies the original thread, exact conversation, browser/profile, prompt and
+transcript baseline, then writes `response.md` and `reextraction.json` in a new
+sibling `reextraction` directory (numbered when one already exists). Original
+state, response, timestamps, watcher event and failure history remain untouched.
+The receipt binds their hashes and the original completion timestamp. This is
+read-only recovery with zero new requests; it never sends, waits for generation,
+or extends the original deadline. Independently validate the derived receipt
+before import. This source adapter selects Pro; it does not implement general
+webpage strength selection.
 
 ## Failure handling
 

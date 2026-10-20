@@ -7,6 +7,31 @@ duplicates exist. Ambiguous message ownership or multiple raw selector matches
 fail before sending. Sanitized detached reply extraction preserves `<br>`
 newlines using the existing node traversal.
 
+Composer eligibility requires one visible enabled editable node outside transcript,
+hidden and inert regions. An exact structural suffix has at most 64 numeric
+`:nth-child` steps and must match that same unique node. Send remains bound to
+its form and retains strict target, URL, model and prompt checks. Read-only
+response observation keeps authentication and exact-conversation guards without
+requiring a composer or Send button.
+
+Before sanitizing assistant text, replace each owned CodeMirror editor clone
+with the complete bounded document and a fence that cannot close inside its
+source. Read only editors within the isolated assistant body, prove editor
+ownership and full document length, and reject unavailable or partial sources.
+Keep the detached traversal that preserves `<br>` newlines. An ownership-pending
+activity marker cannot hide a later structural ownership conflict.
+
+`reextract` accepts only a completed original round on its owning Codex thread.
+It verifies the stopped conversation, original prompt and ordered transcript
+baseline, records the six original artifact hashes, and writes a separate
+sibling response/receipt while preserving original files and exact timestamp
+text. Later confirmation turns do not change which original reply is selected.
+The receipt records zero new requests and disallows automatic resend; it does
+not extend the original response deadline or replace independent import checks.
+Legacy missing thinkingMode means Pro, matching this source adapter's selection
+capability; general strength selection remains outside this repair.
+
+
 Initial `status` is read-only and may report non-Pro. `new-chat` opens its own
 background homepage and waits within the existing ten-second loading window for
 the composer and mode control; `new-chat` and `send` select and re-verify Pro
