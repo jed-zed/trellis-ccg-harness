@@ -314,14 +314,19 @@ Describe 'Atomic watcher JSON state' {
     It 'retries a transient sharing violation during an atomic replacement' {
         $path = Join-Path $TestDrive 'transient-watch-state.json'
         $ready = Join-Path $TestDrive 'transient-watch-state.ready'
+        $release = Join-Path $TestDrive 'transient-watch-state.release'
         $childPath = Join-Path $TestDrive 'hold-watch-state.ps1'
         [System.IO.File]::WriteAllText($path, '{"phase":"completed"}', $Script:Utf8NoBom)
         [System.IO.File]::WriteAllText($childPath, @'
-param([string]$Path, [string]$Ready)
+param([string]$Path, [string]$Ready, [string]$Release)
 $stream = [System.IO.File]::Open($Path, 'Open', 'Read', 'None')
 try {
     [System.IO.File]::WriteAllText($Ready, 'ready')
-    Start-Sleep -Milliseconds 55
+    $deadline = [datetime]::UtcNow.AddSeconds(15)
+    while (-not [System.IO.File]::Exists($Release)) {
+        if ([datetime]::UtcNow -ge $deadline) { throw 'Timed out waiting for test lock release.' }
+        Start-Sleep -Milliseconds 10
+    }
 }
 finally {
     $stream.Dispose()
@@ -329,19 +334,28 @@ finally {
 '@, [System.Text.UTF8Encoding]::new($true))
         $process = Start-Process powershell.exe -ArgumentList @(
             '-NoProfile', '-NonInteractive', '-File', ('"' + $childPath + '"'),
-            '-Path', ('"' + $path + '"'), '-Ready', ('"' + $ready + '"')
+            '-Path', ('"' + $path + '"'), '-Ready', ('"' + $ready + '"'),
+            '-Release', ('"' + $release + '"')
         ) -PassThru -WindowStyle Hidden
         try {
-            # Process startup on hosted Windows can exceed two seconds; the lock
-            # retry is tested only after the child has opened the exclusive stream.
+            # Startup is bounded separately from the production retry interval.
             $deadline = [datetime]::UtcNow.AddSeconds(10)
             while (-not [System.IO.File]::Exists($ready) -and -not $process.HasExited -and [datetime]::UtcNow -lt $deadline) {
                 Start-Sleep -Milliseconds 10
             }
             [System.IO.File]::Exists($ready) | Should -BeTrue -Because 'the child must acquire the lock before the bounded startup deadline'
+            # Release only after the real first read reaches its retry, so scheduler
+            # delays cannot move the exclusive lock outside the assertion window.
+            Mock Start-Sleep {
+                [System.IO.File]::WriteAllText($release, 'release')
+                if (-not $process.WaitForExit(5000)) { throw 'The lock holder did not exit after release.' }
+                $process.ExitCode | Should -Be 0
+            } -ParameterFilter { $Milliseconds -eq 25 }
             (Read-WatchJson -Path $path -Required).phase | Should -Be 'completed'
+            Should -Invoke Start-Sleep -Times 1 -Exactly -ParameterFilter { $Milliseconds -eq 25 }
         }
         finally {
+            [System.IO.File]::WriteAllText($release, 'release')
             $process.WaitForExit(2000) | Out-Null
             if (-not $process.HasExited) { $process.Kill() }
             $process.Dispose()
