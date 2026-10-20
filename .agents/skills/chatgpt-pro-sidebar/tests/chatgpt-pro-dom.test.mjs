@@ -19,7 +19,7 @@ test('reply extraction preserves a BR newline on the sanitized detached clone', 
     textContent: 'line oneline two',
     querySelectorAll: () => [],
   };
-  assert.deepEqual(boundedText({ cloneNode: () => clone }), {
+  assert.deepEqual(boundedText({ cloneNode: () => clone, querySelectorAll: () => [] }), {
     text: 'line one\nline two',
     truncated: false,
   });

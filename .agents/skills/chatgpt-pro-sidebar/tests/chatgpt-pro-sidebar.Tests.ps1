@@ -2383,7 +2383,7 @@ Describe 'agent-browser-cli V2 transport' {
         }
         (Get-AgentBrowserPageSnapshot -Target $script:v2Target).ComposerSelector | Should -BeExactly $selector
         Test-AgentBrowserSendSelector -Selector $sendSelector -FormScope $scope -ComposerSelector $base | Should -BeFalse
-        foreach ($invalid in @(($selector + ', textarea'), ($base + ':is(body)'), ($base + ':is(:root > :nth-child(0))'), ($base + ':is(:root' + (' > :nth-child(1)' * 33) + ')'))) {
+        foreach ($invalid in @(($selector + ', textarea'), ($base + ':is(body)'), ($base + ':is(:root > :nth-child(0))'), ($base + ':is(:root' + (' > :nth-child(1)' * 65) + ')'))) {
             Test-AgentBrowserComposerSelector -Selector $invalid | Should -BeFalse
         }
         # Exact paths must not weaken the existing raw-node uniqueness guard.

@@ -1208,7 +1208,7 @@ function Select-NewChatRecord {
 }
 
 function Assert-AuthReadySnapshot {
-    param([Parameter(Mandatory = $true)]$Snapshot)
+    param([Parameter(Mandatory = $true)]$Snapshot, [switch]$ReadOnly)
 
     $loginCount = [int](Get-ObjectProperty $Snapshot 'LoginCount' 0)
     $proCount = [int](Get-ObjectProperty $Snapshot 'ProCount' 0)
@@ -1221,10 +1221,10 @@ function Assert-AuthReadySnapshot {
     if ($proCount -lt 1) {
         Throw-SidebarError -ExitCode $Script:ExitCodes.AuthBarrier -Category 'ProStateMissing' -Message 'A visible ChatGPT Pro state could not be proved.' -Details ([ordered]@{ proIndicatorCount = $proCount })
     }
-    if ($composerCount -eq 0) {
+    if (-not $ReadOnly -and $composerCount -eq 0) {
         Throw-SidebarError -ExitCode $Script:ExitCodes.ControlSelection -Category 'ComposerMissing' -Message 'No visible, enabled ChatGPT composer was found.' -Details ([ordered]@{ composerCount = 0 })
     }
-    if ($composerCount -gt 1) {
+    if (-not $ReadOnly -and $composerCount -gt 1) {
         Throw-SidebarError -ExitCode $Script:ExitCodes.ControlSelection -Category 'ComposerAmbiguous' -Message 'Multiple visible, enabled ChatGPT composers were found.' -Details ([ordered]@{ composerCount = $composerCount })
     }
 }
@@ -4727,7 +4727,7 @@ function Test-AgentBrowserComposerSelector {
     param([AllowEmptyString()][string]$Selector)
 
     $base = '(?:' + [regex]::Escape('#prompt-textarea') + '|' + [regex]::Escape($Script:AgentBrowserComposerFallbackSelector) + ')'
-    $path = '(?::is\(:root(?: > :nth-child\([1-9][0-9]{0,3}\)){1,32}\))?'
+    $path = '(?::is\(:root(?: > :nth-child\([1-9][0-9]{0,3}\)){1,64}\))?'
     return [regex]::IsMatch($Selector, '\A' + $base + $path + '\z', [System.Text.RegularExpressions.RegexOptions]::CultureInvariant)
 }
 
@@ -4801,7 +4801,7 @@ function ConvertTo-AgentBrowserOwnershipInspection {
 }
 
 function Get-AgentBrowserPageSnapshot {
-    param([Parameter(Mandatory = $true)]$Target)
+    param([Parameter(Mandatory = $true)]$Target, [switch]$ReadOnly)
 
     if (-not [System.IO.File]::Exists($Script:AgentBrowserScriptPath)) {
         Throw-SidebarError -ExitCode $Script:ExitCodes.Unsupported -Category 'AgentBrowserDomScriptMissing' -Message 'The fixed ChatGPT DOM inspection script is missing.'
@@ -4850,11 +4850,11 @@ function Get-AgentBrowserPageSnapshot {
     $composerCount = [int](Get-ObjectProperty $composer 'count' 0)
     $composerSelector = [string](Get-ObjectProperty $composer 'selector' '#prompt-textarea')
     $composerSelectorMatchCount = [int](Get-ObjectProperty $composer 'selectorMatchCount' 1)
-    if (($composerSelector -cne '' -and -not (Test-AgentBrowserComposerSelector -Selector $composerSelector)) -or
-        ($composerCount -eq 1 -and [string]::IsNullOrWhiteSpace($composerSelector))) {
+    if (-not $ReadOnly -and (($composerSelector -cne '' -and -not (Test-AgentBrowserComposerSelector -Selector $composerSelector)) -or
+        ($composerCount -eq 1 -and [string]::IsNullOrWhiteSpace($composerSelector)))) {
         Throw-SidebarError -ExitCode $Script:ExitCodes.ControlSelection -Category 'ComposerSelectorInvalid' -Message 'The fixed DOM script did not prove an approved composer selector.'
     }
-    if ($composerCount -eq 1 -and $composerSelectorMatchCount -ne 1) {
+    if (-not $ReadOnly -and $composerCount -eq 1 -and $composerSelectorMatchCount -ne 1) {
         Throw-SidebarError -ExitCode $Script:ExitCodes.ControlSelection -Category 'ComposerSelectorAmbiguous' -Message 'The approved composer selector did not match exactly one DOM node.'
     }
     $turnExtractionIssue = [string](Get-ObjectProperty $page 'turnExtractionIssue' '')
@@ -4874,7 +4874,7 @@ function Get-AgentBrowserPageSnapshot {
     $sendSelector = [string](Get-ObjectProperty $send 'selector' '')
     $sendSelectorMatchCount = [int](Get-ObjectProperty $send 'selectorMatchCount' 0)
     $sendFormScope = [string](Get-ObjectProperty $send 'formScope' '')
-    if ($sendCount -eq 1) {
+    if (-not $ReadOnly -and $sendCount -eq 1) {
         if (-not (Test-AgentBrowserSendSelector -Selector $sendSelector -FormScope $sendFormScope -ComposerSelector $composerSelector)) {
             Throw-SidebarError -ExitCode $Script:ExitCodes.ControlSelection -Category 'SendSelectorInvalid' -Message 'The fixed DOM did not prove a permitted send selector anchored to the current composer form.'
         }
@@ -4882,7 +4882,7 @@ function Get-AgentBrowserPageSnapshot {
             Throw-SidebarError -ExitCode $Script:ExitCodes.ControlSelection -Category 'SendSelectorAmbiguous' -Message 'The final form-scoped send selector did not identify exactly one raw DOM node.'
         }
     }
-    elseif (-not [string]::IsNullOrWhiteSpace($sendSelector) -or $sendSelectorMatchCount -ne 0) {
+    elseif (-not $ReadOnly -and (-not [string]::IsNullOrWhiteSpace($sendSelector) -or $sendSelectorMatchCount -ne 0)) {
         Throw-SidebarError -ExitCode $Script:ExitCodes.ControlSelection -Category 'SendSelectorInvalid' -Message 'An unselected or ambiguous send set must not carry a click selector.'
     }
 
@@ -4913,14 +4913,14 @@ function Get-AgentBrowserPageSnapshot {
 }
 
 function Assert-AgentBrowserAuthBarrierAbsent {
-    param([Parameter(Mandatory = $true)]$Snapshot)
+    param([Parameter(Mandatory = $true)]$Snapshot, [switch]$ReadOnly)
 
     Assert-AuthReadySnapshot -Snapshot ([pscustomobject]@{
         LoginCount = $Snapshot.LoginCount
         ProCount = 1
         SecurityChallengeCount = $Snapshot.SecurityChallengeCount
         ComposerCount = $Snapshot.ComposerCount
-    })
+    }) -ReadOnly:$ReadOnly
 }
 
 function Assert-AgentBrowserBaseReady {
@@ -5689,8 +5689,8 @@ function Get-AgentBrowserWaitObservation {
     try {
         $uiLease = Enter-UiMutex -TargetBinding $Binding
         $target = Resolve-AgentBrowserTarget -ExpectedBinding $Binding -ExpectedConversationUrl $ExpectedConversationUrl -AllowExactUrlReopen:([bool]$ExpectedConversationUrl)
-        $snapshot = Get-AgentBrowserPageSnapshot -Target $target
-        Assert-AgentBrowserAuthBarrierAbsent -Snapshot $snapshot
+        $snapshot = Get-AgentBrowserPageSnapshot -Target $target -ReadOnly
+        Assert-AgentBrowserAuthBarrierAbsent -Snapshot $snapshot -ReadOnly
         if (-not [string]::IsNullOrWhiteSpace($ExpectedConversationUrl)) {
             Assert-ConversationUrlMatch -ExpectedUrl $ExpectedConversationUrl -ActualUrl $snapshot.Url
         }
@@ -5884,12 +5884,90 @@ function Invoke-AgentBrowserWait {
     }
 }
 
+function Select-ReextractionReply {
+    param([Parameter(Mandatory = $true)]$State, [Parameter(Mandatory = $true)]$Snapshot)
+    Assert-ConversationUrlMatch -ExpectedUrl (Get-BoundConversationUrlFromState -State $State) -ActualUrl $Snapshot.Url
+    if ($Snapshot.Generating) { throw 'Reextraction requires a stopped conversation; it never waits or sends.' }
+    $users = @($Snapshot.UserTurns); $responses = @($Snapshot.Responses)
+    $baselineUsers = @((Get-ObjectProperty $State 'baselineUserTurnSha256' @()))
+    $baselineResponses = @((Get-ObjectProperty $State 'baselineResponseSha256' @()))
+    if ($users.Count -le $baselineUsers.Count -or $responses.Count -le $baselineResponses.Count) { throw 'Reextraction transcript is incomplete.' }
+    for ($index = 0; $index -lt $baselineUsers.Count; $index++) {
+        if ($users[$index].ContentSha256 -cne $baselineUsers[$index]) { throw 'Reextraction user baseline changed.' }
+    }
+    for ($index = 0; $index -lt $baselineResponses.Count; $index++) {
+        if ($responses[$index].ContentSha256 -cne $baselineResponses[$index]) { throw 'Reextraction assistant baseline changed.' }
+    }
+    if ($users[$baselineUsers.Count].ContentSha256 -cne [string]$State.promptSha256) { throw 'Reextraction prompt does not match the original sent request.' }
+    $reply = $responses[$baselineResponses.Count]
+    if ([bool](Get-ObjectProperty $reply 'Truncated' $false) -or [string]::IsNullOrWhiteSpace($reply.Content)) { throw 'Reextraction response is empty or truncated.' }
+    return $reply
+}
+
+function Invoke-AgentBrowserReextract {
+    param([Parameter(Mandatory = $true)][string]$EvidenceDirectory, [Parameter(Mandatory = $true)][string]$ThreadId)
+    # Completed source artifacts remain immutable, including any original extraction failure.
+    $state = Read-EvidenceState -Directory $EvidenceDirectory
+    $null = Assert-StateCodexThreadId -State $state -ExpectedCodexThreadId $ThreadId
+    $null = Get-CompletedResponseResult -EvidenceDirectory $EvidenceDirectory -CodexThreadIdValue $ThreadId
+    if ([string]$state.transport -cne $Script:AgentBrowserTransport) { throw 'Reextraction requires the current browser transport.' }
+    $sourceHashes = [ordered]@{}
+    foreach ($name in @('state.json','evidence.json','watch-event.json','prompt.md','response.md','url.txt')) {
+        $sourceHashes[$name] = Get-Sha256File -Path (Join-Path $EvidenceDirectory $name)
+    }
+    $output = Join-Path (Split-Path -Parent $EvidenceDirectory) 'reextraction'
+    if (Test-Path -LiteralPath $output) {
+        $output = ''
+        foreach ($revision in 2..99) {
+            $candidatePath = Join-Path (Split-Path -Parent $EvidenceDirectory) ('reextraction-' + $revision)
+            if (-not (Test-Path -LiteralPath $candidatePath)) { $output = $candidatePath; break }
+        }
+        if (-not $output) { throw 'Reextraction history is full; no artifacts were overwritten.' }
+    }
+    $url = Get-BoundConversationUrlFromState -State $state
+    $observation = Get-AgentBrowserWaitObservation -Binding $state.targetBinding -ExpectedConversationUrl $url
+    if ($observation.Transient) { throw 'Reextraction observation unavailable; no source artifacts were changed.' }
+    $binding = ConvertTo-AgentBrowserTargetBinding -Target $observation.Target
+    foreach ($field in @('browserId','profileId','origin')) {
+        if ([string](Get-ObjectProperty $binding $field '') -cne [string](Get-ObjectProperty $state.targetBinding $field '')) { throw 'Reextraction browser/profile binding changed.' }
+    }
+    $reply = Select-ReextractionReply -State $state -Snapshot $observation.Snapshot
+    foreach ($name in $sourceHashes.Keys) {
+        if ((Get-Sha256File -Path (Join-Path $EvidenceDirectory $name)) -cne $sourceHashes[$name]) { throw 'Original evidence changed during reextraction.' }
+    }
+    [IO.Directory]::CreateDirectory($output) | Out-Null
+    $responsePath = Join-Path $output 'response.md'
+    [IO.File]::WriteAllText($responsePath, [string]$reply.Content, $Script:Utf8NoBom)
+    $receipt = [ordered]@{
+        schemaVersion = 1; tool = 'chatgpt-pro-sidebar-reextract'; live = $true; readOnly = $true
+        originalEvidenceDirectory = [IO.Path]::GetFullPath($EvidenceDirectory); originalHashes = $sourceHashes
+        codexThreadId = $ThreadId; thinkingMode = [string](Get-ObjectProperty $state 'thinkingMode' 'Pro'); conversationUrl = $url
+        originalTargetBinding = $state.targetBinding; observedTargetBinding = $binding
+        promptSha256 = [string]$state.promptSha256; responseIndex = @($state.baselineResponseSha256).Count
+        observedUserTurnSha256 = @($observation.Snapshot.UserTurns | ForEach-Object { $_.ContentSha256 })
+        observedResponseSha256 = @($observation.Snapshot.Responses | ForEach-Object { $_.ContentSha256 })
+        responseFile = 'response.md'; responseSha256 = Get-Sha256File -Path $responsePath
+        observedAtUtc = [DateTime]::UtcNow.ToString('o'); originalCompletedAtUtc = Get-ReextractionOriginalTimestamp -EvidenceDirectory $EvidenceDirectory
+        generating = $false; truncated = $false; automaticResendAllowed = $false; newWebRequests = 0
+    }
+    Write-JsonAtomic -Path (Join-Path $output 'reextraction.json') -Value $receipt
+    return [ordered]@{ok=$true;command='reextract';readOnly=$true;newWebRequests=0;receiptFile=(Join-Path $output 'reextraction.json');responseSha256=$receipt.responseSha256}
+}
+
+function Get-ReextractionOriginalTimestamp {
+    param([Parameter(Mandatory = $true)][string]$EvidenceDirectory)
+    $raw = [IO.File]::ReadAllText((Join-Path $EvidenceDirectory 'state.json'), $Script:Utf8NoBom)
+    $matches = [regex]::Matches($raw, '"completedAtUtc"\s*:\s*"([^"\\]+)"')
+    if ($matches.Count -ne 1) { throw 'Original completion timestamp is ambiguous.' }
+    return $matches[0].Groups[1].Value
+}
+
 function Invoke-MainCommand {
     if ([string]::IsNullOrWhiteSpace($Command)) {
-        Throw-SidebarError -ExitCode $Script:ExitCodes.InvalidArguments -Category 'CommandRequired' -Message 'Command is required: status, new-chat, send, wait, response, or run.'
+        Throw-SidebarError -ExitCode $Script:ExitCodes.InvalidArguments -Category 'CommandRequired' -Message 'Command is required: status, new-chat, send, wait, response, reextract, or run.'
     }
-    if (@('status', 'new-chat', 'send', 'wait', 'response', 'run') -notcontains $Command) {
-        Throw-SidebarError -ExitCode $Script:ExitCodes.InvalidArguments -Category 'CommandInvalid' -Message 'Command must be status, new-chat, send, wait, response, or run.'
+    if (@('status', 'new-chat', 'send', 'wait', 'response', 'reextract', 'run') -notcontains $Command) {
+        Throw-SidebarError -ExitCode $Script:ExitCodes.InvalidArguments -Category 'CommandInvalid' -Message 'Command must be status, new-chat, send, wait, response, reextract, or run.'
     }
     if ($FreshConversation -and $Command -ne 'send') {
         Throw-SidebarError -ExitCode $Script:ExitCodes.InvalidArguments -Category 'FreshConversationModeInvalid' -Message 'FreshConversation is valid only with the send command.'
@@ -5922,7 +6000,7 @@ function Invoke-MainCommand {
     }
 
     $threadId = ''
-    if ($Command -in @('send', 'wait', 'response', 'run')) {
+    if ($Command -in @('send', 'wait', 'response', 'reextract', 'run')) {
         $threadId = Resolve-CodexThreadId -Value $CodexThreadId
     }
 
@@ -5988,6 +6066,12 @@ function Invoke-MainCommand {
             finally {
                 $lock.Dispose()
             }
+        }
+        'reextract' {
+            $directory = Resolve-EvidenceDirectory -Path $EvidenceDir
+            $lock = Enter-EvidenceLock -Directory $directory
+            try { return Invoke-AgentBrowserReextract -EvidenceDirectory $directory -ThreadId $threadId }
+            finally { $lock.Dispose() }
         }
         'wait' {
             $directory = Resolve-EvidenceDirectory -Path $EvidenceDir
