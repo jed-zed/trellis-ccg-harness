@@ -3736,7 +3736,7 @@ Describe 'agent-browser-cli V2 transport' {
         $skillPath = Join-Path (Split-Path -Parent $PSScriptRoot) 'SKILL.md'
         $skillSource = [System.IO.File]::ReadAllText($skillPath)
 
-        $skillSource | Should -Match '(?m)^powershell\.exe .*\$watcher run-root .* -FreshConversation$'
+        $skillSource | Should -Match '(?m)^powershell\.exe .*\$watcher run-root .* -FreshConversation\r?$'
     }
 
 

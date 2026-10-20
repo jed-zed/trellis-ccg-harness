@@ -332,11 +332,13 @@ finally {
             '-Path', ('"' + $path + '"'), '-Ready', ('"' + $ready + '"')
         ) -PassThru -WindowStyle Hidden
         try {
-            $deadline = [datetime]::UtcNow.AddSeconds(2)
-            while (-not [System.IO.File]::Exists($ready) -and [datetime]::UtcNow -lt $deadline) {
+            # Process startup on hosted Windows can exceed two seconds; the lock
+            # retry is tested only after the child has opened the exclusive stream.
+            $deadline = [datetime]::UtcNow.AddSeconds(10)
+            while (-not [System.IO.File]::Exists($ready) -and -not $process.HasExited -and [datetime]::UtcNow -lt $deadline) {
                 Start-Sleep -Milliseconds 10
             }
-            [System.IO.File]::Exists($ready) | Should -BeTrue
+            [System.IO.File]::Exists($ready) | Should -BeTrue -Because 'the child must acquire the lock before the bounded startup deadline'
             (Read-WatchJson -Path $path -Required).phase | Should -Be 'completed'
         }
         finally {
