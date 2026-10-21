@@ -1,3 +1,24 @@
+# 本仓库入口
+
+本项目维护 Trellis 与个人 CCG 的 Harness 集成工具；没有前端或数据库业务层。
+先读 [tooling 索引](.trellis/spec/tooling/index.md)，再按问题读取相关合同，
+不要求普通查询或文档修改加载所有规范、角色和完整开发流程。
+
+- 命令和模块归属见 [scripts/README.md](scripts/README.md)；全局安装入口是
+  `scripts/install.ps1`，项目初始化实现是
+  `.agents/skills/harness-init/scripts/harness-init-core.mjs`，不要混用两者。
+- 改初始化行为读 [初始化合同](.trellis/spec/tooling/harness-initializer.md)；
+  改 Adapter 或 Provider 集成读 [分层边界](.trellis/spec/guides/layered-harness-adapter.md)
+  及 tooling 索引中对应专项规范。
+- 本文件的管理区块保留投影关系；项目补充写在区块外。
+  `HARNESS-COLLABORATION` 的维护源和其他生成物归属见 tooling 索引，
+  不直接编辑副本或通过链接写入全局。`components/ccg-workflow/` 是来源快照，
+  不是独立维护的业务目录或当前会话的 CCG 运行入口。
+- 静态定位、支持范围和校验事实见 tooling 索引。文档核对、离线测试、
+  安装和真实 Provider 调用证明的范围不同；列出命令不等于授权执行。
+  `context`、`conflicts` 等检查存在文件哈希依赖，受现行禁令限制时记录受阻，
+  不停用其安全控制，也不声称完整验收通过。
+
 <!-- TRELLIS:START -->
 # Trellis Instructions
 

@@ -1,0 +1,32 @@
+{
+  "id": "simplify-mcp-research",
+  "name": "simplify-mcp-research",
+  "title": "简化搜索调研：MCP 主检索与旧 ACP 入口保留",
+  "description": "以现有 web_search 子代理和 grok-search MCP 简化日常调研；注释保留旧 ACP 自动入口及搜索门禁，保持 Luna/high。源码与安装同步、临时真实搜索通过，常驻接口尚未切换；CCG 与 Harness PR 已创建。",
+  "status": "in_progress",
+  "dev_type": "backend",
+  "scope": "ccg-search-workflow",
+  "package": null,
+  "priority": "P2",
+  "creator": "codex",
+  "assignee": "codex",
+  "createdAt": "2026-09-30",
+  "completedAt": null,
+  "branch": "codex/simplify-mcp-research-pr",
+  "base_branch": "main",
+  "worktree_path": "G:/CodexWorktrees/harness-simplify-mcp-research-pr",
+  "commit": null,
+  "pr_url": "https://github.com/jed-zed/trellis-ccg-harness/pull/52",
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    "prd.md",
+    "design.md",
+    "implement.md",
+    "research/findings.md",
+    "execution.md"
+  ],
+  "notes": "Trellis 为唯一计划权威。当前安装来源仍为 CCG 87592d3 / Harness b45c2ea，CLI/plugin 与该快照一致，独立代理保持 Luna/high。临时新接口真实搜索与原文读取成功，个人 MCP 默认模型已保存为 grok-4.7-latest；常驻接口与独立代理的端到端验收仍待完成。按 Boss 授权发布的 CCG PR 为 https://github.com/jed-zed/ccg-gptpro-worflow/pull/50，最终源码 3b3457c，GitHub CI 全部通过；Harness PR 见 pr_url，最终快照同步结果见 execution.md。发布包含实际验证阻塞所需的 smol-toml 安全补丁、Windows CI 参数与 fixture 清理修复；不含密钥、本机配置或运行日志，未合并或归档，也未切换本机安装。",
+  "meta": {}
+}

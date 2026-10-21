@@ -27,6 +27,16 @@ digests only with byte-reproducible outputs.
 The source draft PR targets `codex/fix-windows-grok-cmd`. This makes the diff
 contain only the local-review fix while clearly declaring its stacked base.
 
+## Post-review security correction
+
+Replace the read-evidence design with one pre-launch boundary. The wrapper
+opens and identity-checks every declared target, rejects non-UTF-8 input, embeds
+only those bytes in an owner-only temporary prompt, and runs Grok from that
+temporary directory with Provider tools and imported integrations disabled.
+The Provider returns prose only; the wrapper appends the normalized target
+envelope. Any tool event, resume attempt, bad stop reason, or snapshot race
+fails closed. Ordinary non-review Grok behavior remains unchanged.
+
 ## Harness integration
 
 After the source branch is pushed, create
@@ -38,6 +48,9 @@ clean source worktree. Do not hand-edit `components/ccg-workflow/` or
 Carry forward only the Grok review task/spec records needed to explain the
 change. Do not import unrelated primary-worktree changes or reuse the stale
 Harness snapshot commit.
+
+After the correction is committed and pushed, rerun that same official update
+against the corrected source head; never hand-edit the component or manifest.
 
 The Harness draft PR targets `main` and declares the source draft PR as a hard
 dependency.
