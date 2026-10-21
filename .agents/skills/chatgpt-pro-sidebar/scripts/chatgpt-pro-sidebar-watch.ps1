@@ -9,6 +9,8 @@ param(
     [string]$ManifestPath,
     [string]$CodexThreadId = $env:CODEX_THREAD_ID,
     [string]$PromptPath,
+    [string]$AttachmentManifestPath,
+    [string]$AttachmentReceiptPath,
     [string]$IdempotencyKey,
     [string]$ResponseDeadlineAtUtc,
     [string]$WorkerToken,
@@ -30,6 +32,7 @@ param(
     [switch]$AgentMonitor,
     [switch]$RootWait,
     [switch]$FreshConversation,
+    [switch]$ResumeUnsent,
     [switch]$KeepLauncherAlive
 )
 
@@ -635,7 +638,8 @@ function Invoke-WatchAdapterSend {
         [AllowEmptyString()][string]$SessionKeyValue = '',
         [int]$ResponseTimeoutSecondsValue = $TimeoutSeconds,
         [AllowEmptyString()][string]$ResponseDeadlineAtUtcValue = '',
-        [switch]$RequireFreshConversation
+        [switch]$RequireFreshConversation,
+        [switch]$ResumeUnsent
     )
 
     if ([string]::IsNullOrWhiteSpace($PromptFile)) {
@@ -671,6 +675,11 @@ function Invoke-WatchAdapterSend {
     if (-not [string]::IsNullOrWhiteSpace($ResponseDeadlineAtUtcValue)) {
         $arguments += @('-ResponseDeadlineAtUtc', $ResponseDeadlineAtUtcValue)
     }
+    if (-not [string]::IsNullOrWhiteSpace($AttachmentManifestPath) -or -not [string]::IsNullOrWhiteSpace($AttachmentReceiptPath)) {
+        if ([string]::IsNullOrWhiteSpace($AttachmentManifestPath) -or [string]::IsNullOrWhiteSpace($AttachmentReceiptPath)) { throw 'Attachment manifest and receipt must both be supplied for run-root.' }
+        $arguments += @('-AttachmentManifestPath',$AttachmentManifestPath,'-AttachmentReceiptPath',$AttachmentReceiptPath)
+    }
+    if ($ResumeUnsent) { $arguments += '-ResumeUnsent' }
     return Invoke-WatchAdapterProcess -Arguments $arguments -ProcessTimeoutSeconds 600
 }
 
@@ -2835,6 +2844,7 @@ function Invoke-RootWaitRound {
         [AllowEmptyString()][string]$SessionKeyValue = '',
         [AllowEmptyString()][string]$ResponseDeadlineAtUtcValue = '',
         [switch]$RequireFreshConversation,
+        [switch]$ResumeUnsent,
         [Parameter(Mandatory = $true)][ValidateRange(1, 6)][int]$CapacitySlotId,
         [Parameter(Mandatory = $true)][string]$CapacityClaimId,
         [scriptblock]$NowAction = { [datetime]::UtcNow }
@@ -2860,7 +2870,8 @@ function Invoke-RootWaitRound {
             -SessionKeyValue $SessionKeyValue `
             -ResponseTimeoutSecondsValue $TimeoutSeconds `
             -ResponseDeadlineAtUtcValue $ResponseDeadlineAtUtcValue `
-            -RequireFreshConversation:$RequireFreshConversation
+            -RequireFreshConversation:$RequireFreshConversation `
+            -ResumeUnsent:$ResumeUnsent
     }
     catch {
         $sendFailure = $_.Exception.Message
@@ -3036,6 +3047,7 @@ function Invoke-CapacityBoundRootWaitRound {
         [AllowEmptyString()][string]$SessionKeyValue = '',
         [AllowEmptyString()][string]$ResponseDeadlineAtUtcValue = '',
         [switch]$RequireFreshConversation,
+        [switch]$ResumeUnsent,
         [int]$CapacitySlotId = 0,
         [AllowEmptyString()][string]$CapacityClaimId = '',
         [scriptblock]$NowAction = { [datetime]::UtcNow }
@@ -3083,6 +3095,7 @@ function Invoke-CapacityBoundRootWaitRound {
         SessionKeyValue = $SessionKeyValue
         ResponseDeadlineAtUtcValue = $ResponseDeadlineAtUtcValue
         RequireFreshConversation = [bool]$RequireFreshConversation
+        ResumeUnsent = [bool]$ResumeUnsent
         NowAction = $NowAction
     }
 
@@ -3157,6 +3170,12 @@ function Invoke-WatchMain {
     if (@('run-root', 'run-batch-root', 'slots', 'release-slot', 'start', 'worker', 'status', 'wait-root', 'acknowledge-monitor', 'acknowledge-root') -notcontains $Command) {
         throw 'Command must be run-root, run-batch-root, slots, release-slot, start, worker, status, wait-root, acknowledge-monitor, or acknowledge-root.'
     }
+    if ((-not [string]::IsNullOrWhiteSpace($AttachmentManifestPath) -or -not [string]::IsNullOrWhiteSpace($AttachmentReceiptPath)) -and $Command -ne 'run-root') {
+        throw 'Attachment manifest and receipt are supported only with an explicitly bound run-root.'
+    }
+    if ($ResumeUnsent -and $Command -ne 'run-root') {
+        throw 'ResumeUnsent is valid only with run-root.'
+    }
     if (-not [string]::IsNullOrWhiteSpace($ResponseDeadlineAtUtc) -and $Command -ne 'run-root') {
         throw 'ResponseDeadlineAtUtc is valid only with run-root.'
     }
@@ -3192,6 +3211,7 @@ function Invoke-WatchMain {
                 -SessionKeyValue $SessionKey `
                 -ResponseDeadlineAtUtcValue $ResponseDeadlineAtUtc `
                 -RequireFreshConversation:$FreshConversation `
+                -ResumeUnsent:$ResumeUnsent `
                 -CapacitySlotId $SlotId `
                 -CapacityClaimId $CapacityClaimId
         }
