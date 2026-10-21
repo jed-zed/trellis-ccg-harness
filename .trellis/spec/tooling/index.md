@@ -139,16 +139,22 @@ provider has been exercised.
 
 ## Quality Check
 
+Use `trellis-check` for checks proportionate to the changed behavior and risk.
+Rule or documentation wording changes need the relevant rule/context regression
+and diff review; they do not trigger unrelated builds or the full offline suite.
+For initializer, lifecycle, ownership or release program behavior changes, run
+the affected focused test first, then the complete offline gates below. Preserve
+clean-install and required CI checks. Account for all affected task behavior,
+reuse passing evidence for unchanged work, and never report unrun checks as passed.
+
 For rules/documentation-only changes, inspect the actual scoped diff, check
 referenced paths/symbols/commands and run `git diff --check -- <changed-paths>`.
 The existing `node --test tests/ci-contract.test.mjs tests/readme-provenance.test.mjs`
 checks CI text and README/source-manifest consistency without installation or
 provider calls; it is not a runtime acceptance test for edited rules.
 
-For executable behavior changes, run the affected focused regression first
-(for initializer changes: `node --test tests/harness-init-cli.test.mjs`), then
-the applicable existing offline gates. Do not run the entire installation or
-build chain merely because this index lists it. Required CI remains unchanged:
+Do not run the entire installation or build chain merely because this index
+lists it. Required CI remains unchanged:
 
 | Existing command (from repository root unless stated) | Conditions and purpose |
 |---|---|

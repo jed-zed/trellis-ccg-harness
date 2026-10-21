@@ -484,7 +484,7 @@ test("approved contracts atomically create the owned Harness contract", async ()
       },
     ]);
     assert.deepEqual(ownership.policy, {
-      policyVersion: 13,
+      policyVersion: 14,
       markerFormatVersion: 1,
       sourcePath: ".harness/policies/collaboration-policy.md",
       sourceSha256: sha256(readFileSync(POLICY_PATH)),
@@ -1791,7 +1791,7 @@ test("policy content cannot change without a policy version bump", async () => {
       "# Harness Collaboration Policy",
       "# Harness Collaboration Policy without version bump",
     );
-    setOwnedPolicyProjection(value.repoRoot, differentPolicy, 13);
+    setOwnedPolicyProjection(value.repoRoot, differentPolicy, 14);
     const before = {
       agents: readFileSync(path.join(value.repoRoot, "AGENTS.md"), "utf8"),
       policy: readFileSync(
