@@ -58,6 +58,61 @@ Describe 'Completed response reextraction isolation' {
         Should -Invoke Get-CompletedResponseResult -Times 2 -Exactly -ParameterFilter {$CodexThreadIdValue -eq $thread}
         Should -Invoke Invoke-AgentBrowserCliJson -Times 0 -Exactly
     }
+    It 'reextracts a direct send/wait completion that has no watcher event' {
+        $directory=Join-Path $TestDrive 'direct/sidebar'
+        [IO.Directory]::CreateDirectory($directory) | Out-Null
+        $thread='12345678-1234-1234-1234-123456789abc'
+        $target=[pscustomobject]@{BrowserId='browser-test';ProfileId='profile-test';TabId='123';SessionKey='browser-test:profile-test:123';Url=$script:reUrl;UrlExact=$true}
+        $script:reState | Add-Member -NotePropertyMembers @{codexThreadId=$thread;transport=$Script:AgentBrowserTransport;targetBinding=(ConvertTo-AgentBrowserTargetBinding -Target $target)}
+        [IO.File]::WriteAllText((Join-Path $directory 'state.json'),'{"completedAtUtc":"2026-10-20T14:15:09.1412604Z"}')
+        foreach($name in @('evidence.json','prompt.md','response.md','url.txt')) {[IO.File]::WriteAllText((Join-Path $directory $name),'original '+$name)}
+        Mock Read-EvidenceState {$script:reState}
+        Mock Get-CompletedResponseResult {@{completed=$true}}
+        Mock Get-AgentBrowserWaitObservation {[pscustomobject]@{Transient=$false;Target=$target;Snapshot=$script:reSnapshot}}
+        $result=Invoke-AgentBrowserReextract -EvidenceDirectory $directory -ThreadId $thread
+        $receipt=[IO.File]::ReadAllText($result.receiptFile) | ConvertFrom-Json
+        $receipt.originalHashes.'watch-event.json' | Should -BeNullOrEmpty
+        $receipt.originalHashes.'state.json' | Should -Not -BeNullOrEmpty
+        Test-Path -LiteralPath (Join-Path $directory 'watch-event.json') | Should -BeFalse
+        @(Get-ChildItem -LiteralPath (Split-Path -Parent $directory) -Directory -Force -Filter '.reextraction-staging-*').Count | Should -Be 0
+    }
+    It 'rejects a watcher event that appears while reextracting' {
+        $directory=Join-Path $TestDrive 'late-event/sidebar'
+        [IO.Directory]::CreateDirectory($directory) | Out-Null
+        $thread='12345678-1234-1234-1234-123456789abc'
+        $target=[pscustomobject]@{BrowserId='browser-test';ProfileId='profile-test';TabId='123';SessionKey='browser-test:profile-test:123';Url=$script:reUrl;UrlExact=$true}
+        $script:reState | Add-Member -NotePropertyMembers @{codexThreadId=$thread;transport=$Script:AgentBrowserTransport;targetBinding=(ConvertTo-AgentBrowserTargetBinding -Target $target)}
+        [IO.File]::WriteAllText((Join-Path $directory 'state.json'),'{"completedAtUtc":"2026-10-20T14:15:09.1412604Z"}')
+        foreach($name in @('evidence.json','prompt.md','response.md','url.txt')) {[IO.File]::WriteAllText((Join-Path $directory $name),'original '+$name)}
+        Mock Read-EvidenceState {$script:reState}
+        Mock Get-CompletedResponseResult {@{completed=$true}}
+        Mock Get-AgentBrowserWaitObservation {
+            [IO.File]::WriteAllText((Join-Path $directory 'watch-event.json'),'late')
+            [pscustomobject]@{Transient=$false;Target=$target;Snapshot=$script:reSnapshot}
+        }
+        {Invoke-AgentBrowserReextract -EvidenceDirectory $directory -ThreadId $thread} | Should -Throw '*changed*'
+        @(Get-ChildItem -LiteralPath (Split-Path -Parent $directory) -Directory -Force | Where-Object Name -Like '*reextraction*').Count | Should -Be 0
+    }
+    It 'claims a distinct revision for each staged output and never overwrites one' {
+        $parent=Join-Path $TestDrive 'claims'
+        $existing=Join-Path $parent 'reextraction'
+        [IO.Directory]::CreateDirectory($existing) | Out-Null
+        [IO.File]::WriteAllText((Join-Path $existing 'response.md'),'earlier result')
+        $paths=foreach($label in @('first','second')) {
+            $staging=Join-Path $parent ('.reextraction-staging-' + $label)
+            [IO.Directory]::CreateDirectory($staging) | Out-Null
+            [IO.File]::WriteAllText((Join-Path $staging 'response.md'),$label)
+            Move-ReextractionToNextRevision -StagingDirectory $staging -ParentDirectory $parent
+        }
+        $paths | Should -Be @((Join-Path $parent 'reextraction-2'),(Join-Path $parent 'reextraction-3'))
+        [IO.File]::ReadAllText((Join-Path $existing 'response.md')) | Should -BeExactly 'earlier result'
+        [IO.File]::ReadAllText((Join-Path $paths[0] 'response.md')) | Should -BeExactly 'first'
+        [IO.File]::ReadAllText((Join-Path $paths[1] 'response.md')) | Should -BeExactly 'second'
+        foreach($revision in 4..99) {[IO.Directory]::CreateDirectory((Join-Path $parent ('reextraction-' + $revision))) | Out-Null}
+        $full=Join-Path $parent '.reextraction-staging-full'
+        [IO.Directory]::CreateDirectory($full) | Out-Null
+        {Move-ReextractionToNextRevision -StagingDirectory $full -ParentDirectory $parent} | Should -Throw '*full*'
+    }
     It 'preserves the exact original completion timestamp without locale conversion' {
         $directory=Join-Path $TestDrive 'time';[IO.Directory]::CreateDirectory($directory) | Out-Null
         [IO.File]::WriteAllText((Join-Path $directory 'state.json'),'{"completedAtUtc":"2026-10-20T14:15:09.1412604Z"}')

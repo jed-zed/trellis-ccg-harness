@@ -6355,6 +6355,17 @@ function Select-ReextractionReply {
     return $reply
 }
 
+function Get-ReextractionSourceHashes {
+    param([Parameter(Mandatory = $true)][string]$EvidenceDirectory)
+    $hashes = [ordered]@{}
+    foreach ($name in @('state.json','evidence.json','watch-event.json','prompt.md','response.md','url.txt')) {
+        $path = Join-Path $EvidenceDirectory $name
+        # Direct send/wait and run complete without a watcher event; its absence must stay stable.
+        $hashes[$name] = if ($name -ceq 'watch-event.json' -and -not [IO.File]::Exists($path)) { $null } else { Get-Sha256File -Path $path }
+    }
+    return $hashes
+}
+
 function Invoke-AgentBrowserReextract {
     param([Parameter(Mandatory = $true)][string]$EvidenceDirectory, [Parameter(Mandatory = $true)][string]$ThreadId)
     # Completed source artifacts remain immutable, including any original extraction failure.
@@ -6362,19 +6373,8 @@ function Invoke-AgentBrowserReextract {
     $null = Assert-StateCodexThreadId -State $state -ExpectedCodexThreadId $ThreadId
     $null = Get-CompletedResponseResult -EvidenceDirectory $EvidenceDirectory -CodexThreadIdValue $ThreadId
     if ([string]$state.transport -cne $Script:AgentBrowserTransport) { throw 'Reextraction requires the current browser transport.' }
-    $sourceHashes = [ordered]@{}
-    foreach ($name in @('state.json','evidence.json','watch-event.json','prompt.md','response.md','url.txt')) {
-        $sourceHashes[$name] = Get-Sha256File -Path (Join-Path $EvidenceDirectory $name)
-    }
-    $output = Join-Path (Split-Path -Parent $EvidenceDirectory) 'reextraction'
-    if (Test-Path -LiteralPath $output) {
-        $output = ''
-        foreach ($revision in 2..99) {
-            $candidatePath = Join-Path (Split-Path -Parent $EvidenceDirectory) ('reextraction-' + $revision)
-            if (-not (Test-Path -LiteralPath $candidatePath)) { $output = $candidatePath; break }
-        }
-        if (-not $output) { throw 'Reextraction history is full; no artifacts were overwritten.' }
-    }
+    $sourceHashes = Get-ReextractionSourceHashes -EvidenceDirectory $EvidenceDirectory
+    $parent = Split-Path -Parent $EvidenceDirectory
     $url = Get-BoundConversationUrlFromState -State $state
     $observation = Get-AgentBrowserWaitObservation -Binding $state.targetBinding -ExpectedConversationUrl $url
     if ($observation.Transient) { throw 'Reextraction observation unavailable; no source artifacts were changed.' }
@@ -6383,26 +6383,54 @@ function Invoke-AgentBrowserReextract {
         if ([string](Get-ObjectProperty $binding $field '') -cne [string](Get-ObjectProperty $state.targetBinding $field '')) { throw 'Reextraction browser/profile binding changed.' }
     }
     $reply = Select-ReextractionReply -State $state -Snapshot $observation.Snapshot
+    $currentHashes = Get-ReextractionSourceHashes -EvidenceDirectory $EvidenceDirectory
     foreach ($name in $sourceHashes.Keys) {
-        if ((Get-Sha256File -Path (Join-Path $EvidenceDirectory $name)) -cne $sourceHashes[$name]) { throw 'Original evidence changed during reextraction.' }
+        if ($currentHashes[$name] -cne $sourceHashes[$name]) { throw 'Original evidence changed during reextraction.' }
     }
-    [IO.Directory]::CreateDirectory($output) | Out-Null
-    $responsePath = Join-Path $output 'response.md'
-    [IO.File]::WriteAllText($responsePath, [string]$reply.Content, $Script:Utf8NoBom)
-    $receipt = [ordered]@{
-        schemaVersion = 1; tool = 'chatgpt-pro-sidebar-reextract'; live = $true; readOnly = $true
-        originalEvidenceDirectory = [IO.Path]::GetFullPath($EvidenceDirectory); originalHashes = $sourceHashes
-        codexThreadId = $ThreadId; thinkingMode = [string](Get-ObjectProperty $state 'thinkingMode' 'Pro'); conversationUrl = $url
-        originalTargetBinding = $state.targetBinding; observedTargetBinding = $binding
-        promptSha256 = [string]$state.promptSha256; responseIndex = @($state.baselineResponseSha256).Count
-        observedUserTurnSha256 = @($observation.Snapshot.UserTurns | ForEach-Object { $_.ContentSha256 })
-        observedResponseSha256 = @($observation.Snapshot.Responses | ForEach-Object { $_.ContentSha256 })
-        responseFile = 'response.md'; responseSha256 = Get-Sha256File -Path $responsePath
-        observedAtUtc = [DateTime]::UtcNow.ToString('o'); originalCompletedAtUtc = Get-ReextractionOriginalTimestamp -EvidenceDirectory $EvidenceDirectory
-        generating = $false; truncated = $false; automaticResendAllowed = $false; newWebRequests = 0
+    # Write privately, then claim a revision with an exclusive directory move so
+    # concurrent reextractions under one parent never share or overwrite output.
+    $staging = Join-Path $parent ('.reextraction-staging-' + [guid]::NewGuid().ToString('N'))
+    [IO.Directory]::CreateDirectory($staging) | Out-Null
+    try {
+        $responsePath = Join-Path $staging 'response.md'
+        [IO.File]::WriteAllText($responsePath, [string]$reply.Content, $Script:Utf8NoBom)
+        $receipt = [ordered]@{
+            schemaVersion = 1; tool = 'chatgpt-pro-sidebar-reextract'; live = $true; readOnly = $true
+            originalEvidenceDirectory = [IO.Path]::GetFullPath($EvidenceDirectory); originalHashes = $sourceHashes
+            codexThreadId = $ThreadId; thinkingMode = [string](Get-ObjectProperty $state 'thinkingMode' 'Pro'); conversationUrl = $url
+            originalTargetBinding = $state.targetBinding; observedTargetBinding = $binding
+            promptSha256 = [string]$state.promptSha256; responseIndex = @($state.baselineResponseSha256).Count
+            observedUserTurnSha256 = @($observation.Snapshot.UserTurns | ForEach-Object { $_.ContentSha256 })
+            observedResponseSha256 = @($observation.Snapshot.Responses | ForEach-Object { $_.ContentSha256 })
+            responseFile = 'response.md'; responseSha256 = Get-Sha256File -Path $responsePath
+            observedAtUtc = [DateTime]::UtcNow.ToString('o'); originalCompletedAtUtc = Get-ReextractionOriginalTimestamp -EvidenceDirectory $EvidenceDirectory
+            generating = $false; truncated = $false; automaticResendAllowed = $false; newWebRequests = 0
+        }
+        Write-JsonAtomic -Path (Join-Path $staging 'reextraction.json') -Value $receipt
+        $output = Move-ReextractionToNextRevision -StagingDirectory $staging -ParentDirectory $parent
     }
-    Write-JsonAtomic -Path (Join-Path $output 'reextraction.json') -Value $receipt
+    finally {
+        if ([IO.Directory]::Exists($staging)) { [IO.Directory]::Delete($staging, $true) }
+    }
     return [ordered]@{ok=$true;command='reextract';readOnly=$true;newWebRequests=0;receiptFile=(Join-Path $output 'reextraction.json');responseSha256=$receipt.responseSha256}
+}
+
+function Move-ReextractionToNextRevision {
+    param([Parameter(Mandatory = $true)][string]$StagingDirectory, [Parameter(Mandatory = $true)][string]$ParentDirectory)
+    foreach ($revision in 1..99) {
+        $name = if ($revision -eq 1) { 'reextraction' } else { 'reextraction-' + $revision }
+        $candidatePath = Join-Path $ParentDirectory $name
+        if ([IO.Directory]::Exists($candidatePath) -or [IO.File]::Exists($candidatePath)) { continue }
+        try {
+            # Directory.Move fails when the destination exists, so one caller owns each revision.
+            [IO.Directory]::Move($StagingDirectory, $candidatePath)
+            return $candidatePath
+        }
+        catch [System.IO.IOException] {
+            if (-not ([IO.Directory]::Exists($candidatePath) -or [IO.File]::Exists($candidatePath))) { throw }
+        }
+    }
+    throw 'Reextraction history is full; no artifacts were overwritten.'
 }
 
 function Get-ReextractionOriginalTimestamp {
