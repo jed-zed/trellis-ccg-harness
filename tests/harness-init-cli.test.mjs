@@ -148,7 +148,7 @@ test("Codex leaf policy reaches a real project projection and context without ch
     assert.equal(context.codexLeafPolicy.sha256, sha256(policy));
     assert.match(context.codexLeafPolicy.instructions, /only to the Codex host/);
     assert.match(context.codexLeafPolicy.instructions, /independent research, bounded implementation and verification/);
-    assert.match(context.codexLeafPolicy.instructions, /zero workers is valid/);
+    assert.match(context.codexLeafPolicy.instructions, /a simple task may stay inline/);
     for (const env of [{ CLAUDECODE: "1" }, { CCG_HOST: " CLAUDE " }]) {
       const claude = buildCanonicalContext(value.repoRoot, { env, taskResolver });
       assert.equal(Object.hasOwn(claude, "codexLeafPolicy"), false);
