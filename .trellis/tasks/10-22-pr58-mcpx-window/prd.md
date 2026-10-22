@@ -237,7 +237,7 @@ installed CLI/plugin. No required CI failure is waived by this task.
 
 The user explicitly approved committing and pushing both existing candidate
 branches and running offline CI, excluding changes to PR #58/main, binary release,
-merge and deployment. Source commit a16d2b4535c67a313a38d3ed926165ed61ebad7e
+merge and deployment. Source commit 64625401abe2f8342dabf95708e3811dc3c70468
 has root tree 134d66982cce1379902088f79ab07a27f9dd2b76. Its exact release
 validator passed for all 59 tracked wrapper files, Go 1.26.2 and both six-platform
 artifact sets. Harness imports only the nine changed committed source files and

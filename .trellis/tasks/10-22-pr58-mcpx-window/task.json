@@ -31,7 +31,7 @@
   "notes": "Source repairs committed; exact 59-file Go 1.26.2 release gate and both six-platform artifact sets passed. Harness snapshot and manifest now bind the actual source commit. Candidate push and CI authorized; local final provenance gates pending.",
   "meta": {
     "authorization": "User requested independent validation and minimal isolated-branch fix of PR58; no deployment or merge authorized.",
-    "sourceCommit": "a16d2b4535c67a313a38d3ed926165ed61ebad7e",
+    "sourceCommit": "64625401abe2f8342dabf95708e3811dc3c70468",
     "validationStatus": "source-exact-gate-passed-harness-integration",
     "resumeAuthorization": "2026-10-22 user: 按交接文件继续完成任务; explicitly approved 修复夹具并重跑离线测试（推荐）.",
     "harnessCandidateCommit": "a274b40b7f95bccff6ad018e4e2cf9af8176ac5e",
