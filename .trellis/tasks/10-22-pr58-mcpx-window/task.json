@@ -1,0 +1,36 @@
+{
+  "id": "pr58-mcpx-window",
+  "name": "pr58-mcpx-window",
+  "title": "PR58 MCPX request evidence boundary",
+  "description": "Independently reproduce and minimally fix the full request evidence window, verify template parity and completed-state rejection, and investigate existing CI failures without changing installed runtimes.",
+  "status": "in_progress",
+  "dev_type": "backend",
+  "scope": "MCPX request evidence window",
+  "package": null,
+  "priority": "P2",
+  "creator": "codex",
+  "assignee": "codex",
+  "createdAt": "2026-10-22",
+  "completedAt": null,
+  "branch": "codex/fix-pr58-mcpx-window",
+  "base_branch": "codex/sync-main-20261021",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    "components/ccg-workflow/plugins/ccg/skills/ccg-gptpro-bridge/scripts/gptpro_mcpx.py",
+    "components/ccg-workflow/templates/engine/tools/gptpro/gptpro_mcpx.py",
+    "components/ccg-workflow/plugins/ccg/skills/ccg-gptpro-bridge/tests/test_mcpx_window.py",
+    "harness.sources.json",
+    ".github/workflows/ci.yml"
+  ],
+  "notes": "Candidate fix verified by focused tests; release/integration remains blocked on required platform/provenance/CI gates. No installed environment changed.",
+  "meta": {
+    "authorization": "User requested independent validation and minimal isolated-branch fix of PR58; no deployment or merge authorized.",
+    "sourceCommit": "57adff77ff2f4343d49b7daf1a6c012eef9a25f5",
+    "validationStatus": "focused-passed-full-gates-blocked"
+  }
+}
