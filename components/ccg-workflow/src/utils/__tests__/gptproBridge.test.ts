@@ -360,6 +360,7 @@ const PLUGIN_BRIDGE = join(PACKAGE_ROOT, 'plugins', 'ccg', 'skills', 'ccg-gptpro
 const TMP_ROOT = join(tmpdir(), `ccg-gptpro-bridge-${Date.now()}`)
 const PYTHON = findPython()
 const maybeIt = PYTHON ? it : it.skip
+const windowsIt = PYTHON && process.platform === 'win32' ? it : it.skip
 
 // Consecutive synchronous Python fixtures can block the worker's IPC responses
 // past Vitest's RPC deadline on Windows. Yield after each case without changing
@@ -374,7 +375,7 @@ afterAll(async () => {
 
 describe('GPT Pro sidebar bridge', () => {
   maybeIt.each([BRIDGE, PLUGIN_BRIDGE].flatMap(bridge => ['plan', 'review', 'exc'].map(mode => ({ bridge, mode }))))(
-    'prints the assembled $mode scorecard as UTF-8 under cp1252 stdout ($bridge)',
+    'prints the assembled $mode prompt as UTF-8 under cp1252 stdout ($bridge)',
     ({ bridge, mode }) => {
       const root = join(TMP_ROOT, `scorecard-${mode}-${bridge === BRIDGE ? 'engine' : 'plugin'}`)
       fs.ensureDirSync(root)
@@ -421,16 +422,24 @@ describe('GPT Pro sidebar bridge', () => {
       expect(prompt).toContain('productManagerStatus: authorization_required')
       expect(output).toContain('CCG_GPTPRO_MANUAL_BRIDGE=0')
       expect(output).toContain('CCG_GPTPRO_SIDEBAR_TRANSPORT=1')
-      expect(prompt).toContain('XX/100')
+      if (mode !== 'review' || bridge === BRIDGE)
+        expect(prompt).toContain('XX/100')
       if (mode === 'plan') {
         expect(prompt).toContain('需求完整性评分（0-10）')
         expect(prompt).toContain('Planning Readiness Scorecard')
         expect(prompt).toContain('Plan-only boundary: Do not execute implementation.')
       }
       else if (mode === 'review') {
-        expect(prompt).toContain('VALIDATION REPORT')
-        expect(prompt).toContain('FRONTEND VALIDATION REPORT')
-        expect(prompt).toContain('more conservative score')
+        if (bridge === PLUGIN_BRIDGE) {
+          expect(prompt).toContain('Zero findings is valid.')
+          expect(prompt).toContain('Keep optional suggestions separate; they do not become requirements.')
+          expect(prompt).not.toMatch(/TOTAL SCORE|VALIDATION REPORT|XX\/20/)
+        }
+        else {
+          expect(prompt).toContain('VALIDATION REPORT')
+          expect(prompt).toContain('FRONTEND VALIDATION REPORT')
+          expect(prompt).toContain('more conservative score')
+        }
       }
       else {
         expect(prompt).toContain('Implementation Readiness Scorecard')
@@ -725,6 +734,11 @@ describe('GPT Pro sidebar bridge', () => {
       () => {
         const value = structuredClone(originalBatch)
         value.items[1].batchBinding.freshConversation = true
+        fs.writeJsonSync(batchFile, value)
+      },
+      () => {
+        const value = structuredClone(originalBatch)
+        value.items[1].thinkingMode = 'High'
         fs.writeJsonSync(batchFile, value)
       },
       () => {
@@ -1370,7 +1384,7 @@ describe('GPT Pro sidebar bridge', () => {
     }
   })
 
-  it('archives conditional Grok evidence while ordinary GPT Pro workflows use MCP research', () => {
+  it('keeps legacy command archives separate from current review guidance', () => {
     const surfaces = [
       ['templates/commands/gptpro-plan.md', 'Run the Grok intelligence decision', 'Then run ordinary `/ccg:plan`'],
       ['templates/commands/gptpro-exc.md', 'Run the Grok intelligence decision', 'Then run ordinary'],
@@ -1380,7 +1394,6 @@ describe('GPT Pro sidebar bridge', () => {
       ['plugins/ccg/commands/gptpro-review.md', 'Only when a conclusion depends on a current external fact', 'Then run ordinary `/ccg:review`'],
       ['plugins/ccg/skills/ccg-gptpro-plan/SKILL.md', 'Before ordinary planning', 'Run ordinary `/ccg:plan`'],
       ['plugins/ccg/skills/ccg-gptpro-exc/SKILL.md', 'Before ordinary execution', 'Preserve the current CCG orchestrator'],
-      ['plugins/ccg/skills/ccg-gptpro-review/SKILL.md', 'Only when a conclusion depends on a current external fact', 'Run ordinary `/ccg:review`'],
     ] as const
 
     for (const [relativePath, grokMarker, ordinaryMarker] of surfaces) {
@@ -1402,6 +1415,16 @@ describe('GPT Pro sidebar bridge', () => {
       expect(active, relativePath).not.toContain('--expected-intelligence-mode')
       expect(active, relativePath).not.toContain('--expected-intelligence-depth')
     }
+
+    const review = readFileSync(join(PACKAGE_ROOT, 'plugins', 'ccg', 'skills', 'ccg-gptpro-review', 'SKILL.md'), 'utf8')
+    expect(review).toMatch(/pure local code review/i)
+    expect(review).toContain('do not run external-intelligence')
+    expect(review).toContain('grok-search MCP')
+    expect(review).toContain('Run ordinary `/ccg:review`')
+    expect(review).toContain('--require-routing-evidence')
+    expect(review).not.toContain('--require-external-intelligence')
+    expect(review).not.toContain('--expected-intelligence-mode')
+    expect(review).not.toContain('--expected-intelligence-depth')
   })
 
   maybeIt('accepts a canonical unverified Grok receipt and forwards only concise evidence to GPT Pro', () => {
@@ -1976,6 +1999,34 @@ describe('GPT Pro sidebar bridge', () => {
     expect(status.current_round).toBe(5)
     expect(Object.keys(status.rounds).sort()).toEqual(['round-1', 'round-2', 'round-3', 'round-4', 'round-5'])
   }, 60_000)
+
+  windowsIt.each([BRIDGE, PLUGIN_BRIDGE])(
+    'retries initialization while an empty Windows lock file is held (%s)',
+    (bridge) => {
+      const lockFile = join(TMP_ROOT, `empty-lock-${bridge === BRIDGE ? 'template' : 'plugin'}`)
+      fs.ensureDirSync(TMP_ROOT)
+      const script = [
+        'import msvcrt, pathlib, runpy, subprocess, sys, time',
+        'bridge, lock_path = sys.argv[1:3]',
+        'lock = pathlib.Path(lock_path)',
+        'with lock.open("w+b") as held:',
+        '    msvcrt.locking(held.fileno(), msvcrt.LK_NBLCK, 1)',
+        '    child = "import pathlib, runpy, sys; lock = runpy.run_path(sys.argv[1])[\'locked_file\']; lock_path = pathlib.Path(sys.argv[2]); print(\'ready\', flush=True); exec(\'with lock(lock_path): print(\\\"acquired\\\", flush=True)\')"',
+        '    process = subprocess.Popen([sys.executable, "-c", child, bridge, lock_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)',
+        '    assert process.stdout.readline().strip() == "ready"',
+        '    time.sleep(0.2)',
+        '    assert process.poll() is None, process.stderr.read()',
+        '    held.seek(0)',
+        '    msvcrt.locking(held.fileno(), msvcrt.LK_UNLCK, 1)',
+        '    stdout, stderr = process.communicate(timeout=10)',
+        '    assert process.returncode == 0, stderr',
+        '    assert stdout.strip() == "acquired", stdout',
+        'assert lock.read_bytes() == b"\\0"',
+      ].join('\n')
+      runPython(PYTHON!, ['-c', script, bridge, lockFile])
+    },
+    20_000,
+  )
 
   maybeIt.each([BRIDGE, PLUGIN_BRIDGE])('rejects conflicting follow-up bindings before writing a round (%s)', (bridge) => {
     const root = join(TMP_ROOT, `conflicting-followup-bindings-${bridge === BRIDGE ? 'template' : 'plugin'}`)

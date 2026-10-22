@@ -161,14 +161,16 @@ describe('standalone personal Grok engine Codex host paths', () => {
     expect(sha256(await readFile(upstream))).toBe(before)
   })
 
-  it('refuses direct personal engine execution from a Claude host', async () => {
-    const { project, env } = await fixture()
+  it('runs the personal engine the same way under a Claude host marker', async () => {
     for (const engineRoot of engineRoots) {
       for (const name of ['command.mjs', 'route.mjs']) {
         const entry = join(engineRoot, name)
-        const result = run(entry, engineArgs(entry), project, { ...env, CLAUDECODE: '1' })
-        expect(result.status).toBe(4)
-        expect(result.stderr).toContain('Personal CCG is Codex-only')
+        const codex = await fixture()
+        const claude = await fixture()
+        const expected = run(entry, engineArgs(entry), codex.project, codex.env)
+        const result = run(entry, engineArgs(entry), claude.project, { ...claude.env, CLAUDECODE: '1' })
+        expect(result.stderr).not.toContain('Personal CCG is Codex-only')
+        expect(result.status).toBe(expected.status)
       }
     }
   })
