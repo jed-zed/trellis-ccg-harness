@@ -8,33 +8,31 @@ description: Review a CCG implementation with the applicable frontend, backend, 
 Use existing independent research agents with grok-search MCP. Search actively and
 verify key conclusions against original sources; check versions/licenses when
 reusing code and experiment conditions when adopting papers. Mark unverified findings.
-Archived instructions below are inactive: ordinary work does not run Grok CLI/ACP,
+Ordinary work does not run Grok CLI/ACP,
 wait for its gates, or require its manifests and hash packages.
 
-<!-- Legacy Grok CLI/ACP reference; inactive in ordinary research.
-## Evidence Mode Selection
-
-Classify the review before any external route:
-
-- For a pure local code review, use the bound diff, source, tests, CI, and local Provider evidence. Do not run or invoke Grok external-intelligence, and do not apply an official-domain gate.
-- Only when a review conclusion depends on a current external API, version, advisory, incident, or other external fact, predeclare the authoritative domain from the explicit target or trusted package/repository metadata and run the shared route from the controller:
-
-`ccg-codex route --workflow review --phase final-verify --task-file ".ccg/tasks/<task-id>/intelligence-request.md" --state-file ".ccg/tasks/<task-id>/intelligence-route.json"`
-
-Run this potentially long route with the host's tool-managed background execution and wait mechanism; never put it under a foreground timeout shorter than the runner's 10-minute timeout. If the host cancels or terminates the job before a terminal state is written, run `ccg-codex route recover --state-file <state-file> --status cancelled --reason "<reason>"` (or use `--status failed`); recovery refuses to overwrite a live owner.
-
-For that external-fact path, append `--trigger final_diff_verify`, repeated `--official-domain <domain>`, and the actual `--diff` plus any `--plan`, `--target`, and `--dependency` files. The domain must be chosen before Grok runs; never promote a domain merely because Grok returned it. Add `--semantic-mode contract|incident --semantic-reason "<Codex judgment>"` only for an explicit semantic decision. Stop ordinary work on exit code `2`, `3`, or `4` only for an explicit required semantic route; advisory search failures do not block ordinary work.
--->
+For a pure local code review, use the bound diff, source, tests and CI;
+do not run external-intelligence. Research current external facts only when
+the review conclusion depends on them.
 
 # CCG Review
 
 Load and follow `skills/ccg-executor/SKILL.md`.
 
-Review the current diff or the implementation associated with the supplied
-plan/task. Read `../../rules/ccg-role-routing.md`, follow its **Companion Role
+Review the supplied target or task diff; bind its files and revision before
+reviewing. Read `../../rules/ccg-role-routing.md`, follow its **Companion Role
 Contract**, classify changed areas as frontend, backend, and any materially
 useful search slice, then resolve the required top-level providers. Review is a phase
-inside each role. Have Codex verify every finding before reporting it.
+inside each role. Have Codex verify every finding's location, trigger,
+actual consequence and supporting contract/evidence before reporting it.
+Zero findings is valid. Keep optional suggestions separate from defects;
+do not require hypothetical compatibility or unsupported-platform tests.
+Preserve real security and data-loss concerns.
+
+Review does not authorize repairing every dirty file. Apply a verified fix
+only when both the current task and explicit write ownership cover it;
+otherwise report it. Use `../../rules/ccg-quality-gates.md` for proportional
+verification, mandatory repository/CI checks and stopping conditions.
 
 When a selected provider is Gemini, run the bundled
 `../ccg-executor/scripts/invoke_gemini_preview.py` foreground command in a
@@ -71,34 +69,10 @@ Claude may be explicitly selected for `frontend`, `backend`, or
 `product-manager`. It is not eligible for `search`; defaults and no-fallback
 behavior remain unchanged.
 
-## Scorecard Output Contract
+## Review result
 
-Every `/ccg:review` result must include:
-
-```text
-VALIDATION REPORT
-=================
-Task / Root Cause Coverage: XX/20 - [reason]
-Code Quality: XX/20 - [reason]
-Side Effects: XX/20 - [reason]
-Edge Cases: XX/20 - [reason]
-Test Coverage: XX/20 - [reason]
-
-TOTAL SCORE: XX/100
-```
-
-For frontend/UI-heavy reviews, also include:
-
-```text
-FRONTEND VALIDATION REPORT
-==========================
-User Experience: XX/20 - [reason]
-Visual Consistency: XX/20 - [reason]
-Accessibility: XX/20 - [reason]
-Performance: XX/20 - [reason]
-Browser Compatibility: XX/20 - [reason]
-
-TOTAL SCORE: XX/100
-```
-
-Scores must reference concrete evidence; missing evidence lowers the score. If a blocking issue remains, say so before the score and keep the final judgment conservative. A score does not authorize execution or Provider calls.
+Report the conclusion, verified findings (or zero), verification scope/limits
+and next action in natural Chinese, usually within one screen. Link precise
+locations and evidence where useful. Missing evidence is an explicit limit,
+not a guessed score. Unresolved blockers remain incomplete; optional advice
+does not become a requirement. No numerical scorecard is required.

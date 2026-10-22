@@ -1,0 +1,30 @@
+{
+  "id": "fix-grok-acp-cleanup-websearch-capture",
+  "name": "fix-grok-acp-cleanup-websearch-capture",
+  "title": "Fix Grok ACP cleanup and capture WebSearch events",
+  "description": "",
+  "status": "in_progress",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "codex",
+  "assignee": "codex",
+  "createdAt": "2026-08-14",
+  "completedAt": null,
+  "branch": "codex/fix-grok-acp-cleanup-error-precedence",
+  "base_branch": "main",
+  "worktree_path": "I:\\ai\\ccg-gptpro-worflow-fix-grok-acp-cleanup",
+  "commit": "8663e9084289d47e5f838bf5702af0cb1a7356fb",
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "Cleanup fix, one-shot capture, and authorized WebSearch action variant parser fix are complete and verified. Source commit 8663e9084289d47e5f838bf5702af0cb1a7356fb is complete; supported Harness synchronization is in progress. Push, PR, merge, release, installation, configuration change, and any second Provider call remain out of scope.",
+  "meta": {
+    "implementationStatus": "sync_in_progress",
+    "classification": "parser_schema_mismatch",
+    "providerCalls": 1
+  }
+}

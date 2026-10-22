@@ -1,0 +1,199 @@
+{
+  "checkedAtUtc": "2026-09-30T17:12:15.635127+00:00",
+  "planningDocumentationChecksPassed": true,
+  "strictBaselineUnchanged": false,
+  "taskState": "planning",
+  "implementationApproved": false,
+  "checks": [
+    {
+      "name": "HEAD/branch/index unchanged: I:\\ai\\trellis-ccg-harness",
+      "passed": true,
+      "details": null
+    },
+    {
+      "name": "Existing dirty-file bytes unchanged: I:\\ai\\trellis-ccg-harness",
+      "passed": false,
+      "details": [
+        ".trellis/tasks/09-30-simplify-mcp-research/execution.md",
+        ".trellis/tasks/09-30-simplify-mcp-research/implement.md",
+        ".trellis/tasks/09-30-simplify-mcp-research/prd.md",
+        ".trellis/tasks/09-30-simplify-mcp-research/task.json"
+      ]
+    },
+    {
+      "name": "Only authorized new task files: I:\\ai\\trellis-ccg-harness",
+      "passed": true,
+      "details": []
+    },
+    {
+      "name": "HEAD/branch/index unchanged: I:\\ai\\ccg-gptpro-worflow",
+      "passed": true,
+      "details": null
+    },
+    {
+      "name": "Existing dirty-file bytes unchanged: I:\\ai\\ccg-gptpro-worflow",
+      "passed": true,
+      "details": []
+    },
+    {
+      "name": "Only authorized new task files: I:\\ai\\ccg-gptpro-worflow",
+      "passed": true,
+      "details": []
+    },
+    {
+      "name": "HEAD/branch/index unchanged: G:\\CodexWorktrees\\harness-simplify-mcp-research",
+      "passed": true,
+      "details": null
+    },
+    {
+      "name": "Existing dirty-file bytes unchanged: G:\\CodexWorktrees\\harness-simplify-mcp-research",
+      "passed": true,
+      "details": []
+    },
+    {
+      "name": "Only authorized new task files: G:\\CodexWorktrees\\harness-simplify-mcp-research",
+      "passed": true,
+      "details": []
+    },
+    {
+      "name": "HEAD/branch/index unchanged: G:\\CodexWorktrees\\ccg-simplify-mcp-research",
+      "passed": true,
+      "details": null
+    },
+    {
+      "name": "Existing dirty-file bytes unchanged: G:\\CodexWorktrees\\ccg-simplify-mcp-research",
+      "passed": true,
+      "details": []
+    },
+    {
+      "name": "Only authorized new task files: G:\\CodexWorktrees\\ccg-simplify-mcp-research",
+      "passed": true,
+      "details": []
+    },
+    {
+      "name": "HEAD/branch/index unchanged: I:\\ai\\trellis-ccg-harness-ccg-3.4.15-final",
+      "passed": true,
+      "details": null
+    },
+    {
+      "name": "Existing dirty-file bytes unchanged: I:\\ai\\trellis-ccg-harness-ccg-3.4.15-final",
+      "passed": true,
+      "details": []
+    },
+    {
+      "name": "Only authorized new task files: I:\\ai\\trellis-ccg-harness-ccg-3.4.15-final",
+      "passed": true,
+      "details": []
+    },
+    {
+      "name": "Task remains planning with implementation approval pending",
+      "passed": true,
+      "details": null
+    },
+    {
+      "name": "No implementation worktree, commit, PR or completion stamped",
+      "passed": true,
+      "details": null
+    },
+    {
+      "name": "Task input files exist; verification output is written at the end",
+      "passed": true,
+      "details": null
+    },
+    {
+      "name": "Curated implement.jsonl references exist",
+      "passed": true,
+      "details": null
+    },
+    {
+      "name": "Curated check.jsonl references exist",
+      "passed": true,
+      "details": null
+    },
+    {
+      "name": "Review is pending and no implementation approval fabricated",
+      "passed": true,
+      "details": null
+    },
+    {
+      "name": "Review v1 artifact hashes match",
+      "passed": true,
+      "details": null
+    },
+    {
+      "name": "CCG baseline 14 focused checks passed",
+      "passed": true,
+      "details": null
+    },
+    {
+      "name": "Harness baseline 5 focused checks passed",
+      "passed": true,
+      "details": null
+    }
+  ],
+  "baselineOriginalDirtyFiles": 147,
+  "unchangedOriginalDirtyFiles": 143,
+  "observedChangesOutsideThisTask": [
+    {
+      "repository": "I:\\ai\\trellis-ccg-harness",
+      "file": ".trellis/tasks/09-30-simplify-mcp-research/execution.md",
+      "before": {
+        "bytes": 14905,
+        "sha256": "5cb360d5bc6f9cab2038f0a5902971bc3fb1c4a55ccd256168c62e68b92d3275"
+      },
+      "after": {
+        "bytes": 16987,
+        "sha256": "79b7cef20e5827a71bc8afd895f3df08b861a0b2fd116e7c00cfc946f498893f"
+      }
+    },
+    {
+      "repository": "I:\\ai\\trellis-ccg-harness",
+      "file": ".trellis/tasks/09-30-simplify-mcp-research/implement.md",
+      "before": {
+        "bytes": 7039,
+        "sha256": "924057abaf8c134da6f0f49828ccef426eae2bdf680af19f613c976e427d973c"
+      },
+      "after": {
+        "bytes": 7234,
+        "sha256": "8c41eed2a224e6f058553d4a847db5d45131fe48dffa5aebf250607d1960ae4a"
+      }
+    },
+    {
+      "repository": "I:\\ai\\trellis-ccg-harness",
+      "file": ".trellis/tasks/09-30-simplify-mcp-research/prd.md",
+      "before": {
+        "bytes": 3625,
+        "sha256": "48d0429bf6f4783c9e5bd406029f11c7397b975a4e538c05bddccc78b8471efd"
+      },
+      "after": {
+        "bytes": 3882,
+        "sha256": "5dbc896a288983d2dbcf5327f2a2053e6cf67e6083fd293626aaa0764ef555eb"
+      }
+    },
+    {
+      "repository": "I:\\ai\\trellis-ccg-harness",
+      "file": ".trellis/tasks/09-30-simplify-mcp-research/task.json",
+      "before": {
+        "bytes": 1452,
+        "sha256": "07439f7f43f76ac3de20cfca19928cd2c58d08f4ecf45e88497f013ad5450ace"
+      },
+      "after": {
+        "bytes": 1705,
+        "sha256": "cab9d65b9676209248ee3861459011cc95afb2d8664d3dc03ac2e656f1c3077f"
+      }
+    }
+  ],
+  "concurrentChangeEvidence": "Only four pre-existing simplify-mcp-research task documents differ; their content records the separately authorized PR50 activity. This task did not write or revert them. All unchanged assertions are retained, including the failed strict byte comparison.",
+  "evidenceWorkspace": "C:\\Users\\29933\\Documents\\Codex\\2026-09-30\\task",
+  "remainingGate": "First explicit user approval of the concrete v1 local implementation plan",
+  "unverified": [
+    "New approval-reuse behavior",
+    "Real new-session replay",
+    "Full offline suites",
+    "Provider behavior",
+    "Distribution/installation",
+    "Remote PR audit (separate task)"
+  ],
+  "historicalPlanningSnapshot": true,
+  "supersededBy": "verification-v1-implementation.json"
+}

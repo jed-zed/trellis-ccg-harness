@@ -3,25 +3,27 @@ name: executor
 description: Run the CCG workflow inside Codex. Use when the user invokes /ccg, /ccg:workflow, /ccg:execute, /ccg:excute, /ccg:codex-exec, asks Codex to execute a Trellis task directory, its implement.md, or a standalone .codex/ccg/plans/*.md file, or wants Codex to orchestrate allowed evidence while implementing a plan.
 ---
 
+## Optional analysis allocation
+
+When the user explicitly requests --orchestration save-codex, /ccg:save-codex on, or quota-saving
+orchestration, load skills/ccg-save-codex/SKILL.md and enable it only for the canonical current task.
+If that task's advice-budget.json already says mode=save-codex, follow that Skill before dispatching
+analysis. --orchestration standard or /ccg:save-codex off disables it while preserving evidence.
+Absent/disabled state keeps all ordinary defaults. In this opt-in mode, bounded low-risk analysis
+uses webpage Extra High, critical decisions use webpage Pro, and Codex/native workers concentrate
+on bounded evidence, code application and verification; avoid duplicate optional native deep-analysis
+leaves. Required authorization, provider evidence, local correctness and safety checks remain.
+A mode/limit failure pauses its external advice route and must never silently invoke expensive
+Codex reasoning. Explicit user webpage strength wins over the allocation rule.
+
+
 ## Research
 
 Use existing independent research agents with grok-search MCP. Search actively and
 verify key conclusions against original sources; check versions/licenses when
 reusing code and experiment conditions when adopting papers. Mark unverified findings.
-Archived instructions below are inactive: ordinary work does not run Grok CLI/ACP,
+Ordinary work does not run Grok CLI/ACP,
 wait for its gates, or require its manifests and hash packages.
-
-<!-- Legacy Grok CLI/ACP reference; inactive in ordinary research.
-## Automatic External Intelligence Gate
-
-Before ordinary work, run the shared route once from the controller:
-
-`ccg-codex route --workflow execute --phase intake --task-file ".ccg/tasks/<task-id>/intelligence-request.md" --state-file ".ccg/tasks/<task-id>/intelligence-route.json"`
-
-Run this potentially long route with the host's tool-managed background execution and wait mechanism; never put it under a foreground timeout shorter than the runner's 10-minute timeout. If the host cancels or terminates the job before a terminal state is written, run `ccg-codex route recover --state-file <state-file> --status cancelled --reason "<reason>"` (or use `--status failed`); recovery refuses to overwrite a live owner.
-
-Append existing --plan, --diff, --target, and repeatable --dependency paths whenever those artifacts are available. Add `--semantic-mode contract|incident --semantic-reason "<Codex judgment>"` only for an explicit semantic decision. The runtime honors disabled config, persists the decision reason, and must be re-run after plan, dependency, target, diff, or phase digest changes. Stop ordinary work on exit code `2`, `3`, or `4` only for an explicit required semantic route; advisory search failures do not block ordinary work.
--->
 
 # CCG Executor
 
@@ -59,24 +61,6 @@ provider boundaries and model/effort settings remain unchanged.
   and the active project policy permits it. Do not invoke ace-tool or create a
   CodeGraph index automatically; fall back to local search and targeted reads.
 
-## Architecture Shift
-
-The original CCG model was:
-
-```text
-Claude Code orchestrates Codex + Gemini
-```
-
-In Codex, the model is:
-
-```text
-Codex orchestrates four configured top-level roles, applies code, verifies,
-and reports. Frontend or backend work uses research when useful and
-evaluates the product-manager authorization gate.
-```
-
-When an old plan mentions `CODEX_SESSION`, `GEMINI_SESSION`, or legacy external handoff files, treat them as provenance and intent, not as sessions to resume. Translate legacy orchestration into current role routing, bounded provider evidence, Codex edits, and Codex verification.
-
 ## Role Routing
 
 Read `../../rules/ccg-role-routing.md` before assigning generic model work and
@@ -96,13 +80,6 @@ providers. Frontend is not permanently Gemini and backend is not permanently
 Codex. An explicit provider request for the current task wins without changing
 the saved defaults.
 
-<!-- Legacy search operation tracking; inactive in ordinary MCP research.
-Whenever `frontend` or `backend` is used, evaluate whether one logical
-`search` operation would materially help the same phase. If invoked, keep one
-stable operation/evidence identity, allow at most two total attempts against
-the same configured Provider, and record `attemptCount`; failure is advisory
-and does not block an otherwise valid local result.
--->
 Use the shared MCP research contract when external sources help; independent
 research agents gather material and Codex synthesizes it without legacy search
 gates or evidence packages. Then evaluate the mapped product-manager candidate and
@@ -144,7 +121,7 @@ the canonical artifacts, rather than trusting task metadata alone:
 
 - The user must have reviewed the complete final version and explicitly
   approved this task's implementation scope. Check `task.json.meta.planApproval`
-  for `status`, `taskId`, `version`, `reviewedArtifacts` (`file`/`sha256`),
+  for `status`, `taskId`, `version`, existing `reviewedArtifacts` references,
   `scope`, `actions`, `source` (quote and message reference/source thread), and
   `recordedAtUtc`, retaining the original provenance when reusing approval.
   Only record approval after a real user reply; do not create another ledger
@@ -160,8 +137,7 @@ the canonical artifacts, rather than trusting task metadata alone:
   Proceed through Trellis 1.4/start after its document/context gates, or resume
   an already active task. `task.py start` does not itself validate approval;
   these are coordinator workflow rules, not a new mechanical approval engine.
-- SHA256 identifies reviewed bytes; a changed hash alone does not require
-  approval. Compare the reviewed content and visible differences: formatting, typos, line endings, checklist progress,
+- Compare the reviewed content and visible differences: formatting, typos, line endings, checklist progress,
   path display, and equivalent summaries do not invalidate covered approval.
   A substantive change to requirements, scope, design, implementation strategy,
   risk, or acceptance needs an updated version, an explanation of the changes,
@@ -192,9 +168,8 @@ Codex-native trigger rules:
   applicable role provider for review when policy requires external review.
 - M+ complexity: ask the applicable role provider for its analysis or review
   phase when required by the active project policy.
-- Diffs over roughly 30 changed lines, auth/database/crypto/security-sensitive
-  changes, or unclear root-cause/debugging work require the applicable CCG
-  quality/security gates.
+- Apply `../../rules/ccg-quality-gates.md` to the changed paths. Line count
+  alone does not trigger a security audit or a new Provider call.
 
 - Backend-heavy tasks use the configured `backend` provider for analysis,
   planning, drafts, and review.
@@ -206,11 +181,6 @@ Codex-native trigger rules:
 - At the next eligible checkpoint, evaluate the mapped `product-manager`
   candidate and pause for explicit per-call authorization before invocation.
 - Cross-cutting tasks split by role without changing the saved role mappings.
-<!-- Legacy semantic search gate; inactive in ordinary MCP research.
-- If an explicitly required semantic route fails after at most two total
-  attempts, stop and report the missing evidence instead of silently
-  substituting another provider. Advisory search failure remains non-blocking.
--->
 
 When Gemini is selected, use:
 
@@ -292,8 +262,17 @@ Gemini task prompts should include only the task-specific payload because the he
 ### Phase 3: Implementation
 
 - Implement directly in Codex using the repository's existing patterns.
-- Prefer small, focused edits and existing helpers.
-- Use tests first when the plan includes clear behavior or bugfix acceptance criteria; otherwise add focused tests in the most local existing test style.
+- Trace the actual flow and callers, then implement the minimum accepted
+  behavior using existing helpers, standard libraries or native capabilities.
+  Do not add speculative abstractions, compatibility, configuration or persistence.
+- Justify each new defense with a real boundary, supported contract, concrete
+  failure model or business invariant. Reuse internal guarantees and preserve
+  independent security controls. Return clear errors; justified retries have
+  one owner and a bound. Account for idempotency where repeated calls could
+  duplicate side effects, reusing existing guarantees; query the original
+  operation when its outcome is uncertain.
+- Reuse existing checks where they prove the behavior; add a focused regression
+  only for the accepted behavior or actual fix, using the local test style.
 - Use `apply_patch` for manual file edits.
 - Do not rewrite plan files, handoff files, or original CCG workflow files as part of execution unless the user explicitly asks.
 
@@ -304,11 +283,11 @@ Gemini task prompts should include only the task-specific payload because the he
   - Python/ML service: focused pytest or the script's smoke mode;
   - contracts/shared schemas: affected package tests/typecheck;
   - frontend touched incidentally: typecheck and focused component tests.
-- Apply CCG quality gates when they match the scope:
-  - `/ccg:verify-change` and `/ccg:verify-quality <changed-path>` for changes over roughly 30 lines or risky refactors;
-  - `/ccg:verify-module <module-path>` for newly created modules;
-  - `/ccg:verify-security <changed-path>` for auth, permission, validation, secrets, file upload, command execution, or network-boundary changes.
-- If full verification is too slow or blocked by local services, run a smaller meaningful check and report the blocker.
+- Apply `../../rules/ccg-quality-gates.md` and mandatory repository/CI checks.
+  Stop after sufficient evidence; broader or repeated checks need a new change,
+  failure, unresolved concrete concern or mandatory project gate.
+- If a required check is blocked, run any useful independent check and report
+  the remaining verification as incomplete. Never claim an unrun check passed.
 - Fix regressions caused by the implementation before delivery.
 
 ### Phase 5: Review
@@ -322,36 +301,22 @@ Gemini task prompts should include only the task-specific payload because the he
   gates and any policy-required backend-provider review, then independently verify
   the findings.
 - Treat backend logic, data integrity, transactions, error handling, and tests as first-class review targets.
+- Verify each finding's location, trigger, actual consequence and supporting
+  evidence before adopting it. Zero findings is valid; optional suggestions
+  do not expand the task. Remove changes that do not serve the accepted goal
+  or a necessary safety/data boundary.
+- Preserve an explicitly requested independent GPT Pro PR review. Follow
+  `../ccg-gptpro-review/SKILL.md` for its soft review budget and unresolved blockers.
 
 ### Phase 6: Delivery
 
-Report in Chinese with:
-
-- what was implemented;
-- changed files;
-- verification commands and results;
-- any blockers, residual risks, or manual follow-up.
-- a mandatory original CCG-style completion scorecard:
-
-```markdown
-### 完成度评分
-| Dimension | Score | Evidence |
-| --- | ---: | --- |
-| Plan Coverage | XX/20 | <计划项完成证据> |
-| Implementation Coverage | XX/20 | <代码/diff 证据> |
-| Verification | XX/20 | <测试/检查命令结果> |
-| Review Findings | XX/20 | <Critical/Warning/Info 状态> |
-| Residual Risk | XX/20 | <遗留风险> |
-| **TOTAL SCORE** | **XX/100** | <Ready / Needs Follow-up / Blocked> |
-```
-
-Scoring rules:
-
-- Score only from visible evidence: plan items, diff/code references, verification output, review findings, and stated residual risks.
-- If no real verification command was run, `Verification` must be at most `10/20`.
-- If any Critical blocker remains, the `TOTAL SCORE` status must be `Blocked`.
-- Use `Ready` only when the implementation is verified and no blocking risk remains; use `Needs Follow-up` for incomplete or warning-heavy work.
-- Scores report completion evidence and do not authorize execution or Provider calls.
+Report naturally in Chinese, usually within one screen: current phase/result,
+what changed, verification scope and limits, next action and whether the user
+needs to decide anything. Distinguish completed, failed and unverified work;
+unresolved blockers mean incomplete. Link precise evidence when useful.
+Do not require completion percentages or numerical scorecards, and do not
+turn optional advice into new requirements. Reuse existing task/Git/PR/CI
+records rather than creating another reporting or evidence system.
 
 Do not commit unless the user asks.
 

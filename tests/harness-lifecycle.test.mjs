@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   rmSync,
   statSync,
   symlinkSync,
@@ -30,6 +31,7 @@ import {
   updateTrellisProvenanceText,
   validateBootstrapOwnership,
   validateUpdateSource,
+  CCG_COMPONENT_GATE_OUTPUT_ROOTS,
 } from "../scripts/lib/harness-lifecycle.mjs";
 import { buildHarnessDoctorArguments } from "../scripts/harness-lifecycle.mjs";
 
@@ -79,6 +81,21 @@ function runPackageManager(command, args) {
   );
   return String(result.stdout ?? "").trim();
 }
+
+test("final CCG verification allows the component test cache the snapshot declares", () => {
+  const component = path.join(ROOT, "components", "ccg-workflow");
+  const config = readFileSync(path.join(component, "vitest.config.ts"), "utf8");
+  const cacheDir = config.match(/cacheDir:\s*['"]([^'"]+)['"]/)?.[1];
+  assert.ok(CCG_COMPONENT_GATE_OUTPUT_ROOTS.includes("dist"));
+  assert.ok(CCG_COMPONENT_GATE_OUTPUT_ROOTS.includes("node_modules"));
+  if (cacheDir) {
+    assert.ok(CCG_COMPONENT_GATE_OUTPUT_ROOTS.includes(cacheDir), cacheDir);
+    const ignored = readFileSync(path.join(component, ".gitignore"), "utf8")
+      .split(/\r?\n/)
+      .map((line) => line.trim().replace(/^\//, "").replace(/\/$/, ""));
+    assert.ok(ignored.includes(cacheDir), `${cacheDir} must stay ignored by the CCG snapshot`);
+  }
+});
 
 test("activated CCG smoke accepts owner-compatible packaged runtime content", () => {
   const installed = packageSnapshot({ version: "3.4.2" });

@@ -4,6 +4,7 @@ import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { homedir } from 'node:os'
 import { join } from 'pathe'
+import { parse as parseToml } from 'smol-toml'
 import type { ModelRouting, ModelType } from '../types'
 import type { ProductManagerProvider } from '../product-manager/contracts'
 import { STANDARD_ROUTING_ROLES } from '../types'
@@ -23,6 +24,10 @@ const OK = ansis.green('✓')
 const WARN = ansis.yellow('⚠')
 const FAIL = ansis.red('✗')
 const CODEX_AGENTS_END = '<!-- CCG:END -->'
+// Signatures that upstream ccg-workflow (the Claude distribution) writes into the
+// shared Codex home. Doctor only reports them; it never repairs or rewrites files.
+const UPSTREAM_CODEX_MODE_HEADING = '# CCG Multi-Model Orchestration (Codex-Led)'
+const UPSTREAM_FAST_CONTEXT_START = '<!-- CCG-FAST-CONTEXT-START -->'
 
 async function fileExists(p: string): Promise<boolean> {
   return fs.pathExists(p)
@@ -43,6 +48,56 @@ function codexManagedAgentsBlock(content: string): string | null {
   if (starts.length !== 1 || ends.length !== 1 || ends[0].index! < starts[0].index!)
     return null
   return content.slice(starts[0].index!, ends[0].index! + CODEX_AGENTS_END.length)
+}
+
+export interface UpstreamOverlap {
+  codexModeAgents: boolean
+  fastContextBlock: boolean
+  grokSearch: 'configured' | 'missing' | 'unreadable' | 'not-required'
+}
+
+export function inspectUpstreamOverlap(agentsContent: string | null, codexConfigText: string | null): UpstreamOverlap {
+  const block = agentsContent ? codexManagedAgentsBlock(agentsContent) : null
+  let grokSearch: UpstreamOverlap['grokSearch'] = 'not-required'
+  // Only check the MCP server when the installed personal block depends on it.
+  if (block?.includes('grok-search MCP') && !block.includes(UPSTREAM_CODEX_MODE_HEADING)) {
+    try {
+      const config = codexConfigText === null ? {} : parseToml(codexConfigText) as { mcp_servers?: Record<string, unknown> }
+      grokSearch = config.mcp_servers?.['grok-search'] ? 'configured' : 'missing'
+    }
+    catch {
+      grokSearch = 'unreadable'
+    }
+  }
+  return {
+    codexModeAgents: Boolean(block?.includes(UPSTREAM_CODEX_MODE_HEADING)),
+    fastContextBlock: Boolean(agentsContent?.includes(UPSTREAM_FAST_CONTEXT_START)),
+    grokSearch,
+  }
+}
+
+function upstreamOverlapCheck(overlap: UpstreamOverlap, codexHome: string, agentsRead: boolean): DoctorCheck {
+  if (!agentsRead)
+    return { label: 'Upstream CCG overlap', status: WARN, detail: 'AGENTS.md could not be read; upstream overlap was not checked' }
+  const findings: string[] = []
+  if (overlap.codexModeAgents) {
+    findings.push(`upstream \`ccg codex-mode\` replaced the whole ${join(codexHome, 'AGENTS.md')} and also overwrites agents/ccg-*.toml and hooks; `
+      + `restore your own copies (pre-install originals are under ${join(codexHome, '.ccg', 'backups')}), run \`ccg-codex codex-mode install\`, `
+      + 'and use upstream CCG only for Claude')
+  }
+  if (overlap.fastContextBlock)
+    findings.push('upstream `ccg-workflow init` added a CCG-FAST-CONTEXT search block outside the personal block; remove it if your global rules already route search')
+  if (overlap.grokSearch === 'missing') {
+    findings.push(`grok-search MCP used by the personal research rule is not configured in ${join(codexHome, 'config.toml')}; `
+      + 'upstream `ccg-workflow init` without --skip-mcp removes CCG MCP servers that Claude does not configure; restore [mcp_servers.grok-search] from your backup')
+  }
+  if (overlap.grokSearch === 'unreadable')
+    findings.push(`${join(codexHome, 'config.toml')} could not be parsed to confirm the grok-search MCP server`)
+  return {
+    label: 'Upstream CCG overlap',
+    status: overlap.codexModeAgents ? FAIL : findings.length > 0 ? WARN : OK,
+    detail: findings.length > 0 ? findings.join('; ') : 'No upstream ccg-workflow changes detected in this Codex home',
+  }
 }
 
 export function execFileSafe(command: string, args: string[] = []): string | null {
@@ -355,6 +410,17 @@ async function doctorCodex(options: DoctorOptions): Promise<DoctorResult> {
       agentsDetail = `Unreadable (${String(error)})`
     }
   }
+  let codexConfigText: string | null = null
+  try {
+    if (await fileExists(join(codexHome, 'config.toml')))
+      codexConfigText = await fs.readFile(join(codexHome, 'config.toml'), 'utf8')
+  }
+  catch {}
+  const upstreamOverlap = inspectUpstreamOverlap(agentsContent, codexConfigText)
+  if (upstreamOverlap.codexModeAgents) {
+    hasManagedAgents = false
+    agentsDetail = 'Upstream ccg-workflow Codex-mode block, not the personal CCG block'
+  }
   checks.push({
     label: 'Codex AGENTS.md',
     status: hasManagedAgents ? OK : FAIL,
@@ -385,6 +451,7 @@ async function doctorCodex(options: DoctorOptions): Promise<DoctorResult> {
     status: ownership.valid ? OK : FAIL,
     detail: ownership.detail,
   })
+  checks.push(upstreamOverlapCheck(upstreamOverlap, codexHome, agentsContent !== null))
 
   const wrapperName = process.platform === 'win32' ? 'codeagent-wrapper.exe' : 'codeagent-wrapper'
   const wrapperPath = join(codexHome, 'ccg', 'bin', wrapperName)
@@ -495,7 +562,10 @@ async function doctorCodex(options: DoctorOptions): Promise<DoctorResult> {
     const repairCommand = hasPendingTransaction
       ? 'ccg-codex codex-mode recover'
       : routingRepair || 'ccg-codex codex-mode install'
-    console.log(ansis.red(`  ${failures.length} issue(s) found. Run ${ansis.cyan(repairCommand)}, then rerun this check.`))
+    const restoreFirst = upstreamOverlap.codexModeAgents && !hasPendingTransaction
+      ? 'Restore your own AGENTS.md, agent and hook copies first, then run '
+      : 'Run '
+    console.log(ansis.red(`  ${failures.length} issue(s) found. ${restoreFirst}${ansis.cyan(repairCommand)}, then rerun this check.`))
   }
   console.log()
   return {

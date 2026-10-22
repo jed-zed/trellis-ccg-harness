@@ -34,11 +34,6 @@ function contains(root, target) {
   return !delta || (delta !== '..' && !delta.startsWith(`..${sep}`) && !isAbsolute(delta))
 }
 
-export function assertCodexEngineHost(environment = process.env) {
-  if (environment.CCG_HOST === 'claude' || environment.CLAUDECODE === '1')
-    throw new Error('Personal CCG is Codex-only. Claude uses upstream CCG and the separate ccg-gptpro-bridge plugin.')
-}
-
 export function assertCodexHostPath(path, options = {}) {
   if (typeof path !== 'string' || !path.trim() || /[\u0000-\u001F\u007F]/u.test(path))
     throw new Error('Codex host path must be a non-empty single-line path.')
@@ -58,14 +53,12 @@ export function assertCodexHostPath(path, options = {}) {
 }
 
 export function resolveCodexHome(configuredHome = process.env.CODEX_HOME, userHome = homedir()) {
-  assertCodexEngineHost()
   const home = configuredHome?.trim() || join(userHome, '.codex')
   assertCodexHostPath(home, { userHome })
   return home
 }
 
 export function resolveCodexConfigPath(explicit) {
-  assertCodexEngineHost()
   const configPath = resolve(explicit || join(resolveCodexHome(), 'ccg', 'config.toml'))
   assertCodexHostPath(configPath)
   return configPath

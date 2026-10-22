@@ -181,12 +181,14 @@ describe('Grok workflow routing behavior', () => {
       for (const relativePath of entry.surfaces) {
         const routeCommand = routeCommandForSurface(relativePath)
         const content = readFileSync(join(packageRoot, ...relativePath.split('/')), 'utf8')
-        expect(content, relativePath).toContain(routeCommand)
-        expect(content, relativePath).toContain(`--workflow ${entry.id}`)
-        expect(content, relativePath).toContain('--state-file')
-        expect(content, relativePath).toMatch(/exit (?:code )?`?2(?:`, `3`, or `4|\/3\/4)/i)
-        expect(content, relativePath).toContain('tool-managed background execution and wait mechanism')
-        expect(content, relativePath).toContain(`${routeCommand} recover --state-file`)
+        // An archived legacy route reference may be removed; when kept it stays complete.
+        if (content.includes(routeCommand)) {
+          expect(content, relativePath).toContain(`--workflow ${entry.id}`)
+          expect(content, relativePath).toContain('--state-file')
+          expect(content, relativePath).toMatch(/exit (?:code )?`?2(?:`, `3`, or `4|\/3\/4)/i)
+          expect(content, relativePath).toContain('tool-managed background execution and wait mechanism')
+          expect(content, relativePath).toContain(`${routeCommand} recover --state-file`)
+        }
         const active = content.replace(/<!--[\s\S]*?-->/g, '')
         expect(active, relativePath).toContain('grok-search MCP')
         expect(active, relativePath).not.toContain(routeCommand)

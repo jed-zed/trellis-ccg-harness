@@ -33,7 +33,8 @@ expect(
   'Installer binary version disagrees with recipe',
 )
 expect(
-  /const RELEASE_TAG = `wrapper-\$\{EXPECTED_BINARY_VERSION\}`/.test(installer),
+  // eslint-disable-next-line no-template-curly-in-string -- matches the installer source text literally
+  installer.includes('const RELEASE_TAG = `wrapper-${EXPECTED_BINARY_VERSION}`'),
   'Installer download tag must derive from the pinned binary version',
 )
 expect(

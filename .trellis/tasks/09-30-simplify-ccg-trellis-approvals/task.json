@@ -1,0 +1,119 @@
+{
+  "id": "simplify-ccg-trellis-approvals",
+  "name": "simplify-ccg-trellis-approvals",
+  "title": "简化 CCG 与 Trellis 重复审批",
+  "description": "v1 本地源规则和必要检查已完成；完整分发门仍有既有 Git NUL 失败及待同步的策略投影失败，等待父任务串行整合。",
+  "status": "in_progress",
+  "dev_type": "backend",
+  "scope": "ccg-trellis-approvals",
+  "package": null,
+  "priority": "P2",
+  "creator": "codex",
+  "assignee": "codex",
+  "createdAt": "2026-09-30",
+  "completedAt": null,
+  "branch": "codex/approval-reuse-v1",
+  "base_branch": "codex/simplify-mcp-research-sync",
+  "worktree_path": "G:/CodexWorktrees/harness-approval-reuse-v1",
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    "prd.md",
+    "design.md",
+    "implement.md",
+    "approval-source.md",
+    "deployment-targets.md",
+    "review-v1.json",
+    "research/findings.md",
+    "verification.json",
+    "approval-v1.json",
+    "execution.md",
+    "verification-v1-implementation.json",
+    "handoff.md"
+  ],
+  "notes": "用户已在 v1 最终摘要后明确回复批准。仅隔离本地源修改与必要离线检查；其余操作仍排除。批准来源与审阅指纹见 approval-v1.json。",
+  "meta": {
+    "requester": "Jed10W",
+    "delegated_thread": "01a0f2ca-94cb-7468-8234-a2588ee4800a",
+    "implementation_approval": "approved",
+    "plan_version": "v1",
+    "review_manifest": "review-v1.json",
+    "authorization_source": "approval-source.md",
+    "planning_state": "approved_for_local_implementation",
+    "implementation_state": "local_source_complete_with_integration_gates_pending",
+    "scope_exclusions": "PR51,no-model-permissions,no-provider-calls,no-install,no-sync,no-commit,no-push,no-PR,no-merge,no-publish",
+    "planApproval": {
+      "status": "approved",
+      "taskId": "simplify-ccg-trellis-approvals",
+      "version": "v1",
+      "approvedAtUtc": "2026-09-30T17:23:41.118627+00:00",
+      "recordedAtUtc": "2026-09-30T17:23:41.118627+00:00",
+      "source": {
+        "kind": "explicit_user_reply_after_final_summary",
+        "quote": "批准",
+        "context": "Direct user reply to the previously presented v1 local implementation summary",
+        "messageId": null,
+        "sourceThreadId": "01a0f2ca-94cb-7468-8234-a2588ee4800a"
+      },
+      "reviewManifestBeforeApprovalSha256": "11bf09c1f816dbdf8de980d614bb510a91b7ba412943a2271c9c48e3bd57d4a2",
+      "reviewedArtifacts": [
+        {
+          "file": "prd.md",
+          "sha256": "fecb65253270486bb2bdfa3de3143e3e337f6cee119b9031ec51dd25a5b1a65b"
+        },
+        {
+          "file": "design.md",
+          "sha256": "00a51d38b3cb6183ca813588c8dc7a0faa889c6e0e91135e0b03ec1b1dcbb337"
+        },
+        {
+          "file": "implement.md",
+          "sha256": "c9046d8d60850a73347bdfabd3cfef84c81242216a40288063c069c0c0022743"
+        },
+        {
+          "file": "deployment-targets.md",
+          "sha256": "4741c4364e69a2515081890bbd1baec3cc5c6b35562fdaf4cb98576e4037dc82"
+        }
+      ],
+      "scope": [
+        "Trellis task-creation consent reuse and final-plan approval handoff rules",
+        "CCG native Skill Trellis-first canonical plan resolution and approval reuse",
+        "Existing task metadata approval-source records and necessary offline checks"
+      ],
+      "actions": [
+        "create_isolated_worktrees",
+        "edit_approved_local_source_paths",
+        "run_necessary_offline_checks",
+        "export_reviewable_diff"
+      ],
+      "excludedActions": [
+        "PR51 fix",
+        "model permission changes",
+        "Provider calls",
+        "legacy migration",
+        "global install or sync",
+        "commit",
+        "push",
+        "PR",
+        "merge",
+        "publish",
+        "archive"
+      ],
+      "sourceBaselines": {
+        "ccg": "87592d37578193bf36c8a074e5224a4803951ce3",
+        "harness": "b45c2ea72141bc0fa7f36232e102e8e5971602ed"
+      },
+      "record": "approval-v1.json"
+    },
+    "implementation_worktrees": {
+      "ccg": "G:/CodexWorktrees/ccg-approval-reuse-v1",
+      "harness": "G:/CodexWorktrees/harness-approval-reuse-v1"
+    },
+    "implementation_verification": "verification-v1-implementation.json",
+    "handoff_ready": true,
+    "deployment_ready": false,
+    "delivery_manifest": "C:\\Users\\29933\\Documents\\Codex\\2026-09-30\\task\\approval-reuse-v1-delivery\\manifest.json"
+  }
+}

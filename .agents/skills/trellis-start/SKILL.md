@@ -20,4 +20,4 @@ Automatically reuse or create the matching task for authorized structured develo
 
 Read relevant spec indexes before coding; discover packages only when their location is unknown. Load step detail only when needed with `get_context.py --mode phase --step <X.Y> --platform codex`.
 
-Use `trellis-brainstorm` for unresolved decisions, `trellis-before-dev` before edits, `trellis-check` for verification, and `trellis-finish-work` for a structured task's completion. Extra steps follow the trigger fact -> required output -> stop condition contract in workflow.md.
+Use `trellis-brainstorm` for unresolved decisions, `trellis-before-dev` before edits, `trellis-check` for verification, and `trellis-finish-work` for a structured task's completion. Extra work needs a concrete question or risk; stop once it is resolved and reuse existing task, Git, PR and CI records as described in workflow.md.

@@ -13,6 +13,7 @@ If the user provided no argument, answer in Chinese with the CCG command index:
 
 - `/ccg:ccg` - show this index; with a plan path or task, execute it.
 - `/ccg:plan <task>` - create or revise a CCG plan with applicable role providers.
+- `/ccg:save-codex on|off|stats` - opt-in webpage Extra High/Pro advice allocation with budgets; default remains standard.
 - `/ccg:workflow` - explain the Codex-native CCG workflow.
 - `/ccg:doctor` - diagnose local CCG plugin, skill, MCP, bridge, and Gemini availability.
 - `/ccg:doctor --fix` - from this source checkout only, refresh stale local plugin cache.

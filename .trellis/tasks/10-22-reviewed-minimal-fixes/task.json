@@ -1,0 +1,99 @@
+{
+  "id": "reviewed-minimal-fixes",
+  "name": "reviewed-minimal-fixes",
+  "title": "Apply reviewed minimal Harness fixes",
+  "description": "Parent-approved F1 F2 F3 N1 N2 fixes within seven owned files; Claude opus[1m] authors changes through CCG, no commit or installation.",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "codex",
+  "assignee": "codex",
+  "createdAt": "2026-10-22",
+  "completedAt": "2026-10-22",
+  "branch": "codex/sync-main-20261021",
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "planApproval": {
+      "status": "approved",
+      "taskId": "reviewed-minimal-fixes",
+      "version": 1,
+      "reviewedArtifacts": [
+        "prd.md",
+        "design.md",
+        "implement.md"
+      ],
+      "scope": [
+        "scripts/lib/harness-adapter/probe.mjs",
+        "tests/harness-adapter.test.mjs",
+        ".github/dependabot.yml",
+        "tests/ci-contract.test.mjs",
+        ".agents/skills/chatgpt-pro-sidebar/tests/chatgpt-pro-upload.Tests.ps1",
+        ".trellis/spec/tooling/chatgpt-pro-sidebar-v2.md",
+        ".trellis/spec/tooling/index.md"
+      ],
+      "actions": [
+        "Claude snapshot edits",
+        "Codex checked integration",
+        "necessary local tests",
+        "task records"
+      ],
+      "source": {
+        "thread": "01a15691-e0ff-776b-b97a-0627cf34a0e6",
+        "quote": "父会话已独立阅读本轮完整计划、代码片段、最新基线与排除范围。审核结论：批准七文件白名单内 F1、F2、F3、N1、N2 的最小实施及必要 Trellis 任务记录",
+        "userCondition": "审查及父会话审核通过后可以开工"
+      },
+      "recordedAtUtc": "2026-10-22T08:03:34.208334+00:00"
+    },
+    "completionAcceptance": {
+      "status": "accepted-local-scope",
+      "acceptedBy": "parent-session",
+      "sourceThread": "01a15691-e0ff-776b-b97a-0627cf34a0e6",
+      "recordedAtUtc": "2026-10-22T10:19:08.630195+00:00",
+      "scope": "Reviewed F1/F2/F3/N1/N2 fixes and project-only default Codex-home Junction compatibility; existing Junction and personal installation retained.",
+      "checks": {
+        "offlineHarness": {
+          "total": 588,
+          "passed": 587,
+          "failed": 0,
+          "skipped": 1
+        },
+        "splitRoots": {
+          "passed": 13,
+          "failed": 0,
+          "skipped": 0
+        },
+        "focusedNode": {
+          "passed": 43,
+          "failed": 0
+        },
+        "pester": {
+          "discovered": 5,
+          "passed": 5,
+          "failed": 0
+        },
+        "context": "passed",
+        "conflictsCi": "passed",
+        "conflictsRuntime": "passed",
+        "doctorAndSourceVerification": "passed",
+        "diffCheck": "passed"
+      },
+      "limitations": [
+        "Existing Windows skip: POSIX AGENTS permission-drift CAS test at tests/harness-init-cli.test.mjs:1241.",
+        "Cross-platform Node 20/22 CI matrix, live installation and legacy journal migration were not verified.",
+        "No claim of protection against arbitrary concurrent path replacement between resolution and use."
+      ],
+      "evidence": "junction-results.md; implementation-results.md; J:/Codex-Archive/2026-10-21/task-2/junction-20261022/EVIDENCE.json",
+      "closeout": "Task records only; no archive move, session-pointer changes, new implementation, tests, installation or commits."
+    }
+  }
+}

@@ -18,7 +18,7 @@ Apply rules in this order:
 4. CCG plans and required quality, security, test, and review gates.
 5. Code-search tool routing.
 6. Ponytail minimization of implementation.
-7. Caveman compression of conversational style.
+7. Natural, concise communication.
 
 Higher-priority rules win when layers conflict. Report the conflict, the
 overridden lower-priority rule, and the chosen action; never silently skip a
@@ -48,17 +48,17 @@ Use the matching Request Triage and Planning Artifacts in
   Apply Shared plan approval before implementation: reuse actual same-scope user
   approval; task bookkeeping is not another approval. A required original CCG
   plan gate without prior approval still needs the presented plan and user response.
-- Run project lint, type-check and tests, including new-function unit tests,
-  bug regressions and updates for changed behavior. Final verification covers
-  the full affected task scope, not only the last edit. Preserve the quality
-  checklist in `trellis-check`.
-- Beyond required complex-task documents and quality checks, every extra
-  research artifact, search, Provider, sub-agent, review or broader test
-  needs a trigger fact -> required output -> stop condition in the existing
-  plan. Without a fact, skip it. Architecture uncertainty, a blocking question,
-  changed shared impact or an explicit gate can supply that fact; hypothetical
-  future needs cannot. Stop after sufficient evidence and reuse passing checks
-  for unchanged behavior.
+- Use checks proportionate to changed behavior and risk, including required
+  repository/CI checks. Account for all affected task behavior and reuse passing
+  evidence for unchanged work. Add the smallest meaningful regression for
+  changed nontrivial behavior; do not require a unit test for every new function
+  or run unrelated builds for wording changes. Follow `trellis-check`.
+- Add research, Providers, delegation, reviews or broader tests for a concrete
+  unanswered question, useful independent work, actual risk or explicit gate.
+  Stop when sufficient evidence resolves the need. Do not record a trigger,
+  output and stop condition for every small step. Use existing task, Git, PR
+  and CI records; do not add a manager, rule checker, database or separate
+  evidence system.
 - Preserve required security, data protection, accessibility, ownership,
   transaction and project/CI gates. Explicit implementation authorization remains
   valid within its reviewed scope; unresolved material decisions and pending
@@ -104,11 +104,9 @@ state, shared control files, final integration and full-scope verification.
 Inline permits independent research, bounded implementation and verification
 leaves; a CCG/Trellis-managed task is not by itself a reason to refuse them.
 
-- Dispatch a useful ready work package as soon as its inputs and boundaries
-  are known; do not wait to finish unrelated investigation. Usually start
-  with 1–2 workers and grow to 3–4 only for additional independent work and
-  available host capacity. A simple task stays inline; zero workers is valid.
-  These are planning targets, not a worker-count gate or a mandatory team flow.
+- Dispatch useful independent work when inputs and boundaries are ready and
+  capacity allows. Choose concurrency for the work, without a worker-count
+  target or mandatory team flow; a simple task may stay inline.
 - Give each package its outcome, needed context or task references,
   dependencies, read-only or write mode, exact owned write paths, acceptance
   check and time budget. Native leaves reuse this packet and need no separate
@@ -145,54 +143,48 @@ leaves; a CCG/Trellis-managed task is not by itself a reason to refuse them.
   This is coordinator instruction, not a new automatic scheduler or sandbox.
 
 
-## Ponytail boundary
+## Minimal implementation
 
 Use Ponytail `full` mode for implementation when the Skill is available.
 
-Trellis workflows, accepted task artifacts, project specifications,
-architectural constraints, and all required CCG quality and security gates are
-authoritative and take precedence over Ponytail.
+Use the smallest sufficient change within accepted requirements, project
+contracts and required gates. Prefer existing code, standard libraries, native
+capabilities and installed dependencies. Do not add speculative configuration,
+abstraction, persistence, fallback, compatibility layers, caching or gates.
 
-Ponytail may minimize only the implementation within those constraints. It
-must not omit, weaken, bypass, or reinterpret required behavior, artifacts,
-acceptance criteria, tests, reviews, documentation, security, accessibility,
-error handling, or quality gates.
+Defensive code must serve a real boundary, supported input range, concrete
+failure model or business invariant. Do not mechanically repeat internal
+guarantees; preserve independent security controls, trust-boundary validation,
+data protection, accessibility and ownership/transaction safeguards.
 
-- Trellis and CCG decide what to build, which process to follow, and how to
-  verify it. Ponytail chooses the least code that satisfies those decisions.
-- An accepted requirement cannot be removed as YAGNI.
-- Required tests, documentation, security checks, and quality gates are not
-  over-engineering.
-- Fix a failed gate at its root cause; never shrink or bypass the gate.
-- Prefer existing code, standard libraries, native capabilities, and installed
-  dependencies.
-- Do not add speculative defensive branches, fallback, retries, compatibility
-  wrappers, caching, configuration or abstractions. Each must serve an accepted
-  requirement, reproduced fault or actual trust/data boundary. Fix the common
-  root cause instead of layering guards at every caller; report clear errors
-  rather than silently claiming success.
-- Preserve input validation at trust boundaries, data-loss prevention, security
-  and accessibility. Existing ownership/transaction safeguards are not optional.
+Fix the common root cause. Propagate clear errors without swallowing exceptions
+or claiming success. Keep retries bounded in one responsible layer, make side
+effects idempotent and inspect the original operation before retrying an
+uncertain result. Required behavior and safety controls cannot be removed as YAGNI.
 
-## Caveman boundary
+## Review and verification
 
-Use concise Caveman-style prose for routine commentary, ordinary questions,
-and final summaries when the Skill is available.
+Verify findings against the actual location, trigger, consequence and evidence.
+Zero findings is valid; optional suggestions do not become requirements.
+Address credible security or data-loss risks within scope, and report missing
+authorization or real blockers. After a fix, rerun the affected check. Repeat
+or broaden checks only for a new change, failure, concrete unresolved concern
+or required gate. Stop when acceptance and required checks are satisfied;
+unrun checks are never passes.
 
-Caveman controls conversational style only. It must not omit technical facts,
-acceptance criteria, exact errors, commands, verification evidence, risks, or
-required artifact content.
+Keep user-requested GPT Pro independent PR review. Default to one full round
+plus one targeted re-review as a soft budget, focused on fixes and changed
+risks. A real blocker leaves work incomplete; converge on the missing fix,
+evidence or decision instead of looping indefinitely or forcing a pass at
+the round limit. This does not clear independent product-manager user gates.
 
-Preserve required structure and detail in PRDs, specifications, plans, reviews,
-security warnings, destructive-action confirmations, quality-gate reports, and
-handoff artifacts.
+## Reporting
 
-- Keep technical terms, exact errors, commands, risks, and verification results
-  complete.
-- Temporarily leave compressed style when safety, irreversible actions, or
-  multi-step clarity requires full prose.
-- Never shorten a response by omitting an explanation or evidence the user
-  explicitly requested.
+Use natural, concise Chinese for routine updates and final reports: current
+stage, useful result, verification limits, next action and any decision needed.
+Aim for one screen without telegraphic fragments. Do not invent scores or
+completion percentages. Keep exact evidence and detail when requested or needed
+for safety, acceptance, reviews or handoff; reuse existing records.
 
 ## Code-search routing
 
