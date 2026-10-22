@@ -1,4 +1,4 @@
-import { codexHomePath, resolveCodexHome } from "./codex-home.mjs";
+import { resolveCodexHome } from "./codex-home.mjs";
 import {
   createHash,
   createHmac,
@@ -376,13 +376,14 @@ function isSameOrInside(root, target) {
   );
 }
 
-function assertDedicatedSkillRepository(repositoryPath, homeDir, codexHome) {
+// codexRoot is the resolved physical root so a linked default cannot hide it.
+function assertDedicatedSkillRepository(repositoryPath, homeDir, codexRoot) {
   const repository = path.resolve(repositoryPath);
   const userRoot = path.resolve(homeDir);
   for (const activeRoot of [
     path.join(userRoot, ".agents", "skills"),
     path.join(userRoot, ".codex", "skills"),
-    path.join(codexHomePath(homeDir, codexHome), "skills"),
+    path.join(codexRoot, "skills"),
   ]) {
     if (
       isSameOrInside(activeRoot, repository) ||
@@ -517,7 +518,8 @@ export async function loadSkillRepositoryProfile({
   const profile = validateSkillRepositoryProfile(await readJson(target), {
     allowPreviousGlobalSkills,
   });
-  assertDedicatedSkillRepository(profile.repositoryPath, canonicalHome, codexHome);
+  assertDedicatedSkillRepository(profile.repositoryPath, canonicalHome,
+    await resolveCodexHome(canonicalHome, codexHome));
   return profile;
 }
 
@@ -546,7 +548,8 @@ export async function saveSkillRepositoryProfile({
       `Skill repository path is not a directory: ${canonicalRepository}`,
     );
   }
-  assertDedicatedSkillRepository(canonicalRepository, canonicalHome, codexHome);
+  assertDedicatedSkillRepository(canonicalRepository, canonicalHome,
+    await resolveCodexHome(canonicalHome, codexHome));
   const profile = {
     schemaVersion: 1,
     repositoryPath: canonicalRepository,

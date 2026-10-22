@@ -68,7 +68,9 @@ unresolved decision per turn. Each question must
 
 For a split installation, pass `--home-dir <AgentsHome>` and
 `--codex-home <physical .codex directory>` together. The default remains
-`HomeDir/.codex`; a linked default requires its explicit physical root.
+`HomeDir/.codex`; that default entry alone may be a link (for example a Windows
+junction) and resolves to its physical directory. Other explicit links and
+linked ancestors are rejected.
 Skills, journals and backups remain in AgentsHome. Global Codex projections
 and subprocess `CODEX_HOME` use the selected physical root, which is bound into
 approval and rollback digests. Keep existing profile junctions in place.

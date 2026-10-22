@@ -59,7 +59,12 @@ locked `components/ccg-workflow` snapshot is not the integration runtime.
 
 The V2 source synchronization includes the adapter, watcher, their DOM and Pro
 selection helpers, and the existing upload helper pair referenced by the adapter.
-Keep companion files available without enabling optional attachment operations.
+The adapter exposes explicit `upload` and `upload-status` commands that accept
+only one to six ZIP files authorized by an explicit local manifest, require the
+bound blank ChatGPT homepage, and keep `run` rejecting attachments. Distributing
+these commands neither enables them by default nor authorizes an actual upload.
+The sealed display-name recovery in the upload helper is one-time reviewed
+recovery logic; do not generalize it or remove it as dead code.
 Never copy runtime evidence, browser state, backups, or generated caches.
 
 Parse PowerShell scripts, syntax-check JavaScript helpers, and run the bundled

@@ -174,24 +174,23 @@ doctor JSON contracts in `ci.yml`. Those job steps remain authoritative.
 state; they are not lightweight documentation checks. A successful local check
 does not certify GitHub branch-protection settings or the latest remote run.
 
-### Known Execution Conflict: File-Hash Prohibition
+### File-Hash Rule (current since 2026-10-22)
 
-Current global rules prohibit file-hash calculation/comparison. Existing
-initializer, lifecycle and full acceptance paths depend on such security
-checks. Adapter `context.mjs:collectArtifacts` and `collectProductManagerSummary`
-hash task files when present; `conflict-static.mjs:checkProductManagerManagedAssets`
-compares owned contract/schema hashes even with `conflicts --ci`.
-`doctor` invokes conflict/source checks, and full Harness tests include hashing.
-Do not execute a dependent command, remove the check or use a skip flag to
-bypass it. Record that gate as blocked/unverified and continue independent
-authorized work. This documents the conflict; it does not waive CI or authorize
-changes to global rules or security code.
+Required existing hash-dependent checks may run: adapter `context` and
+`conflicts`, initializer and lifecycle safety checks, and CI. Adapter
+`context.mjs:collectArtifacts` and `collectProductManagerSummary` hash task
+files when present; `conflict-static.mjs:checkProductManagerManagedAssets`
+compares owned contract/schema hashes even with `conflicts --ci`. `doctor`
+invokes conflict/source checks, and full Harness tests include hashing. Do not
+remove these checks or bypass them with a skip flag, and do not add an optional
+hash inventory. Results recorded as blocked under the earlier prohibition
+before 2026-10-22 are historical records.
 
 For read-only startup context, the existing
 `python -B -X utf8 ./.trellis/scripts/get_context.py --json`, `--mode phase` and
 `--mode packages` interfaces avoid the adapter's artifact hashes. JSON mode also
 avoids `session_context.py:output_text`'s installed-Trellis update probe and
-runtime marker write. These reads do not satisfy the blocked adapter gates.
+runtime marker write. These reads do not satisfy the adapter gates.
 
 ## Documentation Verification (2026-10-21)
 
@@ -213,3 +212,19 @@ runtime marker write. These reads do not satisfy the blocked adapter gates.
   reverse this index's entry/boundary/check additions and checklist replacement
   against the pre-session contents. Do not restore either whole file to HEAD:
   both already contained unrelated uncommitted changes.
+
+_Note (2026-10-22): the record above is historical. Its hash-check limitation
+was lifted on 2026-10-22 under the current File-Hash Rule._
+
+## Documentation Verification (2026-10-22)
+
+- Baseline `724975b`. Before implementation, the focused tests
+  (`ci-contract`, `codex-host-boundary`, `readme-provenance`) passed 12/12;
+  adapter `context` succeeded and `conflicts --ci` reported 14 ok / 5 info /
+  0 blocking.
+- Red evidence on the unfixed code: the new probe-error boundary regression
+  failed (the sensitive fragment remained) while the new short-error regression
+  passed; the IPv6 loopback regression failed because `http://[::1]` was
+  rejected.
+- Post-fix checks are pending the controller run and are not recorded as
+  passed here. Final verification results are recorded in the task record.
