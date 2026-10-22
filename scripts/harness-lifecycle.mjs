@@ -22,6 +22,7 @@ import {
   buildRestoreAction,
   assertBootstrapOwnershipContinuity,
   assertNoIgnoredComponentState,
+  CCG_COMPONENT_GATE_OUTPUT_ROOTS,
   assertSparseExclusionsUnchanged,
   compareSemanticVersions,
   globalPackageRootFromNpmPrefix,
@@ -891,7 +892,7 @@ async function runFinalCcgVerification(args, manifest, prepared) {
   const materialized = await verifyMaterializedGitTree(
     componentRoot,
     prepared.treeEntries,
-    { allowedExtraRoots: ["dist", "node_modules"] },
+    { allowedExtraRoots: [...CCG_COMPONENT_GATE_OUTPUT_ROOTS] },
   );
   if (materialized.manifestSha256 !== prepared.manifestSha256) {
     throw new Error("Final CCG tracked-tree manifest digest changed.");
