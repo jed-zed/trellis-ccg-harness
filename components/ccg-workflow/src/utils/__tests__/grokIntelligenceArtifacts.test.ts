@@ -413,17 +413,17 @@ describe('versioned Grok evidence cache', () => {
     await writeFile(join(lockPath, 'owner.json'), `${JSON.stringify({ owner: 'observed-dead-owner', created_at: NOW, pid: deadPid })}\n`)
 
     const originalKill = process.kill.bind(process)
-    let contender: Promise<string> | undefined
+    let contender: Promise<PromiseSettledResult<string>[]> | undefined
     let contenderRan = false
     const kill = vi.spyOn(process, 'kill').mockImplementation((pid, signal) => {
       if (pid === deadPid) {
         rmSync(lockPath, { recursive: true, force: true })
         mkdirSync(lockPath)
         writeFileSync(join(lockPath, 'owner.json'), `${JSON.stringify(replacement)}\n`)
-        contender = withCacheLock({ cacheRoot, key }, async () => {
+        contender = Promise.allSettled([withCacheLock({ cacheRoot, key }, async () => {
           contenderRan = true
           return 'must-not-run'
-        })
+        })])
         throw Object.assign(new Error('process is not alive'), { code: 'ESRCH' })
       }
       if (pid === replacement.pid)
@@ -433,9 +433,13 @@ describe('versioned Grok evidence cache', () => {
     try {
       await expect(withCacheLock({ cacheRoot, key }, async () => 'must-not-run')).rejects.toThrow(/busy/i)
       expect(contender).toBeDefined()
-      await expect(contender!).rejects.toThrow(/busy/i)
+      await expect(contender!).resolves.toMatchObject([{
+        status: 'rejected',
+        reason: expect.objectContaining({ message: expect.stringMatching(/busy/i) }),
+      }])
     }
     finally {
+      await contender
       kill.mockRestore()
     }
 

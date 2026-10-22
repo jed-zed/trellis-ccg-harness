@@ -134,7 +134,7 @@ BeforeAll {
         $scope = 'form:has(#prompt-textarea)'
         $selector = $scope + ' > button[data-testid="send-button"]:nth-child(1):not(:disabled, [aria-disabled="true"], [hidden], [aria-hidden="true"])'
         $Snapshot | Add-Member -NotePropertyName ComposerSelector -NotePropertyValue '#prompt-textarea'
-        $Snapshot | Add-Member -NotePropertyName SendSelector -NotePropertyValue $(if ($Snapshot.SendCount -eq 1) {$selector} else {''})
+        $Snapshot | Add-Member -NotePropertyName SendSelector -NotePropertyValue $(if ($Snapshot.SendCount -eq 1) {$selector} else {''}) -Force
         $Snapshot | Add-Member -NotePropertyName SendFormScope -NotePropertyValue $(if ($Snapshot.SendCount -eq 1) {$scope} else {''})
         $Snapshot | Add-Member -NotePropertyName SendSelectorMatchCount -NotePropertyValue $(if ($Snapshot.SendCount -eq 1) {1} else {0})
         return $Snapshot

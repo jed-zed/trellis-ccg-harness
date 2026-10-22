@@ -9,7 +9,9 @@ parity/completed-state handling, and a factual investigation of Sidebar CI.
 Preserve Codex ownership, model routing, personal configuration and installed versions.
 No live provider, MCPX production, installation, deployment or merge is part of this task.
 
-This is a lightweight structured security repair. The single execution plan is:
+The initial lightweight repair used the sequence below; the expanded CI scope
+now uses implement.md as its authoritative execution plan, with design.md
+defining the retained safety boundaries. The initial sequence was:
 inspect caller and runtime contract; reproduce on the pinned source; fix the shared
 verifier in both distributions; challenge the candidate with an independent read-only
 review; rerun focused suites; construct a provenance-consistent Harness candidate;
@@ -17,6 +19,15 @@ record CI facts and remaining integration gates. Local implementation and tests 
 covered by the user's explicit Action request. Candidate branches are for review only.
 
 ## Acceptance and implementation
+
+Resume authorization (2026-10-22): user requested continuation from the handoff
+and explicitly selected "修复夹具并重跑离线测试（推荐）" after presentation of
+the Sidebar fixture defect. This adds only the common test-fixture repair and
+offline regression run. Original assertions, production browser behavior, source
+version and installed environment remain unchanged. Local Pester reproduced the
+original 335 passed / 21 failed result before the repair. Normalize the prefilled
+SendSelector through the helper's existing SendCount rule with Add-Member -Force;
+the other three helper-added properties are absent from its inputs.
 
 - Negative checks inspect the full original browser time window (plus only the
   explicitly registered confirmation interval). Later intent events cannot truncate it.
@@ -123,6 +134,94 @@ Read through GitHub job and log APIs; these results belong to bb32c0f, not this 
 
 ## Handoff and safe merge conditions
 
+### Windows resume evidence (2026-10-22)
+
+Original PR head and both remote candidate heads were re-read via GitHub and
+remain bb32c0f, a274b40 and 57adff77 respectively. The Harness candidate has no
+Actions runs. Work is isolated from the dirty original checkout in
+I:/ai/pr58-mcpx-validation-harness; source baseline is
+I:/ai/pr58-mcpx-validation-ccg and expanded CI work is in
+I:/ai/pr58-mcpx-ci-source. No installed CLI/plugin/configuration was changed.
+
+- Local Python 3.11.2: integrated bridge suite 74 passed; byte comparison of the
+  plugin/template implementation passed.
+- Sidebar baseline Pester 5.7.1: 335 passed, 21 failed, matching CI. The initial
+  logging wrapper did not propagate that failure exit code; the Pester counts,
+  not wrapper status, establish this failure. After the one-line fixture repair:
+  356 passed, 0 failed, exit 0 with explicit result-count checks. Node DOM suite:
+  23 passed. PowerShell AST parse passed.
+- Full verify-sources.ps1 with AuthoritativeCheckout passed after configuring the
+  isolated clone's required gptpro remote alias. No provenance pins were changed.
+- Static conflicts --ci: 14 passed, 0 blocking, 0 warnings. Harness doctor passed
+  with 16 adapter passes and no blocking/warning findings. Doctor is read-only
+  installed-state evidence, not an installation or live Provider acceptance.
+- Source baseline: pnpm 10.17.1 frozen install, lint, typecheck and build passed.
+  Full Windows Vitest (--no-file-parallelism --retry 1): 827 passed, 3 skipped,
+  exit 0. Node here is 24.14.0; this does not replace CI Node 20/22 evidence.
+- Source baseline Go 1.26.5: build and go test -short ./... passed (45.576s).
+  This machine's long temporary path does not reproduce CI's 8.3 path condition.
+- Complete Harness offline suite: 589 passed, 1 skipped, 0 failed, exit 0
+  (590 tests, 2084.58 seconds). This is the isolated a274b40 source snapshot plus
+  the Sidebar fixture repair; the new CCG repairs have not yet been imported.
+
+Sidebar investigation used a read-only Luna leaf; the coordinator reproduced
+the failures and verified the frozen one-line repair. A second read-only leaf
+located the other CI failures. Coordinator spot-check corrected its macOS
+summary: the logs contain BOTH /var/folders link-path rejection and explicit
+managed-preferences rejection. Those are separate cases to retain in regression.
+
+Raw local logs remain in ignored .ccg/pr58-validation/ in Harness and the
+source baseline's *-validation.log files. The later source implementation and
+integrated revision must have their own applicable results before completion.
+
+### Expanded CCG CI repairs
+
+The user explicitly approved the three remaining CI repairs in this chat. Two
+Sol leaves worked in I:/ai/pr58-mcpx-ci-source with disjoint ownership; their
+source changes were frozen and accepted after coordinator diff inspection.
+
+- Cache test: immediately observe the contender with Promise.allSettled, retain
+  rejected/busy and no-action/live-owner assertions, and await started work before
+  restoring the process.kill mock. Production cache code is unchanged. Actual
+  withCacheLock under strict unhandled-rejection mode failed with delayed
+  observation and passed with immediate observation. Focused Vitest: 21 passed;
+  ESLint and full TypeScript check passed. Native Windows baseline was also 21/21,
+  so the controlled timing reproduction, not a claimed spontaneous local failure,
+  establishes this race. Logs: .ccg/cache-ci/.
+- Go: expand Windows 8.3 names using GetLongPathName before comparing to the
+  symlink-resolved path. Real file/parent symlinks and junctions remain rejected.
+  A real Windows short-name fixture failed before the fix and passed afterward.
+  macOS test fixtures use physical temporary roots; tests explicitly require the
+  unchanged managed-preferences rejection while retaining collector/argv coverage.
+  Focused tests, Windows build and full short suite passed with Go 1.26.5 (33.165s).
+  Darwin arm64 test binary cross-compiled; it was not executed. Logs: .ccg/go-ci/.
+- Existing wrapper release security binds exact source, version and six actual
+  binary pins. The new Go implementation therefore needs local candidate version
+  5.12.14-personal.20261022.1 and the existing Go 1.26.2 dual-build recipe. This
+  preparation does not publish assets or change installed versions. The CCG
+  package version remains 3.4.16-localarchive.7. Full release verification still
+  requires the actual committed source tree and matching generated artifacts.
+
+The frozen baseline clone used Windows automatic CRLF checkout. An exploratory
+verify-wrapper-release check correctly rejected those bytes before any source-tree
+change. An attempted checkout-index restoration did not change those bytes. The
+coordinator then restored all 53 unchanged tracked wrapper files directly from
+git show HEAD:file bytes, excluding every modified file; the Go edits are LF.
+Both six-platform artifact sets were rebuilt after that correction. All six pairs
+are byte-identical, and the installer pins now describe those final artifacts.
+The installer retains its original unaffected bytes; its diff is only the version
+and six pins. This preserves the exact-bytes gate rather than weakening it.
+
+The prepared wrapper tree is 1bc6f0dae923862a4db3c52675103caa64dd65fc,
+computed from a separate temporary Git index including the new Windows regression
+file. It is a prospective tree, not a committed-source claim. Both native Windows
+amd64 artifacts report the new version. Installer tests: 66 passed. Final combined
+build, package tests (4), worker tests (17), and package content check (299 entries,
+no missing/unexpected files or findings) passed. Final full Windows Vitest on
+Node 24.14.0 / pnpm 10.17.1: 827 passed, 3 skipped, exit 0 (301.35 seconds).
+Artifacts and preparation logs remain under .ccg/wrapper-candidate/ in the isolated
+source. No binary release, installation, commit or push has been performed.
+
 Outcome: the reported bypass is reproduced and the candidate closes it under focused
 verification; **full integration/release remains blocked**, so task is not archived
 or marked fully completed. PR #58 and main are unchanged.
@@ -133,3 +232,22 @@ candidate; resolve and rerun the original Sidebar failures and remaining Harness
 red jobs. Re-run all newly wired Python regressions on the eventual merged revision.
 Only a later explicitly authorized owned deployment transaction should update an
 installed CLI/plugin. No required CI failure is waived by this task.
+
+### Authorized candidate publication (2026-10-22)
+
+The user explicitly approved committing and pushing both existing candidate
+branches and running offline CI, excluding changes to PR #58/main, binary release,
+merge and deployment. Source commit a16d2b4535c67a313a38d3ed926165ed61ebad7e
+has root tree 134d66982cce1379902088f79ab07a27f9dd2b76. Its exact release
+validator passed for all 59 tracked wrapper files, Go 1.26.2 and both six-platform
+artifact sets. Harness imports only the nine changed committed source files and
+updates the manifest to that real commit/tree.
+
+Windows autocrlf made the source development worktree appear dirty to the provenance
+gate despite matching wrapper bytes. A fresh isolated clone with autocrlf disabled
+at I:/ai/pr58-mcpx-committed-source is clean and supplies the authoritative checkout.
+The integrated staged verify-sources gate passed; conflicts --ci --index passed
+with 16 checks, zero blocking/warnings; CI/provenance contracts passed 8/8.
+The full Harness baseline and final CCG tests above are reused for unchanged
+behavior; remote CI will test the exact integrated candidate and required platforms.
+Final CI results remain pending; this record does not claim release/install readiness.

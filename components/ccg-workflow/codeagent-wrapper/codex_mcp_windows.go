@@ -9,6 +9,26 @@ import (
 	"unsafe"
 )
 
+func codexMCPLongPath(path string) (string, error) {
+	name, err := syscall.UTF16PtrFromString(path)
+	if err != nil {
+		return "", err
+	}
+	// Expand 8.3 aliases without resolving symlinks or junctions. Comparing
+	// this lexical path with EvalSymlinks must still reject real traversal.
+	buf := make([]uint16, 260)
+	for {
+		n, err := syscall.GetLongPathName(name, &buf[0], uint32(len(buf)))
+		if err != nil {
+			return "", err
+		}
+		if n < uint32(len(buf)) {
+			return syscall.UTF16ToString(buf[:n]), nil
+		}
+		buf = make([]uint16, n+1)
+	}
+}
+
 func defaultCodexMCPSystemConfigPath() (string, error) {
 	// Match Codex 0.156.1: ProgramData is a Windows known folder, not an
 	// environment variable. Do not let a child enumerate an alternate layer.
