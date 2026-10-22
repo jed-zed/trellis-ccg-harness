@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 
-import { assertCodexMutationHost } from "../.agents/skills/harness-init/scripts/codex-host-boundary.mjs";
 import { createHash } from "node:crypto";
 
 import { spawnSync } from "node:child_process";
@@ -1470,7 +1469,6 @@ async function uninstallHarness(args) {
 }
 
 async function main() {
-  assertCodexMutationHost();
   const args = parseLifecycleArgs(process.argv.slice(2));
   if (args.command === "ccg-runtime-migration-plan") {
     process.stdout.write(jsonBytes(await buildNamespaceMigrationPlan(args.repoRoot)));

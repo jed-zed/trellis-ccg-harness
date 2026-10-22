@@ -15,9 +15,6 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-if ($env:CLAUDECODE -eq "1" -or $env:CCG_HOST -eq "claude") {
-  throw "Personal Harness mutations require the Codex host; explicit Claude host markers are rejected."
-}
 $RepoRoot = [System.IO.Path]::GetFullPath($RepoRoot)
 & node (Join-Path $PSScriptRoot "lib/ccg-legacy-claim-guard.mjs") --repo-root $RepoRoot
 if ($LASTEXITCODE -ne 0) { throw "The fixed new control root refuses mutations of a retired legacy management root." }

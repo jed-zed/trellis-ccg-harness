@@ -32,10 +32,6 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-if ($env:CLAUDECODE -eq "1" -or $env:CCG_HOST -eq "claude") {
-  throw "Personal Harness mutations require the Codex host; explicit Claude host markers are rejected."
-}
-
 function Get-NormalizedPath {
   param([Parameter(Mandatory)][string]$Path)
 
