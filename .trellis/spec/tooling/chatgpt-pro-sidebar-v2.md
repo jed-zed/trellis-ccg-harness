@@ -108,3 +108,12 @@ Offline tests establish protocol and fixture behavior. A live release claim
 still requires the Skill's external Chrome acceptance checks; report live
 verification separately and reuse existing authorization only when it covers
 the Provider, data, action, and cost scope.
+
+### Watcher state visibility during replacement
+
+Watcher JSON reads use the existing five-attempt read budget (four 25 ms waits),
+including temporary file absence. A separate existence precheck must not bypass
+that budget. Permanent required-file absence and invalid JSON remain failures;
+optional absence returns null only after the budget. This read tolerance does
+not authorize resubmission, deadline reset, identity substitution or slot release
+without the existing durable proof.

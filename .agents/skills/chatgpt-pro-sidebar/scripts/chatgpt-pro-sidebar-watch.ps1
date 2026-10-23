@@ -278,18 +278,21 @@ function Read-WatchJson {
         [switch]$Required
     )
 
-    if (-not [System.IO.File]::Exists($Path)) {
-        if ($Required) {
-            throw ('Required JSON file is missing: ' + [System.IO.Path]::GetFileName($Path))
-        }
-        return $null
-    }
+    # Read directly: an existence precheck can report a transient replacement gap
+    # and bypass this shared, bounded read retry entirely.
     for ($attempt = 1; $attempt -le 5; $attempt++) {
         try {
             return Read-BridgeText -Path $Path -Encoding $Script:Utf8NoBom | ConvertFrom-Json
         }
         catch {
             if ($attempt -eq 5) {
+                $cause = $_.Exception.GetBaseException()
+                if ($cause -is [System.IO.FileNotFoundException] -or $cause -is [System.IO.DirectoryNotFoundException]) {
+                    if ($Required) {
+                        throw ('Required JSON file is missing: ' + [System.IO.Path]::GetFileName($Path))
+                    }
+                    return $null
+                }
                 throw ('Invalid JSON file: ' + [System.IO.Path]::GetFileName($Path))
             }
             Start-Sleep -Milliseconds 25

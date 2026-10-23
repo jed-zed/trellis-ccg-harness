@@ -312,6 +312,43 @@ $watchState = [ordered]@{
 }
 
 Describe 'Atomic watcher JSON state' {
+    It 'rereads a briefly missing state instead of terminating before the retry budget: <Required>' -TestCases @(
+        @{ Required = $true }
+        @{ Required = $false }
+    ) {
+        param($Required)
+        $path = Join-Path $TestDrive "briefly-missing-watch-state-$Required.json"
+        $heldPath = Join-Path $TestDrive "held-watch-state-$Required.json"
+        [System.IO.File]::WriteAllText($path, '{"phase":"running","watcherId":"original-watcher"}', $Script:Utf8NoBom)
+        [System.IO.File]::Move($path, $heldPath)
+        [System.IO.File]::Exists($path) | Should -BeFalse
+        Mock Start-Sleep {
+            [System.IO.File]::Move($heldPath, $path)
+        } -ParameterFilter { $Milliseconds -eq 25 }
+
+        $state = Read-WatchJson -Path $path -Required:$Required
+        $state.phase | Should -Be 'running'
+        $state.watcherId | Should -Be 'original-watcher'
+        Should -Invoke Start-Sleep -Times 1 -Exactly -ParameterFilter { $Milliseconds -eq 25 }
+    }
+
+    It 'keeps a permanently missing state bounded and fail-closed: <Required>' -TestCases @(
+        @{ Required = $true }
+        @{ Required = $false }
+    ) {
+        param($Required)
+        $path = Join-Path $TestDrive 'permanently-missing-watch-state.json'
+        Mock Start-Sleep {} -ParameterFilter { $Milliseconds -eq 25 }
+
+        if ($Required) {
+            { Read-WatchJson -Path $path -Required } | Should -Throw '*Required JSON file is missing: permanently-missing-watch-state.json*'
+        }
+        else {
+            Read-WatchJson -Path $path | Should -BeNullOrEmpty
+        }
+        Should -Invoke Start-Sleep -Times 4 -Exactly -ParameterFilter { $Milliseconds -eq 25 }
+    }
+
     It 'retries a transient sharing violation during an atomic replacement' {
         $path = Join-Path $TestDrive 'transient-watch-state.json'
         $ready = Join-Path $TestDrive 'transient-watch-state.ready'

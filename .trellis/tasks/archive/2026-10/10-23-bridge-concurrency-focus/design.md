@@ -31,3 +31,9 @@ The user authorizes diagnosing and handling the remaining CCG snapshot gate whil
 ## Local commit authorization
 
 The subsequent explicit user request authorizes committing the reviewed integration and paired source snapshot/manifest locally. Stage only task-owned paths; preserve independent ownership-handoff work and original diagnostic task records. Default source/conflict checks run after the real commit; no reset, bypass, push or global installation change. Keep the instrumentation limit visible and retain raw runtime evidence outside Git.
+
+## Continuous focus observation follow-up
+
+The user authorized closing the remaining focus-observation gap while retaining both local commits and all failure evidence, without push or global replacement. The approved observer is a bounded fixed repository script invoked only through the existing exact-target agent-browser transport. It records document identity, visibility/focus events and opaque tokens in page memory, fails on loss/overflow/expiry, and removes its listeners after use. It does not select tabs or request focus.
+
+Page visibility alone cannot identify the selected Chrome tab while Chrome is backgrounded. Therefore native read-only `exec {"cmd":"tabs"}` metadata is sampled through the existing extension; only opaque selected/owned tab and window IDs and active flags are projected locally. No title or URL field from the global metadata list is accessed, printed or persisted. Read-only Win32 foreground sampling runs alongside it. Polling granularity is reported; no absolute claim about sub-sample transitions is made. Existing manual-switch evidence is retained, with no invented new calibration response.
