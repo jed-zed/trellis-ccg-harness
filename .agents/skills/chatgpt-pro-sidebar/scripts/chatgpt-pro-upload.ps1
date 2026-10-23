@@ -298,7 +298,7 @@ function Invoke-FormalZipUpload {
         if(-not $ObserveOnly){$snapshot=Ensure-AgentBrowserProMode -Target $Target -Snapshot $snapshot;Assert-AgentBrowserPageReady -Snapshot $snapshot;Assert-UploadFreshSnapshot -Snapshot $snapshot}
         $statePath=Join-Path $Directory 'upload-state.json';$receiptPath=Join-Path $Directory 'attachment-receipt.json'
         if([System.IO.File]::Exists($statePath)) {
-            $state=[System.IO.File]::ReadAllText($statePath,$Script:Utf8NoBom) | ConvertFrom-Json
+            $state=Read-BridgeText -Path $statePath -Encoding $Script:Utf8NoBom | ConvertFrom-Json
             if ([string]$state.manifestSha256 -cne $ctx.Hash){Throw-UploadError 'AttachmentManifestChanged' 'The original attachment ledger manifest cannot be replaced.'}
             Assert-UploadBindingEqual -Expected $state.targetBinding -Actual $ctx.Manifest.targetBinding
         } else {
@@ -393,14 +393,14 @@ function Assert-FormalAttachmentsForSend {
     Assert-UploadBindingEqual -Expected $ctx.Manifest.targetBinding -Actual (ConvertTo-AgentBrowserTargetBinding -Target $Target)
     Assert-UploadFreshSnapshot -Snapshot $Snapshot -AllowDraft
     if(-not [System.IO.File]::Exists($AttachmentReceiptPath)){Throw-UploadError 'AttachmentReceiptMissing' 'No completed attachment receipt exists; no message may be sent.'}
-    $receipt=[System.IO.File]::ReadAllText($AttachmentReceiptPath,$Script:Utf8NoBom) | ConvertFrom-Json
+    $receipt=Read-BridgeText -Path $AttachmentReceiptPath -Encoding $Script:Utf8NoBom | ConvertFrom-Json
     if(-not [bool](Get-ObjectProperty $receipt 'ready' $false) -or [string]$receipt.manifestSha256 -cne $ctx.Hash){Throw-UploadError 'AttachmentReceiptMismatch' 'The receipt does not prove the exact manifest.'}
     Assert-UploadBindingEqual -Expected $ctx.Manifest.targetBinding -Actual $receipt.targetBinding
     $rows=@(Get-ObjectProperty $receipt 'files' @())
     if($rows.Count -ne $ctx.Files.Count){Throw-UploadError 'AttachmentReceiptMismatch' 'The receipt must contain the exact attachment set.'}
     $ledgerPath=Join-Path ([System.IO.Path]::GetDirectoryName([System.IO.Path]::GetFullPath($AttachmentReceiptPath))) 'upload-state.json'
     if(-not [System.IO.File]::Exists($ledgerPath)){Throw-UploadError 'AttachmentLedgerMissing' 'The original durable upload ledger is required.'}
-    $ledger=[System.IO.File]::ReadAllText($ledgerPath,$Script:Utf8NoBom) | ConvertFrom-Json
+    $ledger=Read-BridgeText -Path $ledgerPath -Encoding $Script:Utf8NoBom | ConvertFrom-Json
     if([string]$ledger.manifestSha256 -cne $ctx.Hash){Throw-UploadError 'AttachmentReceiptMismatch' 'The durable upload ledger belongs to another manifest.'}
     Assert-UploadBindingEqual -Expected $ctx.Manifest.targetBinding -Actual $ledger.targetBinding
     Initialize-UploadDisplayNameMap -ManifestContext $ctx -Directory ([IO.Path]::GetDirectoryName([IO.Path]::GetFullPath($AttachmentReceiptPath))) -State $ledger

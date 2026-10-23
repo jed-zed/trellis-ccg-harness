@@ -131,12 +131,20 @@ def verify_read_history(value,request_id,history_file,capability_only=False,star
         except McpxBlocked:raise
         except (AttributeError,TypeError,ValueError):raise McpxBlocked('MCPX_WEB_REQUEST_TIME_RANGE_INVALID') from None
     marker='GPTPRO_ADVICE_REQUEST:'+request_id
-    intents=[e for e in events if e.get('kind')=='agent.activity' and e.get('activity_kind')=='intent' and marker in e.get('summary','') and e.get('remote_session_id')==value['remoteSessionId'] and e.get('workspace')==value['workspaceId']]
+    session_intents=[e for e in events if e.get('kind')=='agent.activity' and e.get('activity_kind')=='intent' and e.get('remote_session_id')==value['remoteSessionId']]
+    markers=lambda e:re.findall(r'GPTPRO_ADVICE_REQUEST:([A-Za-z0-9_-]+)',e.get('summary',''))
+    intents=[e for e in session_intents if request_id in markers(e) and e.get('workspace')==value['workspaceId']]
     if not intents:raise McpxBlocked('MCPX_WEB_REQUEST_MARKER_NOT_OBSERVED')
-    start=max(int(e.get('sequence',0)) for e in intents)
-    following=[int(e.get('sequence',0)) for e in events if e.get('kind')=='agent.activity' and e.get('activity_kind')=='intent' and int(e.get('sequence',0))>start and e.get('remote_session_id')==value['remoteSessionId']]
-    end=min(following) if following else float('inf')
-    reads=[e for e in events if e.get('kind')=='tool.completed' and e.get('status')=='succeeded' and e.get('tool')=='read' and start<int(e.get('sequence',0))<end and e.get('remote_session_id')==value['remoteSessionId'] and e.get('workspace')==value['workspaceId']]
+    # Intent is an attribution marker, not a boundary that can hide effects.
+    # With browser timestamps, inspect the entire filtered request window,
+    # including effects before the first marker. Legacy callers start there.
+    read_start=min(int(e.get('sequence',0)) for e in intents)
+    start=float('-inf') if started_at is not None else read_start
+    end=float('inf')
+    if any(other!=request_id for e in session_intents if start<=int(e.get('sequence',0)) for other in markers(e)):raise McpxBlocked('MCPX_CONFLICTING_REQUEST_MARKER')
+    scoped=[e for e in events if start<int(e.get('sequence',0))<end and e.get('remote_session_id')==value['remoteSessionId']]
+    if any(e.get('kind') in {'tool.completed','file.changed'} and e.get('workspace')!=value['workspaceId'] for e in scoped):raise McpxBlocked('MCPX_OUT_OF_SCOPE_WORKSPACE_OBSERVED')
+    reads=[e for e in events if e.get('kind')=='tool.completed' and e.get('status')=='succeeded' and e.get('tool')=='read' and read_start<int(e.get('sequence',0))<end and e.get('remote_session_id')==value['remoteSessionId'] and e.get('workspace')==value['workspaceId']]
     if any(not e.get('path') for e in reads):raise McpxBlocked('MCPX_BATCH_READ_PATH_EVIDENCE_UNAVAILABLE')
     read_paths={relative_file(e.get('path','')) for e in reads}
     required={value['entrypoint']} if capability_only else set(value['allowedPaths'])
@@ -148,19 +156,20 @@ def verify_read_history(value,request_id,history_file,capability_only=False,star
     allowed_tools=value['allowedTools'] if production else READ_TOOLS
     bad=[e for e in events if e.get('kind')=='tool.completed' and start<int(e.get('sequence',0))<end and e.get('remote_session_id')==value['remoteSessionId'] and e.get('tool') not in allowed_tools]
     if bad:raise McpxBlocked('MCPX_NON_READ_TOOL_OBSERVED')
+    if not production and any(e.get('kind')=='file.changed' for e in scoped):raise McpxBlocked('MCPX_NON_READ_EFFECT_OBSERVED')
     proof={'source':'MCPX-server-structured-history','historyFile':str(Path(history_file).resolve()),'historySha256':sha(Path(history_file).read_bytes()),'readEventIds':[e['event_id'] for e in reads],'paths':sorted(read_paths),'requestMarker':marker}
-    if production:proof.update(verify_production_events(value,events,start,end))
+    if production:proof.update(verify_production_events(value,events,start,end,read_start))
     if continuation_window:proof['confirmationWindow']=list(continuation_window)
     return proof
 
-def verify_production_events(value,events,start,end):
+def verify_production_events(value,events,start,end,proof_start):
     scoped=[e for e in events if start<int(e.get('sequence',0))<end and e.get('remote_session_id')==value['remoteSessionId'] and e.get('workspace')==value['workspaceId']]
     changes=[e for e in scoped if e.get('kind')=='file.changed' and e.get('tool')=='edit']
     if any(e.get('status')!='succeeded' or e.get('path') not in value['writePaths'] for e in changes):raise McpxBlocked('MCPX_OUT_OF_SCOPE_OR_FAILED_WRITE')
     completed={e.get('request_id') for e in scoped if e.get('kind')=='tool.completed' and e.get('tool')=='edit' and e.get('status')=='succeeded'}
     edit_calls=[e for e in scoped if e.get('kind')=='tool.completed' and e.get('tool')=='edit']
     if any(e.get('status')!='succeeded' or not e.get('request_id') or e['request_id'] not in {w.get('request_id') for w in changes} for e in edit_calls):raise McpxBlocked('MCPX_SUCCESSFUL_WRITES_NOT_PROVED')
-    writes=[e for e in changes if e.get('request_id') and e['request_id'] in completed]
+    writes=[e for e in changes if e.get('request_id') and e['request_id'] in completed and int(e.get('sequence',0))>proof_start]
     if not set(value['writePaths']).issubset({e['path'] for e in writes}):raise McpxBlocked('MCPX_SUCCESSFUL_WRITES_NOT_PROVED')
     executions=[e for e in scoped if e.get('kind')=='tool.completed' and e.get('tool')=='execute']
     expected={(e['command'],working_directory_key(e['workingDirectory'])) for e in value['allowedExecutions']}
@@ -171,7 +180,7 @@ def verify_production_events(value,events,start,end):
     executions=[e for e in executions if e.get('status')!='waiting_confirmation']
     if any((e.get('command'),working_directory_key(e.get('working_directory',''))) not in expected for e in executions):raise McpxBlocked('MCPX_OUT_OF_SCOPE_EXECUTION')
     last_write=max(int(e['sequence']) for e in changes+edit_calls)
-    succeeded=[e for e in executions if e.get('status')=='succeeded' and type(e.get('exit_code')) is int and e['exit_code']==0 and int(e['sequence'])>last_write]
+    succeeded=[e for e in executions if e.get('status')=='succeeded' and type(e.get('exit_code')) is int and e['exit_code']==0 and int(e['sequence'])>max(last_write,proof_start)]
     if {(e.get('command'),working_directory_key(e.get('working_directory',''))) for e in succeeded}!=expected:raise McpxBlocked('MCPX_SUCCESSFUL_EXECUTION_NOT_PROVED')
     return {'writeEventIds':[e['event_id'] for e in writes],'writtenPaths':sorted({e['path'] for e in writes}),'executeEventIds':[e['event_id'] for e in succeeded],'pendingExecutionEventIds':[e['event_id'] for e in pending],'permissionMode':'read-write-execute'}
 

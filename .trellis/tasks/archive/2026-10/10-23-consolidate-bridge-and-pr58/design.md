@@ -1,0 +1,7 @@
+# Integration design
+
+Keep current branch/HEAD and index unchanged. Preserve before-images of pre-existing dirty owned files under ignored `.ccg/consolidate-bridge-pr58/`. Import exact file contents of the non-overlapping committed delta using git object reads after checking destination still matches baseline. The component snapshot and manifest are one existing committed candidate (35be883, personal source 64625401abe2f8342dabf95708e3811dc3c70468).
+
+Browser bridge work uses a dedicated frozen candidate under the same ignored directory. Baseline is the current committed project Skill; global pre-diagnostic adapter/watcher and their test before-images already exist in `.ccg/gptpro-safe-diagnostics/runtime-before`. Only non-diagnostic global files may be read directly. Reconcile behavior, do not replace the whole project with the global directory. Preserve both existing project regressions and global unique tests, and include the repair-branch fixture update. Document the newly supported thinking-mode contract.
+
+One writer per path. Root owns task, branch-delta materialization and final integration. Bridge worker owns only its frozen candidate directory. Read-only research owns nothing. Live bridge paths are reserved for diagnostics until confirmed released. Run heavy validation sequentially, using isolated copies where the live source may change. No suppression of ownership/provenance gates.

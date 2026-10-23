@@ -18,6 +18,11 @@ BeforeAll {
 Describe 'Completed response reextraction isolation' {
     BeforeEach {
         $script:reUrl='https://chatgpt.com/c/12345678-1234-1234-1234-123456789abc'
+        $script:TargetClaimRootOverride=Join-Path $TestDrive 'fixture-reextract-claims'
+        [IO.Directory]::CreateDirectory($script:TargetClaimRootOverride) | Out-Null
+        $claimBinding=[pscustomobject]@{browserId='browser-test';profileId='profile-test';tabId='123';sessionKey='browser-test:profile-test:123';origin='https://chatgpt.com';url=$script:reUrl}
+        $claimDescriptor=Get-AgentBrowserTargetClaimDescriptor -Binding $claimBinding
+        [IO.File]::WriteAllText((Join-Path $script:TargetClaimRootOverride ($claimDescriptor.KeySha256+'.json')),'{}')
         $script:reState=[pscustomobject]@{conversationUrlBound=$script:reUrl;baselineUserTurnSha256=@('old-user');baselineResponseSha256=@('old-response');promptSha256='sent-prompt'}
         $script:reSnapshot=[pscustomobject]@{Url=$script:reUrl;Generating=$false;UserTurns=@([pscustomobject]@{ContentSha256='old-user'},[pscustomobject]@{ContentSha256='sent-prompt'},[pscustomobject]@{ContentSha256='later-confirmation'});Responses=@([pscustomobject]@{ContentSha256='old-response'},[pscustomobject]@{Content='complete source';ContentSha256='complete';Truncated=$false},[pscustomobject]@{Content='later reply';ContentSha256='later';Truncated=$false})}
     }
@@ -112,6 +117,25 @@ Describe 'Completed response reextraction isolation' {
         $full=Join-Path $parent '.reextraction-staging-full'
         [IO.Directory]::CreateDirectory($full) | Out-Null
         {Move-ReextractionToNextRevision -StagingDirectory $full -ParentDirectory $parent} | Should -Throw '*full*'
+    }
+    It 'preserves the exclusive staging response and receipt when publication fails' {
+        $directory=Join-Path $TestDrive 'failed-publication/sidebar'
+        [IO.Directory]::CreateDirectory($directory) | Out-Null
+        $thread='12345678-1234-1234-1234-123456789abc'
+        $target=[pscustomobject]@{BrowserId='browser-test';ProfileId='profile-test';TabId='123';SessionKey='browser-test:profile-test:123';Url=$script:reUrl;UrlExact=$true}
+        $script:reState | Add-Member -NotePropertyMembers @{codexThreadId=$thread;transport=$Script:AgentBrowserTransport;targetBinding=(ConvertTo-AgentBrowserTargetBinding -Target $target)}
+        [IO.File]::WriteAllText((Join-Path $directory 'state.json'),'{"completedAtUtc":"2026-10-20T14:15:09.1412604Z"}')
+        foreach($name in @('evidence.json','prompt.md','response.md','url.txt')) {[IO.File]::WriteAllText((Join-Path $directory $name),'original '+$name)}
+        Mock Read-EvidenceState {$script:reState}
+        Mock Get-CompletedResponseResult {@{completed=$true}}
+        Mock Get-AgentBrowserWaitObservation {[pscustomobject]@{Transient=$false;Target=$target;Snapshot=$script:reSnapshot}}
+        Mock Move-ReextractionToNextRevision {throw [IO.IOException]::new('Synthetic publication failure.')}
+        {Invoke-AgentBrowserReextract -EvidenceDirectory $directory -ThreadId $thread} | Should -Throw '*Synthetic publication failure*'
+        $staging=@(Get-ChildItem -LiteralPath (Split-Path -Parent $directory) -Directory -Force -Filter '.reextraction-staging-*')
+        $staging.Count | Should -Be 1
+        [IO.File]::ReadAllText((Join-Path $staging[0].FullName 'response.md')) | Should -BeExactly 'complete source'
+        Test-Path -LiteralPath (Join-Path $staging[0].FullName 'reextraction.json') | Should -BeTrue
+        [IO.File]::ReadAllText((Join-Path $directory 'response.md')) | Should -BeExactly 'original response.md'
     }
     It 'preserves the exact original completion timestamp without locale conversion' {
         $directory=Join-Path $TestDrive 'time';[IO.Directory]::CreateDirectory($directory) | Out-Null

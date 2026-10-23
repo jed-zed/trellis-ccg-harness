@@ -28,6 +28,9 @@ jobs:
       - name: PowerShell offline regressions
         shell: pwsh
         run: |
+          if (-not (Get-PSRepository -Name PSGallery -ErrorAction SilentlyContinue)) {
+            Register-PSRepository -Default
+          }
           Install-Module Pester -RequiredVersion 5.7.1 -Scope CurrentUser -Repository PSGallery -Force
           Import-Module Pester -RequiredVersion 5.7.1
           $result = Invoke-Pester -Path '.agents/skills/chatgpt-pro-sidebar/tests' -PassThru

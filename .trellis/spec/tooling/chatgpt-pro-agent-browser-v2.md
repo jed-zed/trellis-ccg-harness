@@ -26,15 +26,22 @@ It verifies the stopped conversation, original prompt and ordered transcript
 baseline, records the six original artifact hashes, and writes a separate
 sibling response/receipt while preserving original files and exact timestamp
 text. Later confirmation turns do not change which original reply is selected.
+If a later round owns the stable conversation claim, only reextract may read
+the historical round after proving the same thread/profile/exact conversation
+and a completed current owner. Hold the existing claim lock from ownership
+validation through receipt publication; ordinary send/wait/response ownership
+and active/foreign-owner rejection remain unchanged.
 The receipt records zero new requests and disallows automatic resend; it does
 not extend the original response deadline or replace independent import checks.
-Legacy missing thinkingMode means Pro, matching this source adapter's selection
-capability; general strength selection remains outside this repair.
+Legacy missing thinkingMode means Pro. Explicit webpage strengths are preserved
+through send, observation, reextract and RootWait recovery; an explicit recovery
+mismatch fails before another action. This does not change the selected model.
 
 
 Initial `status` is read-only and may report non-Pro. `new-chat` opens its own
 background homepage and waits within the existing ten-second loading window for
-the composer and mode control; `new-chat` and `send` select and re-verify Pro
+the composer and mode control; `new-chat` and `send` select and re-verify the
+requested thinking mode (default Pro)
 before filling. The source tab's draft and mode remain unchanged.
 
 ## Scope
@@ -59,6 +66,15 @@ provider. It controls a user-approved external Chrome tab through
   canonical conversation URL.
 - Every mutating CLI result must report the same tab and session. A mismatch is
   a hard failure.
+- New-tab discovery binds the exact `opened_tab_id` and `opened_session_key`
+  from `open`, then proves the same session with the fixed DOM inspector rather
+  than depending on a potentially delayed tab listing. The ten-second discovery
+  budget also bounds each inspection subprocess; identity, origin and page-path
+  conflicts fail immediately. An exhausted discovery preserves the opened
+  identity and bounded failure metadata and never opens a replacement tab.
+- A new homepage can inherit the browser application's saved draft. A nonempty
+  inherited draft still fails before mode selection, filling or sending. The
+  bridge does not silently clear drafts to make a new-chat check pass.
 - A closed exact-conversation tab may be reopened only at its exact sanitized
   URL, in the same persistent profile, with `open --background`. The resulting
   current browser, tab, and session become the new immutable observation
@@ -84,24 +100,36 @@ provider. It controls a user-approved external Chrome tab through
 
 ## Exact-once send
 
-- `send` requires an empty evidence directory, a new idempotency reservation,
+- Unrelated files and validated attachment upload artifacts do not make a
+  round directory unusable. Protect actual output names and existing request
+  ownership, and do not write failure state over a colliding output. Explicit
+  ResumeUnsent may recover a historical EvidenceDirectoryNotPristine rejection
+  only with the same identity and complete proof that reservation, claiming,
+  fill and click never started. Re-prove the empty original homepage under its
+  target mutex, retain the full originalPreparationFailure, and permit only
+  the existing single-click explicit-recovery path. Reserved/uncertain request
+  proof requirements are unchanged.
+- `send` requires a directory without conflicting round outputs, a new idempotency reservation,
   one ready non-generating page, an empty composer, and either the exact
   existing URL or an explicitly fresh homepage. Before prompt fill, the adapter
   requires exactly one composer-adjacent thinking-mode control. If its visible
-  label is not exactly `Pro`, it may open only that control, the unique matching
-  thinking-mode submenu, and the unique exact `Pro` radio option; it then
-  re-reads the fixed page snapshot and requires `Pro`.
+  label does not match the requested mode, it may use only the fixed bounded
+  thinking-mode helper on that control. It then independently re-reads the
+  selected strength and verifies that the underlying model is unchanged.
+  `thinking-modes.json` defines canonical/localized aliases; the live control
+  still proves availability. Missing/changed controls may require manual
+  selection before resuming the same unsent request, never an unproved send.
 - The same-form `选择 ChatGPT 模型` control may change from `Medium` to
   `思考强度` while `aria-expanded=true`. Both fixed scripts retain that unique
-  expanded control; this label is never proof of selected `Pro`.
+  expanded control; this label is never proof of the requested selected mode.
 - A new-chat error preserves its original `errorDetails`. The outer
   `lastObservedSnapshot` is explicitly separate and may precede model selection.
 - The prompt is filled once, then its normalized SHA-256 and one Send control
   are re-proved immediately before one click. ChatGPT may hide the model
-  control after fill; the exact pre-fill `Pro` proof remains valid only while
+  control after fill; the exact pre-fill requested-mode proof remains valid only while
   the same target mutex is held and target/URL/composer/send invariants remain
   unchanged. If the control remains visible, the snapshot must still prove
-  exactly one selected `Pro` mode. Ambiguous controls, a failed
+  exactly one selected requested mode. Ambiguous controls, a failed
   selection, or post-fill mode drift terminates before the Send click and is
   reported to the original Codex task.
 - After each click, the adapter observes the same bound target for up to `180`
@@ -146,7 +174,7 @@ provider. It controls a user-approved external Chrome tab through
   target, allowed URL, login/challenge clearance, and one composer, but a mode
   control hidden by ChatGPT does not turn the observation into an adapter
   failure. The payload keeps `ready=false` and the selected-mode evidence;
-  `send` alone retains the strict final pre-click `Pro` proof.
+  `send` alone retains the strict final pre-click requested-mode proof.
 - Post-click observation reads only the injected `UtcNowProvider`. One sampled
   time value is compared with both the 180-second observation deadline and the
   absolute 7200-second response deadline; the loop must not consult wall-clock
@@ -247,6 +275,18 @@ provider. It controls a user-approved external Chrome tab through
   recovery operation may release only a provably pre-click-unsent or terminal
   slot. It must not delete idempotency or target claims or authorize another
   click.
+- A separately explicit, user-authorized `abandon-slot` action may retire an
+  unresolved historical request administratively. It checks the exact original
+  claim under the capacity mutex, rejects active owner/watcher identities and
+  changed evidence, archives original bytes and persists an abandonment receipt
+  before releasing only the matching capacity slot. Failed archival leaves
+  capacity occupied. Existing idempotency/target reservations remain unchanged;
+  a missing idempotency reservation is created exclusively in the existing
+  reservation namespace as an `abandoned-request` record, with unknown original
+  prompt digest represented explicitly rather than fabricated. This is neither
+  success nor proof of non-submission and never resets the original deadline,
+  fabricates a watcher event, imports a late reply, or permits resend. Normally
+  releasable requests, including `pre-invoke-failed`, must use ordinary release.
 - Batch admission accepts `TimeoutSeconds` only from `30` through `7200`.
   Idempotency keys must match `^[A-Za-z0-9._:-]{1,128}$`; the final composed
   prompt must be nonblank UTF-8 and no more than `24000` characters; each
@@ -389,7 +429,7 @@ provider. It controls a user-approved external Chrome tab through
 1. **Scope and trigger** — use `run-root` for every new complete GPT Pro round;
    use split watcher commands only when recovering or diagnosing evidence that
    is already in `sent`, `send-intent`, or `send-uncertain`.
-2. **Signature** — `run-root` requires `PromptPath`, an existing empty
+2. **Signature** — `run-root` requires `PromptPath`, an existing round-owned
    `EvidenceDir`, a unique opaque `IdempotencyKey`, the exact UUID
    `CodexThreadId`, and a bounded `TimeoutSeconds`. A new independent round on
    the proved empty root homepage must pass `FreshConversation`; an exact-URL
@@ -400,6 +440,10 @@ provider. It controls a user-approved external Chrome tab through
    fail before adapter invocation. `SlotId` plus `CapacityClaimId` is an
    internal batch-child handoff; either both match the parent claim or the child
    fails before adapter invocation.
+   Unrelated files and validated upload state/receipts may coexist in the
+   directory. Reject actual round-output or ownership collisions, not the
+   presence of arbitrary files; never truncate a preexisting output while
+   recording that collision.
 3. **Contract** — one process performs `send -> watcher start -> local wait` in
    that order for ordinary post-send observation. It returns only after a
    terminal event, leaves acknowledgement pending for independent Codex review,
@@ -451,6 +495,10 @@ provider. It controls a user-approved external Chrome tab through
    one or more rounds with unique IDs, prompt paths, evidence directories,
    idempotency keys, and complete target bindings for multi-round batches. The
    timeout/key/prompt/target limits are the exact admission bounds stated above.
+   Round directories may contain unrelated notes or upload-preparation artifacts;
+   the adapter protects its actual outputs and request ownership. An existing
+   batch-root `batch-result.json` is rejected before capacity acquisition so a
+   later invocation cannot overwrite a previous batch's results.
 3. **Contract** — the parent process acquires capacity before starting a child
    `run-root`. At most three children for one task and six for the local user may
    run at once. An item without capacity remains local and must not open a page,

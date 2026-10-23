@@ -27,11 +27,19 @@ locked `components/ccg-workflow` snapshot is not the integration runtime.
 
 - Preserve thread, target, prompt, response, and exact conversation URL binding.
   An unrelated page or another thread's evidence must never authorize an action.
-- Require one selected `Pro` mode and verified composer text before sending.
+- Require one selected requested thinking mode and verified composer text before sending.
+  `-ThinkingMode` defaults to `Pro`; webpage strength is independent of CCG
+  plan/review/exc and Codex reasoning settings. `Extra High` is not `Pro`.
   Login, account, CAPTCHA, billing, and entitlement actions remain user-owned.
-- `new-chat` and `send` automatically select the unique Pro option before fill,
-  then re-read and verify Pro. A non-Pro initial status is preparation work,
-  not a requirement for the user to switch modes manually.
+- `new-chat` and `send` select and independently verify the requested strength
+  before fill without changing the underlying model. The bound live control
+  proves availability; unknown or ambiguous choices never authorize a send.
+- `status` is observational. `set-mode` changes only a bound empty homepage;
+  it never fills or sends. A manual-selection wait resumes the original unsent
+  request only after observing the matching mode, not from a user's assertion.
+- State, evidence and watcher events retain `thinkingMode`. Recovery inherits
+  that original value and rejects an explicit mismatch; historical absent
+  values mean `Pro`. Completed ownership recovery keeps the same mode/deadline.
 - Extract sanitized turn text with the existing `nodePlainText` traversal so
   `<br>` preserves its newline even after the turn is cloned and detached.
 - A hidden composer duplicate may be excluded by a bounded numeric DOM path
@@ -54,11 +62,34 @@ locked `components/ccg-workflow` snapshot is not the integration runtime.
   credential extraction, login automation, or hidden transport switch.
 - GPT Pro remains untrusted read-only advice. Codex owns workspace changes,
   verification, and the existing Trellis/CCG completion rules.
+- Internal failures retain bounded diagnostic metadata through adapter errors,
+  pre-invocation failure state, and RootWait errors: exception types, numeric
+  error codes, and an allowlisted script basename with numeric code location.
+  Preserve the original failure location across rethrows. Never persist raw
+  exception text, source lines, full paths, prompts, or unfiltered stack traces
+  in this metadata. Diagnostics do not authorize a resend or alter claim state.
+- Adapter and watcher share the atomic-file helper. Mutable evidence readers
+  allow delete sharing so their own reads do not block atomic replacement.
+  Only a Windows sharing violation receives a bounded replacement retry;
+  permanent errors retain their diagnostics and the previous durable content.
+  Never replace atomic persistence with delete-then-write.
+- Reextraction publishes its exclusive staging directory by atomic rename.
+  A reproduced Windows child-file lock may surface as IOException 0x80070005;
+  retry only that rename at most three times with 50 ms sleeps, while the
+  source exists and destination is absent. Existing destination races retain
+  the next-revision rule. Other errors or an exhausted budget propagate and
+  retain the failed staging evidence; never alter permissions or overwrite a
+  published revision.
+- Prepare a first-click intent on an independent state object and adopt it only
+  after durable persistence succeeds. A caught failure before the actual click
+  retains consistent zero-click evidence; a post-click ambiguity remains
+  non-resendable. This correction does not rewrite historical mixed failure
+  records or relax the existing unsent-resume proof.
 
 ## Distribution and validation
 
-The V2 source synchronization includes the adapter, watcher, their DOM and Pro
-selection helpers, and the existing upload helper pair referenced by the adapter.
+The V2 source synchronization includes the adapter, watcher, their shared atomic-file helper, DOM and mode
+selection helpers, `thinking-modes.json`, and the existing upload helper pair.
 The adapter exposes explicit `upload` and `upload-status` commands that accept
 only one to six ZIP files authorized by an explicit local manifest, require the
 bound blank ChatGPT homepage, and keep `run` rejecting attachments. Distributing

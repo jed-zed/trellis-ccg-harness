@@ -30,10 +30,10 @@ test('both model matchers retain the unique form control while its expanded labe
   const modeSource = readFileSync(new URL('../scripts/chatgpt-pro-agent-browser-select-pro.js', import.meta.url), 'utf8');
   const matcher = pageSource.slice(pageSource.indexOf('  const composerRect ='), pageSource.indexOf('  // Read-only bounded structural'));
   const inspect = new Function('composers', 'composerForm', 'visibleAll', 'compactText', matcher + '\nreturn { count: modeControls.length, label: selectedModeLabel };');
-  for (const { text, expanded, duplicate, count, phase } of [
+  for (const { text, expanded, duplicate, count, pageCount = count, phase } of [
     { text: 'Medium', expanded: false, count: 1, phase: 'open-menu' },
     { text: '思考强度', expanded: true, count: 1, phase: 'select-pro' },
-    { text: '思考强度', expanded: false, count: 0, phase: undefined },
+    { text: '思考强度', expanded: false, count: 0, pageCount: 1, phase: undefined },
     { text: '思考强度', expanded: true, duplicate: true, count: 2, phase: undefined },
   ]) {
     const form = {};
@@ -56,7 +56,7 @@ test('both model matchers retain the unique form control while its expanded labe
       : selector === 'button[aria-haspopup="menu"]' ? controls
       : selector === '[role="menuitemradio"]' ? [option] : [];
     assert.deepEqual(inspect([composer], form, query, node => node.innerText), {
-      count, label: count === 1 ? text : '',
+      count: pageCount, label: pageCount === 1 ? text : '',
     });
     const action = new Function('document', 'getComputedStyle', modeSource)(
       { querySelectorAll: query }, () => ({ display: 'block', visibility: 'visible' }),

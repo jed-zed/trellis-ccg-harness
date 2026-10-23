@@ -228,13 +228,10 @@ return (() => {
   const modeControls = composerRect
     ? visibleAll('button[aria-haspopup="menu"]').filter(element => {
       const rect = element.getBoundingClientRect();
-      const text = compactText(element);
       const verticalGap = Math.max(composerRect.top - rect.bottom, rect.top - composerRect.bottom, 0);
       const horizontallyAdjacent = rect.right >= composerRect.left - 40 && rect.left <= composerRect.right + 40;
-      return !element.closest('[role="menu"]') && (text === 'Pro' || text === '极高' ||
-        ((text === 'Medium' || (text === '思考强度' && element.getAttribute('aria-expanded') === 'true')) &&
-          composerForm && element.closest('form') === composerForm && element.form === composerForm &&
-          element.getAttribute('aria-label') === '选择 ChatGPT 模型')) &&
+      const modelControl = /^(\u9009\u62e9 ChatGPT \u6a21\u578b|(?:Choose|Select) ChatGPT model)$/i.test(String(element.getAttribute('aria-label') || '').trim());
+      return !element.closest('[role="menu"]') && composerForm && element.closest('form') === composerForm && element.form === composerForm && modelControl &&
         horizontallyAdjacent && verticalGap <= 40;
     })
     : [];
@@ -314,11 +311,11 @@ return (() => {
   const publicModelLabel = (element, allowBoundMenuText = false) => {
     const value = compactText(element);
     if (allowBoundMenuText === true) return value.slice(0, 100);
-    return ['Pro', '极高', 'Medium', '思考强度'].includes(value) ? value : '';
+    return modeControls.includes(element) ? value.slice(0, 64) : '';
   };
   const modelControlCandidates = composerForm ? Array.from(composerForm.querySelectorAll('button[aria-haspopup="menu"]')).filter(element =>
     element.closest('form') === composerForm && element.form === composerForm &&
-    element.getAttribute('aria-label') === '选择 ChatGPT 模型') : [];
+    /^(\u9009\u62e9 ChatGPT \u6a21\u578b|(?:Choose|Select) ChatGPT model)$/i.test(String(element.getAttribute('aria-label') || '').trim())) : [];
   const linkedModelMenus = Array.from(document.querySelectorAll('[role="menu"]')).filter(menu => modelControlCandidates.some(control =>
     (menu.id && String(control.getAttribute('aria-controls') || '').split(/\s+/).includes(menu.id)) ||
     (control.id && String(menu.getAttribute('aria-labelledby') || '').split(/\s+/).includes(control.id))));
@@ -348,6 +345,11 @@ return (() => {
       controlsTruncated: modelControlCandidates.length > 8,
       boundMenuCount: linkedModelMenus.length,
       menus: linkedModelMenus.slice(0, 4).map(menu => ({
+        structure: modelMenuTextAllowed ? Array.from(menu.querySelectorAll('[role], input, button, [aria-valuenow], [data-state]')).filter(visible).slice(0, 40).map(element => ({
+          ...modelPublicMetadata(element, true), parentRole: String(element.parentElement?.getAttribute('role') || ''),
+          ariaValueNow: element.getAttribute('aria-valuenow'), ariaValueMin: element.getAttribute('aria-valuemin'), ariaValueMax: element.getAttribute('aria-valuemax'), ariaValueText: element.getAttribute('aria-valuetext'),
+          inputMin: element.getAttribute('min'), inputMax: element.getAttribute('max'), inputStep: element.getAttribute('step'), attributeNames: Array.from(element.attributes).map(a => a.name).slice(0, 24)
+        })) : [],
         id: String(menu.id || '').slice(0, 80), role: 'menu', visible: visible(menu),
         publicText: modelMenuPublicText(menu),
         publicControlCount: modelMenuPublicControls(menu).length,

@@ -1,4 +1,4 @@
-#requires -Version 5.1
+﻿#requires -Version 5.1
 # Source encoding: UTF-8 with BOM.
 [CmdletBinding()]
 param(
@@ -13,6 +13,7 @@ param(
     [string]$AttachmentReceiptPath,
     [string]$IdempotencyKey,
     [string]$ResponseDeadlineAtUtc,
+    [string]$ThinkingMode = 'Pro',
     [string]$WorkerToken,
     [string]$WatcherId,
     [string]$BrowserId,
@@ -21,6 +22,12 @@ param(
     [string]$SessionKey,
     [int]$SlotId,
     [string]$CapacityClaimId,
+    [string]$OriginalThreadId,
+    [string]$OriginalRoundId,
+    [string]$ExpectedClaimPath,
+    [string]$ArchiveDirectory,
+    [string]$AbandonReason,
+    [switch]$AbandonRequest,
 
     [int]$PollSeconds = 5,
     [int]$StableStopPolls = 2,
@@ -39,6 +46,10 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+. (Join-Path $PSScriptRoot 'chatgpt-pro-thinking-mode.ps1')
+. (Join-Path $PSScriptRoot 'chatgpt-pro-atomic-file.ps1')
+$Script:ThinkingModeExplicit = $PSBoundParameters.ContainsKey('ThinkingMode')
+$Script:RequestedThinkingMode = ConvertTo-CanonicalThinkingMode -Value $ThinkingMode
 $Script:WatcherName = 'chatgpt-pro-sidebar-watch'
 $Script:WatcherSchemaVersion = 1
 $Script:CapacityClaimSchemaVersion = 2
@@ -52,6 +63,7 @@ $Script:LogFileName = 'watch.log'
 $Script:WorkerStdoutFileName = 'watch-worker.stdout.log'
 $Script:WorkerStderrFileName = 'watch-worker.stderr.log'
 $Script:CapacityRootOverride = $null
+$Script:AbandonmentIdempotencyRootOverride = $null
 $Script:CapacityDirectoryName = 'concurrency-v1'
 $Script:CapacitySlotCount = 6
 $Script:PerThreadSlotCount = 3
@@ -90,6 +102,46 @@ function Get-WatchProperty {
         return $Default
     }
     return $property.Value
+}
+
+function ConvertTo-WatchSafeDiagnostics {
+    param([AllowNull()]$Diagnostics)
+
+    $safe = [ordered]@{}
+    foreach ($name in @('exceptionType', 'innerExceptionType')) {
+        $value = Get-WatchProperty $Diagnostics $name $null
+        if ($value -isnot [string]) { continue }
+        try { $type = [type]$value } catch { continue }
+        if ([System.Exception].IsAssignableFrom($type) -and $type.FullName -ceq $value) { $safe[$name] = $value }
+    }
+    foreach ($name in @('hResult', 'innerHResult')) {
+        $value = Get-WatchProperty $Diagnostics $name $null
+        if (($value -is [int] -or $value -is [long]) -and $value -ge [int]::MinValue -and $value -le [int]::MaxValue) { $safe[$name] = [int]$value }
+    }
+    $scriptName = Get-WatchProperty $Diagnostics 'scriptName' ''
+    if ($scriptName -is [string] -and $scriptName -cin @('chatgpt-pro-sidebar.ps1', 'chatgpt-pro-sidebar-watch.ps1', 'chatgpt-pro-atomic-file.ps1')) {
+        $safe['scriptName'] = $scriptName
+        foreach ($name in @('line', 'column')) {
+            $value = Get-WatchProperty $Diagnostics $name $null
+            if (($value -is [int] -or $value -is [long]) -and $value -gt 0 -and $value -le [int]::MaxValue) { $safe[$name] = [int]$value }
+        }
+    }
+    return $safe
+}
+
+function New-WatchErrorPayload {
+    param(
+        [Parameter(Mandatory = $true)][System.Management.Automation.ErrorRecord]$ErrorRecord,
+        [AllowEmptyString()][string]$CommandName
+    )
+
+    $exception = $ErrorRecord.Exception
+    $category = 'WatcherError'
+    if ($exception.Data.Contains('Category')) { $category = [string]$exception.Data['Category'] }
+    $payload = [ordered]@{ ok = $false; command = $CommandName; code = 1; category = $category; message = $exception.Message }
+    $diagnostics = ConvertTo-WatchSafeDiagnostics -Diagnostics $exception.Data['AdapterDiagnostics']
+    if ($diagnostics.Count -gt 0) { $payload['details'] = $diagnostics }
+    return $payload
 }
 
 function Get-WatchContinuationTransport {
@@ -199,15 +251,7 @@ function Write-WatchTextAtomic {
     $backup = Join-Path $directory (([System.IO.Path]::GetFileName($Path)) + '.bak.' + $PID + '.' + [guid]::NewGuid().ToString('N'))
     try {
         [System.IO.File]::WriteAllText($temporary, $Text, $Script:Utf8NoBom)
-        if ([System.IO.File]::Exists($Path)) {
-            [System.IO.File]::Replace($temporary, $Path, $backup, $true)
-            if ([System.IO.File]::Exists($backup)) {
-                [System.IO.File]::Delete($backup)
-            }
-        }
-        else {
-            [System.IO.File]::Move($temporary, $Path)
-        }
+        Complete-BridgeAtomicFile -TemporaryPath $temporary -Path $Path -BackupPath $backup -IgnoreMetadataErrors
     }
     finally {
         foreach ($leftover in @($temporary, $backup)) {
@@ -242,7 +286,7 @@ function Read-WatchJson {
     }
     for ($attempt = 1; $attempt -le 5; $attempt++) {
         try {
-            return [System.IO.File]::ReadAllText($Path, $Script:Utf8NoBom) | ConvertFrom-Json
+            return Read-BridgeText -Path $Path -Encoding $Script:Utf8NoBom | ConvertFrom-Json
         }
         catch {
             if ($attempt -eq 5) {
@@ -337,6 +381,9 @@ function Get-WatchEvidenceBinding {
     }
 
     $state = Read-WatchJson -Path (Join-Path $EvidenceDirectory 'state.json') -Required
+    $savedThinkingMode = ConvertTo-CanonicalThinkingMode -Value ([string](Get-WatchProperty $state 'thinkingMode' 'Pro'))
+    if ($Script:ThinkingModeExplicit -and $Script:RequestedThinkingMode -cne $savedThinkingMode) { throw 'ThinkingModeEvidenceMismatch: recovery cannot change the original request mode.' }
+    $Script:RequestedThinkingMode = $savedThinkingMode
     $phase = [string](Get-WatchProperty $state 'phase' '')
     if (@('sent', 'send-intent', 'send-uncertain') -notcontains $phase) {
         throw ('Watcher requires a post-send evidence phase; current phase is ' + $phase + '.')
@@ -387,6 +434,7 @@ function Get-WatchEvidenceBinding {
         -RequestedTimeoutSeconds 7200
 
     return [pscustomobject]@{
+        ThinkingMode = $savedThinkingMode
         Phase = $phase
         Transport = 'agent-browser-cli-v2'
         ConversationUrl = $conversationUrl
@@ -576,6 +624,7 @@ function Invoke-WatchAdapterStatus {
 
     $arguments = @(
         '-NoProfile', '-NonInteractive', '-File', $AdapterPath, 'status',
+        '-ThinkingMode', $Script:RequestedThinkingMode,
         '-BrowserId', [string](Get-WatchProperty $TargetBinding 'browserId' ''),
         '-Profile', [string](Get-WatchProperty $TargetBinding 'profileId' ''),
         '-TabId', [string](Get-WatchProperty $TargetBinding 'tabId' ''),
@@ -615,6 +664,7 @@ function Invoke-WatchAdapterFinalize {
 
     $arguments = @(
         '-NoProfile', '-NonInteractive', '-File', $AdapterPath, 'wait',
+        '-ThinkingMode', $Script:RequestedThinkingMode,
         '-EvidenceDir', $EvidenceDirectory,
         '-CodexThreadId', $CodexThreadIdValue,
         '-TimeoutSeconds', [string]$FinalizeTimeout,
@@ -648,8 +698,15 @@ function Invoke-WatchAdapterSend {
     if ([string]::IsNullOrWhiteSpace($IdempotencyKeyValue)) {
         throw 'IdempotencyKey is required for run-root.'
     }
+    if ($ResumeUnsent) {
+        $resumeState = Read-WatchJson -Path (Join-Path $EvidenceDirectory 'state.json') -Required
+        $resumeMode = ConvertTo-CanonicalThinkingMode -Value ([string](Get-WatchProperty $resumeState 'thinkingMode' 'Pro'))
+        if ($Script:ThinkingModeExplicit -and $Script:RequestedThinkingMode -cne $resumeMode) { throw 'ThinkingModeEvidenceMismatch: unsent recovery cannot change the original request mode.' }
+        $Script:RequestedThinkingMode = $resumeMode
+    }
     $arguments = @(
         '-NoProfile', '-NonInteractive', '-File', $AdapterPath, 'send',
+        '-ThinkingMode', $Script:RequestedThinkingMode,
         '-PromptPath', $PromptFile,
         '-EvidenceDir', $EvidenceDirectory,
         '-IdempotencyKey', $IdempotencyKeyValue,
@@ -981,6 +1038,7 @@ function New-WatchEvent {
         evidenceDirectory = [string](Get-WatchProperty $WatchState 'evidenceDirectory' '')
         transport = [string](Get-WatchProperty $WatchState 'transport' '')
         conversationUrl = [string](Get-WatchProperty $WatchState 'conversationUrl' '')
+        thinkingMode = [string](Get-WatchProperty $WatchState 'thinkingMode' 'Pro')
         targetBinding = Get-WatchProperty $WatchState 'targetBinding' $null
         codexThreadId = [string](Get-WatchProperty $WatchState 'codexThreadId' '')
         observations = [int](Get-WatchProperty $LoopResult 'Observations' 0)
@@ -1077,6 +1135,7 @@ function Invoke-WatchWorker {
                 -OverallTimeoutSeconds ([int](Get-WatchProperty $state 'timeoutSeconds' 7200)) `
                 -SleepSeconds ([int](Get-WatchProperty $state 'pollSeconds' 5)) `
                 -ProbeAction {
+                    $Script:RequestedThinkingMode = ConvertTo-CanonicalThinkingMode -Value ([string](Get-WatchProperty $state 'thinkingMode' 'Pro'))
                     $probe = Invoke-WatchAdapterStatus -AdapterPath $adapterPath -TargetBinding (Get-WatchProperty $state 'targetBinding' $null) -CodexThreadIdValue $ThreadId
                     $probePayload = Get-WatchProperty $probe 'Payload' $null
                     $observedBinding = Get-WatchProperty $probePayload 'targetBinding' $null
@@ -1176,6 +1235,8 @@ function New-WatchWorkerArgumentList {
         '-File',
         ('"' + $ScriptPath + '"'),
         'worker',
+        '-ThinkingMode',
+        (ConvertTo-WatchWindowsProcessArgument -Value $Script:RequestedThinkingMode),
         '-EvidenceDir',
         ('"' + $EvidenceDirectory + '"'),
         '-CodexThreadId',
@@ -1366,6 +1427,7 @@ function Start-WatchProcessExclusive {
         transport = $binding.Transport
         conversationUrl = $binding.ConversationUrl
         urlBindingPending = $binding.UrlBindingPending
+        thinkingMode = $binding.ThinkingMode
         targetBinding = $binding.TargetBinding
         promptSha256 = $binding.PromptSha256
         idempotencyKeySha256 = $binding.IdempotencyKeySha256
@@ -1536,6 +1598,11 @@ function Wait-RootWatchEvent {
     if ([string]::IsNullOrWhiteSpace($watcherId)) {
         throw 'Root-wait evidence has no watcher identity.'
     }
+    $savedThinkingMode = ConvertTo-CanonicalThinkingMode -Value ([string](Get-WatchProperty $state 'thinkingMode' 'Pro'))
+    if ($Script:ThinkingModeExplicit -and $Script:RequestedThinkingMode -cne $savedThinkingMode) {
+        throw 'ThinkingModeEvidenceMismatch: root-wait recovery cannot change the original request mode.'
+    }
+    $Script:RequestedThinkingMode = $savedThinkingMode
     $responseDeadlineAtUtc = [string](Get-WatchProperty $state 'responseDeadlineAtUtc' '')
     if ([string]::IsNullOrWhiteSpace($responseDeadlineAtUtc)) {
         $adapterState = Read-WatchJson -Path (Join-Path $EvidenceDirectory 'state.json')
@@ -1579,6 +1646,8 @@ function Wait-RootWatchEvent {
                                 [string](Get-WatchProperty $adapterState 'transport' '') -cne 'agent-browser-cli-v2' -or
                                 [string](Get-WatchProperty $adapterState 'conversationUrlBound' '') -cne [string](Get-WatchProperty $validated.Event 'conversationUrl' '') -or
                                 [string](Get-WatchProperty $adapterState 'conversationUrlBound' '') -cne [string](Get-WatchProperty $validated.State 'conversationUrl' '') -or
+                                (ConvertTo-CanonicalThinkingMode -Value ([string](Get-WatchProperty $adapterState 'thinkingMode' 'Pro'))) -cne $savedThinkingMode -or
+                                (ConvertTo-CanonicalThinkingMode -Value ([string](Get-WatchProperty $validated.Event 'thinkingMode' 'Pro'))) -cne $savedThinkingMode -or
                                 [string](Get-WatchProperty $adapterState 'responseDeadlineAtUtc' '') -cne $responseDeadlineAtUtc -or
                                 [string](Get-WatchProperty $validated.State 'responseDeadlineAtUtc' '') -cne $responseDeadlineAtUtc) {
                                 throw 'Completed adapter evidence does not match the failed root-wait round.'
@@ -2210,6 +2279,203 @@ function Release-CapacitySlot {
     }
 }
 
+function Write-AbandonmentFileCreateNew {
+    param([string]$Path, [byte[]]$Bytes)
+    $stream = [System.IO.File]::Open($Path, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
+    try {
+        $stream.Write($Bytes, 0, $Bytes.Length)
+        $stream.Flush($true)
+    }
+    finally { $stream.Dispose() }
+}
+
+function Get-AbandonmentEvidenceSnapshot {
+    param([Parameter(Mandatory = $true)][string]$Directory)
+    $files = [ordered]@{}
+    $directories = [System.Collections.Generic.List[string]]::new()
+    $exists = [System.IO.Directory]::Exists($Directory)
+    if ([System.IO.File]::Exists($Directory)) { throw 'Evidence directory is a file.' }
+    if ($exists) {
+        $pending = [System.Collections.Generic.Queue[string]]::new()
+        $pending.Enqueue($Directory)
+        while ($pending.Count -gt 0) {
+            $current = $pending.Dequeue()
+            if (([System.IO.File]::GetAttributes($current) -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+                throw 'Abandonment cannot archive reparse points.'
+            }
+            foreach ($entry in @([System.IO.Directory]::GetFileSystemEntries($current) | Sort-Object)) {
+                $relative = $entry.Substring($Directory.TrimEnd('\', '/').Length + 1)
+                $attributes = [System.IO.File]::GetAttributes($entry)
+                if (($attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) { throw 'Abandonment cannot archive reparse points.' }
+                if (($attributes -band [System.IO.FileAttributes]::Directory) -ne 0) {
+                    $directories.Add($relative)
+                    $pending.Enqueue($entry)
+                }
+                else { $files[$relative] = [System.IO.File]::ReadAllBytes($entry) }
+            }
+        }
+    }
+    return [pscustomobject]@{ Exists = $exists; Files = $files; Directories = @($directories.ToArray()) }
+}
+
+function Assert-AbandonmentEvidenceUnchanged {
+    param($Expected, $Actual)
+    if ($Expected.Exists -ne $Actual.Exists -or
+        ($Expected.Directories -join "`n") -cne ($Actual.Directories -join "`n") -or
+        ($Expected.Files.Keys -join "`n") -cne ($Actual.Files.Keys -join "`n")) {
+        throw 'Evidence changed during abandonment.'
+    }
+    foreach ($name in $Expected.Files.Keys) {
+        if ([Convert]::ToBase64String($Expected.Files[$name]) -cne [Convert]::ToBase64String($Actual.Files[$name])) {
+            throw 'Evidence changed during abandonment.'
+        }
+    }
+}
+
+function Assert-AbandonmentOwnerStopped {
+    param($Claim, [string]$Directory)
+    if (Test-CapacityOwnerAlive -Claim $Claim) { throw 'Capacity owner is still running.' }
+    $watch = Read-WatchJson -Path (Join-Path $Directory $Script:StateFileName)
+    $watchProcess = [int](Get-WatchProperty $watch 'processId' 0)
+    if ($watchProcess -gt 0 -and $null -ne (Get-Process -Id $watchProcess -ErrorAction SilentlyContinue)) {
+        throw 'Watcher process is still running.'
+    }
+}
+
+function Get-AbandonmentIdempotencyPath {
+    param([string]$Key)
+    # Isolate adapter script-scoped settings; this calls only its local identity helpers.
+    $shell = [PowerShell]::Create()
+    try {
+        $null = $shell.AddScript({
+            param($adapter, $keyValue, $rootOverride)
+            . $adapter
+            $Script:IdempotencyRootOverride = $rootOverride
+            Join-Path (Get-GlobalIdempotencyRoot) ((Get-Sha256Text -Text $keyValue) + '.json')
+        }.ToString()).AddArgument((Get-WatchAdapterPath)).AddArgument($Key).AddArgument($Script:AbandonmentIdempotencyRootOverride)
+        $result = @($shell.Invoke())
+        if ($shell.HadErrors -or $result.Count -ne 1) { throw 'Could not resolve the original idempotency reservation.' }
+        return [string]$result[0]
+    }
+    finally { $shell.Dispose() }
+}
+
+function Abandon-CapacitySlot {
+    param(
+        [Parameter(Mandatory = $true)][ValidateRange(1, 6)][int]$Id,
+        [Parameter(Mandatory = $true)][string]$ExpectedClaimId,
+        [Parameter(Mandatory = $true)][string]$ThreadId,
+        [Parameter(Mandatory = $true)][string]$RoundId,
+        [Parameter(Mandatory = $true)][string]$ExpectedClaimFile,
+        [Parameter(Mandatory = $true)][string]$ArchivePath,
+        [Parameter(Mandatory = $true)][string]$Reason,
+        [switch]$ExplicitAbandonment
+    )
+    if (-not $ExplicitAbandonment -or [string]::IsNullOrWhiteSpace($Reason) -or $Reason.Length -gt 2048) {
+        throw 'An explicit abandonment action and reason are required.'
+    }
+    $expectedBytes = [System.IO.File]::ReadAllBytes([System.IO.Path]::GetFullPath($ExpectedClaimFile))
+    $archive = [System.IO.Path]::GetFullPath($ArchivePath).TrimEnd('\', '/')
+    $mutex = Enter-CapacityMutex
+    try {
+        $path = Get-CapacitySlotPath -Id $Id
+        $claimBytes = [System.IO.File]::ReadAllBytes($path)
+        $claim = Read-WatchJson -Path $path -Required
+        if ([Convert]::ToBase64String($expectedBytes) -cne [Convert]::ToBase64String($claimBytes) -or
+            [int](Get-WatchProperty $claim 'slotId' 0) -ne $Id -or
+            [string](Get-WatchProperty $claim 'claimId' '') -cne $ExpectedClaimId -or
+            [string](Get-WatchProperty $claim 'codexThreadId' '') -cne $ThreadId -or
+            [string](Get-WatchProperty $claim 'roundId' '') -cne $RoundId) {
+            throw 'Original capacity claim identity changed.'
+        }
+        $directoryValue = [string](Get-WatchProperty $claim 'evidenceDirectory' '')
+        if ([string]::IsNullOrWhiteSpace($directoryValue)) { throw 'Original evidence directory identity is missing.' }
+        $directory = [System.IO.Path]::GetFullPath($directoryValue).TrimEnd('\', '/')
+        $capacityRoot = (Get-CapacityRoot).TrimEnd('\', '/')
+        foreach ($protected in @($directory, $capacityRoot)) {
+            if ($archive.Equals($protected, [StringComparison]::OrdinalIgnoreCase) -or
+                $archive.StartsWith($protected + [System.IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase) -or
+                $protected.StartsWith($archive + [System.IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
+                throw 'Abandonment archive must not overlap evidence or capacity storage.'
+            }
+        }
+        if ([System.IO.Directory]::Exists($archive) -or [System.IO.File]::Exists($archive)) { throw 'Abandonment archive already exists.' }
+        Assert-AbandonmentOwnerStopped -Claim $claim -Directory $directory
+        $snapshot = Get-AbandonmentEvidenceSnapshot -Directory $directory
+        $state = Read-WatchJson -Path (Join-Path $directory 'state.json')
+        if ([string](Get-WatchProperty $state 'phase' '') -ceq 'pre-invoke-failed' -or
+            (Get-CapacityReleaseProof -Claim $claim).safe) {
+            throw 'Use the existing safe-release recovery for a pre-invoke-failed or provably releasable request.'
+        }
+        if ($null -ne $state -and [string](Get-WatchProperty $state 'codexThreadId' '') -cne $ThreadId) {
+            throw 'Original adapter thread identity does not match.'
+        }
+        $key = [string](Get-WatchProperty $state 'idempotencyKey' $RoundId)
+        if ($key -notmatch '^[A-Za-z0-9._:-]{1,128}$') { throw 'Original idempotency identity is missing or invalid.' }
+        $keySha256 = Get-WatchSha256Text -Text $key
+        $stateKeySha256 = [string](Get-WatchProperty $state 'idempotencyKeySha256' $keySha256)
+        if ($stateKeySha256 -cne $keySha256) { throw 'Original idempotency identity does not match.' }
+        $reservationPath = Get-AbandonmentIdempotencyPath -Key $key
+        $reservationCreated = -not [System.IO.File]::Exists($reservationPath)
+        $originalReservationBytes = if ($reservationCreated) { $null } else { [System.IO.File]::ReadAllBytes($reservationPath) }
+        $null = [System.IO.Directory]::CreateDirectory($archive)
+        Write-AbandonmentFileCreateNew -Path (Join-Path $archive 'claim.original.json') -Bytes $claimBytes
+        $archiveEvidence = Join-Path $archive 'evidence'
+        if ($snapshot.Exists) {
+            $null = [System.IO.Directory]::CreateDirectory($archiveEvidence)
+            foreach ($name in $snapshot.Directories) { $null = [System.IO.Directory]::CreateDirectory((Join-Path $archiveEvidence $name)) }
+            foreach ($name in $snapshot.Files.Keys) { Write-AbandonmentFileCreateNew -Path (Join-Path $archiveEvidence $name) -Bytes $snapshot.Files[$name] }
+            Assert-AbandonmentEvidenceUnchanged -Expected $snapshot -Actual (Get-AbandonmentEvidenceSnapshot -Directory $archiveEvidence)
+        }
+        if ($reservationCreated) {
+            $record = [ordered]@{
+                schemaVersion = 1; tool = 'chatgpt-pro-sidebar'; kind = 'abandoned-request'
+                disposition = 'abandoned-request'; idempotencyKeySha256 = $keySha256
+                originalPromptSha256 = Get-WatchProperty $state 'promptSha256' $null
+                reservedAtUtc = [datetime]::UtcNow.ToString('o'); automaticResendAllowed = $false
+                originalThreadId = $ThreadId; originalRoundId = $RoundId; originalClaimId = $ExpectedClaimId
+                abandonmentReceipt = Join-Path $archive 'abandonment-receipt.json'
+            }
+            $null = [System.IO.Directory]::CreateDirectory([System.IO.Path]::GetDirectoryName($reservationPath))
+            Write-AbandonmentFileCreateNew -Path $reservationPath -Bytes $Script:Utf8NoBom.GetBytes(($record | ConvertTo-Json -Depth 6))
+        }
+        $reservationBytes = [System.IO.File]::ReadAllBytes($reservationPath)
+        if ($null -ne $originalReservationBytes -and
+            [Convert]::ToBase64String($originalReservationBytes) -cne [Convert]::ToBase64String($reservationBytes)) {
+            throw 'Original idempotency reservation changed during abandonment.'
+        }
+        $reservation = Read-WatchJson -Path $reservationPath -Required
+        if ([string](Get-WatchProperty $reservation 'idempotencyKeySha256' '') -cne $keySha256 -or
+            (Get-WatchProperty $reservation 'automaticResendAllowed' $null) -isnot [bool] -or
+            [bool](Get-WatchProperty $reservation 'automaticResendAllowed' $true)) {
+            throw 'The immutable idempotency reservation does not prohibit resend.'
+        }
+        Write-AbandonmentFileCreateNew -Path (Join-Path $archive 'reservation.original.json') -Bytes $reservationBytes
+        $receipt = [ordered]@{
+            schemaVersion = 1; action = 'abandon-request-release-capacity'; disposition = 'abandoned-request'
+            abandonedAtUtc = [datetime]::UtcNow.ToString('o'); reason = $Reason
+            slotId = $Id; claimId = $ExpectedClaimId; originalThreadId = $ThreadId; originalRoundId = $RoundId
+            originalEvidenceDirectory = $directoryValue; evidenceDirectoryExisted = $snapshot.Exists
+            originalPhase = Get-WatchProperty $state 'phase' $null
+            originalResponseDeadlineAtUtc = Get-WatchProperty $state 'responseDeadlineAtUtc' $null
+            deliveryOutcome = 'unproven'; automaticResendAllowed = $false
+            idempotencyKeySha256 = $keySha256; reservationPath = $reservationPath; reservationCreated = $reservationCreated
+            originalClaimFile = 'claim.original.json'; originalEvidenceFiles = @($snapshot.Files.Keys)
+        }
+        $receiptPath = Join-Path $archive 'abandonment-receipt.json'
+        Write-AbandonmentFileCreateNew -Path $receiptPath -Bytes $Script:Utf8NoBom.GetBytes(($receipt | ConvertTo-Json -Depth 8))
+        Assert-AbandonmentOwnerStopped -Claim $claim -Directory $directory
+        Assert-AbandonmentEvidenceUnchanged -Expected $snapshot -Actual (Get-AbandonmentEvidenceSnapshot -Directory $directory)
+        if ([Convert]::ToBase64String($claimBytes) -cne [Convert]::ToBase64String([System.IO.File]::ReadAllBytes($path)) -or
+            [Convert]::ToBase64String($reservationBytes) -cne [Convert]::ToBase64String([System.IO.File]::ReadAllBytes($reservationPath))) {
+            throw 'Capacity claim or idempotency reservation changed during abandonment.'
+        }
+        [System.IO.File]::Delete($path)
+        return [ordered]@{ ok = $true; command = 'abandon-slot'; slotId = $Id; claimId = $ExpectedClaimId; disposition = 'abandoned-request'; receiptPath = $receiptPath; automaticResendAllowed = $false }
+    }
+    finally { Exit-CapacityMutex -Mutex $mutex }
+}
+
 function Acquire-CapacitySlot {
     param(
         [Parameter(Mandatory = $true)][string]$ThreadId,
@@ -2373,6 +2639,10 @@ function Read-RootWaitBatchManifest {
     }
     $fullPath = [System.IO.Path]::GetFullPath($Path)
     $root = [System.IO.Path]::GetDirectoryName($fullPath)
+    $resultPath = Join-Path $root $Script:BatchResultFileName
+    if ([IO.File]::Exists($resultPath) -or [IO.Directory]::Exists($resultPath)) {
+        throw 'Batch output batch-result.json already exists; it cannot be overwritten by another batch.'
+    }
     $manifest = Read-WatchJson -Path $fullPath -Required
     if ([int](Get-WatchProperty $manifest 'schemaVersion' 0) -ne 1) {
         throw 'Batch manifest schemaVersion must be 1.'
@@ -2422,9 +2692,6 @@ function Read-RootWaitBatchManifest {
         if ([string]::IsNullOrWhiteSpace($promptText) -or $promptText.Length -gt 24000) {
             throw 'Every batch prompt must contain between 1 and 24000 characters.'
         }
-        if (@([System.IO.Directory]::EnumerateFileSystemEntries($evidence)).Count -ne 0) {
-            throw 'Every batch evidenceDirectory must be empty before its first send.'
-        }
         $evidenceKey = $evidence.ToLowerInvariant()
         if ($seenEvidence.ContainsKey($evidenceKey)) { throw 'Batch evidenceDirectory values must be unique.' }
         $seenEvidence[$evidenceKey] = $true
@@ -2458,6 +2725,7 @@ function Read-RootWaitBatchManifest {
             $seenTargets[$targetKey] = $true
         }
         $null = $normalized.Add([pscustomobject]@{
+            ThinkingMode = (ConvertTo-CanonicalThinkingMode -Value ([string](Get-WatchProperty $round 'thinkingMode' $Script:RequestedThinkingMode)))
             RoundId = $roundId
             PromptPath = $prompt
             EvidenceDirectory = $evidence
@@ -2473,7 +2741,7 @@ function Read-RootWaitBatchManifest {
         MaxConcurrency = $maxConcurrency
         TimeoutSeconds = $batchTimeout
         Rounds = @($normalized)
-        ResultPath = Join-Path $root $Script:BatchResultFileName
+        ResultPath = $resultPath
     }
 }
 
@@ -2492,6 +2760,7 @@ function New-BatchRoundArgumentList {
     }
     $arguments = @(
         '-NoProfile', '-NonInteractive', '-File', $Script:WatcherScriptPath, 'run-root',
+        '-ThinkingMode', (ConvertTo-CanonicalThinkingMode -Value ([string](Get-WatchProperty $Round 'ThinkingMode' $Script:RequestedThinkingMode))),
         '-EvidenceDir', $Round.EvidenceDirectory,
         '-CodexThreadId', $ThreadId,
         '-PromptPath', $Round.PromptPath,
@@ -2947,10 +3216,12 @@ function Invoke-RootWaitRound {
         $payload = Get-WatchProperty $sendResult 'Payload' $null
         $message = [string](Get-WatchProperty $payload 'message' '')
         if (-not [string]::IsNullOrWhiteSpace($sendFailure)) {
-            throw ('Adapter send failed before a waitable post-send state: ' + $sendFailure)
+            $message = $sendFailure
         }
         if (-not [string]::IsNullOrWhiteSpace($message)) {
-            throw ('Adapter send failed before a waitable post-send state: ' + $message)
+            $exception = [System.InvalidOperationException]::new('Adapter send failed before a waitable post-send state: ' + $message)
+            $exception.Data['AdapterDiagnostics'] = ConvertTo-WatchSafeDiagnostics -Diagnostics (Get-WatchProperty $payload 'details' $null)
+            throw $exception
         }
         throw
     }
@@ -3167,8 +3438,8 @@ function Invoke-CapacityBoundRootWaitRound {
 }
 
 function Invoke-WatchMain {
-    if (@('run-root', 'run-batch-root', 'slots', 'release-slot', 'start', 'worker', 'status', 'wait-root', 'acknowledge-monitor', 'acknowledge-root') -notcontains $Command) {
-        throw 'Command must be run-root, run-batch-root, slots, release-slot, start, worker, status, wait-root, acknowledge-monitor, or acknowledge-root.'
+    if (@('run-root', 'run-batch-root', 'slots', 'release-slot', 'abandon-slot', 'start', 'worker', 'status', 'wait-root', 'acknowledge-monitor', 'acknowledge-root') -notcontains $Command) {
+        throw 'Command must be run-root, run-batch-root, slots, release-slot, abandon-slot, start, worker, status, wait-root, acknowledge-monitor, or acknowledge-root.'
     }
     if ((-not [string]::IsNullOrWhiteSpace($AttachmentManifestPath) -or -not [string]::IsNullOrWhiteSpace($AttachmentReceiptPath)) -and $Command -ne 'run-root') {
         throw 'Attachment manifest and receipt are supported only with an explicitly bound run-root.'
@@ -3180,6 +3451,9 @@ function Invoke-WatchMain {
         throw 'ResponseDeadlineAtUtc is valid only with run-root.'
     }
     switch ($Command) {
+        'abandon-slot' {
+            return Abandon-CapacitySlot -Id $SlotId -ExpectedClaimId $CapacityClaimId -ThreadId $OriginalThreadId -RoundId $OriginalRoundId -ExpectedClaimFile $ExpectedClaimPath -ArchivePath $ArchiveDirectory -Reason $AbandonReason -ExplicitAbandonment:$AbandonRequest
+        }
         'run-batch-root' {
             if ($NoWake -or $AgentMonitor -or $RootWait -or $KeepLauncherAlive -or $FreshConversation) {
                 throw 'run-batch-root owns each RootWait lifecycle; watcher mode switches are invalid.'
@@ -3274,17 +3548,7 @@ if ($MyInvocation.InvocationName -ne '.') {
         exit 0
     }
     catch {
-        $category = 'WatcherError'
-        if ($_.Exception.Data.Contains('Category')) {
-            $category = [string]$_.Exception.Data['Category']
-        }
-        [ordered]@{
-            ok = $false
-            command = $Command
-            code = 1
-            category = $category
-            message = $_.Exception.Message
-        } | ConvertTo-Json -Depth 6 -Compress
+        New-WatchErrorPayload -ErrorRecord $_ -CommandName $Command | ConvertTo-Json -Depth 6 -Compress
         exit 1
     }
 }
