@@ -33,8 +33,8 @@ func writeCodexMCPFixture(t *testing.T, file, content string) {
 
 func isolatedCodexMCPFixture(t *testing.T) (home, workdir, systemFile string) {
 	t.Helper()
-	// TempDir may use a system alias (/var or a Windows 8.3 path). Use the
-	// physical root so the fixture exercises configuration, not path aliases.
+	// macOS's /var temporary root is itself a symlink. Test real config
+	// layers beneath its physical root, while linked config paths stay denied.
 	root, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -61,41 +61,6 @@ func isolatedCodexMCPFixture(t *testing.T) (home, workdir, systemFile string) {
 	return
 }
 
-func requireCodexMCPOptOutPlatform(t *testing.T) {
-	t.Helper()
-	if runtime.GOOS == "darwin" {
-		t.Skip("macOS managed preferences cannot be enumerated; Codex MCP opt-out requires --with-mcp")
-	}
-}
-
-func TestCodexMCPDarwinManagedPreferencesFailClosed(t *testing.T) {
-	if runtime.GOOS != "darwin" {
-		t.Skip("macOS managed-preference boundary")
-	}
-	_, workdir, _ := isolatedCodexMCPFixture(t)
-	cfg := &Config{Backend: "codex", WorkDir: workdir, DisableMCP: true}
-	err := prepareMCPMode(cfg)
-	if err == nil || !strings.Contains(err.Error(), "cannot enumerate macOS managed preferences; use --with-mcp") || cfg.CodexMCPPrepared || len(cfg.CodexMCPOverrides) != 0 {
-		t.Fatalf("macOS MCP opt-out did not fail closed: %v", err)
-	}
-	cfg.DisableMCP = false
-	if err := prepareMCPMode(cfg); err != nil {
-		t.Fatalf("normal MCP inheritance was rejected: %v", err)
-	}
-}
-
-func TestCodexMCPAncestorLinkFailsClosed(t *testing.T) {
-	home, _, _ := isolatedCodexMCPFixture(t)
-	writeCodexMCPFixture(t, filepath.Join(home, "config.toml"), "[mcp_servers.local]\ncommand='never-start'\n")
-	alias := filepath.Join(filepath.Dir(home), "linked-home")
-	if err := os.Symlink(home, alias); err != nil {
-		t.Skip("OS does not permit fixture directory symlinks")
-	}
-	if _, _, err := readCodexMCPFile(filepath.Join(alias, "config.toml")); err == nil || !strings.Contains(err.Error(), "unsupported link") {
-		t.Fatalf("ancestor link bypassed MCP configuration guard: %v", err)
-	}
-}
-
 func decodedCodexMCPOverrides(t *testing.T, overrides []string) map[string]any {
 	t.Helper()
 	var table map[string]any
@@ -103,6 +68,21 @@ func decodedCodexMCPOverrides(t *testing.T, overrides []string) map[string]any {
 		t.Fatal(err)
 	}
 	return table
+}
+
+func assertCodexMCPPreparation(t *testing.T, cfg *Config) bool {
+	t.Helper()
+	err := prepareMCPMode(cfg)
+	if runtime.GOOS == "darwin" {
+		if err == nil || !strings.Contains(err.Error(), "macOS managed preferences") || cfg.CodexMCPPrepared || cfg.CodexMCPOverrides != nil {
+			t.Fatalf("macOS preparation must fail closed without stale overrides: %v", err)
+		}
+		return false
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	return true
 }
 
 func TestCodexMCPStaticLayersAndQuotedNames(t *testing.T) {
@@ -165,8 +145,7 @@ func TestCodexMCPRelativeHomeFailsClosed(t *testing.T) {
 }
 
 func TestCodexMCPResumePreparesInheritedWrapperDirectory(t *testing.T) {
-	requireCodexMCPOptOutPlatform(t)
-	home, workdir, _ := isolatedCodexMCPFixture(t)
+	home, workdir, systemFile := isolatedCodexMCPFixture(t)
 	wrapperDir := filepath.Join(filepath.Dir(home), "wrapper-project")
 	writeCodexMCPFixture(t, filepath.Join(wrapperDir, ".git", "HEAD"), "ref: refs/heads/fixture\n")
 	writeCodexMCPFixture(t, filepath.Join(wrapperDir, ".codex", "config.toml"), "[mcp_servers.wrapper]\ncommand='never-start-wrapper'\n")
@@ -189,10 +168,14 @@ func TestCodexMCPResumePreparesInheritedWrapperDirectory(t *testing.T) {
 		t.Fatal("new invocation ignored its task directory configuration")
 	}
 	cfg.Mode = "resume"
-	if err := prepareMCPMode(cfg); err != nil {
-		t.Fatalf("resume enumerated a task directory unused by its native invocation: %v", err)
+	overrides, err := collectCodexMCPOverrides(home, wrapperDir, systemFile)
+	if err != nil {
+		t.Fatal(err)
 	}
-	table := decodedCodexMCPOverrides(t, cfg.CodexMCPOverrides)
+	if assertCodexMCPPreparation(t, cfg) {
+		overrides = cfg.CodexMCPOverrides
+	}
+	table := decodedCodexMCPOverrides(t, overrides)
 	servers, _ := codexMCPTable(table["mcp_servers"])
 	if len(servers) != 1 || servers["wrapper"] == nil {
 		t.Fatal("resume did not enumerate the inherited wrapper directory")
@@ -279,7 +262,6 @@ func TestCodexMCPChildPluginAcknowledgementFlagAndHeaders(t *testing.T) {
 // Optional, strictly static local acceptance check. It never invokes Codex,
 // copies credentials, writes configuration, or prints configuration values.
 func TestCodexMCPPersonalStaticDryPreflight(t *testing.T) {
-	requireCodexMCPOptOutPlatform(t)
 	home := os.Getenv("CODEAGENT_TEST_PERSONAL_STATIC_HOME")
 	if home == "" {
 		t.Skip("explicit personal static acceptance input not supplied")
@@ -314,20 +296,28 @@ func TestCodexMCPPersonalStaticDryPreflight(t *testing.T) {
 }
 
 func TestCodexMCPPluginStartupRequiresExplicitAcknowledgement(t *testing.T) {
-	requireCodexMCPOptOutPlatform(t)
-	home, workdir, _ := isolatedCodexMCPFixture(t)
+	home, workdir, systemFile := isolatedCodexMCPFixture(t)
 	_, user := codexMCPPluginFixture(t, home)
 	user = "[features]\nplugins=true\n" + user
 	writeCodexMCPFixture(t, filepath.Join(home, "config.toml"), user)
 	cfg := &Config{Backend: "codex", WorkDir: workdir, DisableMCP: true}
-	if err := prepareMCPMode(cfg); err == nil || !strings.Contains(err.Error(), "plugin skills") || cfg.CodexMCPPrepared {
+	if _, err := collectCodexMCPOverrides(home, workdir, systemFile); err == nil || !strings.Contains(err.Error(), "plugin skills") {
 		t.Fatalf("dynamic plugins were silently accepted: %v", err)
 	}
+	if runtime.GOOS != "darwin" {
+		if err := prepareMCPMode(cfg); err == nil || !strings.Contains(err.Error(), "plugin skills") || cfg.CodexMCPPrepared {
+			t.Fatalf("dynamic plugins were silently accepted: %v", err)
+		}
+	}
 	cfg.AllowChildPluginDisable = true
-	if err := prepareMCPMode(cfg); err != nil {
+	overrides, err := collectCodexMCPOverridesWithPluginAcknowledgement(home, workdir, systemFile, true)
+	if err != nil {
 		t.Fatal(err)
 	}
-	table := decodedCodexMCPOverrides(t, cfg.CodexMCPOverrides)
+	if assertCodexMCPPreparation(t, cfg) {
+		overrides = cfg.CodexMCPOverrides
+	}
+	table := decodedCodexMCPOverrides(t, overrides)
 	features, _ := codexMCPTable(table["features"])
 	if features["plugins"] != false {
 		t.Fatal("acknowledged child did not disable plugin startup and plugin skills")
@@ -346,15 +336,15 @@ func TestCodexMCPPluginStartupRequiresExplicitAcknowledgement(t *testing.T) {
 }
 
 func TestCodexMCPChildPluginAcknowledgementDoesNotEnumerateCaches(t *testing.T) {
-	requireCodexMCPOptOutPlatform(t)
-	home, workdir, _ := isolatedCodexMCPFixture(t)
+	home, workdir, systemFile := isolatedCodexMCPFixture(t)
 	_, user := codexMCPPluginFixture(t, home)
 	writeCodexMCPFixture(t, filepath.Join(home, "config.toml"), "[features]\nplugins=true\n"+user)
 	writeCodexMCPFixture(t, filepath.Join(home, "plugins", "cache", "fixture", "skill", "1.0.0", ".codex-plugin", "plugin.json"), "deliberately unreadable as a manifest")
 	cfg := &Config{Backend: "codex", WorkDir: workdir, DisableMCP: true, AllowChildPluginDisable: true}
-	if err := prepareMCPMode(cfg); err != nil {
+	if _, err := collectCodexMCPOverridesWithPluginAcknowledgement(home, workdir, systemFile, true); err != nil {
 		t.Fatalf("disabled child tried to discover plugin capabilities: %v", err)
 	}
+	assertCodexMCPPreparation(t, cfg)
 }
 
 func TestCodexMCPMalformedAndUnknownLayersFailClosed(t *testing.T) {
@@ -386,7 +376,7 @@ func TestCodexMCPMalformedAndUnknownLayersFailClosed(t *testing.T) {
 }
 
 func TestCodexMCPUnavailableOrLinkedConfigFailsClosed(t *testing.T) {
-	for _, mode := range []string{"directory", "oversized", "symlink", "untrusted project"} {
+	for _, mode := range []string{"directory", "oversized", "symlink", "parent symlink", "untrusted project"} {
 		t.Run(mode, func(t *testing.T) {
 			home, workdir, systemFile := isolatedCodexMCPFixture(t)
 			file := filepath.Join(home, "config.toml")
@@ -403,6 +393,17 @@ func TestCodexMCPUnavailableOrLinkedConfigFailsClosed(t *testing.T) {
 				if err := os.Symlink(target, file); err != nil {
 					t.Skip("OS does not permit fixture symlinks")
 				}
+			case "parent symlink":
+				target := filepath.Join(home, "target")
+				writeCodexMCPFixture(t, filepath.Join(target, "config.toml"), "")
+				link := filepath.Join(home, "linked")
+				if err := os.Symlink(target, link); err != nil {
+					t.Skip("OS does not permit fixture symlinks")
+				}
+				if _, _, err := readCodexMCPFile(filepath.Join(link, "config.toml")); err == nil || !strings.Contains(err.Error(), "unsupported link") {
+					t.Fatalf("parent symlink traversal was not rejected: %v", err)
+				}
+				return
 			case "untrusted project":
 				writeCodexMCPFixture(t, filepath.Join(workdir, ".codex", "config.toml"), "[mcp_servers.project]\ncommand='never-start'\n")
 			}
@@ -414,8 +415,7 @@ func TestCodexMCPUnavailableOrLinkedConfigFailsClosed(t *testing.T) {
 }
 
 func TestCodexMCPVersionAndPreparationContract(t *testing.T) {
-	requireCodexMCPOptOutPlatform(t)
-	home, workdir, _ := isolatedCodexMCPFixture(t)
+	home, workdir, systemFile := isolatedCodexMCPFixture(t)
 	writeCodexMCPFixture(t, filepath.Join(home, "config.toml"), "[mcp_servers.a]\ncommand='never-start'\n")
 	for _, version := range []string{"0.155.0", "0.999.0", ""} {
 		codexMCPVersionReader = func() (string, error) { return version, nil }
@@ -431,8 +431,14 @@ func TestCodexMCPVersionAndPreparationContract(t *testing.T) {
 	}
 	codexMCPVersionReader = func() (string, error) { return codexMCPCompatibleVersion, nil }
 	cfg := &Config{Backend: "codex", WorkDir: workdir, DisableMCP: true}
-	if err := prepareMCPMode(cfg); err != nil {
-		t.Fatal(err)
+	if !assertCodexMCPPreparation(t, cfg) {
+		// Argument construction is platform independent; preparation on macOS
+		// remains forbidden because the static collector cannot see MDM layers.
+		overrides, err := collectCodexMCPOverrides(home, workdir, systemFile)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cfg.CodexMCPOverrides, cfg.CodexMCPPrepared = overrides, true
 	}
 	if !cfg.CodexMCPPrepared || len(cfg.CodexMCPOverrides) == 0 {
 		t.Fatal("valid static config was not prepared")
@@ -462,7 +468,6 @@ func TestCodexMCPVersionAndPreparationContract(t *testing.T) {
 }
 
 func TestCodexMCPParallelPreflightRejectsBeforeAllChildren(t *testing.T) {
-	requireCodexMCPOptOutPlatform(t)
 	home, workdir, _ := isolatedCodexMCPFixture(t)
 	writeCodexMCPFixture(t, filepath.Join(home, "config.toml"), "malformed = [")
 	isolateMCPLiteMode(t)
@@ -482,7 +487,6 @@ func TestCodexMCPParallelPreflightRejectsBeforeAllChildren(t *testing.T) {
 }
 
 func TestCodexMCPParallelPluginAcknowledgementAndInheritance(t *testing.T) {
-	requireCodexMCPOptOutPlatform(t)
 	_, workdir, _ := isolatedCodexMCPFixture(t)
 	isolateMCPLiteMode(t)
 	defer resetTestHooks()
@@ -505,6 +509,12 @@ func TestCodexMCPParallelPluginAcknowledgementAndInheritance(t *testing.T) {
 			return TaskResult{TaskID: task.ID}
 		}
 		code := run()
+		if runtime.GOOS == "darwin" {
+			if code == 0 || len(seen) != 0 {
+				t.Fatal("macOS managed preferences rejection started part of a batch")
+			}
+			continue
+		}
 		if !explicitFalse {
 			if code == 0 || len(seen) != 0 {
 				t.Fatal("inherited plugin acknowledgement bypassed whole-batch preflight")
@@ -521,7 +531,6 @@ func TestCodexMCPParallelPluginAcknowledgementAndInheritance(t *testing.T) {
 }
 
 func TestCodexMCPExecutorForwardsOnlyPreparedOverrides(t *testing.T) {
-	requireCodexMCPOptOutPlatform(t)
 	home, workdir, _ := isolatedCodexMCPFixture(t)
 	writeCodexMCPFixture(t, filepath.Join(home, "config.toml"), "[mcp_servers.local]\ncommand='never-start'\n")
 	isolateMCPLiteMode(t)
@@ -536,6 +545,12 @@ func TestCodexMCPExecutorForwardsOnlyPreparedOverrides(t *testing.T) {
 		return &execFakeRunner{stdout: newReasonReadCloser(`{"type":"item.completed","item":{"type":"agent_message","text":"hello"}}`), process: &execFakeProcess{pid: 1234}}
 	}
 	result := runCodexTaskWithContext(context.Background(), TaskSpec{Task: "payload", MCPMode: "off", WorkDir: workdir}, CodexBackend{}, nil, false, true, 1)
+	if runtime.GOOS == "darwin" {
+		if result.ExitCode == 0 || !strings.Contains(result.Error, "macOS managed preferences") || seen != nil {
+			t.Fatalf("macOS managed preferences did not reject before starting Codex: %+v", result)
+		}
+		return
+	}
 	if result.ExitCode != 0 || result.Error != "" {
 		t.Fatalf("mock executor failed: %+v", result)
 	}
@@ -545,7 +560,6 @@ func TestCodexMCPExecutorForwardsOnlyPreparedOverrides(t *testing.T) {
 }
 
 func TestCodexMCPExecutorForwardsChildPluginAcknowledgement(t *testing.T) {
-	requireCodexMCPOptOutPlatform(t)
 	home, workdir, _ := isolatedCodexMCPFixture(t)
 	writeCodexMCPFixture(t, filepath.Join(home, "config.toml"), "[features]\nplugins=true\n[mcp_servers.local]\ncommand='never-start'\n")
 	isolateMCPLiteMode(t)
@@ -557,6 +571,12 @@ func TestCodexMCPExecutorForwardsChildPluginAcknowledgement(t *testing.T) {
 		return &execFakeRunner{stdout: newReasonReadCloser(`{"type":"item.completed","item":{"type":"agent_message","text":"hello"}}`), process: &execFakeProcess{pid: 1234}}
 	}
 	result := runCodexTaskWithContext(context.Background(), TaskSpec{Task: "payload", MCPMode: "off", WorkDir: workdir, AllowChildPluginDisable: true}, CodexBackend{}, nil, false, true, 1)
+	if runtime.GOOS == "darwin" {
+		if result.ExitCode == 0 || !strings.Contains(result.Error, "macOS managed preferences") || seen != nil {
+			t.Fatalf("macOS managed preferences did not reject before starting Codex: %+v", result)
+		}
+		return
+	}
 	if result.ExitCode != 0 || result.Error != "" || !slices.Contains(seen, "features.plugins=false") {
 		t.Fatalf("acknowledged child plugin disablement did not reach Codex argv: %+v", result)
 	}
@@ -565,7 +585,6 @@ func TestCodexMCPExecutorForwardsChildPluginAcknowledgement(t *testing.T) {
 // Opt-in, real native CLI test. This runs only against synthetic directories
 // with no user credentials. It never executes a model or an MCP transport.
 func TestCodexMCPNativeListContract(t *testing.T) {
-	requireCodexMCPOptOutPlatform(t)
 	binary := os.Getenv("CODEAGENT_TEST_CODEX_MCP_BINARY")
 	if binary == "" {
 		t.Skip("set CODEAGENT_TEST_CODEX_MCP_BINARY to run isolated native Codex compatibility proof")

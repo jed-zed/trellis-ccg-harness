@@ -1,4 +1,4 @@
-#requires -Version 5.1
+﻿#requires -Version 5.1
 #requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.0.0' }
 # Source encoding: UTF-8 with BOM.
 
@@ -245,6 +245,7 @@ param(
     [string]$SessionKey,
     [int]$TimeoutSeconds,
     [string]$ResponseDeadlineAtUtc,
+    [string]$ThinkingMode,
     [int]$SlotId,
     [string]$CapacityClaimId
 )
@@ -311,17 +312,59 @@ $watchState = [ordered]@{
 }
 
 Describe 'Atomic watcher JSON state' {
+    It 'rereads a briefly missing state instead of terminating before the retry budget: <Required>' -TestCases @(
+        @{ Required = $true }
+        @{ Required = $false }
+    ) {
+        param($Required)
+        $path = Join-Path $TestDrive "briefly-missing-watch-state-$Required.json"
+        $heldPath = Join-Path $TestDrive "held-watch-state-$Required.json"
+        [System.IO.File]::WriteAllText($path, '{"phase":"running","watcherId":"original-watcher"}', $Script:Utf8NoBom)
+        [System.IO.File]::Move($path, $heldPath)
+        [System.IO.File]::Exists($path) | Should -BeFalse
+        Mock Start-Sleep {
+            [System.IO.File]::Move($heldPath, $path)
+        } -ParameterFilter { $Milliseconds -eq 25 }
+
+        $state = Read-WatchJson -Path $path -Required:$Required
+        $state.phase | Should -Be 'running'
+        $state.watcherId | Should -Be 'original-watcher'
+        Should -Invoke Start-Sleep -Times 1 -Exactly -ParameterFilter { $Milliseconds -eq 25 }
+    }
+
+    It 'keeps a permanently missing state bounded and fail-closed: <Required>' -TestCases @(
+        @{ Required = $true }
+        @{ Required = $false }
+    ) {
+        param($Required)
+        $path = Join-Path $TestDrive 'permanently-missing-watch-state.json'
+        Mock Start-Sleep {} -ParameterFilter { $Milliseconds -eq 25 }
+
+        if ($Required) {
+            { Read-WatchJson -Path $path -Required } | Should -Throw '*Required JSON file is missing: permanently-missing-watch-state.json*'
+        }
+        else {
+            Read-WatchJson -Path $path | Should -BeNullOrEmpty
+        }
+        Should -Invoke Start-Sleep -Times 4 -Exactly -ParameterFilter { $Milliseconds -eq 25 }
+    }
+
     It 'retries a transient sharing violation during an atomic replacement' {
         $path = Join-Path $TestDrive 'transient-watch-state.json'
         $ready = Join-Path $TestDrive 'transient-watch-state.ready'
+        $release = Join-Path $TestDrive 'transient-watch-state.release'
         $childPath = Join-Path $TestDrive 'hold-watch-state.ps1'
         [System.IO.File]::WriteAllText($path, '{"phase":"completed"}', $Script:Utf8NoBom)
         [System.IO.File]::WriteAllText($childPath, @'
-param([string]$Path, [string]$Ready)
+param([string]$Path, [string]$Ready, [string]$Release)
 $stream = [System.IO.File]::Open($Path, 'Open', 'Read', 'None')
 try {
     [System.IO.File]::WriteAllText($Ready, 'ready')
-    Start-Sleep -Milliseconds 55
+    $deadline = [datetime]::UtcNow.AddSeconds(15)
+    while (-not [System.IO.File]::Exists($Release)) {
+        if ([datetime]::UtcNow -ge $deadline) { throw 'Timed out waiting for test lock release.' }
+        Start-Sleep -Milliseconds 10
+    }
 }
 finally {
     $stream.Dispose()
@@ -329,17 +372,28 @@ finally {
 '@, [System.Text.UTF8Encoding]::new($true))
         $process = Start-Process powershell.exe -ArgumentList @(
             '-NoProfile', '-NonInteractive', '-File', ('"' + $childPath + '"'),
-            '-Path', ('"' + $path + '"'), '-Ready', ('"' + $ready + '"')
+            '-Path', ('"' + $path + '"'), '-Ready', ('"' + $ready + '"'),
+            '-Release', ('"' + $release + '"')
         ) -PassThru -WindowStyle Hidden
         try {
-            $deadline = [datetime]::UtcNow.AddSeconds(2)
-            while (-not [System.IO.File]::Exists($ready) -and [datetime]::UtcNow -lt $deadline) {
+            # Startup is bounded separately from the production retry interval.
+            $deadline = [datetime]::UtcNow.AddSeconds(10)
+            while (-not [System.IO.File]::Exists($ready) -and -not $process.HasExited -and [datetime]::UtcNow -lt $deadline) {
                 Start-Sleep -Milliseconds 10
             }
-            [System.IO.File]::Exists($ready) | Should -BeTrue
+            [System.IO.File]::Exists($ready) | Should -BeTrue -Because 'the child must acquire the lock before the bounded startup deadline'
+            # Release only after the real first read reaches its retry, so scheduler
+            # delays cannot move the exclusive lock outside the assertion window.
+            Mock Start-Sleep {
+                [System.IO.File]::WriteAllText($release, 'release')
+                if (-not $process.WaitForExit(5000)) { throw 'The lock holder did not exit after release.' }
+                $process.ExitCode | Should -Be 0
+            } -ParameterFilter { $Milliseconds -eq 25 }
             (Read-WatchJson -Path $path -Required).phase | Should -Be 'completed'
+            Should -Invoke Start-Sleep -Times 1 -Exactly -ParameterFilter { $Milliseconds -eq 25 }
         }
         finally {
+            [System.IO.File]::WriteAllText($release, 'release')
             $process.WaitForExit(2000) | Out-Null
             if (-not $process.HasExited) { $process.Kill() }
             $process.Dispose()
@@ -486,6 +540,7 @@ param(
     [string]$TabId,
     [string]$SessionKey,
     [string]$ExpectedConversationUrl,
+    [string]$ThinkingMode,
     [string]$CodexThreadId
 )
 $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
@@ -604,6 +659,35 @@ Describe 'Atomic RootWait round' {
         $Script:CapacityRootOverride = $null
     }
 
+    It 'forwards unstarted ResumeUnsent through run-root with a new released capacity claim' {
+        $null=Set-PreInvokeFailureFixture -Directory $script:roundDirectory -IdempotencyKey 'atomic-root-round' -Category 'EvidenceDirectoryNotPristine'
+        $null=Release-CapacitySlot -Id $script:roundClaim.slotId -ExpectedClaimId $script:roundClaim.claimId -OwnerCompletionObserved
+        $script:unstartedAdapterArguments=$null
+        $script:unstartedCapacityConfirmed=$false
+        Mock Invoke-WatchAdapterProcess {
+            param($Arguments,$ProcessTimeoutSeconds)
+            $script:unstartedAdapterArguments=@($Arguments)
+            $claim=Read-WatchJson -Path (Get-CapacitySlotPath -Id 1) -Required
+            $script:unstartedCapacityConfirmed=($claim.phase -eq 'run-starting' -and $claim.submissionAttempted -eq $true)
+            [pscustomobject]@{ExitCode=30;Payload=[pscustomobject]@{ok=$false;message='synthetic adapter boundary reached'}}
+        }
+        Mock Get-WatchEvidenceBinding {throw 'No post-send evidence exists in this controlled adapter-boundary check.'}
+        $Command='run-root';$EvidenceDir=$script:roundDirectory;$CodexThreadId=$script:ThreadId
+        $PromptPath=$script:roundPrompt;$IdempotencyKey='atomic-root-round'
+        $BrowserId='browser-1';$Profile='profile-1';$TabId='101';$SessionKey='browser-1:profile-1:101'
+        $FreshConversation=$true;$ResumeUnsent=$true
+        {Invoke-WatchMain} | Should -Throw '*synthetic adapter boundary reached*'
+        $script:unstartedAdapterArguments | Should -Contain '-ResumeUnsent'
+        $script:unstartedAdapterArguments | Should -Contain '-FreshConversation'
+        $script:unstartedAdapterArguments | Should -Contain 'atomic-root-round'
+        $script:unstartedAdapterArguments | Should -Contain $script:roundDirectory
+        $script:unstartedCapacityConfirmed | Should -BeTrue
+        @(Get-ChildItem -LiteralPath $Script:CapacityRootOverride -File -Filter 'slot-*.json').Count | Should -Be 0
+        Should -Invoke Invoke-WatchAdapterProcess -Times 1 -Exactly
+        Should -Invoke Start-WatchProcess -Times 0 -Exactly
+        Should -Invoke Wait-RootWatchEvent -Times 0 -Exactly
+    }
+
     It 'forwards one bounded send request to the adapter' {
         $script:adapterArguments = $null
         Mock Invoke-WatchAdapterProcess {
@@ -700,6 +784,47 @@ Describe 'Atomic RootWait round' {
         $result.evidencePhaseAtStart | Should -Be 'send-uncertain'
         $result.sendFailure | Should -Match 'after the click boundary'
         Should -Invoke Start-WatchProcess -Times 1 -Exactly
+    }
+
+    It 'forwards only allowlisted adapter diagnostics to final watcher errors' {
+        Mock Invoke-WatchAdapterSend {
+            [pscustomobject]@{ ExitCode = 99; Payload = [pscustomobject]@{
+                ok = $false; category = 'InternalError'; message = 'An unexpected internal error occurred; raw exception text was suppressed.'
+                details = [pscustomobject]@{
+                    exceptionType = 'System.Management.Automation.MethodInvocationException'
+                    innerExceptionType = 'System.IO.IOException'; hResult = -2146233087; innerHResult = -2147024864
+                    scriptName = 'chatgpt-pro-sidebar.ps1'; line = 403; column = 17
+                    message = 'SECRET_MESSAGE'; path = 'C:\SECRET_PATH\prompt.txt'; sourceLine = 'SECRET_SOURCE'; FullyQualifiedErrorId = 'SECRET_ID'
+                }
+            } }
+        }
+        Mock Get-WatchEvidenceBinding { throw 'current phase is pre-invoke-failed' }
+        $caught = $null
+        try {
+            Invoke-RootWaitRound -EvidenceDirectory $script:roundDirectory -ThreadId $script:ThreadId -PromptFile $script:roundPrompt -IdempotencyKeyValue 'safe-watch-diagnostics' -CapacitySlotId $script:roundClaim.slotId -CapacityClaimId $script:roundClaim.claimId
+        }
+        catch { $caught = $_ }
+        $caught | Should -Not -BeNullOrEmpty
+        $payload = New-WatchErrorPayload -ErrorRecord $caught -CommandName 'run-root'
+        $payload.category | Should -Be 'WatcherError'
+        $payload.details.innerExceptionType | Should -Be 'System.IO.IOException'
+        $payload.details.innerHResult | Should -Be -2147024864
+        $payload.details.scriptName | Should -Be 'chatgpt-pro-sidebar.ps1'
+        $payload.details.line | Should -Be 403
+        ($payload | ConvertTo-Json -Depth 8) | Should -Not -Match 'SECRET_|prompt.txt|sourceLine|FullyQualifiedErrorId'
+        Should -Invoke Invoke-WatchAdapterSend -Times 1 -Exactly
+        Should -Invoke Start-WatchProcess -Times 0 -Exactly
+        Should -Invoke Wait-RootWatchEvent -Times 0 -Exactly
+    }
+
+    It 'rejects forged diagnostic types and non-allowlisted script paths' {
+        $exception = [System.InvalidOperationException]::new('bounded failure')
+        $exception.Data['AdapterDiagnostics'] = [pscustomobject]@{
+            exceptionType = 'SECRET_TYPE'; innerExceptionType = 'SECRET_INNER'; scriptName = 'C:\SECRET_PATH\chatgpt-pro-sidebar.ps1'; line = 12; column = 'SECRET_COLUMN'; hResult = 'SECRET_CODE'
+        }
+        $record = [System.Management.Automation.ErrorRecord]::new($exception, 'SECRET_ID', 'InvalidOperation', $null)
+        $payload = New-WatchErrorPayload -ErrorRecord $record -CommandName 'run-root'
+        ($payload | ConvertTo-Json -Depth 8) | Should -Not -Match 'SECRET_|scriptName|column|line|hResult'
     }
 
     It 'does not start a watcher when send has no waitable post-send evidence' {
@@ -1550,6 +1675,58 @@ Describe 'Batch RootWait capacity' {
         (Get-CapacitySlots).slots.Count | Should -Be 1
     }
 
+    It 'allows batch admission with unrelated files and upload preparation artifacts' {
+        $root=Join-Path $TestDrive 'batch-admission-unrelated'
+        $path=New-BatchFixture -Root $root
+        $evidence=Join-Path $root 'evidence-1'
+        foreach($name in @('unrelated.txt','upload-state.json','attachment-receipt.json')) {
+            [IO.File]::WriteAllText((Join-Path $evidence $name),'preserve '+$name)
+        }
+        $manifest=Read-RootWaitBatchManifest -Path $path
+        $manifest.Rounds.Count | Should -Be 1
+        foreach($name in @('unrelated.txt','upload-state.json','attachment-receipt.json')) {
+            [IO.File]::ReadAllText((Join-Path $evidence $name)) | Should -BeExactly ('preserve '+$name)
+        }
+    }
+
+    It 'keeps batch admission output conflicts owned by the adapter without overwrite' {
+        $root=Join-Path $TestDrive 'batch-admission-owned-output'
+        $path=New-BatchFixture -Root $root
+        $evidence=Join-Path $root 'evidence-1'
+        [IO.File]::WriteAllText((Join-Path $evidence 'response.md'),'existing response')
+        $manifest=Read-RootWaitBatchManifest -Path $path
+        . (Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts/chatgpt-pro-sidebar.ps1')
+        Mock Reserve-GlobalIdempotencyKey {throw 'Reservation must not run.'}
+        Mock Resolve-AgentBrowserTarget {throw 'Browser observation must not run.'}
+        Mock Invoke-AgentBrowserCliJson {throw 'Browser mutation must not run.'}
+        $round=$manifest.Rounds[0]
+        $binding=[pscustomobject]@{browserId='browser-1';profileId='profile-1';tabId='101';sessionKey='browser-1:profile-1:101';origin='https://chatgpt.com';url='https://chatgpt.com/'}
+        $category=''
+        try {Invoke-AgentBrowserSend -PromptText 'request 1' -EvidenceDirectory $round.EvidenceDirectory -IdempotencyKeyValue $round.IdempotencyKey -CodexThreadIdValue $script:ThreadId -RequireFreshConversation -TargetBinding $binding}
+        catch {$category=Get-ExceptionCategory -Exception $_.Exception}
+        $category | Should -BeExactly 'EvidenceOutputConflict'
+        [IO.File]::ReadAllText((Join-Path $evidence 'response.md')) | Should -BeExactly 'existing response'
+        Test-Path -LiteralPath (Join-Path $evidence 'state.json') | Should -BeFalse
+        Test-Path -LiteralPath (Join-Path $evidence 'prompt.md') | Should -BeFalse
+        Should -Invoke Reserve-GlobalIdempotencyKey -Times 0 -Exactly
+        Should -Invoke Resolve-AgentBrowserTarget -Times 0 -Exactly
+        Should -Invoke Invoke-AgentBrowserCliJson -Times 0 -Exactly
+    }
+
+    It 'rejects batch admission over an existing parent result before capacity or child writes' {
+        $root=Join-Path $TestDrive 'batch-admission-parent-output'
+        $path=New-BatchFixture -Root $root
+        $resultPath=Join-Path $root 'batch-result.json'
+        [IO.File]::WriteAllText($resultPath,'existing batch result')
+        Mock Acquire-CapacitySlot {throw 'Capacity must not be acquired.'}
+        Mock Start-BatchRoundProcess {throw 'Child must not start.'}
+        {Invoke-RootWaitBatch -Path $path -ExpectedThreadId $script:ThreadId} | Should -Throw '*batch-result.json*already exists*'
+        [IO.File]::ReadAllText($resultPath) | Should -BeExactly 'existing batch result'
+        @(Get-ChildItem -LiteralPath $root -Directory -Force -Filter '.batch-runtime-*').Count | Should -Be 0
+        Should -Invoke Acquire-CapacitySlot -Times 0 -Exactly
+        Should -Invoke Start-BatchRoundProcess -Times 0 -Exactly
+    }
+
     It 'defaults batches to 7200 seconds and rejects duplicate keys or path escape' {
         $root = Join-Path $TestDrive 'manifest-validation'
         $path = New-BatchFixture -Root $root -RoundCount 2
@@ -1713,7 +1890,6 @@ Describe 'Batch RootWait capacity' {
         $directory = Join-Path $TestDrive 'batch-read-sharing'
         $null = New-Item -ItemType Directory -Path $directory -Force
         $stdout = Join-Path $directory 'stdout.log'
-        [System.IO.File]::WriteAllText($stdout, '{"terminalStatus":"completed","submissionAcknowledged":true}', $Script:Utf8NoBom)
         Write-WatchJsonAtomic -Path (Join-Path $directory 'state.json') -Value ([ordered]@{
             phase = 'completed'; submissionAcknowledged = $true
         })
@@ -1741,9 +1917,12 @@ Describe 'Batch RootWait capacity' {
             QueuedAt = $started
             StartedAt = $started
         }
-        $locked = [System.IO.File]::Open($stdout, [System.IO.FileMode]::Open, [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None)
+        $locked = [System.IO.File]::Open($stdout, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None)
         $script:sleepAttempts = 0
         try {
+            $stdoutBytes = $Script:Utf8NoBom.GetBytes('{"terminalStatus":"completed","submissionAcknowledged":true}')
+            $locked.Write($stdoutBytes, 0, $stdoutBytes.Length)
+            $locked.Flush($true)
             $result = Read-BatchRoundProcessResult `
                 -ActiveRound $activeRound `
                 -CompletedAt $started.AddSeconds(1) `
@@ -1763,7 +1942,6 @@ Describe 'Batch RootWait capacity' {
         $directory = Join-Path $TestDrive 'batch-read-nonterminal'
         $null = New-Item -ItemType Directory -Path $directory -Force
         $stdout = Join-Path $directory 'stdout.log'
-        [System.IO.File]::WriteAllText($stdout, '{"terminalStatus":"completed"}', $Script:Utf8NoBom)
         Write-WatchJsonAtomic -Path (Join-Path $directory 'state.json') -Value ([ordered]@{
             phase = 'send-uncertain'; submissionAcknowledged = $false; automaticResendAllowed = $false
         })
@@ -1786,8 +1964,11 @@ Describe 'Batch RootWait capacity' {
             QueuedAt = $started
             StartedAt = $started
         }
-        $locked = [System.IO.File]::Open($stdout, [System.IO.FileMode]::Open, [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None)
+        $locked = [System.IO.File]::Open($stdout, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None)
         try {
+            $stdoutBytes = $Script:Utf8NoBom.GetBytes('{"terminalStatus":"completed"}')
+            $locked.Write($stdoutBytes, 0, $stdoutBytes.Length)
+            $locked.Flush($true)
             $result = Read-BatchRoundProcessResult `
                 -ActiveRound $activeRound `
                 -CompletedAt $started.AddSeconds(1) `
@@ -2078,6 +2259,7 @@ param(
     [string]$SessionKey,
     [int]$TimeoutSeconds,
     [string]$ResponseDeadlineAtUtc,
+    [string]$ThinkingMode,
     [int]$SlotId,
     [string]$CapacityClaimId
 )
@@ -2684,18 +2866,25 @@ Describe 'Local continuation contract' {
 
     It 'recovers only verified completed evidence from an ownership probe failure: <Case>' -TestCases @(
         @{ Case = 'same-round'; ExpectedError = '' }
+        @{ Case = 'extra-high'; ExpectedError = '' }
+        @{ Case = 'changed-mode'; ExpectedError = '*failed root-wait round*' }
+        @{ Case = 'explicit-mode-mismatch'; ExpectedError = '*ThinkingModeEvidenceMismatch*' }
         @{ Case = 'changed-url'; ExpectedError = '*failed root-wait round*' }
         @{ Case = 'changed-request'; ExpectedError = '*failed root-wait request*' }
         @{ Case = 'failed-verification'; ExpectedError = '*failed adapter evidence verification*' }
         @{ Case = 'deadline-expired'; ExpectedError = '*deadline expired during*' }
     ) {
         param($Case, $ExpectedError)
+        $Script:ThinkingModeExplicit = $false
+        $Script:RequestedThinkingMode = 'Pro'
+        $script:RecoveryExpectedMode = if ($Case -eq 'extra-high') { 'Extra High' } else { 'Pro' }
         $directory = Join-Path $TestDrive "root-wait-recovery-$Case"
         New-WatchFixtureEvidence -Directory $directory -Phase 'completed'
         $adapterPath = Join-Path $directory 'state.json'
         $adapter = Read-WatchJson -Path $adapterPath -Required
         $adapter | Add-Member -NotePropertyName codexThreadId -NotePropertyValue $script:ThreadId -Force
         $adapter | Add-Member -NotePropertyName responseSha256 -NotePropertyValue ('c' * 64) -Force
+        $adapter | Add-Member -NotePropertyName thinkingMode -NotePropertyValue $script:RecoveryExpectedMode -Force
         $adapter | Add-Member -NotePropertyName attemptCount -NotePropertyValue 1 -Force
         Write-WatchJsonAtomic -Path $adapterPath -Value $adapter
         New-WorkerState -Directory $directory -Token 'worker-token' -DisableWake $true
@@ -2703,7 +2892,7 @@ Describe 'Local continuation contract' {
         $eventPath = Join-Path $directory $Script:EventFileName
         $state = Read-WatchJson -Path $statePath -Required
         $state | Add-Member -NotePropertyName rootWait -NotePropertyValue $true -Force
-        foreach ($field in @('promptSha256', 'idempotencyKeySha256', 'responseDeadlineAtUtc')) {
+        foreach ($field in @('promptSha256', 'idempotencyKeySha256', 'responseDeadlineAtUtc', 'thinkingMode')) {
             $state | Add-Member -NotePropertyName $field -NotePropertyValue $adapter.$field -Force
         }
         $null = Complete-WatchTerminalEvidence -StatePath $statePath -EventPath $eventPath -State $state -LoopResult ([pscustomobject]@{
@@ -2713,11 +2902,14 @@ Describe 'Local continuation contract' {
         if ($Case -eq 'changed-url') { $adapter.conversationUrlBound = 'https://chatgpt.com/c/87654321-1234-1234-1234-123456789abc' }
         if ($Case -eq 'changed-request') { $adapter.promptSha256 = ('d' * 64) }
         Write-WatchJsonAtomic -Path $adapterPath -Value $adapter
+        if ($Case -eq 'changed-mode') { $adapter.thinkingMode = 'High'; Write-WatchJsonAtomic -Path $adapterPath -Value $adapter }
+        if ($Case -eq 'explicit-mode-mismatch') { $Script:ThinkingModeExplicit = $true; $Script:RequestedThinkingMode = 'High' }
         $script:RecoveryFinalizeFails = $Case -eq 'failed-verification'
         $script:RecoveryExpired = $false
         $script:ExpireOnFinalize = $Case -eq 'deadline-expired'
         Mock Invoke-WatchAdapterSend { throw 'Recovery must not send.' }
         Mock Invoke-WatchAdapterFinalize {
+            $Script:RequestedThinkingMode | Should -Be $script:RecoveryExpectedMode
             $script:RecoveryExpired = $script:ExpireOnFinalize
             [pscustomobject]@{ ExitCode = if ($script:RecoveryFinalizeFails) { 28 } else { 0 }; Payload = [pscustomobject]@{
                 ok = -not $script:RecoveryFinalizeFails; completed = -not $script:RecoveryFinalizeFails
@@ -2746,6 +2938,8 @@ Describe 'Local continuation contract' {
             (Read-WatchJson -Path $eventPath -Required).finalize.completed | Should -BeTrue
             Should -Invoke Invoke-WatchAdapterFinalize -Times 1 -Exactly
         }
+        $Script:ThinkingModeExplicit = $false
+        $Script:RequestedThinkingMode = 'Pro'
         (Read-WatchJson -Path $adapterPath -Required).attemptCount | Should -Be 1
         Should -Invoke Invoke-WatchAdapterSend -Times 0 -Exactly
     }

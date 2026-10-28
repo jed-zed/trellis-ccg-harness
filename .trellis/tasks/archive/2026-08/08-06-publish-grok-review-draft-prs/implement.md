@@ -39,7 +39,18 @@
    - Commit, push with upstream tracking, and create a draft PR targeting
      `main`, linking the source draft PR as a dependency.
 
-7. Finish Trellis state.
+7. Apply the post-review P1 correction.
+   - Replace full-worktree file tools and model-authored envelopes with the
+     snapshot-only, tool-less review contract.
+   - Add focused regressions for unbound-file exclusion, target identity races,
+     non-UTF-8 input, isolated CWD, tool-call rejection, fresh sessions, cleanup,
+     and wrapper-generated envelopes.
+   - Rebuild all six binaries twice with the pinned toolchain and update only
+     their verified digests.
+   - After explicit source commit/push approval, rerun the official Harness
+     update and validation before requesting separate Harness commit approval.
+
+8. Finish Trellis state.
    - Record both PR URLs and exact branch heads in the task artifacts.
    - Run `trellis-check`, archive this task, record the session, and push only
      the resulting task-local follow-up commits to the Harness PR branch.

@@ -71,7 +71,7 @@ export type { SkillMeta } from './skill-registry'
  * Must match the `version` constant in codeagent-wrapper/main.go.
  * When this differs from the installed binary, update triggers re-download.
  */
-export const EXPECTED_BINARY_VERSION = '5.12.14-personal.20261003.1'
+export const EXPECTED_BINARY_VERSION = '5.12.14-personal.20261022.1'
 export const BINARY_INSTALL_FAILURE_POLICY = 'fatal' as const
 
 /**
@@ -82,12 +82,12 @@ export const BINARY_INSTALL_FAILURE_POLICY = 'fatal' as const
  * CGO disabled, and `-buildvcs=false -trimpath -ldflags="-s -w"`.
  */
 export const EXPECTED_BINARY_SHA256: Readonly<Record<string, string>> = Object.freeze({
-  'codeagent-wrapper-darwin-amd64': '8c102c9deabbbca533738f6458c0968f53f614f816b2928c2970605c990698d1',
-  'codeagent-wrapper-darwin-arm64': '08ca6f42e891c5ac1c765c5812078dad59c2fdaf06e34824ef7cdbb26e22a15c',
-  'codeagent-wrapper-linux-amd64': '51d2156fd782542439cac3ab41bfda08cd95aaea2d087d65cfb6cb4dec730ad4',
-  'codeagent-wrapper-linux-arm64': 'b9b48d0e86495eed5bfbee8fed5b24c76476856f07bc5f71bf00017ba7a8e8c5',
-  'codeagent-wrapper-windows-amd64.exe': 'a5e95212e83117f0c17cb54d7b1a55c58a07590bd3ede0ceac774f4d7b321f1b',
-  'codeagent-wrapper-windows-arm64.exe': '6ddd01a5a1f8cda86c7ef6d1b29e048e06ca1ec626af3f23893f89be3ddc210d',
+  'codeagent-wrapper-darwin-amd64': 'bce9f7e228e8cab385d06a97410b0dcd5c002df3d84024c382aa9075489aafb1',
+  'codeagent-wrapper-darwin-arm64': 'ce80e398cf7cdd81192baacf04613ba8b9e7cdcdde7a8e889a211441f0c72260',
+  'codeagent-wrapper-linux-amd64': '3ec63f018f8853c9e6e14f13da98d500ce38950d989c3ea9d1487e81e2497778',
+  'codeagent-wrapper-linux-arm64': 'f987dca7b67d22f1782ad85290e96296c52f33e9fecb0511e204212728fbddb4',
+  'codeagent-wrapper-windows-amd64.exe': '3dea662cfd1610eafe09448afa880a594ce3d2e2b7634a4cec1f9c22c03b5dc8',
+  'codeagent-wrapper-windows-arm64.exe': 'bbdf821f8124734a4c0cedf4727ddfb96045d08a8397a0e336bfaf2709130a18',
 })
 
 // ═══════════════════════════════════════════════════════
@@ -633,7 +633,7 @@ async function installSkillGeneratedCommands(ctx: InstallContext): Promise<void>
  * These enable Codex CLI as an alternative lead orchestrator (Codex-led multi-model mode).
  * Files are installed to ~/.codex/ (global) and user copies AGENTS.md to project root.
  */
-export async function installCodexMode(options: { wrapperFile?: string, agentPreservationPlan?: string, agentPreservationPlanSha256?: string } = {}): Promise<{ success: boolean, message: string }> {
+export async function installCodexMode(options: { wrapperFile?: string, agentPreservationPlan?: string } = {}): Promise<{ success: boolean, message: string }> {
   return installCodexModeAt(options)
 }
 

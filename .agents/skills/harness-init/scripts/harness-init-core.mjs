@@ -1,4 +1,4 @@
-import { codexHomePath, resolveCodexHome } from "./codex-home.mjs";
+import { resolveCodexHome } from "./codex-home.mjs";
 import {
   createHash,
   createHmac,
@@ -70,7 +70,6 @@ import {
   resolveThirdPartyApprovals,
 } from "./third-party-approval.mjs";
 import { applyThirdPartyGlobalActions } from "./third-party-global-actions.mjs";
-import { assertCodexMutationHost } from "./codex-host-boundary.mjs";
 
 export {
   inspectProviderCliStatuses,
@@ -113,7 +112,7 @@ const PROJECT_SKILL_MAX_FILE_BYTES = 16 * 1024 * 1024;
 const PROJECT_SKILL_MAX_TOTAL_BYTES = 64 * 1024 * 1024;
 const COLLABORATION_BLOCK_START = "<!-- HARNESS-COLLABORATION:START -->";
 const COLLABORATION_BLOCK_END = "<!-- HARNESS-COLLABORATION:END -->";
-const PROJECT_POLICY_VERSION = 13;
+const PROJECT_POLICY_VERSION = 14;
 const COLLABORATION_MARKER_FORMAT_VERSION = 1;
 const PROJECT_OWNERSHIP_SCHEMA_VERSION = 2;
 const PROJECT_SKILL_OWNERSHIP_SCHEMA_VERSION = 3;
@@ -377,13 +376,14 @@ function isSameOrInside(root, target) {
   );
 }
 
-function assertDedicatedSkillRepository(repositoryPath, homeDir, codexHome) {
+// codexRoot is the resolved physical root so a linked default cannot hide it.
+function assertDedicatedSkillRepository(repositoryPath, homeDir, codexRoot) {
   const repository = path.resolve(repositoryPath);
   const userRoot = path.resolve(homeDir);
   for (const activeRoot of [
     path.join(userRoot, ".agents", "skills"),
     path.join(userRoot, ".codex", "skills"),
-    path.join(codexHomePath(homeDir, codexHome), "skills"),
+    path.join(codexRoot, "skills"),
   ]) {
     if (
       isSameOrInside(activeRoot, repository) ||
@@ -518,7 +518,8 @@ export async function loadSkillRepositoryProfile({
   const profile = validateSkillRepositoryProfile(await readJson(target), {
     allowPreviousGlobalSkills,
   });
-  assertDedicatedSkillRepository(profile.repositoryPath, canonicalHome, codexHome);
+  assertDedicatedSkillRepository(profile.repositoryPath, canonicalHome,
+    await resolveCodexHome(canonicalHome, codexHome));
   return profile;
 }
 
@@ -533,7 +534,6 @@ export async function saveSkillRepositoryProfile({
   repositoryPath,
   selectionGuidance = [],
 }) {
-  assertCodexMutationHost();
   if (approved !== true) {
     throw new Error(
       "Saving the Skill repository profile requires explicit approval.",
@@ -548,7 +548,8 @@ export async function saveSkillRepositoryProfile({
       `Skill repository path is not a directory: ${canonicalRepository}`,
     );
   }
-  assertDedicatedSkillRepository(canonicalRepository, canonicalHome, codexHome);
+  assertDedicatedSkillRepository(canonicalRepository, canonicalHome,
+    await resolveCodexHome(canonicalHome, codexHome));
   const profile = {
     schemaVersion: 1,
     repositoryPath: canonicalRepository,
@@ -1052,7 +1053,6 @@ export async function installProjectSkills({
   repoRoot,
   selectedSkills,
 }) {
-  assertCodexMutationHost();
   if (approved !== true) {
     throw new Error("Project Skill installation requires explicit approval.");
   }
@@ -1458,7 +1458,6 @@ export async function reviseReadyProjectSkills({
   provenanceKeyPath,
   replaceExisting = false,
 }) {
-  assertCodexMutationHost();
   if (approved !== true) {
     throw new Error("Ready project Skill revision requires explicit approval.");
   }
@@ -1963,7 +1962,6 @@ export {
 };
 
 export async function applySkillPlatformMigration(options) {
-  assertCodexMutationHost();
   return applySkillPlatformMigrationCore({
     ...options,
     reviseProjectSkills:
@@ -1972,7 +1970,6 @@ export async function applySkillPlatformMigration(options) {
 }
 
 export async function rollbackPlatformSourceUpdate(options) {
-  assertCodexMutationHost();
   return rollbackPlatformSourceUpdateCore(options);
 }
 
@@ -4250,7 +4247,6 @@ export async function applyProjectContract({
   readProcessIdentity,
   provenanceKeyPath,
 }) {
-  assertCodexMutationHost();
   const root = path.resolve(repoRoot);
   const sourceSkill = path.resolve(skillRoot);
   const resolvedContractPath = path.resolve(contractPath);
@@ -4910,7 +4906,6 @@ export async function migrateProjectProductManager({
   readProcessIdentity,
   provenanceKeyPath,
 }) {
-  assertCodexMutationHost();
   if (approved !== true) {
     throw new Error(
       "Product-manager contract migration requires explicit approval.",
@@ -5031,7 +5026,6 @@ export async function markProjectReady({
   readProcessIdentity,
   provenanceKeyPath,
 }) {
-  assertCodexMutationHost();
   const root = path.resolve(repoRoot);
   const sourceSkill = path.resolve(skillRoot);
   const harnessDir = path.join(root, ".harness");
@@ -5542,7 +5536,6 @@ export async function runGlobalInit({
   thirdPartySourceResolver,
   thirdPartySourceSha256 = null,
 }) {
-  assertCodexMutationHost();
   if (approved !== true) {
     throw new Error("Global Init requires --approved.");
   }
@@ -6040,7 +6033,6 @@ export async function runProjectInit({
   thirdPartySourceResolver,
   thirdPartySourceSha256 = null,
 }) {
-  assertCodexMutationHost();
   if (approved !== true) {
     throw new Error("Project Init requires --approved.");
   }
@@ -6292,7 +6284,6 @@ export async function exportHarnessInitSkill({
   sourceSkillRoot,
   targetRepo,
 }) {
-  assertCodexMutationHost();
   const source = path.resolve(sourceSkillRoot);
   const root = path.resolve(targetRepo);
   const targetParent = path.join(root, ".agents", "skills");
@@ -7648,11 +7639,6 @@ export async function runHarnessInitCli(
     thirdPartySourceResolver,
   } = {},
 ) {
-  const readonlyCommands = new Set([
-    "inspect", "validate", "catalog-skills", "third-party-plan",
-    "provider-action-plan", "skill-migration-plan", "skill-migration-status",
-  ]);
-  if (!readonlyCommands.has(argv[0])) assertCodexMutationHost();
   const args = parseCliArgs(argv);
   const effectiveHomeDir = args.homeDir ?? homeDir;
   const effectiveCodexHome = args.codexHome;

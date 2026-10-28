@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 import { resolveCodexHome } from "../.agents/skills/harness-init/scripts/codex-home.mjs";
 import { GLOBAL_PLATFORM_SKILLS, rollbackPlatformSourceUpdate } from "../.agents/skills/harness-init/scripts/skill-platform-migration.mjs";
 import { installBundledPlatformSkills, loadGlobalInitState, inspectProviderCliStatuses } from "../.agents/skills/harness-init/scripts/guided-init.mjs";
-import { runGlobalInit, runHarnessInitCli } from "../.agents/skills/harness-init/scripts/harness-init-core.mjs";
+import { loadSkillRepositoryProfile, runGlobalInit, runHarnessInitCli, saveSkillRepositoryProfile } from "../.agents/skills/harness-init/scripts/harness-init-core.mjs";
 import { buildThirdPartyApprovalPlan, thirdPartySubprocessEnvironment, verifyThirdPartyApprovalPlanForOperation } from "../.agents/skills/harness-init/scripts/third-party-approval.mjs";
 import { runUserStateChecks } from "../scripts/lib/harness-adapter/conflict-runtime.mjs";
 
@@ -41,17 +41,131 @@ async function plan(value, codexHome = value.codexHome) {
     approvedCommandRoots: [], approvedPackageRoots: [] });
 }
 
-test("split roots preserve an existing AgentsHome junction and reject it as the selected physical root", async () => {
-  const value = fixture();
+function globalInitOptions(value, codexHome, cliPlan) {
+  return { approved: true, catalogMode: "skip", homeDir: value.homeDir,
+    codexHome, repoRoot: value.repoRoot, skillRoot: SKILL_ROOT,
+    providerActions: Object.fromEntries(["codex", "gemini", "grok", "claude"].map((name) => [name, "later"])),
+    providerStatusOverrides: Object.fromEntries(["codex", "gemini", "grok", "claude"].map((name) => [name, "not-installed"])),
+    thirdPartyApprovalPlan: cliPlan, thirdPartyPlanSha256: cliPlan.planSha256,
+    thirdPartySourceSha256: cliPlan.sourceManifestSha256 };
+}
+
+// Fixture links are removed one by one before any recursive cleanup, so a
+// link to a volume root or outside the fixture is never traversed.
+function linker() {
+  const links = [];
+  const link = (target, at, type = process.platform === "win32" ? "junction" : "dir") => {
+    symlinkSync(target, at, type); links.push(at); return at;
+  };
+  link.removeAll = () => {
+    for (const at of links.splice(0).reverse()) {
+      let state;
+      try { state = lstatSync(at); } catch (error) { if (error.code === "ENOENT") continue; throw error; }
+      if (!state.isSymbolicLink()) throw new Error(`Fixture link was replaced: ${at}`);
+      unlinkSync(at);
+    }
+  };
+  return link;
+}
+
+function retarget(link, at, target) {
+  unlinkSync(at); link(target, at);
+}
+
+test("only the default HomeDir/.codex entry may be a link and resolves to its physical root", async () => {
+  const value = fixture(), link = linker();
   try {
-    const junction = path.join(value.homeDir, ".codex");
-    symlinkSync(value.codexHome, junction, process.platform === "win32" ? "junction" : "dir");
+    const junction = link(value.codexHome, path.join(value.homeDir, ".codex"));
     assert.equal(await resolveCodexHome(value.homeDir, value.codexHome), value.codexHome);
-    await assert.rejects(resolveCodexHome(value.homeDir), /non-linked/);
-    await assert.rejects(resolveCodexHome(value.homeDir, junction), /non-linked/);
+    assert.equal(await resolveCodexHome(value.homeDir), value.codexHome);
+    assert.equal(await resolveCodexHome(value.homeDir, junction), value.codexHome);
+    if (process.platform === "win32") {
+      assert.equal(await resolveCodexHome(value.homeDir, path.join(value.homeDir, ".CODEX")), value.codexHome);
+    }
+    const other = link(value.codexHome, path.join(value.root, "alias-codex"));
+    await assert.rejects(resolveCodexHome(value.homeDir, other), /non-linked/);
     assert.equal(readFileSync(value.sentinel, "utf8"), "fixture credentials remain untouched\n");
-    assert.equal(existsSync(junction), true);
-  } finally { value.cleanup(); }
+    assert.equal(lstatSync(junction).isSymbolicLink(), true);
+  } finally { link.removeAll(); value.cleanup(); }
+});
+
+test("missing defaults stay compatible while missing explicit roots and linked ancestors are rejected", async () => {
+  const value = fixture(), link = linker();
+  try {
+    assert.equal(await resolveCodexHome(value.homeDir), path.join(value.homeDir, ".codex"));
+    const absentHome = path.join(value.root, "absent", "home");
+    assert.equal(await resolveCodexHome(absentHome), path.join(absentHome, ".codex"));
+    await assert.rejects(resolveCodexHome(value.homeDir, path.join(value.root, "absent-codex")), { code: "ENOENT" });
+    const linkedHome = link(value.homeDir, path.join(value.root, "linked-home"));
+    await assert.rejects(resolveCodexHome(linkedHome), /non-linked/);
+    const linkedRoot = link(value.root, path.join(value.root, "linked-root"));
+    await assert.rejects(resolveCodexHome(value.homeDir, path.join(linkedRoot, "physical-codex")), /non-linked/);
+  } finally { link.removeAll(); value.cleanup(); }
+});
+
+test("a dangling, looping, volume-root or file default link is rejected", async (t) => {
+  const value = fixture(), link = linker();
+  const alias = path.join(value.homeDir, ".codex");
+  try {
+    link(path.join(value.root, "gone"), alias);
+    await assert.rejects(resolveCodexHome(value.homeDir), { code: "ENOENT" });
+    unlinkSync(alias); link(alias, alias);
+    await assert.rejects(resolveCodexHome(value.homeDir), { code: "ELOOP" });
+    unlinkSync(alias);
+    const loopB = link(alias, path.join(value.root, "loop-b"));
+    link(loopB, alias);
+    await assert.rejects(resolveCodexHome(value.homeDir), { code: "ELOOP" });
+    retarget(link, alias, path.parse(value.root).root);
+    await assert.rejects(resolveCodexHome(value.homeDir), /filesystem root/);
+    const file = path.join(value.root, "codex-file");
+    writeFileSync(file, "not a directory\n");
+    await assert.rejects(resolveCodexHome(value.homeDir, file), /non-linked/);
+    unlinkSync(alias);
+    try { link(file, alias, "file"); } catch (error) {
+      if (error.code !== "EPERM") throw error;
+      t.skip("file symbolic links are unavailable without the symlink privilege");
+      return;
+    }
+    await assert.rejects(resolveCodexHome(value.homeDir), /non-linked/);
+  } finally { link.removeAll(); value.cleanup(); }
+});
+
+test("plans and Global Init state bound through the default link reject a later retarget", async () => {
+  const value = fixture(), link = linker();
+  try {
+    const alias = link(value.codexHome, path.join(value.homeDir, ".codex"));
+    const other = path.join(value.root, "other-codex"); mkdirSync(other);
+    const bound = await plan(value, null);
+    assert.equal(bound.execution.subprocessConfigRoots.codexHome, value.codexHome);
+    assert.equal((await runGlobalInit(globalInitOptions(value, null, bound))).status, "initialized");
+    assert.equal((await loadGlobalInitState({ homeDir: value.homeDir })).codexHome, value.codexHome);
+    retarget(link, alias, other);
+    await assert.rejects(verifyThirdPartyApprovalPlanForOperation({
+      approvalPlan: bound, homeDir: value.homeDir, codexHome: null, repoRoot: value.repoRoot,
+      manifest: JSON.parse(readFileSync(MANIFEST_PATH, "utf8")), manifestSha256: bound.sourceManifestSha256,
+      strictDataBoundary: false, env: {},
+    }), /subprocess configuration roots/);
+    await assert.rejects(loadGlobalInitState({ homeDir: value.homeDir }), /differs from the selected root/);
+    assert.equal(readFileSync(value.sentinel, "utf8"), "fixture credentials remain untouched\n");
+  } finally { link.removeAll(); value.cleanup(); }
+});
+
+test("Skill repository isolation uses the physical root behind the default link", async () => {
+  const value = fixture(), link = linker();
+  try {
+    link(value.codexHome, path.join(value.homeDir, ".codex"));
+    const physicalSkills = path.join(value.codexHome, "skills"); mkdirSync(physicalSkills);
+    const profilePath = path.join(value.homeDir, ".agents", "harness", "skill-repository.json");
+    await assert.rejects(saveSkillRepositoryProfile({ approved: true, homeDir: value.homeDir,
+      globalEssentialSkills: GLOBAL_PLATFORM_SKILLS, repositoryPath: physicalSkills }), /dedicated and separate/);
+    assert.equal(existsSync(profilePath), false);
+    mkdirSync(path.dirname(profilePath), { recursive: true });
+    writeFileSync(profilePath, JSON.stringify({ schemaVersion: 1, repositoryPath: physicalSkills,
+      globalEssentialSkills: GLOBAL_PLATFORM_SKILLS,
+      selection: { approvalRequired: true, installMode: "copy", guidance: [], excludedSkills: [] },
+      refinedAt: "2026-10-22T00:00:00.000Z" }));
+    await assert.rejects(loadSkillRepositoryProfile({ homeDir: value.homeDir }), /dedicated and separate/);
+  } finally { link.removeAll(); value.cleanup(); }
 });
 
 test("addon plan and subprocess environment bind the physical Codex root and reject a root switch", async () => {
@@ -75,12 +189,7 @@ test("Global Init and CLI repeat on split roots without touching physical Codex 
   const value = fixture();
   try {
     const cliPlan = await plan(value);
-    const options = { approved: true, catalogMode: "skip", homeDir: value.homeDir,
-      codexHome: value.codexHome, repoRoot: value.repoRoot, skillRoot: SKILL_ROOT,
-      providerActions: Object.fromEntries(["codex", "gemini", "grok", "claude"].map((name) => [name, "later"])),
-      providerStatusOverrides: Object.fromEntries(["codex", "gemini", "grok", "claude"].map((name) => [name, "not-installed"])),
-      thirdPartyApprovalPlan: cliPlan, thirdPartyPlanSha256: cliPlan.planSha256,
-      thirdPartySourceSha256: cliPlan.sourceManifestSha256 };
+    const options = globalInitOptions(value, value.codexHome, cliPlan);
     assert.equal((await runGlobalInit(options)).status, "initialized");
     assert.equal((await runGlobalInit(options)).status, "unchanged");
     const state = await loadGlobalInitState({ homeDir: value.homeDir, codexHome: value.codexHome });

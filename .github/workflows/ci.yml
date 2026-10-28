@@ -47,6 +47,9 @@ jobs:
       - name: Run all offline Harness contracts
         run: pnpm harness:test
 
+      - name: MCPX and GPT Pro Python bridge regressions
+        run: python -B -m unittest discover -s components/ccg-workflow/plugins/ccg/skills/ccg-gptpro-bridge/tests -v
+
       - name: Test public Global Setup with isolated user state
         if: runner.os == 'Linux' && matrix.node-version == 22
         shell: pwsh

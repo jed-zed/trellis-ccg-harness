@@ -6,7 +6,7 @@
 2. Default to the fast lane for known, local, low-risk work.
 3. Keep authoritative requirements, design and one execution plan; complex tasks require all three artifacts.
 4. Implement the smallest change that meets acceptance criteria and preserves trust boundaries.
-5. Run project checks and the test-coverage checklist; verify the full affected task scope before completion.
+5. Use checks proportionate to the changed behavior and risk, including required project/CI gates; report unverified work accurately.
 
 ## Trellis System
 
@@ -26,7 +26,7 @@ Read the relevant `.trellis/spec/<package>/<layer>/index.md` and only the guidel
 python ./.trellis/scripts/get_context.py --mode packages
 ```
 
-Structured tasks live under `.trellis/tasks/{MM-DD-name}/`. `task.json` owns identity and lifecycle; `prd.md` owns requirements and acceptance. Complex tasks also require `design.md` and `implement.md`; lightweight tasks may keep a short plan in the PRD. Other optional artifacts must have a trigger below.
+Structured tasks live under `.trellis/tasks/{MM-DD-name}/`. `task.json` owns identity and lifecycle; `prd.md` owns requirements and acceptance. Complex tasks also require `design.md` and `implement.md`; lightweight tasks may keep a short plan in the PRD. Add optional artifacts only for a concrete need.
 
 ```bash
 python ./.trellis/scripts/task.py create "<title>" --slug <name>
@@ -69,7 +69,7 @@ Classify the current request before loading the task lifecycle. This is an instr
 | Ambiguous request or impact/risk that cannot be established | Structured lane: resolve the uncertainty; do not assume low risk |
 | Authentication, authorization, credentials, permissions, data migration/loss, Provider/network/paid call, install/sync/publish, destructive operation, shared core or multiple modules | Structured lane: apply the relevant risk and authorization gates |
 
-Fast lane does not ask whether to create a task and does not create task artifacts, PRD/design/plan files, journal, or invoke `task.py start`, finish/archive, or a commit lifecycle. Read only context needed for the answer or change. Code changes follow the project checks and test-coverage checklist in `trellis-check`; conversation and read-only inspection need no test command.
+Fast lane does not ask whether to create a task and does not create task artifacts, PRD/design/plan files, journal, or invoke `task.py start`, finish/archive, or a commit lifecycle. Read only context needed for the answer or change. Use the risk-proportionate verification in `trellis-check`; conversation and read-only inspection need no test command.
 
 Fast lane never bypasses applicable input validation, security, data protection, basic accessibility, or explicit project/CI checks. File count and line count alone cannot prove low risk. An active task does not force unrelated simple questions into its lifecycle; preserve its status and any pending gate.
 
@@ -91,18 +91,9 @@ CCG and Trellis use one approval for the same implementation scope. Check the ac
 
 The minimum skeleton is task identity, accepted requirements, one authoritative plan, implementation, project verification, and a completion record. Lightweight structured tasks may be PRD-only. Complex tasks must have `prd.md`, `design.md`, and `implement.md` before `task.py start`: requirements and acceptance in the PRD, technical contracts and tradeoffs in the design, and the ordered execution/verification plan in implement.md. Do not duplicate these authorities in CCG.
 
-| Extra step | Trigger fact -> required output -> stop condition |
-|---|---|
-| `design.md` | Complex task, or unresolved architecture/interface/data-flow choice -> technical design and contract -> choices, boundaries and rollback are documented |
-| `implement.md` | Complex task -> one ordered execution plan -> each stage has an action, verification and rollback point |
-| Research/search | A specific unanswered question blocks correctness -> source-backed answer -> that question is answered |
-| Provider or product-manager evidence | A required external capability or explicitly requested review -> bounded evidence -> answer/review returned or its failure reported; obtain network/paid authorization first |
-| Sub-agent | An independently bounded task benefits from authorized delegation -> specified result -> assigned question/action is complete; Codex inline keeps root coordination and permits native leaves under the Codex native leaf workers policy |
-| Review | A changed risk boundary or explicit review requirement -> actionable findings against that boundary -> findings resolved or explicitly accepted |
-| Broader tests | Final structured-task verification, shared impact, a failure, or project/CI requirement -> full affected-scope evidence -> checks pass |
-| Spec/journal | A durable contract changed or an actual handoff needs missing context -> concise update/link -> future work can proceed without duplicating the task |
+Complex-task documents remain required. Add research for a specific unanswered question, a spec update for a changed durable contract, or a journal for missing handoff context. Use Providers and independent reviews when requested or needed for a concrete capability or risk; retain network/paid authorization. Delegate useful independent work under the Codex native leaf workers policy, without a worker-count target.
 
-Complex-task documents and the project quality checklist are required. For other extra steps, record the trigger fact, output and stop condition in the existing plan; hypothetical future needs do not count. Required security, data, ownership, transaction, and project/CI gates remain mandatory. Do not create a second CCG task or plan authority.
+Use the existing task, Git diff, PR and CI records. Do not require a trigger/output/stop record for every small step, or add a manager, rule checker, database or separate evidence system. Stop optional work once it answers the question; preserve required security, data, ownership, transaction and project/CI gates. Do not create a second CCG task or plan authority.
 
 ### Phase 1: Plan
 
@@ -116,7 +107,7 @@ Complex-task documents and the project quality checklist are required. For other
 [workflow-state:no_task]
 No active task. Default fast lane for simple conversation, read-only local inspection, or known local low-risk edits: needed context -> answer/minimal edit -> applicable quality checks -> report. Do not ask a task-creation question or create task artifacts, journal, start/finish/archive, or commit lifecycle for these requests.
 Unknown impact or ambiguous requests enter the structured lane. Authentication/authorization, credentials, permissions, data migration/loss, Provider/network/paid calls, install/sync/publish, destructive operations, shared core or multiple modules also enter the structured lane. Preserve applicable security, data protection, accessibility, authorization, and project/CI gates.
-For authorized structured development, automatically reuse/create the task and necessary artifacts unless the user opted out for this scope/session. Complex tasks require prd.md, design.md and implement.md. Apply Shared plan approval and preserve the original CCG strategy gates. Other extra steps require a trigger fact -> required output -> stop condition. See Request Triage and Planning Artifacts in workflow.md.
+For authorized structured development, automatically reuse/create the task and necessary artifacts unless the user opted out for this scope/session. Complex tasks require prd.md, design.md and implement.md. Apply Shared plan approval and preserve the original CCG strategy gates. Extra work needs a concrete question or risk; use existing task, Git, PR and CI records. See Request Triage and Planning Artifacts in workflow.md.
 [/workflow-state:no_task]
 
 [workflow-state:task_error]
@@ -127,12 +118,12 @@ Preserve existing task fields and artifacts. If the correct status cannot be det
 
 [workflow-state:planning]
 Lightweight structured tasks may be PRD-only. Complex tasks must finish prd.md, design.md and implement.md before task.py start. Apply Shared plan approval: reuse an unchanged approved scope without asking again; present a required unapproved plan once.
-Curate context only for authorized sub-agent dispatch. Research, Providers and other extras need a trigger fact -> required output -> stop condition.
+Curate context only for authorized sub-agent dispatch. Extra work needs a concrete question or risk; stop when it is resolved.
 [/workflow-state:planning]
 
 [workflow-state:planning-inline]
 Lightweight structured tasks may be PRD-only. Complex tasks must finish prd.md, design.md and implement.md before task.py start. Apply Shared plan approval: reuse an unchanged approved scope without asking again; present a required unapproved plan once.
-Inline mode skips JSONL curation and loads task artifacts/specs directly. In the Codex host, apply the Codex native leaf workers policy for bounded native research; the coordinator retains task state. Research, Providers and other extras need a trigger fact -> required output -> stop condition.
+Inline mode skips JSONL curation and loads task artifacts/specs directly. In the Codex host, apply the Codex native leaf workers policy for bounded native research; the coordinator retains task state. Extra work needs a concrete question or risk; stop when it is resolved.
 Product-manager gate: if currentGate.status=awaiting_user_acceptance, present that exact review and block its dependent checkpoint. Only `pm respond` with a fresh explicit response may clear it. Optional unavailable advice without a gate does not block independent authorized work. Resume the same task afterward.
 [/workflow-state:planning-inline]
 
@@ -143,12 +134,12 @@ Product-manager gate: if currentGate.status=awaiting_user_acceptance, present th
 - 2.3 Rollback `[on failure]`
 
 [workflow-state:in_progress]
-Implement the accepted plan -> project lint/typecheck/tests and coverage checklist -> completion record. Dispatch only when the plan records a concrete trigger and delegation is authorized. A dispatched implement/check agent works directly without recursive implement/check dispatch; its prompt starts with Active task: <task path> and names the bounded output. Read referenced context and task artifacts.
-Final verification covers the full affected task scope. Spec, journal, additional tests, Provider and review calls are conditional on their recorded trigger; keep required safety/project gates. Commit only when requested/authorized. Complete the task without forcing a commit or bookkeeping bundle.
+Implement the accepted plan -> risk-proportionate verification and required project/CI gates -> completion record. Dispatch useful authorized independent work. A dispatched implement/check agent works directly without recursive implement/check dispatch; its prompt starts with Active task: <task path> and names the bounded output. Read referenced context and task artifacts.
+Final verification accounts for all affected task behavior and reuses passing checks for unchanged work. Extra work needs a concrete question or risk; keep required safety/project gates. Commit only when requested/authorized. Complete the task without forcing a commit or bookkeeping bundle.
 [/workflow-state:in_progress]
 
 [workflow-state:in_progress-inline]
-Read requirements, design, execution plan and specs -> minimal edit -> project lint/typecheck/tests and coverage checklist -> completion record. In the Codex host, inline permits independent research, bounded implementation and verification under the Codex native leaf workers section of .harness/policies/collaboration-policy.md. Dispatch ready packages early, usually 1–2 then 3–4 only when useful; zero is valid. Each write path has one owner; the coordinator retains task state, shared control files, final integration and full-scope verification. Research, Providers and other extras require a trigger fact -> required output -> stop condition. Preserve required safety/project gates.
+Read requirements, design, execution plan and specs -> minimal edit -> risk-proportionate verification and required project/CI gates -> completion record. In the Codex host, inline permits independent research, bounded implementation and verification under the Codex native leaf workers section of .harness/policies/collaboration-policy.md. Dispatch ready packages when useful, without a worker-count target. Each write path has one owner; the coordinator retains task state, shared control files, final integration and verification of all affected task behavior. Extra work needs a concrete question or risk; stop when it is resolved. Preserve required safety/project gates.
 Update specs only for a changed durable contract; commit only when requested/authorized. Completion does not require a commit, archive commit, or journal bundle.
 Product-manager gate: if currentGate.status=awaiting_user_acceptance, present that exact review and block its dependent checkpoint. Only `pm respond` with a fresh explicit response may clear it. Optional unavailable advice without a gate does not block independent authorized work. Resume the same task afterward.
 [/workflow-state:in_progress-inline]
@@ -206,13 +197,15 @@ Unless the user opted out, task identity, accepted requirements, reviewed planni
 
 Read the owning task artifacts and applicable specs via `trellis-before-dev`. Trace callers and the changed boundary, reuse existing mechanisms, then implement the minimum accepted behavior. Codex inline permits the coordinator and explicitly scoped native write leaves, with one writer per path. The coordinator retains task state, shared control files, integration and final verification; apply `Codex native leaf workers` in `.harness/policies/collaboration-policy.md` for early results, follow-ups and failure handoff. This Codex-only policy does not change the official Claude workflow. Other dispatch modes use their native context protocol only when delegation is authorized and triggered.
 
-Do not add fallback, retry, caching, compatibility wrappers, defensive branches, configuration or abstractions for hypothetical failures. A reproduced fault, accepted contract, or actual trust/data boundary must justify each one. Fix the shared root cause instead of layering guards at every caller; return clear errors rather than silently claiming success. Preserve security, input validation at trust boundaries, data-loss prevention and accessibility.
+Use the smallest sufficient implementation and existing mechanisms. Defensive code must serve a real boundary, supported input range, concrete failure model or business invariant. Do not mechanically repeat checks guaranteed internally; preserve independent security controls. Do not add fallback, retry, caching, compatibility wrappers, configuration, persistence, abstractions or gates for hypothetical future needs. Fix the common root cause; propagate clear errors without swallowing exceptions or claiming success. Keep retries bounded in one responsible layer. Account for idempotency when retries or repeated calls can duplicate side effects and inspect the original operation before retrying an uncertain result. Preserve security, trust-boundary validation, data protection and accessibility.
 
 #### 2.2 Quality check `[required · repeatable]`
 
-Use `trellis-check` for the actual diff and all affected behavior. Run the project's lint, type-check, and test commands. Check new functions have unit tests, Bug fixes have regression tests, and changed behavior has updated tests. Check debug logging, suppressed warnings, type-safety bypasses, spec synchronization and applicable cross-layer data flow. Preserve mandatory project/CI gates.
+Use `trellis-check` for the actual diff and all affected behavior. Choose checks proportionate to the changed behavior and risk, including required project/CI checks. Add or update the smallest meaningful regression for changed nontrivial behavior; do not require a unit test for every new function. Rule or documentation wording needs relevant content/context checks, not unrelated builds. Account for the full affected task scope using existing passing evidence; never label an unrun check as passed.
 
-If a check fails, fix the root cause and rerun project checks. The final structured-task pass covers all affected packages, not only the latest implementation chunk: load each package's Quality Check section and verify the full task scope before completion.
+Review findings must identify location, trigger, consequence and supporting evidence. Zero findings is valid; optional suggestions do not become requirements. Address credible security or data-loss risks within scope, and report blockers or missing authorization. For a user-requested GPT Pro independent PR review, retain one full round plus one targeted re-review as the default soft budget. Recheck the fix or changed risk rather than restarting the whole review. A real blocker keeps the task incomplete; do not loop indefinitely or force a pass at the round limit.
+
+After a fix, rerun the affected check. Repeat or broaden verification only for a new change, failure, unresolved concrete concern or required gate. Stop once acceptance and required checks are satisfied; retain and report unresolved failures.
 
 #### 2.3 Rollback `[on failure]`
 
@@ -234,7 +227,7 @@ Completion does not require a commit. When a commit is requested/authorized, ins
 
 #### 3.5 Completion record `[required · once]`
 
-Record accepted results, verification evidence and any remaining limitation in the existing task plan/PRD. Resolve applicable hard acceptance gates before marking completion. Use `trellis-finish-work` to archive the current completed task with `--no-commit`; keep branch validation and ownership checks. A journal is optional for a concrete handoff need. Do not scan/clean unrelated tasks or create automatic archive/journal commits.
+Record accepted results, verification evidence and any remaining limitation in the existing task plan/PRD. Resolve applicable hard acceptance gates before marking completion. Use `trellis-finish-work` to archive the current completed task with `--no-commit`; keep branch validation and ownership checks. A journal is optional for a concrete handoff need. Do not scan/clean unrelated tasks or create automatic archive/journal commits. Report naturally in concise Chinese: current stage, useful result, verification limits, next action and any decision needed. Do not invent scores or completion percentages.
 
 ## Customizing Trellis
 

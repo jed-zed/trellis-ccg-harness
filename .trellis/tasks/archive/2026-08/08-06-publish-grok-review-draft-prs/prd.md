@@ -20,6 +20,9 @@ without reverting already-merged source or Harness changes.
   `efef535...`, which does not contain `ddfc70c...`.
 - Therefore, opening the existing Harness commits directly against current
   `main` would present already-merged Grok runtime files as deletions/reverts.
+- A post-publication review found that the first implementation verified target
+  reads only after Grok had full-worktree file tools, so it did not enforce the
+  documented declared-file boundary before disclosure.
 
 ## Requirements
 
@@ -32,6 +35,9 @@ without reverting already-merged source or Harness changes.
   contains unrelated parallel changes.
 - A Harness PR may reference only a source commit that is present on the remote
   and whose tree includes the currently accepted Windows/provider runtime.
+- Local Grok review must snapshot only the declared UTF-8 target files before
+  launch, run tool-less from the private snapshot directory, and append the
+  scope envelope in the wrapper rather than asking the model to reproduce it.
 
 ## Acceptance Criteria
 
@@ -44,6 +50,8 @@ without reverting already-merged source or Harness changes.
 - [x] Required source and Harness checks pass on the exact PR heads.
 - [x] Existing dirty files in the primary Harness worktree remain unchanged and
       uncommitted by this task.
+- [ ] The source PR and Harness snapshot contain the snapshot-only correction,
+      with focused security regressions and reproducible binary digests.
 
 ## Out of Scope
 
@@ -67,6 +75,8 @@ without reverting already-merged source or Harness changes.
 - Existing live Grok evidence may be cited, but this publication task does not
   make another paid/provider call. Automated regression and lifecycle gates are
   rerun on the integrated heads.
+- The re-review P1 is fixed at the pre-launch boundary: no Provider filesystem
+  tools, no post-disclosure fallback, and no model-authored validation envelope.
 
 ## Deferred Item
 

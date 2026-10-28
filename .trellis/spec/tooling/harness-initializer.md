@@ -65,7 +65,8 @@ and recovery tests; ordinary callers use only `repoRoot`.
 - `homeDir`/`--home-dir` is AgentsHome. `codexHome`/`--codex-home` is the physical
   Codex directory, with HomeDir/.codex as the compatibility default. Resolve
   and bind both roots in plans, inventory digests, receipts, backups, provider
-  environments, rollback and validation. Reject a changed or linked root.
+  environments, rollback and validation. Reject a changed root or any link
+  other than the final HomeDir/.codex entry.
 - Updating the same managed platform Skill count requires a formal source
   update: verify the original receipt and target tree, back up original source
   manifest and bytes, CAS the new ownership, and retain explicit rollback
@@ -77,8 +78,17 @@ and recovery tests; ordinary callers use only `repoRoot`.
 approval records, provenance keys and backups remain under its `.agents/`.
 `--codex-home` (`-CodexHome`) selects the physical Codex configuration root;
 the compatibility default is `HomeDir/.codex`. Explicit roots must exist and
-use non-linked directory chains. An existing profile junction is retained and
-is never transplanted. An existing historical alias must resolve to the same
+use non-linked directory chains. Only the final `HomeDir/.codex` entry, used by
+default or named explicitly (case-insensitive on Windows), may be a link: its
+literal ancestors must be real directories; only a missing default is tolerated
+during that walk; `realpath` errors (dangling or looping links) propagate; the
+physical result must be a link-free directory chain and not a volume root or
+file. The resolver returns that physical root, and every plan, state,
+ownership, CAS and rollback binding uses it, so a later retarget is a root
+change. This is not protection against concurrent path replacement; downstream
+checks remain independent. Skill repository isolation also compares against
+the resolved physical root. An existing profile junction is retained and is
+never transplanted. An existing historical alias must resolve to the same
 selected physical directory before its first source-update transaction.
 
 The selected Codex root binds global AGENTS projection, migration inventory
@@ -107,6 +117,10 @@ cannot establish ownership. Direct schema-1 Global Init receipts remain direct
 receipts; catalog migration audit applies to schema-2 catalog ownership.
 
 Regression coverage includes separate roots with existing profile junctions,
+default-link resolution and its rejected variants (other explicit links, linked
+ancestors, missing explicit roots, dangling/looping links, volume-root or file
+targets), default-link retarget rejection for plans and Global Init state,
+physical Skill-repository isolation,
 plan/apply/repeat/failure/rollback, root-switch rejection, same-count source
 updates and later-user-edit rollback refusal. Tests use owned temporary roots;
 they never write the installed daily profile or change credentials/permissions.

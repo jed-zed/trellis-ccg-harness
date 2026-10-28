@@ -18,6 +18,28 @@ return (() => {
     .trim().replace(/\s+/g, ' ');
   const boundedText = (element, preserveUserSource = false) => {
     const clone = element.cloneNode(true);
+    // Read only code editors owned by this assistant body. Rendered lines may be virtualized.
+    if (!preserveUserSource) {
+      const selector = '[data-code-block="true"] .cm-content';
+      const originals = Array.from(element.querySelectorAll(selector));
+      const copies = Array.from(clone.querySelectorAll(selector));
+      if (originals.length !== copies.length) return {text:'', truncated:false, issue:'AssistantCodeDocumentUnavailable'};
+      for (let index = 0; index < originals.length; index++) {
+        const content = originals[index];
+        const view = content.cmTile?.view || content.cmView?.view;
+        const doc = view?.state?.doc;
+        if (view?.contentDOM !== content || !doc || !Number.isInteger(doc.length) || doc.length < 0 || typeof doc.toString !== 'function') {
+          return {text:'', truncated:false, issue:'AssistantCodeDocumentUnavailable'};
+        }
+        if (doc.length > MAX_TEXT) return {text:'', truncated:true, issue:'AssistantCodeDocumentTooLarge'};
+        const code = doc.toString();
+        if (typeof code !== 'string' || code.length !== doc.length) return {text:'', truncated:false, issue:'AssistantCodeDocumentUnavailable'};
+        let fence = '```';
+        while (code.includes(fence) && fence.length < 64) fence += '`';
+        if (code.includes(fence)) return {text:'', truncated:false, issue:'AssistantCodeDocumentFenceUnavailable'};
+        copies[index].replaceWith(document.createTextNode('\n\n' + fence + '\n' + code + '\n' + fence + '\n\n'));
+      }
+    }
     clone.querySelectorAll('button, form, textarea, input, [contenteditable="true"], [aria-hidden="true"], [data-testid*="copy"], [data-testid*="action"]').forEach(node => node.remove());
     if (preserveUserSource) {
       clone.querySelectorAll('code.user-message-inline-code').forEach(node => {
@@ -51,7 +73,13 @@ return (() => {
   const NEW_ASSISTANT_SELECTOR = ':is(main, [role="main"]) [data-markdown-text-style="assistant-message"][data-selected-text-overlay-target]';
   const safeTranscriptNode = element => visible(element) &&
     !element.closest('form, nav, aside, header, [role="banner"], [hidden], [aria-hidden="true"]');
-  const failTurn = issue => { if (!turnExtractionIssue) turnExtractionIssue = issue; };
+  // A pending activity marker must not mask a later structural conflict.
+  const failTurn = issue => {
+    if (!turnExtractionIssue || (turnExtractionIssue === 'AssistantOwnerMissing' && issue !== 'AssistantOwnerMissing')) {
+      turnExtractionIssue = issue;
+    }
+  };
+
   const collectTurns = role => {
     const seen = new Set();
     const turns = [];
@@ -110,6 +138,7 @@ return (() => {
       seen.add(container);
       transcriptBodies.push(body);
       const content = boundedText(body, role === 'user');
+      if (content.issue) { failTurn(content.issue); continue; }
       if (!content.text) {
         if (!legacy && role === 'user') failTurn('UserMessageContentMissing');
         continue;
@@ -125,10 +154,34 @@ return (() => {
     return turns;
   };
 
-  const composers = visibleAll(`#prompt-textarea, ${COMPOSER_FALLBACK_SELECTOR}`).filter(element =>
+  // Preserve semantic selectors; when hidden layout copies share them, bind the
+  // one eligible node through a bounded, exact structural suffix. No DOM writes.
+  const exactComposerSelector = (element, base) => {
+    const initial = Array.from(document.querySelectorAll(base));
+    if (initial.length === 1 && initial[0] === element) return base;
+    const path = [];
+    let node = element;
+    while (node && node !== document.documentElement && path.length < 64) {
+      const parent = node.parentElement;
+      if (!parent) return '';
+      const index = Array.from(parent.children).indexOf(node) + 1;
+      if (index < 1 || index > 9999) return '';
+      path.unshift(`:nth-child(${index})`);
+      node = parent;
+    }
+    if (node !== document.documentElement || !path.length) return '';
+    const selector = base + ':is(:root > ' + path.join(' > ') + ')';
+    const selected = Array.from(document.querySelectorAll(selector));
+    return selected.length === 1 && selected[0] === element ? selector : '';
+  };
+  const eligibleComposer = element => visible(element) &&
     !element.hasAttribute('disabled') && element.getAttribute('aria-disabled') !== 'true' &&
-    !element.closest('[hidden], [aria-hidden="true"]')
-  );
+    (element.isContentEditable || element.tagName === 'TEXTAREA' && !element.readOnly) &&
+    !element.closest('[hidden], [aria-hidden="true"], [inert], [data-message-author-role], article[data-testid^="conversation-turn-"]');
+  const composers = visibleAll(`#prompt-textarea, ${COMPOSER_FALLBACK_SELECTOR}`).filter(eligibleComposer);
+  const composerSelector = composers.length === 1
+    ? exactComposerSelector(composers[0], composers[0].id === 'prompt-textarea' ? '#prompt-textarea' : COMPOSER_FALLBACK_SELECTOR)
+    : '';
   const childPath = (element, ancestor) => {
     const path = [];
     let node = element;
@@ -142,14 +195,6 @@ return (() => {
     }
     return node === ancestor && path.length ? path : null;
   };
-  let composerSelector = composers.length === 1
-    ? (composers[0].id === 'prompt-textarea' ? '#prompt-textarea' : COMPOSER_FALLBACK_SELECTOR)
-    : '';
-  if (composerSelector && document.querySelectorAll(composerSelector).length > 1) {
-    // ponytail: narrow the proved visible node with the existing bounded child-path pattern.
-    const path = childPath(composers[0], document.documentElement);
-    if (path) composerSelector += `:is(:root > ${path.join(' > ')})`;
-  }
   const composerSelectorMatchCount = composerSelector ? document.querySelectorAll(composerSelector).length : 0;
   const SEND_LEGACY_SELECTOR = 'button[data-testid="send-button"]';
   const SEND_FALLBACK_SELECTOR = 'button[type="submit"][aria-label="发送"]';
@@ -183,13 +228,10 @@ return (() => {
   const modeControls = composerRect
     ? visibleAll('button[aria-haspopup="menu"]').filter(element => {
       const rect = element.getBoundingClientRect();
-      const text = compactText(element);
       const verticalGap = Math.max(composerRect.top - rect.bottom, rect.top - composerRect.bottom, 0);
       const horizontallyAdjacent = rect.right >= composerRect.left - 40 && rect.left <= composerRect.right + 40;
-      return !element.closest('[role="menu"]') && (text === 'Pro' || text === '极高' ||
-        ((text === 'Medium' || (text === '思考强度' && element.getAttribute('aria-expanded') === 'true')) &&
-          composerForm && element.closest('form') === composerForm && element.form === composerForm &&
-          element.getAttribute('aria-label') === '选择 ChatGPT 模型')) &&
+      const modelControl = /^(\u9009\u62e9 ChatGPT \u6a21\u578b|(?:Choose|Select) ChatGPT model)$/i.test(String(element.getAttribute('aria-label') || '').trim());
+      return !element.closest('[role="menu"]') && composerForm && element.closest('form') === composerForm && element.form === composerForm && modelControl &&
         horizontallyAdjacent && verticalGap <= 40;
     })
     : [];
@@ -269,11 +311,11 @@ return (() => {
   const publicModelLabel = (element, allowBoundMenuText = false) => {
     const value = compactText(element);
     if (allowBoundMenuText === true) return value.slice(0, 100);
-    return ['Pro', '极高', 'Medium', '思考强度'].includes(value) ? value : '';
+    return modeControls.includes(element) ? value.slice(0, 64) : '';
   };
   const modelControlCandidates = composerForm ? Array.from(composerForm.querySelectorAll('button[aria-haspopup="menu"]')).filter(element =>
     element.closest('form') === composerForm && element.form === composerForm &&
-    element.getAttribute('aria-label') === '选择 ChatGPT 模型') : [];
+    /^(\u9009\u62e9 ChatGPT \u6a21\u578b|(?:Choose|Select) ChatGPT model)$/i.test(String(element.getAttribute('aria-label') || '').trim())) : [];
   const linkedModelMenus = Array.from(document.querySelectorAll('[role="menu"]')).filter(menu => modelControlCandidates.some(control =>
     (menu.id && String(control.getAttribute('aria-controls') || '').split(/\s+/).includes(menu.id)) ||
     (control.id && String(menu.getAttribute('aria-labelledby') || '').split(/\s+/).includes(control.id))));
@@ -303,6 +345,11 @@ return (() => {
       controlsTruncated: modelControlCandidates.length > 8,
       boundMenuCount: linkedModelMenus.length,
       menus: linkedModelMenus.slice(0, 4).map(menu => ({
+        structure: modelMenuTextAllowed ? Array.from(menu.querySelectorAll('[role], input, button, [aria-valuenow], [data-state]')).filter(visible).slice(0, 40).map(element => ({
+          ...modelPublicMetadata(element, true), parentRole: String(element.parentElement?.getAttribute('role') || ''),
+          ariaValueNow: element.getAttribute('aria-valuenow'), ariaValueMin: element.getAttribute('aria-valuemin'), ariaValueMax: element.getAttribute('aria-valuemax'), ariaValueText: element.getAttribute('aria-valuetext'),
+          inputMin: element.getAttribute('min'), inputMax: element.getAttribute('max'), inputStep: element.getAttribute('step'), attributeNames: Array.from(element.attributes).map(a => a.name).slice(0, 24)
+        })) : [],
         id: String(menu.id || '').slice(0, 80), role: 'menu', visible: visible(menu),
         publicText: modelMenuPublicText(menu),
         publicControlCount: modelMenuPublicControls(menu).length,

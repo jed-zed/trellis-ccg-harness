@@ -1,0 +1,45 @@
+{
+  "id": "consolidate-bridge-and-pr58",
+  "name": "consolidate-bridge-and-pr58",
+  "title": "收拢桥接独有功能与 PR58 修复到当前分支",
+  "description": "Integrate committed PR58 fixes and preserve installed bridge features in the current uncommitted workspace; protect the active diagnostics task and existing dirty work; no commit, push, installation or live provider call.",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "codex",
+  "assignee": "codex",
+  "createdAt": "2026-10-23",
+  "completedAt": "2026-10-23",
+  "branch": "codex/sync-main-20261021",
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    ".agents/skills/chatgpt-pro-sidebar",
+    ".trellis/spec/tooling/chatgpt-pro-sidebar-v2.md",
+    ".trellis/spec/tooling/chatgpt-pro-agent-browser-v2.md",
+    "harness.sources.json",
+    "components/ccg-workflow",
+    ".github/workflows/ci.yml",
+    ".github/workflows/sidebar-offline.yml"
+  ],
+  "notes": "Local uncommitted integration accepted. Repair branch + global-only bridge features + frozen diagnostics preserved. Validation recorded in implement.md; no commit/push/install/live provider. HEAD and index unchanged.",
+  "meta": {
+    "planApproval": {
+      "status": "approved",
+      "source": "User message 2026-10-23 following repository audit",
+      "scope": "local uncommitted consolidation, preserve global features, integrate other branch, protect active diagnostics, offline verification only"
+    },
+    "baseline": "bb32c0f6421ca8b4a079e636eae2ac50b0d7f748",
+    "repairBranch": "35be883f9984b28eef54f9e6cc91cf561a051940",
+    "excludedTask": "10-23-gptpro-safe-diagnostics",
+    "validationStatus": "local-integration-verified-no-deployment",
+    "diagnosticWriterRelease": "User explicitly confirmed diagnostic writer stopped and authorized preserving its changes during integration."
+  }
+}
