@@ -399,7 +399,12 @@ describe('Grok workflow routing behavior', () => {
       const active = content.replace(/<!--[\s\S]*?-->/g, '')
       expect(active, relativePath).not.toContain('Bootstrap contract:')
       expect(active, relativePath).not.toContain('intelligence-request.md')
+      // Active steps must not depend on the archived Phase -1 output.
+      expect(active, relativePath).not.toContain('Phase -1')
     }
+    const goActive = readFileSync(join(packageRoot, 'templates', 'commands', 'go.md'), 'utf8').replace(/<!--[\s\S]*?-->/g, '')
+    expect(goActive).toMatch(/生成或复用一个只含 `\[a-z0-9-\]` 的安全 `<task-id>`/)
+    expect(goActive).toContain('不得再生成第二个任务 ID')
   })
 
   it('keeps preferred X optional in every mode', () => {

@@ -20,6 +20,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   CCG replaced `AGENTS.md`, injected its fast-context block or removed the
   `grok-search` MCP server; it only reads.
 
+### Fixed
+
+- **`/ccg:go` task identity** — The task-creation step no longer reuses a
+  `<task-id>` from the archived Phase -1 route; it creates or reuses one safe
+  `[a-z0-9-]` ID that every later phase keeps.
+
 ### Changed
 
 - **Rule simplification** — Risk-proportionate quality gates, verified review
