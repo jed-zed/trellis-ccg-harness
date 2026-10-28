@@ -114,6 +114,8 @@ export interface InstallCodexModeOptions {
   wrapperBytes?: Buffer
   /** Explicit read-only plan; binds old ownership, baseline, current bytes and target templates. */
   agentPreservationPlan?: string
+  /** Exact reviewed file bytes, checked on the same read used to parse the plan. */
+  agentPreservationPlanSha256?: string
 }
 
 export interface UninstallCodexModeOptions {
@@ -658,8 +660,11 @@ export async function planAgentPreservationAt(options: PlanAgentPreservationOpti
   }
 }
 
-async function loadAgentPreservationPlan(path: string, codexHome: string, templateDir: string): Promise<AgentPreservationPlan> {
-  const plan = validateAgentPreservationPlan(JSON.parse((await readPlainExternalFile(path)).toString('utf8')))
+async function loadAgentPreservationPlan(path: string, expectedSha256: string, codexHome: string, templateDir: string): Promise<AgentPreservationPlan> {
+  const bytes = await readPlainExternalFile(path)
+  if (sha256(bytes) !== expectedSha256)
+    throw new Error('Agent preservation plan SHA-256 differs from the reviewed file.')
+  const plan = validateAgentPreservationPlan(JSON.parse(bytes.toString('utf8')))
   if (resolve(plan.codexHome) !== resolve(codexHome) || resolve(plan.templateDir) !== resolve(templateDir)
     || plan.targetVersion !== packageVersion)
     throw new Error('Agent preservation plan is bound to a different home, template root or version.')
@@ -1033,10 +1038,16 @@ export async function installCodexModeAt(
   let mutationCount = 0
   try {
     assertCodexHostPath(codexHome)
+    if ((options.agentPreservationPlan === undefined) !== (options.agentPreservationPlanSha256 === undefined)
+      || (options.agentPreservationPlanSha256 !== undefined && !/^[a-f0-9]{64}$/.test(options.agentPreservationPlanSha256)))
+      throw new Error('Agent preservation requires a plan and its exact reviewed SHA-256 together.')
     if (options.wrapperBytes !== undefined && process.env.NODE_ENV !== 'test')
       throw new Error('wrapperBytes is available only in tests.')
     if (options.wrapperFile !== undefined && options.wrapperBytes !== undefined)
       throw new Error('wrapperFile and test-only wrapperBytes cannot be combined.')
+    const preservationPlan = options.agentPreservationPlan
+      ? await loadAgentPreservationPlan(options.agentPreservationPlan, options.agentPreservationPlanSha256!, codexHome, templateDir)
+      : undefined
     const localWrapperBytes = options.wrapperFile !== undefined
       ? await (await import('./installer')).readPinnedLocalWrapper(options.wrapperFile)
       : undefined
@@ -1064,9 +1075,6 @@ export async function installCodexModeAt(
     }
 
     const previous = await readOwnership(ownershipPath)
-    const preservationPlan = options.agentPreservationPlan
-      ? await loadAgentPreservationPlan(options.agentPreservationPlan, codexHome, templateDir)
-      : undefined
     const preservationRows = new Map(preservationPlan?.agents.map(row => [row.relativePath, row]) ?? [])
     const existingHooks = (await readJsonStrict(hooksPath, 'Codex hooks.json')) ?? {}
     const existingAgents = await fs.pathExists(agentsPath) ? await fs.readFile(agentsPath, 'utf8') : ''
