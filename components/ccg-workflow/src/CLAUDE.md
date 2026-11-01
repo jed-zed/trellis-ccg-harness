@@ -393,7 +393,7 @@ defineBuildConfig({
 
 2. **Skill Registry frontmatter 驱动**（v2.0.0）：新增技能不需要改 TypeScript 代码，只需写 SKILL.md 并设 `user-invocable: true`。降低贡献门槛，保持命令生成逻辑集中在一处。
 
-3. **binary 不打入 npm 包**（v1.7.77）：npm 包从 16.3MB 降至 161KB，CI 交叉编译后上传 GitHub Release，安装时按需下载。双源（Cloudflare CDN 优先）解决中国用户网络问题。
+3. **binary 不打入 npm 包**（v1.7.77）：npm 包从 16.3MB 降至 161KB。当前 CI 会交叉编译并校验两次构建及固定摘要；仅在 main 上手动批准后发布到版本化 GitHub Release，安装时按需下载。
 
 4. **permissions.allow 替代 Hook**（v1.7.89+）：早期用 PreToolUse Hook + jq 实现 codeagent-wrapper 自动授权，依赖 jq 可用性。改为 `permissions.allow: ["Bash(*codeagent-wrapper*)"]` 后跨平台统一，无外部依赖，且可幂等写入。
 

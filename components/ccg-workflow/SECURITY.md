@@ -48,5 +48,5 @@ The following are out of scope:
 
 - **No secrets in templates**: API keys and tokens are injected at install time via environment variables, never hardcoded in template files.
 - **Hook isolation**: CCG hooks run in the user's own process context with no elevated privileges.
-- **Binary integrity**: `codeagent-wrapper` binaries are built via GitHub Actions CI and distributed through GitHub Releases + Cloudflare R2 mirror. No third-party build infrastructure.
+- **Binary integrity**: `codeagent-wrapper` binaries are built and checked twice in GitHub Actions CI. Publishing the verified assets to a versioned GitHub Release requires an explicit manual workflow dispatch.
 - **MCP sandboxing**: All MCP server configurations use `stdio` transport (no network listeners). MCP servers run as child processes of the AI agent.

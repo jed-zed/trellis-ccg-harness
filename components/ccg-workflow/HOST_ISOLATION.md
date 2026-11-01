@@ -26,7 +26,7 @@ Doctor only reads; restore your own copies before reinstalling.
 
 For the two existing agents with additive user model overrides, first run
 `ccg-codex codex-mode plan-agent-preservation --baseline-dir <verified-old-agents> --agent-model gpt-6.1-sol --agent-reasoning xhigh --json`.
-Save the explicit plan and install with `--agent-preservation-plan <absolute-plan>`.
+Save and review the explicit plan, then install with `--agent-preservation-plan <absolute-plan> --agent-preservation-plan-sha256 sha256:<reviewed-sha256>`.
 The installer retains their exact user bytes and original installed hashes;
 separate preservation records bind the baseline, plan and current bytes.
 Prompt, sandbox, feature changes and later user edits fail the validation.

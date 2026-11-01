@@ -50,7 +50,7 @@ export function printCodexModeHelp(): void {
     '  ccg-codex codex-mode <install|uninstall|recover>',
     '  ccg-codex codex-mode install --wrapper-file <absolute-local-artifact>',
     '  ccg-codex codex-mode plan-agent-preservation --baseline-dir <absolute-old-agents> --agent-model <model> --agent-reasoning <effort> --json',
-    '  ccg-codex codex-mode install --agent-preservation-plan <absolute-reviewed-plan>',
+    '  ccg-codex codex-mode install --agent-preservation-plan <absolute-reviewed-plan> --agent-preservation-plan-sha256 sha256:<reviewed-sha256>',
     '',
     'Actions:',
     '  install    Install the managed Codex runtime under ~/.codex.',
@@ -203,20 +203,21 @@ export async function setupCommands(cli: CAC): Promise<void> {
     .command('codex-mode <action>', 'Install, uninstall, or recover Codex-Led mode (non-interactive)')
     .option('--wrapper-file <path>', 'Install the pinned native wrapper from an absolute local artifact')
     .option('--agent-preservation-plan <path>', 'Apply an explicit hash-bound agent preservation plan during install')
+    .option('--agent-preservation-plan-sha256 <sha256>', 'SHA-256 of the reviewed plan; sha256: prefix preserves all-digit hashes')
     .option('--baseline-dir <path>', 'Read-only original owned agent template directory for preservation planning')
     .option('--agent-model <model>', 'Explicit existing user model to preserve; no model call or model change')
     .option('--agent-reasoning <effort>', 'Explicit existing user reasoning effort to preserve')
     .option('--json', 'Print the preservation plan as JSON')
-    .action(async (action: string, options: { wrapperFile?: string, agentPreservationPlan?: string, baselineDir?: string, agentModel?: string, agentReasoning?: string, json?: boolean }) => {
+    .action(async (action: string, options: { wrapperFile?: string, agentPreservationPlan?: string, agentPreservationPlanSha256?: string, baselineDir?: string, agentModel?: string, agentReasoning?: string, json?: boolean }) => {
       if (options.wrapperFile !== undefined && action !== 'install') {
         console.error(ansis.red('--wrapper-file is available only for codex-mode install.'))
         process.exitCode = 1
         return
       }
-      if ((options.agentPreservationPlan !== undefined && action !== 'install')
+      if (((options.agentPreservationPlan !== undefined || options.agentPreservationPlanSha256 !== undefined) && action !== 'install')
         || ([options.baselineDir, options.agentModel, options.agentReasoning, options.json].some(value => value !== undefined)
           && action !== 'plan-agent-preservation')) {
-        throw new Error('Agent preservation planning options are only for plan-agent-preservation; --agent-preservation-plan is only for install.')
+        throw new Error('Agent preservation planning options are only for plan-agent-preservation; --agent-preservation-plan and its SHA-256 are only for install.')
       }
       if (action === 'plan-agent-preservation') {
         if (!options.baselineDir || !options.agentModel || !options.agentReasoning || !options.json)
@@ -226,7 +227,10 @@ export async function setupCommands(cli: CAC): Promise<void> {
         return
       }
       if (action === 'install') {
-        const result = await installCodexMode({ wrapperFile: options.wrapperFile, agentPreservationPlan: options.agentPreservationPlan })
+        const reviewedSha256 = typeof options.agentPreservationPlanSha256 === 'string'
+          ? options.agentPreservationPlanSha256.replace(/^sha256:/, '')
+          : options.agentPreservationPlanSha256
+        const result = await installCodexMode({ wrapperFile: options.wrapperFile, agentPreservationPlan: options.agentPreservationPlan, agentPreservationPlanSha256: reviewedSha256 })
         if (result.success) {
           console.log(ansis.green('✓ Codex mode installed'))
           console.log(result.message)

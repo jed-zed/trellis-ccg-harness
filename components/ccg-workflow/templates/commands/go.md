@@ -162,8 +162,9 @@ exit code `2`, `3`, or `4` 必须停止后续工作，exit `0` 才能进入 Phas
 
 如果复杂度 ≥ M **且策略不是 git-action**，**必须先创建任务目录再加载策略**：
 
-**Step 1**: 复用 Phase -1 已生成的安全 `<task-id>` 作为任务名，不得重新生成目录。
-**Step 2**: 确认同一目录仍然存在：
+**Step 1**: 生成或复用一个只含 `[a-z0-9-]` 的安全 `<task-id>` 作为任务名（下文的 `{task-name}`）。
+已有任务时沿用原 ID；后续所有阶段都复用同一个 `<task-id>`，不得再生成第二个任务 ID。
+**Step 2**: 创建或确认该目录：
 
 ```bash
 mkdir -p .ccg/tasks/{task-name}
