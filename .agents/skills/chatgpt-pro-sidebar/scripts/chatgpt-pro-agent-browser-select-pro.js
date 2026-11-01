@@ -11,7 +11,9 @@ return (() => {
     const rect = element.getBoundingClientRect();
     return rect.width > 0 && rect.height > 0;
   };
-  const visibleAll = selector => Array.from(document.querySelectorAll(selector)).filter(visible);
+  const visibleAll = selector => Array.from(document.querySelectorAll(selector)).filter(element =>
+    !element.closest('[data-message-author-role], article[data-testid^="conversation-turn-"]') && visible(element)
+  );
   const label = element => normalize(element?.innerText || element?.textContent || '');
   const clearTag = name => document.querySelectorAll(`[${name}]`).forEach(element => element.removeAttribute(name));
 

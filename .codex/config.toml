@@ -37,3 +37,8 @@ project_doc_fallback_filenames = ["AGENTS.md"]
 # (this file) takes precedence over user-level `~/.codex/config.toml`.
 [agents]
 max_depth = 1
+# Serena's hidden native Windows dashboard briefly activates a WinForms window.
+# Keep MCP available without starting that optional dashboard in this project.
+[mcp_servers.serena]
+command = "serena"
+args = ["start-mcp-server", "--context=codex", "--project-from-cwd", "--enable-web-dashboard", "false"]

@@ -1,0 +1,2 @@
+{"file":".trellis/spec/tooling/chatgpt-pro-agent-browser-v2.md","reason":"Exact target binding, concurrency limits, no-resend and foreground constraints"}
+{"file":".trellis/spec/tooling/chatgpt-pro-sidebar-v2.md","reason":"Bridge transport and required validation boundary"}

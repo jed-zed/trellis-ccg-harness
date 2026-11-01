@@ -187,3 +187,10 @@ Continue only after:
 
 Default one GPT Pro question. A second round is only for blocker re-check or revised plan
 comparison. If more is needed, split the task or return to native CCG planning.
+
+Webpage strength: preserve an explicit user choice through shared bridge --thinking-mode and Skill
+-ThinkingMode on status/new-chat/run-root. Default Pro only when unspecified; 极高 is Extra High.
+This does not change --mode plan workflow semantics or Codex reasoning effort.
+
+Before bridge/budget actions, read the live skills/ccg-gptpro-bridge/RUNTIME_CONTRACT.md.
+This ancillary contract covers explicit strengths, manual waiting and MCPX evidence even when the main Skill text is a session snapshot.

@@ -174,10 +174,12 @@ layout. It uses built archive bytes rather than requiring `dist` in the clean
 Git snapshot. The existing directory bootstrap remains available when no
 archive is supplied.
 
-Personal mutation entry points reject explicit `CLAUDECODE=1` or
-`CCG_HOST=claude` before initialization, migration, bootstrap or lifecycle writes.
-This is a host boundary, not a filesystem sandbox. Existing `.claude` byte guards
-remain required. Read-only inspection/audit paths remain available.
+Host markers (`CLAUDECODE=1`, `CCG_HOST=claude`) only select host-specific
+content, such as omitting the Codex native leaf workers policy from Claude
+context. They do not authorize or block initialization, migration, bootstrap or
+lifecycle writes: those rely on explicit approval flags, owned-path transactions
+and the `.claude` byte guards, which remain required on every host. Read-only
+inspection, audits and offline tests run on any host.
 
 The explicit local candidate acceptance recipe in `recipes/` pins the source
 positive receipt, CLI archive, native Codex plugin/marketplace and wrapper. Missing

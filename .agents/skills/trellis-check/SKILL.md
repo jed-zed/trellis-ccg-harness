@@ -1,11 +1,11 @@
 ---
 name: trellis-check
-description: "Comprehensive quality verification: spec compliance, lint, type-check, tests, cross-layer data flow, code reuse, and consistency checks. Use when code is written and needs quality verification, before committing changes, or to catch context drift during long sessions."
+description: "Verify changed behavior and risks with proportionate checks, required project/CI gates and evidence-backed findings."
 ---
 
 # Code Quality Check
 
-Comprehensive quality verification for recently written code. Combines spec compliance, cross-layer safety, and pre-commit checks.
+Check acceptance, changed behavior and actual risks. Reuse existing task, Git, PR and CI evidence.
 
 Follow Request Triage in `.trellis/workflow.md`. Fast-lane edits still use the applicable quality checklist but require no task artifacts. For structured work, read the task artifacts below; complex tasks require all three documents.
 
@@ -40,43 +40,44 @@ Read the specific guideline files referenced — the index is a pointer, not the
 
 ## Step 3: Run Project Checks
 
-Run the project's lint, type-check, and test commands. Fix any failures before proceeding.
+Choose checks proportionate to the changed behavior and risk, including required project/CI checks. Use the smallest meaningful check that can catch the actual regression; rule/documentation wording needs relevant content/context checks. Do not run unrelated builds or require every new function to have its own unit test.
+
+Account for all affected task behavior, reusing passing checks for unchanged work. Report each check as passed, failed or unrun. After a fix, rerun the affected check; repeat or broaden only for a new change, failure, unresolved concrete concern or required gate. Stop once acceptance and required checks are satisfied; an unresolved required check keeps the work incomplete.
 
 ## Step 4: Review Against Checklist
 
 ### Code Quality
 
-- [ ] Linter passes?
-- [ ] Type checker passes (if applicable)?
-- [ ] Tests pass?
-- [ ] No debug logging left in?
-- [ ] No suppressed warnings or type-safety bypasses?
+- [ ] Required and risk-relevant checks have actual results?
+- [ ] No accidental debug output, suppressed errors or type-safety bypasses?
+- [ ] Errors reach the caller without false success; retries stay bounded in one layer?
+- [ ] Idempotency is considered where repeated calls can duplicate side effects; an uncertain result is checked before repeating the operation?
 
 ### Test Coverage
 
-- [ ] New function → unit test added?
-- [ ] Bug fix → regression test added?
-- [ ] Changed behavior → existing tests updated?
+- [ ] Changed nontrivial behavior or a reproduced bug has a meaningful check that fails if it breaks?
+- [ ] Existing tests are updated where the supported behavior changed?
+- [ ] No tests added solely to mirror implementation details or hypothetical future cases?
 
 ### Spec Sync
 
-- [ ] Does `.trellis/spec/` need updates? (new patterns, conventions, lessons learned)
-
-> "If I fixed a bug or discovered something non-obvious, should I document it so future me won't hit the same issue?" → If YES, update the relevant spec doc.
+- [ ] Update the relevant existing spec only if a durable contract changed or a recurring pitfall is established.
 
 ### Scope Discipline
 
 - [ ] Any tidying of code the task did not require?
 - [ ] Any abstraction, config or extension point added for a case that does not exist yet?
 - [ ] Any speculative fallback for a state that cannot occur?
-- [ ] Any file changed that the acceptance criteria do not mention?
+- [ ] Each change serves the request, a reproduced fault, an existing contract or a necessary safety boundary?
 - [ ] Any workaround added at the caller instead of a fix where the behavior actually lives?
+- [ ] Defensive checks serve a real boundary, supported input range, concrete failure model or business invariant, without mechanically repeating internal guarantees?
+- [ ] Independent security controls and data protections remain intact?
 
 ## Step 5: Cross-Layer Dimensions (if applicable)
 
-Skip this step if your change is confined to a single layer.
+Check only dimensions touched by the change; do not infer risk from layer count alone.
 
-### A. Data Flow (changes touch 3+ layers)
+### A. Data Flow (changed boundaries)
 
 - [ ] Read flow traces correctly: Storage → Service → API → UI
 - [ ] Write flow traces correctly: UI → API → Service → Storage
@@ -87,7 +88,7 @@ Skip this step if your change is confined to a single layer.
 
 - [ ] Searched for existing similar code before creating new?
   ```bash
-  grep -r "pattern" src/
+  rg -n "pattern" src/
   ```
 - [ ] If the same value repeats, does it represent one stable concept whose callers must change together? Extract only then — two literals that merely happen to match today should stay separate.
 - [ ] After batch modification, all occurrences updated?
@@ -105,9 +106,10 @@ Skip this step if your change is confined to a single layer.
 
 ## Step 6: Report and Fix
 
-Report every violation you find. Then:
+Verify each finding's location, triggering condition, consequence and supporting evidence. Zero findings is valid; keep optional suggestions separate from required fixes. Address credible security or data-loss risks within authorized scope.
 
-- Mechanical and local (lint nit, missing type, wrong import, dead branch, failing assertion) → fix in place, then re-run project checks.
-- Design or judgment (naming a shared concept, moving a module boundary, changing a public interface, reassigning where behavior lives) → record the evidence and your recommendation, and stop. Do not rewrite it silently.
+- Mechanical and local issues within owned paths: fix the root cause and rerun the affected check.
+- Design decisions, public interfaces, module boundaries or out-of-scope changes: report evidence and a recommendation; stop the affected work without silently widening scope. Continue independent authorized work.
+- A user-requested GPT Pro independent PR review remains independent. Default to one full round plus one targeted re-review as a soft budget; focus on fixes and changed risks. Keep real blockers incomplete and converge on the missing fix, evidence or decision. Never loop indefinitely or force a pass because the round budget is reached.
 
-If a fix would touch files outside the current task's scope, say so and stop instead of widening the change.
+Report naturally in concise Chinese: stage, result, checks and limits, next action and any decision needed. Reuse existing records; do not invent scores, completion percentages or a separate evidence system.

@@ -21,12 +21,14 @@ export function runCcgGates(
         "threads",
       ]
     : ["test"];
+  // Build before tests, as the CCG CI does: CLI tests execute bin/ccg.mjs,
+  // which imports the built dist/ entrypoint.
   const commands = [
     ["pnpm", ["install", "--frozen-lockfile"]],
     ["pnpm", ["lint"]],
     ["pnpm", ["typecheck"]],
-    ["pnpm", testArgs],
     ["pnpm", ["build"]],
+    ["pnpm", testArgs],
   ];
   for (const [command, commandArgs] of commands) {
     execute(command, commandArgs, { cwd: checkout });

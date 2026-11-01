@@ -8,7 +8,6 @@ import { gunzipSync } from "node:zlib";
 import { validateCcgRuntimePackage } from "./ccg-runtime.mjs";
 import { resolvePackageManagerInvocation, globalPackageRootFromNpmPrefix } from "./lib/harness-lifecycle.mjs";
 import { resolvePythonFromSystem } from "./lib/python-resolver.mjs";
-import { assertCodexMutationHost } from "../.agents/skills/harness-init/scripts/codex-host-boundary.mjs";
 const PACKAGE = "@jed-zed/ccg-codex-workflow";
 const BIN = "ccg-codex";
 const sha = bytes => createHash("sha256").update(bytes).digest("hex");
@@ -107,7 +106,6 @@ async function persistentRuntimeIdentity(prefix) {
   return Promise.all(files.map(async filename=>({path:filename,sha256:await regularBytes(filename,'Persistent runtime').then(sha,error=>{if(error.code==='ENOENT')return null;throw error;})})));
 }
 export async function dryIsolatedInit(recipePath, reportPath) {
-  assertCodexMutationHost();
   const verified = await verifyLocalCcgRecipe(recipePath);
   const recipe = verified.recipe;
   pinned(recipe.wrapper?.sha256,"wrapper");

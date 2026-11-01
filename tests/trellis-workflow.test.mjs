@@ -56,7 +56,7 @@ test("the no-task hook delivers fast-lane and escalation rules without task muta
     assert.match(context, /Status: no_task/);
     assert.match(context, expectedGuidance, prompt);
     assert.match(context, /Do not ask a task-creation question/);
-    assert.match(context, /trigger fact -> required output -> stop condition/);
+    assert.match(context, /Extra work needs a concrete question or risk/);
     assert.doesNotMatch(context, /ask only whether this turn should create|read the `trellis-start` skill once/);
   }
   assert.deepEqual(readdirSync(tasks).sort(), before);
@@ -67,7 +67,7 @@ test("structured breadcrumbs restore complex artifacts and planning approval whi
   for (const status of ["planning-inline", "in_progress-inline"]) {
     const body = workflow.match(new RegExp(`^\\[workflow-state:${status}\\]\\r?\\n([\\s\\S]*?)^\\[/workflow-state:${status}\\]`, "m"))?.[1];
     assert.ok(body, status);
-    assert.match(body, /trigger fact -> required output -> stop condition/);
+    assert.match(body, /Extra work needs a concrete question or risk/);
     assert.match(body, /currentGate.status=awaiting_user_acceptance/);
     assert.match(body, /fresh explicit response/);
   }
@@ -76,17 +76,21 @@ test("structured breadcrumbs restore complex artifacts and planning approval whi
   assert.match(workflow, /Apply Shared plan approval before `task\.py start`/);
   assert.match(workflow, /When no required approval covers the presented plan, show it and wait once/);
   assert.match(workflow, /Check the actual user message.*task\.json\.meta\.planApproval/);
-  assert.match(workflow, /reproduced fault, accepted contract, or actual trust\/data boundary/);
+  assert.match(workflow, /real boundary, supported input range, concrete failure model or business invariant/);
+  assert.match(workflow, /inspect the original operation before retrying an uncertain result/);
+  assert.match(workflow, /one full round plus one targeted re-review as the default soft budget/);
   for (const name of ["start", "continue", "before-dev", "brainstorm", "check", "finish-work"]) {
     const skill = read(`.agents/skills/trellis-${name}/SKILL.md`);
     assert.match(skill, /workflow\.md/);
     assert.doesNotMatch(skill, /Return to workflow Phase 3\.4 to commit/);
   }
   const check = read(".agents/skills/trellis-check/SKILL.md");
-  assert.match(check, /Run the project's lint, type-check, and test commands/);
-  assert.match(check, /New function → unit test added/);
-  assert.match(check, /Bug fix → regression test added/);
-  assert.match(check, /Changed behavior → existing tests updated/);
+  assert.match(check, /checks proportionate to the changed behavior and risk, including required project\/CI checks/);
+  assert.match(check, /Changed nontrivial behavior or a reproduced bug has a meaningful check/);
+  assert.match(check, /Existing tests are updated where the supported behavior changed/);
+  assert.match(check, /Zero findings is valid/);
+  assert.match(check, /unresolved required check keeps the work incomplete/);
+  assert.doesNotMatch(check, /New function → unit test added|Re-run lint and type-check until green/);
   for (const name of ["continue", "finish-work"]) {
     const command = read(`.gemini/commands/trellis/${name}.toml`);
     assert.match(command, /workflow\.md/);
@@ -99,7 +103,7 @@ test("compact workflow still serves phase context and actionable step details", 
   for (const [step, expected] of [
     [null, /Request Triage/],
     ["1.3", /--allow-empty-context/],
-    ["2.2", /lint, type-check, and test commands/],
+    ["2.2", /checks proportionate to the changed behavior and risk/],
     ["3.5", /archive.*--no-commit/],
   ]) {
     const args = [

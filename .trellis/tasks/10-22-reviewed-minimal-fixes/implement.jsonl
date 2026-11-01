@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/tooling/index.md", "reason": "Required checks and ownership boundaries"}
+{"file": ".trellis/spec/guides/layered-harness-adapter.md", "reason": "Provider isolation and adapter checks"}

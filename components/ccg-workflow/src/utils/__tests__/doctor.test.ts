@@ -16,6 +16,7 @@ import {
   execFileSafe,
   formatGrokDoctorFailure,
   getGrokDoctorTimeout,
+  inspectUpstreamOverlap,
   providerCliCommand,
   routingStatusRows,
   validateIntelligenceDoctorConfig,
@@ -34,10 +35,12 @@ function sha256(value: string): string {
   return createHash('sha256').update(value).digest('hex')
 }
 
-async function makeCodexFixture(): Promise<{ root: string, codexHome: string }> {
+async function makeCodexFixture(
+  agentsInstructions = 'Codex-only instructions',
+): Promise<{ root: string, codexHome: string }> {
   const root = await mkdtemp(join(tmpdir(), 'ccg codex doctor '))
   const codexHome = join(root, 'custom codex home')
-  const agentsBlock = '<!-- CCG:START v1 -->\nCodex-only instructions\n<!-- CCG:END -->'
+  const agentsBlock = `<!-- CCG:START v1 -->\n${agentsInstructions}\n<!-- CCG:END -->`
   const hookGroup = {
     matcher: '*',
     hooks: [{ type: 'command', command: 'python fixture.py' }],
@@ -284,6 +287,7 @@ describe('Codex-only doctor', () => {
       'Codex AGENTS.md',
       'Codex version',
       'Codex ownership',
+      'Upstream CCG overlap',
       'Codex wrapper',
       'Codex transaction',
       'CCG role routing',
@@ -373,6 +377,58 @@ describe('Codex-only doctor', () => {
 
     expect(result.ok).toBe(false)
     expect(ownership?.detail).toContain('mutable CCG config is malformed')
+  })
+
+  it('attributes an upstream Codex-mode overwrite and asks to restore before reinstalling', async () => {
+    const { codexHome } = await makeCodexFixture()
+    const upstream = '<!-- CCG:START — Managed by CCG Workflow. Do not edit this block manually. -->\n'
+      + '# CCG Multi-Model Orchestration (Codex-Led)\n\nYou are the lead orchestrator.\n<!-- CCG:END -->\n'
+    await writeFile(join(codexHome, 'AGENTS.md'), upstream)
+    vi.stubEnv('CODEX_HOME', codexHome)
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+    const before = await fs.readFile(join(codexHome, 'AGENTS.md'), 'utf8')
+
+    const result = await doctor({ platform: 'codex' })
+    const agents = result.checks.find(check => check.label === 'Codex AGENTS.md')
+    const overlap = result.checks.find(check => check.label === 'Upstream CCG overlap')
+    const output = log.mock.calls.flat().join('\n')
+
+    expect(agents?.detail).toContain('Upstream ccg-workflow Codex-mode block')
+    expect(result.failures.map(failure => failure.label)).toEqual(expect.arrayContaining(['Codex AGENTS.md', 'Upstream CCG overlap']))
+    expect(overlap?.detail).toContain('`ccg codex-mode` replaced the whole')
+    expect(overlap?.detail).toContain('/.ccg/backups')
+    expect(output).toContain('Restore your own AGENTS.md, agent and hook copies first')
+    expect(await fs.readFile(join(codexHome, 'AGENTS.md'), 'utf8')).toBe(before)
+  })
+
+  it('warns about an upstream search block and a removed grok-search MCP without failing', async () => {
+    const { codexHome } = await makeCodexFixture('Search actively with grok-search MCP.')
+    const agentsPath = join(codexHome, 'AGENTS.md')
+    const agents = `${await fs.readFile(agentsPath, 'utf8')}\n<!-- CCG-FAST-CONTEXT-START -->\nUse fast-context.\n<!-- CCG-FAST-CONTEXT-END -->\n`
+    const config = '[mcp_servers.context7]\ncommand = "npx"\n'
+    await writeFile(agentsPath, agents)
+    await writeFile(join(codexHome, 'config.toml'), config)
+    vi.stubEnv('CODEX_HOME', codexHome)
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+
+    const result = await doctor({ platform: 'codex' })
+    const overlap = result.checks.find(check => check.label === 'Upstream CCG overlap')
+
+    expect(result.failures.map(failure => failure.label)).toEqual(['Codex wrapper'])
+    expect(overlap?.status).toContain('⚠')
+    expect(overlap?.detail).toContain('CCG-FAST-CONTEXT search block')
+    expect(overlap?.detail).toContain('restore [mcp_servers.grok-search]')
+    expect(await fs.readFile(agentsPath, 'utf8')).toBe(agents)
+    expect(await fs.readFile(join(codexHome, 'config.toml'), 'utf8')).toBe(config)
+  })
+
+  it('checks grok-search only when the personal block depends on it', () => {
+    const personal = '<!-- CCG:START v1 -->\nSearch actively with grok-search MCP.\n<!-- CCG:END -->\n'
+    expect(inspectUpstreamOverlap(personal, '[mcp_servers.grok-search]\ncommand = "node"\n').grokSearch).toBe('configured')
+    expect(inspectUpstreamOverlap(personal, null).grokSearch).toBe('missing')
+    expect(inspectUpstreamOverlap(personal, '[mcp_servers').grokSearch).toBe('unreadable')
+    expect(inspectUpstreamOverlap('<!-- CCG:START v1 -->\nCodex-only\n<!-- CCG:END -->\n', null).grokSearch).toBe('not-required')
+    expect(inspectUpstreamOverlap(null, null)).toEqual({ codexModeAgents: false, fastContextBlock: false, grokSearch: 'not-required' })
   })
 
   it('rejects ownership paths that escape CODEX_HOME', async () => {

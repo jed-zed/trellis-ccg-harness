@@ -99,3 +99,7 @@ Run this potentially long route with the host's tool-managed background executio
 - Continue only after `run-root` returns completed evidence for the exact Codex task.
 - Import the completed sidebar evidence through `--import-session`, `--import-sidebar-evidence`, and
   `--expected-codex-thread-id`; never ask the user to copy or save the response.
+
+Webpage strength: preserve an explicit user choice through shared bridge --thinking-mode and Skill
+-ThinkingMode on status/new-chat/run-root. Default Pro only when unspecified; 极高 is Extra High.
+This does not change --mode plan workflow semantics or Codex reasoning effort.

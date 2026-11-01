@@ -19,7 +19,7 @@ The logical Skill name remains `chatgpt-pro-sidebar`; its active transport is
   files, storage, unrelated tabs, titles, or history.
 - Never automate login, account selection, CAPTCHA, MFA, billing, or
   entitlement. Ask the user to complete those steps in Chrome.
-- Never use the Codex Desktop side browser, Windows UIA, coordinates, keyboard,
+- Never use the Codex Desktop side browser, Windows UIA, coordinates, OS keyboard automation,
   clipboard, CDP, Playwright, Selenium, internal ChatGPT APIs, or a model watcher
   as a fallback.
 - Never resend after `send-uncertain`. After the first click, only the adapter
@@ -30,11 +30,38 @@ The logical Skill name remains `chatgpt-pro-sidebar`; its active transport is
 - The bridge does not authorize commits, pushes, deployment, production access,
   or external writes.
 
+## Webpage thinking strength
+
+Default is Pro. An explicit user webpage strength takes priority. Use -ThinkingMode on status,
+new-chat, send/run, and watcher run-root; CCG uses --thinking-mode independently from --mode plan/review/exc.
+Verified current menu strengths: Instant, Medium, High, Extra High, Pro. English aliases are
+case-insensitive; Chinese aliases include 即时, 中等, 高, 极高/超高. 极高 means Extra High, not Pro.
+Codex reasoning xhigh is a different setting and is not mapped to a webpage strength.
+The live bound menu proves availability; unknown, absent or ambiguous choices stop before fill/send.
+Model selection (for example GPT-6) remains separate and must stay unchanged.
+
+The fixed thinking-mode DOM template parameterizes only the finite integers -1, 0, 1 or 2 (2 closes the bound popup). On the unique
+composer-bound reasoning slider that advertises ArrowLeft/ArrowRight, it may dispatch those DOM
+keyboard events, then independently re-read its live status and unchanged selected model.
+It may dispatch Escape only on that unique bound popup, then prove it closed.
+No arbitrary JavaScript, prompt interpolation, model-radio clicking, OS keys or coordinate fallback.
+Status is read-only. set-mode -ThinkingMode <label> changes only an isolated empty ChatGPT homepage;
+it never fills or sends. new-chat and send prove the requested mode before preparation and again
+when visible after fill. State, evidence and watcher events persist thinkingMode; waiting inherits
+it and rejects an explicit conflicting recovery value. Historical absent fields mean Pro.
+
 ## Target selection
 
 Run `status` first. One matching ChatGPT tab is selected automatically. If more
 than one exists, use the exact `browserId`, `profileId`, `tabId`, and
 `sessionKey` from the approved target; never guess.
+
+`new-chat` binds only the actual `opened_tab_id` and `opened_session_key`
+returned by the background open. It proves that same session with the fixed
+DOM inspector within ten seconds, independent of delayed tab enumeration.
+The process timeout consumes the remaining discovery budget. A homepage may
+inherit a same-profile draft; nonempty drafts are rejected and never cleared
+automatically. Opening another tab does not prove an empty conversation.
 
 The target binding and sanitized URL are persisted in `state.json`. If the user
 later closes an exact-conversation tab, observation may reopen only that exact
@@ -55,17 +82,19 @@ $adapter = Join-Path $skillRoot 'scripts\chatgpt-pro-sidebar.ps1'
 $watcher = Join-Path $skillRoot 'scripts\chatgpt-pro-sidebar-watch.ps1'
 
 powershell.exe -NoProfile -File $adapter status
+powershell.exe -NoProfile -File $adapter set-mode -ThinkingMode "Extra High"
 powershell.exe -NoProfile -File $adapter status -BrowserId <browser> -Profile <profile> -TabId <tab> -SessionKey <session> -ExpectedConversationUrl <exact-url>
 powershell.exe -NoProfile -File $adapter new-chat
-powershell.exe -NoProfile -File $adapter send -PromptPath <prompt.md> -EvidenceDir <empty-dir> -IdempotencyKey <opaque-key> -FreshConversation
-powershell.exe -NoProfile -File $adapter send -PromptPath <prompt.md> -EvidenceDir <empty-dir> -IdempotencyKey <opaque-key>
+powershell.exe -NoProfile -File $adapter send -PromptPath <prompt.md> -EvidenceDir <round-dir> -IdempotencyKey <opaque-key> -FreshConversation
+powershell.exe -NoProfile -File $adapter send -PromptPath <prompt.md> -EvidenceDir <round-dir> -IdempotencyKey <opaque-key>
 powershell.exe -NoProfile -File $adapter wait -EvidenceDir <dir> -TimeoutSeconds 900
 powershell.exe -NoProfile -File $adapter response -EvidenceDir <dir>
-powershell.exe -NoProfile -File $adapter run -PromptPath <prompt.md> -EvidenceDir <empty-dir> -IdempotencyKey <opaque-key> -ResponseTimeoutSeconds 7200
+powershell.exe -NoProfile -File $adapter reextract -EvidenceDir <completed-dir> -CodexThreadId $env:CODEX_THREAD_ID
+powershell.exe -NoProfile -File $adapter run -PromptPath <prompt.md> -EvidenceDir <round-dir> -IdempotencyKey <opaque-key> -ResponseTimeoutSeconds 7200
 
 # New independent round from the proved empty root homepage: declare fresh,
 # send once, and keep this root Codex turn blocked until terminal evidence exists.
-powershell.exe -NoProfile -File $watcher run-root -PromptPath <prompt.md> -EvidenceDir <empty-dir> -IdempotencyKey <opaque-key> -CodexThreadId $env:CODEX_THREAD_ID -TimeoutSeconds 7200 -FreshConversation
+powershell.exe -NoProfile -File $watcher run-root -PromptPath <prompt.md> -EvidenceDir <round-dir> -IdempotencyKey <opaque-key> -CodexThreadId $env:CODEX_THREAD_ID -TimeoutSeconds 7200 -FreshConversation
 
 # Independent rounds: the manifest owns prompt/evidence/target bindings.
 powershell.exe -NoProfile -File $watcher run-batch-root -ManifestPath <batch-manifest.json> -CodexThreadId $env:CODEX_THREAD_ID
@@ -89,14 +118,14 @@ transport.
 1. Run `status` as a read-only target and safety probe; require `ok=true`,
    `transport=agent-browser-cli-v2`, one target binding, canonical ChatGPT URL,
    one composer, `selectedModeControlCount=1`, no login/challenge, and
-   `generating=false`. A non-Pro initial
-   mode may report `ready=false`; continue to automatic preparation instead of
-   asking the user to select Pro manually.
+   `generating=false`. A different initial strength
+   may report `ready=false`; continue to automatic preparation. Changed or
+   ambiguous controls enter the persisted manual-selection gate.
 2. For a new task, call `new-chat` or use `run`. `new-chat` always opens one
    separate same-profile root homepage tab in background, preserving the source
    tab and its draft. Use the returned exact target binding for the new round.
-   `new-chat` and `send` automatically select the unique exact Pro option,
-   then re-read and require one selected Pro control before filling a prompt.
+   `new-chat` and `send` automatically select the unique requested strength,
+   then re-read and require one selected requested-strength control before filling a prompt.
 3. For an existing conversation, use ordinary `send`; it requires an exact
    canonical conversation URL. Use `-FreshConversation` only on a proved empty
    homepage.
@@ -130,19 +159,51 @@ clicks are permitted per directory, idempotency key, and logical request; the
 second is the adapter's single durable `retry-not-submitted` transition. Do not
 create a replacement directory to bypass uncertain evidence.
 
+The round directory must exist but need not be empty. Unrelated notes and
+validated upload state/receipts may coexist with the send evidence. Existing
+round-owned output files and request identities remain protected from overwrite.
+
+## Complete code extraction and reextraction
+
+Assistant CodeMirror blocks are read from the complete document owned by that
+assistant body. Virtualized visible lines are never accepted as complete code.
+Missing ownership, an unavailable or oversized document, or a length mismatch
+fails closed. Detached plain text keeps line breaks and code indentation.
+
+A stopped, completed round can use `reextract` to read its original reply again.
+It verifies the original thread, exact conversation, browser/profile, prompt and
+transcript baseline, then writes `response.md` and `reextraction.json` in a new
+sibling `reextraction` directory (numbered when one already exists). Original
+state, response, timestamps, watcher event and failure history remain untouched.
+The receipt binds their hashes and the original completion timestamp. This is
+read-only recovery with zero new requests; it never sends, waits for generation,
+or extends the original deadline. Independently validate the derived receipt
+before import. Recovery inherits the original webpage thinking strength.
+
+After a completed follow-up transfers the same conversation claim, `reextract`
+may still read an earlier completed round owned by the same Codex thread.
+It verifies the current owner is completed on that exact conversation/profile
+and holds the existing stable claim lock for the read. Active or foreign claims
+remain blocked; send, wait and ordinary response ownership are unchanged.
+
 ## Failure handling
 
 - Missing extension/daemon/tab, ambiguous target, session mismatch, unsupported
   URL, login/challenge, generation already active, or DOM ambiguity: stop and
   report the exact category. Before filling a prompt, send/new-chat may change
-  the one proved composer-adjacent thinking-mode control to the one exact `Pro`
-  menu option, then must re-read and prove `Pro`. After fill, ChatGPT may hide
+  the one proved composer-adjacent thinking-mode control to the requested available strength, then must re-read and prove that exact choice. After fill, ChatGPT may hide
   that control; the pre-fill proof remains valid only while the same exact
   target mutex is held and URL/composer/send invariants are re-proved. If the
-  control remains visible, ambiguity or drift from `Pro` fails before the Send
+  control remains visible, ambiguity or drift from the requested strength fails before the Send
   click. Wait never changes or re-requires the model after an acknowledged send.
 - Failure before click: preserve reservation/evidence and diagnose; do not
   silently switch transports.
+- A historical `EvidenceDirectoryNotPristine` failure may use explicit
+  `run-root -ResumeUnsent` with its original key, directory, prompt and target
+  only when durable evidence proves preparation never started: no reservation,
+  target claim, fill, click or submission, and the bound homepage still has an
+  empty composer/transcript. Retain the complete original preparation failure.
+  This does not relax recovery for reserved or uncertain requests.
 - Each click has a 180-second page-progress observation window. The first
   timeout may retry once only when durable evidence proves an unchanged fresh
   homepage, intact composer, no exact conversation URL, no appended user turn,
@@ -185,6 +246,15 @@ create a replacement directory to bypass uncertain evidence.
   terminal `retry-not-submitted` proof, including a proved first non-submission
   followed by retry preparation failure before the second click, never from
   generic `send-uncertain`.
+- Explicit user-authorized abandonment is separate from normal proof-based
+  release. `abandon-slot` archives the exact original claim and available
+  evidence, retains the request's no-resend reservation and target claim, and
+  releases only capacity after its audit receipt is durable. It requires exact
+  original identity and a dead owner/watcher; changed evidence or failed
+  archival keeps the slot occupied. It never turns an uncertain or late result
+  into `completed`, resets a deadline, or authorizes a send. Requests that can
+  use normal safe release, including `pre-invoke-failed`, use that existing
+  path instead. Never invoke abandonment merely because a request is old.
 - A normal generating page may surface as adapter `GenerationAlreadyActive`;
   the watcher accepts it only from matching structured status details. Long
   conversations may omit an old rendered turn prefix, but response isolation
@@ -212,3 +282,22 @@ the target, closed-tab exact-URL background recovery, and observed focus
 behavior. Multi-window release also proves three rounds per Codex task, six
 globally across two tasks, and a seventh item that waits without clicking. Mock
 tests do not substitute for this live evidence.
+
+## Manual strength selection fallback
+
+An ordinary current-strength mismatch still permits one safe automatic selection. A changed slider,
+ambiguous control, failed step/close proof, or unconfirmed result enters
+ThinkingModeManualSelectionRequired (code 23), with waitingForUser=true, requestedThinkingMode,
+targetBinding, manualSelectionStateFile, and userNotificationNeeded. This is a user-action wait,
+separate from authentication code 22 and an explicitly unavailable label.
+Relay the target strength, exact URL and tab once when userNotificationNeeded=true. Ask the user to
+select it manually and reply; do not repeatedly call selection or keep prompting while waiting.
+Read-only status is allowed. After the reply, re-read the same bound target and require
+selectedModeMatchesRequested=true. A verbal confirmation alone never proves the setting.
+The persisted gate suppresses automatic clicks until observation proves the original target choice.
+Preserve the original evidence, prompt, thinkingMode, thread and idempotency key. A pre-click manual
+wait resumes through the original send/run-root -ResumeUnsent, retaining its original fresh/existing
+conversation flag and binding; never open New chat or invent a replacement identity. Pre-fill resume
+is accepted only with zero attempts and no reservation/claim; a filled draft uses the existing strict
+unsent-resume proof. A post-click request only continues waiting/capture; mode drift never authorizes
+another send or a change to its original mode/deadline. Do not ask the user to stop an in-flight answer.

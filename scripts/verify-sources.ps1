@@ -25,7 +25,7 @@ $expectedThirdPartyValidatorSha256 = "919c9bd4a68ecf45f61c6139c2d0571d8a9a5ab4da
 $expectedTrustedCommandResolverSha256 = "cf7c2645f0b7b2cbc502b9e96c24ae306b1f7727f3fd03f15017da351b449494"
 # Every transitive native-identity import is pinned and staged with the validator.
 $identityDependencyPins = @{
-  "codex-home.mjs" = "ee6c9c0cde172584d22a7c72816f38582ef2570c4abff69801a4589bae33549b"
+  "codex-home.mjs" = "6619e8686434c4ff354575fb036df30a2eb7fac322983dd100144426dcb60cbe"
   "windows-process-identity.mjs" = "bbce7766912c3ec91dfd83223b4feca2b903dbe2d03fc868e0c7a5273434672d"
   "python-resolver.mjs" = "68eb4a600b1c03545ccc8edf8318a1b3760f7ee11d9ce9d7dedfd04f9b40ae1d"
 }

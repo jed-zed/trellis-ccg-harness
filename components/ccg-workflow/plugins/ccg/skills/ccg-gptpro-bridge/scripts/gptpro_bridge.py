@@ -83,15 +83,17 @@ def locked_file(path: Path, timeout_seconds: float = 30.0):
     """Hold one cross-process byte lock; the lock file itself is durable."""
     path.parent.mkdir(parents=True, exist_ok=True)
     handle = path.open("a+b")
-    handle.seek(0, os.SEEK_END)
-    if handle.tell() == 0:
-        handle.write(b"\0")
-        handle.flush()
     deadline = time.monotonic() + timeout_seconds
     acquired = False
     try:
         while not acquired:
             try:
+                # Another process may lock byte zero while this file is still empty.
+                # Retry the initialization write along with lock acquisition.
+                handle.seek(0, os.SEEK_END)
+                if handle.tell() == 0:
+                    handle.write(b"\0")
+                    handle.flush()
                 handle.seek(0)
                 if os.name == "nt":
                     import msvcrt
@@ -1311,6 +1313,25 @@ def ensure_unique_session_dir(output_root: Path, mode: str, slug: str) -> Path:
             counter += 1
 
 
+def canonical_thinking_mode(value: str | None) -> str:
+    value = (value or "Pro").strip()
+    if not value or len(value) > 64 or any(ord(c) < 32 or ord(c) == 127 for c in value):
+        raise ValueError("Thinking mode must be one bounded webpage label.")
+    contract = json.loads(Path(__file__).with_name("thinking-modes.json").read_text(encoding="utf-8-sig"))
+    for label, aliases in contract["modes"].items():
+        if value.casefold() in [str(item).casefold() for item in [label, *aliases]]:
+            return label
+    return value  # Live adapter proves availability before fill/send; never silently downgrades.
+
+
+def validate_thinking_mode_evidence(expected: str, *payloads: dict[str, Any]) -> str:
+    expected = canonical_thinking_mode(expected)
+    for payload in payloads:
+        if canonical_thinking_mode(payload.get("thinkingMode")) != expected:
+            raise ValueError("ThinkingModeEvidenceMismatch: original webpage strength differs from the bridge round.")
+    return expected
+
+
 class BridgeSession:
     def __init__(
         self,
@@ -1344,6 +1365,7 @@ class BridgeSession:
         return {
             "provider": PROVIDER,
             "mode": self.mode,
+            "thinkingMode": canonical_thinking_mode(status["rounds"][self.round_name].get("thinkingMode", status.get("thinkingMode"))),
             "session_dir": str(self.session_dir),
             "round": status.get("current_round", 1),
             "round_name": self.round_name,
@@ -1384,6 +1406,8 @@ def create_session(
     require_external_intelligence: bool = False,
     project_context: dict[str, Any] | None = None,
     codex_thread_id: str = "",
+    thinking_mode: str | None = None,
+    bounded_advice: bool = False,
     _followup_lock_held: bool = False,
 ) -> BridgeSession:
     if round_number < 1:
@@ -1419,6 +1443,8 @@ def create_session(
                 require_external_intelligence=require_external_intelligence,
                 project_context=project_context,
                 codex_thread_id=codex_thread_id,
+                thinking_mode=thinking_mode,
+                bounded_advice=bounded_advice,
                 _followup_lock_held=True,
             )
 
@@ -1515,21 +1541,25 @@ def create_session(
     if require_external_intelligence and not external_intelligence:
         raise ValueError("Required Grok external intelligence must validate before GPT Pro bridge session creation.")
 
+    thinking_mode = canonical_thinking_mode(thinking_mode if thinking_mode is not None else status.get("thinkingMode"))
     prompt_gate = dict(gemini_evidence)
     prompt_gate["response_file"] = display_gate_response_file(prompt_gate, workdir_path)
     prompt_routing_evidence = dict(routing_evidence)
     for key in ("evidence_file", "summary_file"):
         prompt_routing_evidence[key] = display_file_value(str(prompt_routing_evidence.get(key) or ""), workdir_path)
-    composed_prompt = compose_prompt(
-        mode,
-        prompt,
-        round_number,
-        followup_reason,
-        prompt_gate,
-        prompt_routing_evidence,
-        external_intelligence,
-        project_context,
-    )
+    if bounded_advice:
+        composed_prompt = prompt.strip() + '\n'
+    else:
+        composed_prompt = compose_prompt(
+            mode,
+            prompt,
+            round_number,
+            followup_reason,
+            prompt_gate,
+            prompt_routing_evidence,
+            external_intelligence,
+            project_context,
+        )
     if not composed_prompt.strip() or len(composed_prompt) > MAX_COMPOSED_PROMPT_CHARS:
         raise ValueError(f"Final GPT Pro composed prompt must contain between 1 and {MAX_COMPOSED_PROMPT_CHARS} characters.")
     if session_dir is None:
@@ -1547,12 +1577,15 @@ def create_session(
 
     rounds = dict(status.get("rounds") or {})
     rounds[round_name] = {
+        "thinkingMode": thinking_mode,
         "prompt_file": display_path(prompt_file, workdir_path),
         "response_file": display_path(response_file, workdir_path),
         "response_saved": False,
     }
 
     new_status = {
+        "boundedAdvice": bounded_advice,
+        "thinkingMode": thinking_mode,
         "schema_version": 1,
         "provider": PROVIDER,
         "mode": mode,
@@ -1607,6 +1640,7 @@ def read_batch_request(
     *,
     expected_mode: str,
     expected_codex_thread_id: str,
+    thinking_mode: str | None = None,
 ) -> dict[str, Any]:
     try:
         path = Path(path_value).expanduser().resolve(strict=True)
@@ -1688,6 +1722,7 @@ def read_batch_request(
             raise ValueError("GPT Pro batch freshConversation must be boolean.")
         rounds.append(
             {
+                "thinking_mode": canonical_thinking_mode(thinking_mode if thinking_mode is not None else raw_round.get("thinkingMode", payload.get("thinkingMode"))),
                 "round_id": round_id,
                 "prompt": prompt,
                 "idempotency_key": idempotency_key,
@@ -1733,6 +1768,7 @@ def create_batch_sessions(
     for batch_round in request["rounds"]:
         session = create_session(
             mode=str(request["mode"]),
+            thinking_mode=str(batch_round["thinking_mode"]),
             workdir=workdir,
             prompt=str(batch_round["prompt"]),
             slug=f"{request['slug']}-{batch_round['round_id']}",
@@ -1758,6 +1794,7 @@ def create_batch_sessions(
         sidebar_dir.mkdir()
         watcher_round = {
             "roundId": batch_round["round_id"],
+            "thinkingMode": batch_round["thinking_mode"],
             "promptPath": str(session.prompt_file),
             "evidenceDirectory": str(sidebar_dir),
             "idempotencyKey": batch_round["idempotency_key"],
@@ -1786,6 +1823,7 @@ def create_batch_sessions(
             "schemaVersion": 1,
             "batchId": batch_id,
             "roundId": batch_round["round_id"],
+            "thinkingMode": batch_round["thinking_mode"],
             "watcherManifestSha256": watcher_manifest_sha256,
             "idempotencyKeySha256": hashlib.sha256(batch_round["idempotency_key"].encode("utf-8")).hexdigest(),
             "promptSha256": sha256_sidebar_prompt_path(session.prompt_file),
@@ -1798,6 +1836,7 @@ def create_batch_sessions(
         items.append(
             {
                 "roundId": batch_round["round_id"],
+                "thinkingMode": batch_round["thinking_mode"],
                 "sessionDir": str(session.session_dir),
                 "statusFile": str(session.status_file),
                 "promptPath": str(session.prompt_file),
@@ -1923,6 +1962,10 @@ def import_batch_result(path_value: str | Path, expected_codex_thread_id: str) -
             "targetBinding": normalized_target,
             "freshConversation": fresh_conversation,
         }
+        if "thinkingMode" in watcher_round:
+            mode = canonical_thinking_mode(session.status().get("thinkingMode"))
+            validate_thinking_mode_evidence(mode, watcher_round, mapping)
+            expected_binding["thinkingMode"] = mode
         if (
             mapping.get("batchBinding") != expected_binding
             or session.status().get("batch") != expected_binding
@@ -2218,6 +2261,8 @@ def import_sidebar_evidence(
     }:
         raise ValueError("Invalid or mismatched ChatGPT Pro browser transport.")
     session_status = session.status()
+    expected_thinking_mode = canonical_thinking_mode(session_status["rounds"][session.round_name].get("thinkingMode", session_status.get("thinkingMode")))
+    validate_thinking_mode_evidence(expected_thinking_mode, state, sidebar_evidence, event)
     session_thread_id = str(session_status.get("codex_thread_id") or "").lower()
     if session_thread_id and session_thread_id != expected_codex_thread_id:
         raise ValueError("ChatGPT Pro bridge session belongs to another Codex task.")
@@ -2338,6 +2383,8 @@ def import_sidebar_evidence(
     transport_metadata = {
         "transport": "chatgpt-pro-sidebar",
         "browserTransport": state_transport,
+        "thinkingMode": expected_thinking_mode,
+        "responseSha256": response_sha256,
         "sidebarEvidenceDirectory": display_path(evidence_dir, session.workdir),
         "sidebarEvidenceFile": display_path(evidence_path, session.workdir),
         "sidebarEvidenceSha256": evidence_sha256,
@@ -2403,7 +2450,9 @@ def append_gptpro_evidence(
         "round": int(status.get("current_round", 1)),
         "createdAt": utc_now(),
     }
-    if session.mode == "exc":
+    if status.get("boundedAdvice"):
+        item.update(role="bounded-advice", semanticRole="advice", policy="opt-in-budget-advice", implementationOwner=False, summary="Validated bounded external advice; does not satisfy a full workflow review gate.")
+    elif session.mode == "exc":
         item.update(
             {
                 "displayRole": "execution-route-review",
@@ -2744,6 +2793,9 @@ def start_server(session: BridgeSession, open_browser: bool = False, port: int =
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Create or import a ChatGPT Pro sidebar bridge session")
     parser.add_argument("--mode", choices=["plan", "review", "exc"])
+    parser.add_argument("--thinking-mode", default=None, help="Webpage strength; independent of CCG --mode. Defaults to Pro; explicit user choice wins.")
+    parser.add_argument("--budget-state", default="", help="Opt-in per-task advice budget state; never enables browser sending.")
+    parser.add_argument("--budget-request", default="", help="One request identity prepared by gptpro_budget.py.")
     parser.add_argument("--workdir", default=".")
     parser.add_argument("--prompt", default="")
     parser.add_argument("--prompt-file", default="")
@@ -2791,6 +2843,7 @@ def print_outputs(session: BridgeSession, preview_url: str) -> None:
     status = session.status()
     print(f"CCG_GPTPRO_PROVIDER={PROVIDER}", flush=True)
     print(f"CCG_GPTPRO_MODE={session.mode}", flush=True)
+    print(f"CCG_GPTPRO_THINKING_MODE={canonical_thinking_mode(status['rounds'][session.round_name].get('thinkingMode', status.get('thinkingMode')))}", flush=True)
     print(f"CCG_GPTPRO_SESSION_DIR={session.session_dir}", flush=True)
     print(f"CCG_GPTPRO_ROUND={status['current_round']}", flush=True)
     print(f"CCG_GPTPRO_PROMPT_FILE={session.prompt_file}", flush=True)
@@ -2936,6 +2989,26 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     try:
         raw_prompt = "" if args.create_batch_manifest else read_prompt(args.prompt, args.prompt_file)
+        budget_module = None
+        if args.budget_state or args.budget_request:
+            if not args.budget_state or not args.budget_request or args.create_batch_manifest or args.followup_session:
+                raise ValueError("Budget requests require both identity flags and one independent bridge session.")
+            import gptpro_budget as budget_module
+            budget_state, budget_request = budget_module.request(args.budget_state,args.budget_request)
+            if args.thinking_mode is not None and canonical_thinking_mode(args.thinking_mode) != budget_request['thinkingMode']:
+                raise ValueError("Explicit strength changed after reservation; prepare its own original identity first.")
+            if hashlib.sha256(raw_prompt.encode('utf-8')).hexdigest() != budget_request['briefSha256']:
+                raise ValueError("Budget brief changed after reservation.")
+            if args.codex_thread_id and args.codex_thread_id.lower() != budget_state['codexThreadId']:
+                raise ValueError("Budget belongs to another Codex task.")
+            args.codex_thread_id = budget_state['codexThreadId']
+            args.thinking_mode = budget_request['thinkingMode']
+            if budget_request.get('sessionDir'):
+                session=load_session(budget_request['sessionDir'])
+                print_outputs(session, "")
+                print("CCG_GPTPRO_BUDGET_EXISTING_REQUEST=1",flush=True)
+                print("CCG_GPTPRO_AUTOMATIC_RESEND_ALLOWED=0",flush=True)
+                return 0
         workdir_path = resolve_workdir(args.workdir)
         task_dir = resolve_task_dir(workdir_path, args.task_dir, args.task_id)
         evidence_file = default_evidence_file(task_dir, args.evidence_file)
@@ -2987,6 +3060,7 @@ def main(argv: list[str] | None = None) -> int:
             request = read_batch_request(
                 args.create_batch_manifest,
                 expected_mode=args.mode,
+                thinking_mode=args.thinking_mode,
                 expected_codex_thread_id=args.codex_thread_id,
             )
             batch = create_batch_sessions(
@@ -3014,6 +3088,8 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         session = create_session(
             mode=args.mode,
+            thinking_mode=args.thinking_mode,
+            bounded_advice=budget_module is not None,
             workdir=workdir_path,
             prompt=raw_prompt,
             slug=args.slug,
@@ -3035,6 +3111,11 @@ def main(argv: list[str] | None = None) -> int:
             project_context=project_context,
             codex_thread_id=args.codex_thread_id,
         )
+        if budget_module is not None:
+            budget_module.attach(args.budget_state,args.budget_request,session)
+            budget_status=session.status()
+            budget_status['adviceBudget']={'stateFile':str(Path(args.budget_state).resolve()),'requestId':args.budget_request}
+            session.write_status(budget_status)
     except Exception as error:
         print(str(error), file=sys.stderr)
         return 2

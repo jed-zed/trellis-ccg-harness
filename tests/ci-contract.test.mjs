@@ -118,12 +118,12 @@ test("CCG snapshot update verifies the installed baseline before the new runtime
   )
 })
 
-test("Dependabot covers Actions, the CCG package, and the Go wrapper", async () => {
+test("Dependabot covers Actions only and never edits the frozen CCG snapshot", async () => {
   const config = await readFile(
     path.join(ROOT, ".github", "dependabot.yml"),
     "utf8",
   )
   assert.match(config, /package-ecosystem:\s*"github-actions"/)
-  assert.match(config, /package-ecosystem:\s*"npm"[\s\S]*directory:\s*"\/components\/ccg-workflow"/)
-  assert.match(config, /package-ecosystem:\s*"gomod"[\s\S]*directory:\s*"\/components\/ccg-workflow\/codeagent-wrapper"/)
+  assert.doesNotMatch(config, /components\/ccg-workflow/)
+  assert.doesNotMatch(config, /package-ecosystem:\s*"(npm|gomod)"/)
 })

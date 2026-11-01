@@ -201,3 +201,10 @@ Continue only after:
 Default one GPT Pro question. Sequential follow-ups have no fixed bridge limit and should normally
 become `/ccg:gptpro-review` after Codex applies changes. Use follow-up rounds only for blocker
 re-check, applied diff review, or another high-risk follow-up.
+
+Webpage strength: preserve an explicit user choice through shared bridge --thinking-mode and Skill
+-ThinkingMode on status/new-chat/run-root. Default Pro only when unspecified; 极高 is Extra High.
+This does not change --mode exc workflow semantics or Codex reasoning effort.
+
+Before bridge/budget actions, read the live skills/ccg-gptpro-bridge/RUNTIME_CONTRACT.md.
+This ancillary contract covers explicit strengths, manual waiting and MCPX evidence even when the main Skill text is a session snapshot.

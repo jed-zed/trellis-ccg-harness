@@ -2,7 +2,7 @@
 
 import { createHash, randomUUID } from 'node:crypto'
 import { lstat, mkdir, readFile, realpath, rename, stat, writeFile } from 'node:fs/promises'
-import { assertCodexEngineHost, resolveCodexConfigPath } from './lib/host-boundary.mjs'
+import { resolveCodexConfigPath } from './lib/host-boundary.mjs'
 import { basename, dirname, isAbsolute, relative, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { parseIntelligenceToml, runManualCommand } from './command.mjs'
@@ -732,7 +732,6 @@ async function completeInvokedRoute(input, context, invocation, runtime) {
 }
 
 export async function runWorkflowRoute(input, runtime = {}) {
-  assertCodexEngineHost()
   const context = await prepareWorkflowRoute(input, runtime)
   if (context.decision.requirement === 'disabled')
     return completeSkippedRoute(input, context, runtime)
@@ -850,7 +849,6 @@ function parseArgs(argv) {
 }
 
 async function main(argv = process.argv.slice(2)) {
-  assertCodexEngineHost()
   const waiverAction = argv[0] === 'waive'
   const recoverAction = argv[0] === 'recover'
   const args = parseArgs(waiverAction || recoverAction ? argv.slice(1) : argv)

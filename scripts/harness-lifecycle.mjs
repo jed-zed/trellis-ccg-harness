@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 
-import { assertCodexMutationHost } from "../.agents/skills/harness-init/scripts/codex-host-boundary.mjs";
 import { createHash } from "node:crypto";
 
 import { spawnSync } from "node:child_process";
@@ -23,6 +22,7 @@ import {
   buildRestoreAction,
   assertBootstrapOwnershipContinuity,
   assertNoIgnoredComponentState,
+  CCG_COMPONENT_GATE_OUTPUT_ROOTS,
   assertSparseExclusionsUnchanged,
   compareSemanticVersions,
   globalPackageRootFromNpmPrefix,
@@ -892,7 +892,7 @@ async function runFinalCcgVerification(args, manifest, prepared) {
   const materialized = await verifyMaterializedGitTree(
     componentRoot,
     prepared.treeEntries,
-    { allowedExtraRoots: ["dist", "node_modules"] },
+    { allowedExtraRoots: [...CCG_COMPONENT_GATE_OUTPUT_ROOTS] },
   );
   if (materialized.manifestSha256 !== prepared.manifestSha256) {
     throw new Error("Final CCG tracked-tree manifest digest changed.");
@@ -1470,7 +1470,6 @@ async function uninstallHarness(args) {
 }
 
 async function main() {
-  assertCodexMutationHost();
   const args = parseLifecycleArgs(process.argv.slice(2));
   if (args.command === "ccg-runtime-migration-plan") {
     process.stdout.write(jsonBytes(await buildNamespaceMigrationPlan(args.repoRoot)));

@@ -1,0 +1,29 @@
+{
+  "id": "repair-codex-provider-runtime",
+  "name": "repair-codex-provider-runtime",
+  "title": "修复 Codex CCG Provider 运行链",
+  "description": "",
+  "status": "in_progress",
+  "dev_type": null,
+  "scope": "ccg-runtime",
+  "package": null,
+  "priority": "P2",
+  "creator": "codex",
+  "assignee": "codex",
+  "createdAt": "2026-08-04",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": "543cc10c0713f179784cbe6af5dcfe5a41af9c24",
+  "pr_url": "https://github.com/jed-zed/trellis-ccg-harness/pull/31",
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "plan_authority": "trellis",
+    "ccg_role_provider": "backend=codex"
+  }
+}

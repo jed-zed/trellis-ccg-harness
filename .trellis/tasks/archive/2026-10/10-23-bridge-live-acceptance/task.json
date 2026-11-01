@@ -1,0 +1,36 @@
+{
+  "id": "bridge-live-acceptance",
+  "name": "bridge-live-acceptance",
+  "title": "Integrated bridge live browser acceptance",
+  "description": "Validate integrated repository bridge against the existing Chrome session with synthetic prompts and attachments; preserve diagnostics and dirty work, no commit/push/global install.",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "codex",
+  "assignee": "codex",
+  "createdAt": "2026-10-23",
+  "completedAt": "2026-10-23",
+  "branch": "codex/sync-main-20261021",
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "Authorized repairs and bounded real-browser acceptance completed. Final dual-PowerShell suites 452/452 each; Node 42/42 reused; final fixed validation conflicts 14 pass/5 info/0 blocking. Unrun release stress/manual focus limits and earlier dirty-worktree source-provenance rejection retained in PRD. No commit/push/global deployment.",
+  "meta": {
+    "validationStatus": "targeted-live-acceptance-and-final-regressions-passed",
+    "authorization": {
+      "source": "User 2026-10-23: 接着做一次真实浏览器验收，确认整合后的桥接功能都能正常用，先别提交、推送或覆盖全局安装。",
+      "scope": "Repository bridge real-browser acceptance with synthetic input; no global deployment"
+    },
+    "repairAuthorization": {
+      "source": "User 2026-10-23: 先查清并修复这两个阻塞，保留诊断改动和失败证据，别绕过安全恢复规则，修好后继续真实浏览器验收，暂时不要提交、推送或覆盖全局安装。",
+      "scope": "Local blocker diagnosis and fixes; bounded synthetic live acceptance; no global install or publication"
+    }
+  }
+}

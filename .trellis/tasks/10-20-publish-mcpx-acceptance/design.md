@@ -1,0 +1,7 @@
+# Source publication design
+
+The accepted repair exists in installed CCG/sidebar files, while remote CCG main lacks the budget/MCPX modules. Use fresh clones of jed-zed/ccg-gptpro-worflow and jed-zed/trellis-ccg-harness, separate fix branches, and preserve all pre-existing checkouts and shared installations. CCG receives only required budget/MCPX modules, their bridge entry points, documentation and regression tests. Preserve the newer upstream Windows lock initialization fix. Harness receives the accepted composer/code extraction and immutable reextraction repairs without unrelated upload or thinking-selector changes. The existing CCG component snapshot and source manifest stay immutable.
+
+Evidence remains local under the original task-2 acceptance directory. Never publish raw browser/session/host receipts, private conversation URLs, credentials, local paths or generated private workspace files. Public documentation uses placeholders and official pinned MCPX v0.9.18 sources; latest v0.9.19 is identified without claiming acceptance. Scoped read/write/execute defaults require explicit authorization and exact task paths/argv; retain explicit read-only and summary modes and original failed receipts.
+
+No deployment, shared install, tunnel, authentication, release, main merge or force push. Rollback before publication is confined to the fresh branches; after publication use normal follow-up commits or abandon the PR.

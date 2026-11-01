@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "default": "Pro",
+  "modes": {
+    "Instant": ["instant", "即时", "立即", "快速"],
+    "Medium": ["medium", "中", "中等", "标准", "standard"],
+    "High": ["high", "高"],
+    "Extra High": ["extra high", "extra-high", "extra_high", "extrahigh", "very high", "极高", "超高"],
+    "Pro": ["pro", "default", "默认"]
+  },
+  "note": "Aliases describe observed webpage thinking strengths, never Codex reasoning settings. Unknown exact labels still require unique live menu proof."
+}

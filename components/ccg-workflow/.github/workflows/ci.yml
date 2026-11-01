@@ -62,6 +62,13 @@ jobs:
       - name: Run tests with coverage
         run: pnpm test -- --coverage
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Offline GPT Pro MCPX and budget regressions
+        run: python -m unittest discover -s plugins/ccg/skills/ccg-gptpro-bridge/tests -v
+
       - name: Upload coverage to Codecov
         if: runner.os == 'Linux' && matrix.node-version == 22
         uses: codecov/codecov-action@v5

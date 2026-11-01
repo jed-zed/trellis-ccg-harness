@@ -493,6 +493,14 @@ test("normalizes HTTPS provider URLs and rejects remote HTTP", () => {
     normalizeBaseUrl("http://127.0.0.1:8080/"),
     "http://127.0.0.1:8080",
   );
+  assert.equal(
+    normalizeBaseUrl("http://[::1]:8080/"),
+    "http://[::1]:8080",
+  );
+  assert.throws(
+    () => normalizeBaseUrl("http://[::2]/"),
+    /must use HTTPS/,
+  );
   assert.throws(
     () => normalizeBaseUrl("http://example.test"),
     /must use HTTPS/,
@@ -1491,6 +1499,39 @@ test("Grok probe redacts provider failures and stays optional when unset", async
     "HARNESS_GROK_BASE_URL",
     "HARNESS_GROK_API_KEY",
   ]);
+});
+
+test("Grok probe redacts an echoed key crossing the 500-character boundary", async () => {
+  const contract = adapterContract();
+  const secret = `hk_${"Q7".repeat(20)}`;
+  const report = await probeOpenAICompatibleGrok(contract, {
+    env: {
+      HARNESS_GROK_BASE_URL: "https://example.test",
+      HARNESS_GROK_API_KEY: secret,
+    },
+    fetchImpl: async () =>
+      response(401, { error: { message: `${"x".repeat(490)}${secret}` } }),
+  });
+  assert.equal(report.models.ok, false);
+  assert.ok(report.models.error.length <= 500);
+  assert.equal(JSON.stringify(report).includes(secret.slice(0, 10)), false);
+});
+
+test("Grok probe redacts an echoed key in a short error", async () => {
+  const contract = adapterContract();
+  const secret = `hk_${"Q7".repeat(20)}`;
+  const report = await probeOpenAICompatibleGrok(contract, {
+    env: {
+      HARNESS_GROK_BASE_URL: "https://example.test",
+      HARNESS_GROK_API_KEY: secret,
+    },
+    fetchImpl: async () =>
+      response(401, { error: { message: `invalid key ${secret}` } }),
+  });
+  assert.equal(report.models.ok, false);
+  assert.ok(report.models.error.length <= 500);
+  assert.equal(report.models.error, `invalid key ${REDACTED}`);
+  assert.equal(JSON.stringify(report).includes(secret.slice(0, 10)), false);
 });
 
 test("canonical context permits no active task without hiding task errors", () => {

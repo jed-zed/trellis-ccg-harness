@@ -113,8 +113,23 @@ task records, provider permissions and user-owned role/model configuration.
 
 ## Runtime Rules
 
+- `context` returns project context with `task: null` when Trellis reports no
+  active task. This is a successful read-only state, not a task-creation gate.
+  Malformed task state still fails; PM operations still require an active task.
+- Keep the documented Python entry points compatible with the repository's
+  Python 3.9+ contract. In particular, do not use multi-line expressions inside
+  f-strings that require Python 3.12: `task.py` imports the context validator
+  even for lifecycle commands and `--help`.
+- Task records and completion do not require a Git commit unless accepted
+  criteria explicitly require one. Closeout uses the existing archive/journal
+  `--no-commit` options, preserves dirty files and the index, and records actual
+  verification and remaining work. Pending acceptance or required checks still
+  prevent archive; unfinished progress may always be recorded. Commit authority
+  remains separate and may be reused within its approved scope.
 - Codex is the sole workspace writer and uses `codex.dispatch_mode: inline`.
 - Gemini is a bounded read-only helper.
+- Claude may be selected explicitly for frontend or backend routing; it is not a
+  default, fallback, or search Provider.
 - Claude may be the explicitly selected product-manager provider. It sees only
   a bounded task-local snapshot and inherits its native permission mode there;
   tool use grants no canonical workspace or lifecycle authority.

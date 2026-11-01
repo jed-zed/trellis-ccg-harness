@@ -1,0 +1,3 @@
+{"file": ".trellis/spec/guides/layered-harness-adapter.md", "reason": "检查单一任务/计划权威、策略投影与 Provider/PM 独立边界"}
+{"file": ".trellis/spec/tooling/index.md", "reason": "核对必要验证与版本分发门；区分源码与安装生效"}
+{"file": ".trellis/tasks/09-30-simplify-ccg-trellis-approvals/research/findings.md", "reason": "核对确认事实、现有审批重复风险和受保护的原工作区"}

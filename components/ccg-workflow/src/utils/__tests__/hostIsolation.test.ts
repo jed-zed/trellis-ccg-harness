@@ -224,24 +224,20 @@ describe('personal built CLI cannot take ownership of Claude CCG', () => {
     expect(combinedOutput(result)).not.toMatch(/Claude-host|legacy Claude|only available.*Codex host/i)
   })
 
-  it('rejects an explicitly selected Claude host even for a safe personal command', () => {
-    const fixture = createFixture()
-    const before = protectedBytes(fixture)
-    const result = runCli(fixture, ['addons', '--json'], { CCG_HOST: 'claude' })
-    expect(protectedBytes(fixture)).toEqual(before)
-    expect(result.error, combinedOutput(result)).toBeUndefined()
-    expect(result.status, combinedOutput(result)).toBe(1)
-    expect(combinedOutput(result)).toMatch(explicitGuardFailure)
-  })
-
-  it('rejects the explicit Claude process marker without broadening permissions', () => {
-    const fixture = createFixture()
-    const before = protectedBytes(fixture)
-    const result = runCli(fixture, ['addons', '--json'], { CLAUDECODE: '1' })
-    expect(protectedBytes(fixture)).toEqual(before)
-    expect(result.error, combinedOutput(result)).toBeUndefined()
-    expect(result.status, combinedOutput(result)).toBe(1)
-    expect(combinedOutput(result)).toMatch(explicitGuardFailure)
+  it('runs a safe personal command the same way under explicit Claude host markers', () => {
+    const codexFixture = createFixture()
+    const expected = runCli(codexFixture, ['addons', '--json'])
+    expect(expected.status, combinedOutput(expected)).toBe(0)
+    for (const marker of [{ CCG_HOST: 'claude' }, { CLAUDECODE: '1' }]) {
+      const fixture = createFixture()
+      const before = protectedBytes(fixture)
+      const result = runCli(fixture, ['addons', '--json'], marker)
+      expect(protectedBytes(fixture)).toEqual(before)
+      expect(result.error, combinedOutput(result)).toBeUndefined()
+      expect(result.status, combinedOutput(result)).toBe(0)
+      expect(combinedOutput(result)).not.toMatch(explicitGuardFailure)
+      expect(result.stdout).toBe(expected.stdout)
+    }
   })
 
   it('owns a separate package name and executable without claiming upstream ccg', () => {

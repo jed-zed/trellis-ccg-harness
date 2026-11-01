@@ -2,6 +2,23 @@
 description: 'CCG 智能入口 — 描述你要做什么，AI 自动选择最佳策略执行'
 ---
 
+## Optional analysis allocation
+
+When the user explicitly requests --orchestration save-codex, /ccg:save-codex on, or quota-saving
+orchestration, load skills/ccg-save-codex/SKILL.md and enable it only for the canonical current task.
+If that task's advice-budget.json already says mode=save-codex, follow that Skill before dispatching
+analysis. --orchestration standard or /ccg:save-codex off disables it while preserving evidence.
+Absent/disabled state keeps all ordinary defaults. In this opt-in mode, bounded low-risk analysis
+uses webpage Extra High, critical decisions use webpage Pro, and Codex/native workers concentrate
+on bounded evidence, independent code review, local writes, tests and final acceptance. Webpage
+models may draft code; Codex reviews each proposed/revised diff, returns concrete findings for bounded
+correction and re-reviews/retests the result. Preserve accepted design; avoid duplicate full design
+and optional native deep-analysis leaves. Corrections consume the existing authorized advice budget;
+import/cache success is not code approval. Required authorization, provider evidence and safety remain.
+A mode/limit failure pauses its external advice route and must never silently invoke expensive
+Codex reasoning. Explicit user webpage strength wins over the allocation rule.
+
+
 ## Research
 
 Use existing independent research agents with grok-search MCP. Search actively and
@@ -254,3 +271,6 @@ Use the matching installed CCG Codex Skill.
 | `optimize-measure` | 性能优化，需要度量 | 可选 |
 | `review-audit` | 代码审查 | 双模型交叉 |
 | `git-action` | Git 操作 | 无（委托现有命令） |
+
+Before bridge/budget actions, read the live skills/ccg-gptpro-bridge/RUNTIME_CONTRACT.md.
+This ancillary contract covers explicit strengths, manual waiting and MCPX evidence even when the main Skill text is a session snapshot.

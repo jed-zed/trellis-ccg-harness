@@ -1,0 +1,276 @@
+{
+  "checkedAtUtc": "2026-09-30T18:15:57.828637+00:00",
+  "state": "local_source_complete_with_integration_gates_pending",
+  "taskState": "in_progress",
+  "implementationApproved": true,
+  "approvalRecord": "approval-v1.json",
+  "approvedArtifactHashesUnchanged": true,
+  "sourceManifest": "C:\\Users\\29933\\Documents\\Codex\\2026-09-30\\task\\approval-reuse-v1-delivery\\manifest.json",
+  "sourceManifestSha256": "16bcd1b55d35c40a7681b6e7e6f2010daf2f3c9db99d172c19d62ad963cbd61f",
+  "commands": [
+    {
+      "name": "CCG lint",
+      "command": "pnpm lint",
+      "workdir": "G:\\CodexWorktrees\\ccg-approval-reuse-v1",
+      "exitCode": 0,
+      "log": "C:\\Users\\29933\\Documents\\Codex\\2026-09-30\\task\\ccg-v1-lint.log",
+      "logSha256": "1bf8592df7585c2cb682c996142b79cb916bff790923a2bd48178a83eef3fc5c"
+    },
+    {
+      "name": "CCG typecheck",
+      "command": "pnpm typecheck",
+      "workdir": "G:\\CodexWorktrees\\ccg-approval-reuse-v1",
+      "exitCode": 0,
+      "log": "C:\\Users\\29933\\Documents\\Codex\\2026-09-30\\task\\ccg-v1-typecheck.log",
+      "logSha256": "08388f88bb6ed66ff2abecf1bb2b1f410aaaee538a1afb5ef0d706e7e177c07e"
+    },
+    {
+      "name": "CCG build",
+      "command": "pnpm build",
+      "workdir": "G:\\CodexWorktrees\\ccg-approval-reuse-v1",
+      "exitCode": 0,
+      "log": "C:\\Users\\29933\\Documents\\Codex\\2026-09-30\\task\\ccg-v1-build.log",
+      "logSha256": "43544657d658fc2e27b0e846162e63388a2edb662ff8c60a930c32bbe1be2f42"
+    },
+    {
+      "name": "CCG initial full tests",
+      "command": "pnpm test",
+      "workdir": "G:\\CodexWorktrees\\ccg-approval-reuse-v1",
+      "exitCode": 1,
+      "log": "C:\\Users\\29933\\Documents\\Codex\\2026-09-30\\task\\ccg-v1-full-tests.log",
+      "logSha256": "9f16ab8ddb20640da34c26f478f02fddd5dcfeef1df0e51a7d0b07afcc80fc35"
+    },
+    {
+      "name": "CCG full tests retry",
+      "command": "pnpm exec vitest run --maxWorkers=2",
+      "workdir": "G:\\CodexWorktrees\\ccg-approval-reuse-v1",
+      "exitCode": 0,
+      "log": "C:\\Users\\29933\\Documents\\Codex\\2026-09-30\\task\\ccg-v1-full-tests-retry.log",
+      "logSha256": "038d4cb5ab557ba7a15f524ee24d5e9d8b1710bbaafbde6153b0f0e9af348f1a"
+    },
+    {
+      "name": "Harness adapter",
+      "command": "node --test tests/harness-adapter.test.mjs",
+      "workdir": "G:\\CodexWorktrees\\harness-approval-reuse-v1",
+      "exitCode": 0,
+      "log": "C:\\Users\\29933\\Documents\\Codex\\2026-09-30\\task\\harness-v1-adapter-tests.log",
+      "logSha256": "f5e5bffbe7c6c51ab33b23ee4a43c484416ff23f533a0204fd91b505dc381ff0"
+    },
+    {
+      "name": "Harness policy fixtures",
+      "command": "node --test tests/harness-init-cli.test.mjs",
+      "workdir": "G:\\CodexWorktrees\\harness-approval-reuse-v1",
+      "exitCode": 0,
+      "log": "C:\\Users\\29933\\Documents\\Codex\\2026-09-30\\task\\harness-v1-init-tests.log",
+      "logSha256": "83298c60fc6b8d8dfc46775fb6039c71653ff0a11239da925305b7bd027a319e"
+    },
+    {
+      "name": "Harness PM state",
+      "command": "node --test tests/product-manager-state.test.mjs",
+      "workdir": "G:\\CodexWorktrees\\harness-approval-reuse-v1",
+      "exitCode": 0,
+      "log": "C:\\Users\\29933\\Documents\\Codex\\2026-09-30\\task\\harness-v1-pm-tests.log",
+      "logSha256": "6bf4abebeb67adfbf6965a6c050b5e0827f768f757044a040e47bbcab5c82b51"
+    },
+    {
+      "name": "Harness full tests",
+      "command": "pnpm harness:test",
+      "workdir": "G:\\CodexWorktrees\\harness-approval-reuse-v1",
+      "exitCode": 1,
+      "log": "C:\\Users\\29933\\Documents\\Codex\\2026-09-30\\task\\harness-v1-full-tests.log",
+      "logSha256": "c6be19390754282b07821e15163f8e80ac7b53ab733ffadc5054195a257d67d3"
+    },
+    {
+      "name": "Harness conflicts",
+      "command": "pnpm harness:conflicts",
+      "workdir": "G:\\CodexWorktrees\\harness-approval-reuse-v1",
+      "exitCode": 0,
+      "log": "C:\\Users\\29933\\Documents\\Codex\\2026-09-30\\task\\harness-v1-conflicts.log",
+      "logSha256": "4fd73fc9686a683ff087b5d8a87f964840c3954ef9d8051685eeeea136bbbc2c"
+    },
+    {
+      "name": "Harness doctor",
+      "command": "pwsh -NoProfile -File ./scripts/doctor.ps1",
+      "workdir": "G:\\CodexWorktrees\\harness-approval-reuse-v1",
+      "exitCode": 1,
+      "log": "C:\\Users\\29933\\Documents\\Codex\\2026-09-30\\task\\harness-v1-doctor.log",
+      "logSha256": "eed0a504639226c6bdd73ecb82335bf63dcc42e6fb2bf5101a5068edc88284fe"
+    },
+    {
+      "name": "Harness verify sources",
+      "command": "pnpm verify:sources",
+      "workdir": "G:\\CodexWorktrees\\harness-approval-reuse-v1",
+      "exitCode": 1,
+      "log": "C:\\Users\\29933\\Documents\\Codex\\2026-09-30\\task\\harness-v1-verify-sources.log",
+      "logSha256": "5ec00a12d72f7fbe531b468d36203fd2e036b2c9d0e7fc5b0ab04d7d9826af66"
+    },
+    {
+      "name": "Baseline verify sources",
+      "command": "pnpm verify:sources",
+      "workdir": "G:/CodexWorktrees/harness-simplify-mcp-research",
+      "exitCode": 1,
+      "log": "C:\\Users\\29933\\Documents\\Codex\\2026-09-30\\task\\harness-baseline-verify-sources.log",
+      "logSha256": "f19f55df4728ee4e4823683132fceece22d9f6f4f819cfe3907b524ff2394b6f"
+    },
+    {
+      "name": "Baseline source verifier tests",
+      "command": "node --test tests/verify-sources.test.mjs",
+      "workdir": "G:/CodexWorktrees/harness-simplify-mcp-research",
+      "exitCode": 1,
+      "log": "C:\\Users\\29933\\Documents\\Codex\\2026-09-30\\task\\harness-baseline-verify-sources-tests.log",
+      "logSha256": "e75f38875c422227b54f0a45c8278dd6ed224cf58aa98f01fffc641b8a72313e"
+    },
+    {
+      "name": "Bundled CCG lint",
+      "command": "pnpm ccg:lint",
+      "workdir": "G:\\CodexWorktrees\\harness-approval-reuse-v1",
+      "exitCode": 0,
+      "log": "C:\\Users\\29933\\Documents\\Codex\\2026-09-30\\task\\harness-v1-component-lint.log",
+      "logSha256": "9c7344ab1e855ef6d5bda1c173d2918630b50ee293f28ecb98710c72955f5a4c"
+    },
+    {
+      "name": "Bundled CCG typecheck",
+      "command": "pnpm ccg:typecheck",
+      "workdir": "G:\\CodexWorktrees\\harness-approval-reuse-v1",
+      "exitCode": 0,
+      "log": "C:\\Users\\29933\\Documents\\Codex\\2026-09-30\\task\\harness-v1-component-typecheck.log",
+      "logSha256": "4d930e699adb367a80012762452e9081ec55c6e687c05d924fdeb8100b2e08b9"
+    },
+    {
+      "name": "Bundled CCG build",
+      "command": "pnpm ccg:build",
+      "workdir": "G:\\CodexWorktrees\\harness-approval-reuse-v1",
+      "exitCode": 0,
+      "log": "C:\\Users\\29933\\Documents\\Codex\\2026-09-30\\task\\harness-v1-component-build.log",
+      "logSha256": "dd89cac442cd34e34f2b77a3062c0642f811f246020ceb8a2d4a957f5e14c868"
+    },
+    {
+      "name": "Bundled CCG tests",
+      "command": "pnpm ccg:test --maxWorkers=2",
+      "workdir": "G:\\CodexWorktrees\\harness-approval-reuse-v1",
+      "exitCode": 0,
+      "log": "C:\\Users\\29933\\Documents\\Codex\\2026-09-30\\task\\harness-v1-component-tests.log",
+      "logSha256": "c5e3088e5cb3744965dbb2da52d0e700a5d970494b3568cf52b44f86b8044581"
+    }
+  ],
+  "counts": {
+    "ccgFullRetry": {
+      "passed": 646,
+      "skipped": 3,
+      "total": 649
+    },
+    "bundledCcg": {
+      "passed": 643,
+      "skipped": 3,
+      "total": 646
+    },
+    "harnessFull": {
+      "tests": 460,
+      "pass": 449,
+      "fail": 10,
+      "skipped": 1
+    },
+    "harnessAdapter": {
+      "tests": 32,
+      "pass": 32,
+      "fail": 0,
+      "skipped": 0
+    },
+    "harnessPolicyFixtures": {
+      "tests": 64,
+      "pass": 63,
+      "fail": 0,
+      "skipped": 1
+    },
+    "productManagerState": {
+      "tests": 14,
+      "pass": 14,
+      "fail": 0,
+      "skipped": 0
+    },
+    "baselineSourceVerifier": {
+      "tests": 13,
+      "pass": 4,
+      "fail": 9,
+      "skipped": 0
+    }
+  },
+  "failureAttribution": {
+    "preexistingNulFailures": [
+      "explicit pinned checkout binds the recorded tree after fetch environment injection is rejected",
+      "index verification executes the staged validator and binds both validator trees",
+      "index verification reads the staged tree and rejects untracked residue",
+      "omitted checkout rejects Git environment URL rewrites while explicit checkout remains strict",
+      "source verification binds the trusted command resolver in worktree and index",
+      "source verifier binds clean authoritative commit, tree, and committed snapshot",
+      "source verifier clears Node and Git environment injection before execution",
+      "source verifier rejects authoritative and component dirty state",
+      "third-party source manifest is validated, canonically pinned, and required in both trees"
+    ],
+    "sameFailuresInUnmodifiedHarnessBase": true,
+    "gitProbe": "C:\\Users\\29933\\Documents\\Codex\\2026-09-30\\task\\git-nul-probe.json",
+    "newSourceProjectionFailure": [
+      "root AGENTS projects the canonical collaboration policy"
+    ],
+    "newFailureReason": "v1 changes the upstream policy asset; root owned policy and AGENTS projection remain unchanged because generation/sync and runtime policy-version changes are outside this v1 delegation.",
+    "initialCcgRun": "All 646 tests passed but one unhandled Vitest worker onTaskUpdate timeout made exit 1; the same full test set passed with maxWorkers=2, without changing or excluding tests."
+  },
+  "sharedWorkspacePreservation": [
+    {
+      "path": "I:\\ai\\trellis-ccg-harness",
+      "head": "683ac2e62f038fddb6883f5a2724e17d492efb97",
+      "branch": "codex/harness-recommended-project-skills",
+      "headBranchStagedContentUnchanged": true,
+      "observedConcurrentChangesOutsideTask": [
+        ".trellis/tasks/09-30-simplify-mcp-research/execution.md",
+        ".trellis/tasks/09-30-simplify-mcp-research/task.json"
+      ],
+      "newPathsOutsideTask": []
+    },
+    {
+      "path": "I:\\ai\\ccg-gptpro-worflow",
+      "head": "d512c4a12f48666e10b8c94562d5b229044ad4b0",
+      "branch": "codex/auto-search-product-manager",
+      "headBranchStagedContentUnchanged": true,
+      "observedConcurrentChangesOutsideTask": [],
+      "newPathsOutsideTask": []
+    },
+    {
+      "path": "G:\\CodexWorktrees\\harness-simplify-mcp-research",
+      "head": "b45c2ea72141bc0fa7f36232e102e8e5971602ed",
+      "branch": "codex/simplify-mcp-research-sync",
+      "headBranchStagedContentUnchanged": true,
+      "observedConcurrentChangesOutsideTask": [],
+      "newPathsOutsideTask": []
+    },
+    {
+      "path": "G:\\CodexWorktrees\\ccg-simplify-mcp-research",
+      "head": "87592d37578193bf36c8a074e5224a4803951ce3",
+      "branch": "codex/simplify-mcp-research",
+      "headBranchStagedContentUnchanged": true,
+      "observedConcurrentChangesOutsideTask": [],
+      "newPathsOutsideTask": []
+    },
+    {
+      "path": "I:\\ai\\trellis-ccg-harness-ccg-3.4.15-final",
+      "head": "ab9c2597054fbafb0353024a1593fea3798a7e8d",
+      "branch": "main",
+      "headBranchStagedContentUnchanged": true,
+      "observedConcurrentChangesOutsideTask": [],
+      "newPathsOutsideTask": []
+    }
+  ],
+  "runtimeFingerprintPaths": 16,
+  "runtimeFingerprintChanges": [],
+  "independentArtifactAudit": "approved four hashes, source baselines, empty staging, canonical references, 14 source hashes and exact patch bytes checked by approval_artifact_audit; no raw-index-before baseline exists.",
+  "notRun": [
+    "real fresh-model-session approval replay",
+    "installation/sync/reload",
+    "commit/push/PR/merge/publish/archive",
+    "Provider calls",
+    "Go checks because wrapper was not changed",
+    "remote PR51/PR16 audit (separate task)"
+  ],
+  "handoffReady": true,
+  "deploymentReady": false
+}

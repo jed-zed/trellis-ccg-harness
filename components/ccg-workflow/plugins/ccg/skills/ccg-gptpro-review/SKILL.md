@@ -13,26 +13,18 @@ Load and follow `skills/ccg-gptpro-bridge/SKILL.md`.
 ## Behavior
 
 - Gather review input: plan, diff, touched files, test summary, or user-provided target.
+
 ## Research
 
 Use existing independent research agents with grok-search MCP. Search actively and
 verify key conclusions against original sources; check versions/licenses when
 reusing code and experiment conditions when adopting papers. Mark unverified findings.
-Archived instructions below are inactive: ordinary work does not run Grok CLI/ACP,
+Ordinary work does not run Grok CLI/ACP,
 wait for its gates, or require its manifests and hash packages.
 
-<!-- Legacy Grok CLI/ACP reference; inactive in ordinary research.
-- For a pure local code review, do not run Grok external-intelligence or apply an official-domain
-  gate. Only when a conclusion depends on a current external fact, predeclare its authoritative
-  domain, write the bounded subject, and run
-  `ccg-codex route --workflow gptpro-review --phase final-verify --task-file <request-file> --state-file <state-file> --trigger final_diff_verify --plan <plan> --diff <diff> --dependency <lockfile>`.
-
-Run this potentially long route with the host's tool-managed background execution and wait mechanism; never put it under a foreground timeout shorter than the runner's 10-minute timeout. If the host cancels or terminates the job before a terminal state is written, run `ccg-codex route recover --state-file <state-file> --status cancelled --reason "<reason>"` (or use `--status failed`); recovery refuses to overwrite a live owner.
-  Add repeated `--official-domain <domain>` chosen before Grok runs. Bind the external verification to
-  the exact plan, diff, dependency locks, and test summary; require its canonical artifact, manifest,
-  hashes, and active-task pointer. Exit `2`, `3`, or `4` stops the workflow, and raw Grok output is
-  never embedded in the GPT Pro prompt.
--->
+For a pure local code review, do not run external-intelligence. Use the bound
+diff, source, tests and CI; research a current external fact only when a
+conclusion depends on it.
 
 - Run ordinary `/ccg:review` semantics first. Preserve Codex as the final
   review authority and use the applicable frontend/backend/search review evidence from that
@@ -52,57 +44,31 @@ Run this potentially long route with the host's tool-managed background executio
 - Include the ordinary review conclusion, Project Access Context, and Base CCG Routing Evidence in
   the GPT Pro prompt. Include a Gemini response path and concise summary only when Gemini actually
   ran.
-- Ask GPT Pro to focus on hidden bugs, security risks, compatibility risks, edge cases, test gaps,
-  ordinary-model false positives, and missed findings.
-- Require output sections: `Critical`, `Major`, `Minor`, `False Positives`, `Required Tests`.
-- Require GPT Pro to cross-score the ordinary Codex review and available routed provider evidence with `VALIDATION REPORT` and, for frontend/UI-heavy reviews, `FRONTEND VALIDATION REPORT` as mandatory parts of `Required Tests` in the same response. Gemini evidence is included only when it actually exists.
-- Codex adopts the more conservative score and blocker judgment when the available evidence disagrees. Missing evidence lowers scores rather than being guessed.
-- Required code review score block:
-
-```text
-VALIDATION REPORT
-=================
-Task / Root Cause Coverage: XX/20 - [reason]
-Code Quality: XX/20 - [reason]
-Side Effects: XX/20 - [reason]
-Edge Cases: XX/20 - [reason]
-Test Coverage: XX/20 - [reason]
-
-TOTAL SCORE: XX/100
-```
-
-- Required frontend/UI score block when applicable:
-
-```text
-FRONTEND VALIDATION REPORT
-==========================
-User Experience: XX/20 - [reason]
-Visual Consistency: XX/20 - [reason]
-Accessibility: XX/20 - [reason]
-Performance: XX/20 - [reason]
-Browser Compatibility: XX/20 - [reason]
-
-TOTAL SCORE: XX/100
-```
-
-- Build a single-round review prompt by default.
-- Expected questions: 1.
-- Additional sequential follow-up questions have no fixed bridge limit.
-- Follow-up rounds are only after Codex fixes blocker findings.
-<!-- Legacy Grok CLI/ACP reference; inactive in ordinary research.
-- Use `scripts/gptpro_bridge.py --mode review --gemini-policy optional --gemini-evidence-role gate --routing-evidence-file <routing-evidence-file> --routing-summary-file <routing-summary-file> --require-routing-evidence [--gemini-response-file <CCG_GEMINI_RESPONSE_FILE> --gemini-summary-file <summary-file> when Gemini actually ran] [--require-external-intelligence --expected-intelligence-mode <route investigation_mode> --expected-intelligence-depth <route depth> when route status=verified or status=received_unverified and requirement=required]`; omit those three external-intelligence flags for `status=waived`.
--->
+- Bind the review to the actual submitted files/revision and supported behavior.
+  Ask for concrete bugs, real security/data risks, relevant test gaps and
+  false positives in the existing findings. Verify location, trigger, actual
+  consequence and supporting contract/evidence before adopting a finding.
+- Zero findings is valid. Keep optional suggestions separate; they do not
+  become requirements or justify hypothetical compatibility tests. Missing
+  evidence is a stated limit, not a guessed score. Resolve conflicting findings
+  from the evidence rather than automatically adopting a more severe opinion.
+- Preserve Boss's requested independent GPT Pro PR review. Default to one
+  complete review plus one focused re-review after fixes as a soft budget,
+  using only the changed diff, remaining findings and relevant test results.
+  Skip the follow-up when there is nothing concrete to re-check. Additional
+  rounds need a specific unresolved blocker or changed risk and a bounded
+  question; do not loop full reviews without new evidence. Reaching the budget
+  never makes a blocker pass: report incomplete and narrow the remaining fix.
 - Use `scripts/gptpro_bridge.py --mode review --gemini-policy optional --gemini-evidence-role gate --routing-evidence-file <routing-evidence-file> --routing-summary-file <routing-summary-file> --require-routing-evidence [--gemini-response-file <CCG_GEMINI_RESPONSE_FILE> --gemini-summary-file <summary-file> when Gemini actually ran]`.
 - Delegate, monitor, wake, and import through the installed `chatgpt-pro-sidebar` Skill exactly as defined by the shared bridge Skill.
-- After the sidebar response import succeeds, classify Critical/Major/Minor findings, false positives, required tests,
-  and Codex actions.
-- Include `TOTAL SCORE: XX/100` in the final synthesis and explain scores lowered by missing evidence or unresolved blockers. Scores do not authorize execution or Provider calls.
-<!-- Legacy Grok CLI/ACP reference; inactive in ordinary research.
-- Report in Chinese and synthesize validated Grok external intelligence when that external-fact path ran, ordinary review evidence,
-  optional Gemini evidence when present, and GPT Pro findings.
--->
+- After import, verify findings and distinguish confirmed defects, false
+  positives, optional suggestions, necessary checks and Codex actions. Fix only
+  within the existing task and write authorization; keep unresolved real
+  security/data risks visible. No numerical scorecard is required.
 - Synthesize available MCP research, ordinary role evidence, and GPT Pro findings in Chinese; the current orchestrator decides the outcome.
 - The current CCG orchestrator remains final owner.
+- Report the result, verification limits, next action and any user decision
+  in natural Chinese, usually within one screen; link precise evidence as needed.
 - Do not automate ChatGPT web login.
 - Do not read arbitrary ChatGPT DOM.
 - Only the installed bridge Skill may use its fixed bounded DOM extractor through `agent-browser-cli-v2`.
@@ -117,3 +83,7 @@ TOTAL SCORE: XX/100
 - Continue only after `run-root` returns completed evidence for the exact Codex task.
 - Import completed sidebar evidence with the exact Codex task binding; never ask the user to copy or
   save the response.
+
+Webpage strength: preserve an explicit user choice through shared bridge --thinking-mode and Skill
+-ThinkingMode on status/new-chat/run-root. Default Pro only when unspecified; 极高 is Extra High.
+This does not change --mode review workflow semantics or Codex reasoning effort.

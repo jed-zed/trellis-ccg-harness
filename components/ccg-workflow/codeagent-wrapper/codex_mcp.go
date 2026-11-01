@@ -133,6 +133,9 @@ func readCodexMCPFile(file string) ([]byte, bool, error) {
 	}
 	resolved, err := filepath.EvalSymlinks(file)
 	abs, absErr := filepath.Abs(file)
+	if absErr == nil {
+		abs, absErr = codexMCPLongPath(abs)
+	}
 	if err != nil || absErr != nil || !sameCodexMCPPath(abs, resolved) {
 		return nil, false, fmt.Errorf("MCP configuration contains an unsupported link: %s", file)
 	}

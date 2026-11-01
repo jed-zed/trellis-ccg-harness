@@ -1,0 +1,9 @@
+# Repair design
+
+The accepted repair scope is atomic evidence persistence/pre-click state consistency and fresh-tab discovery/draft isolation. Preserve exact-once, original immutable idempotency, target ownership, mode and absolute deadline checks. Existing failed evidence is never rewritten to retrofit a new proof.
+
+Investigate the Windows failure with bounded local file experiments in an ignored directory. Prefer a shared-root fix over caller retries; retry only a verified transient sharing failure with a finite budget, atomic old/new outcomes and retained diagnostics. Do not mask permission/path/disk failures or replace atomic writes with delete-then-write. Correct future pre-click transitions only from execution facts; historical ambiguous evidence stays non-resumable.
+
+Investigate new-tab discovery using the exact open identity and bounded same-profile observations. A tab-list delay is not permission to guess another target. Confirm draft inheritance through the allowed UI/DOM boundary, without storage/cookies/internal APIs. A copied draft must not be silently cleared or treated as empty. Any supported fresh-conversation preparation must preserve original user drafts and prove isolation; if the product has no safe operation, retain the guard and report the limit instead of weakening it. Only synthetic drafts created by this task may be used for controlled experiments, with originals and evidence frozen first; no replay of the failed logical request under another identity.
+
+Two independent workers may diagnose/implement in separate complete frozen candidates. They do not modify live source or task state. One worker alone owns bounded new-tab UI experiments; neither submits model requests. Main integrates accepted deltas serially and owns actual RootWait send/response acceptance afterward.

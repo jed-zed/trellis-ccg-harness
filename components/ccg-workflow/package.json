@@ -1,6 +1,6 @@
 {
   "name": "@jed-zed/ccg-codex-workflow",
-  "version": "3.4.16-localarchive.6",
+  "version": "3.4.16-localarchive.7",
   "description": "Personal Codex-only CCG runtime; independent Claude GPTPro bridge addon",
   "type": "module",
   "packageManager": "pnpm@10.17.1",

@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 12
-- **Last Active**: 2026-09-06
+- **Total Sessions**: 18
+- **Last Active**: 2026-10-18
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~360 | Active |
+| `journal-1.md` | ~522 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,12 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 18 | 2026-10-18 | Live save-codex code acceptance | - | `codex/harness-recommended-project-skills` |
+| 17 | 2026-10-07 | Workflow friction 与 GPT Pro 在线验收收尾 | - | `codex/harness-recommended-project-skills` |
+| 16 | 2026-08-19 | 同步并安装 CCG 3.4.15 与 Harness main | `02bb7e1958c94c4b2e2dc739d797ea4613042da0`, `fa503092372a7f33eaaae5398560b2d1a4f77940` | `codex/harness-recommended-project-skills` |
+| 15 | 2026-08-13 | Release CCG 3.4.14 and archive Grok/AGY task | `9d94210f5a9132eb0637c9db3303760bf5c93c5f`, `f82709d5fb5a556766271362614a0268fd5a86b3` | `codex/harness-recommended-project-skills` |
+| 14 | 2026-08-10 | Close workflow audit and 3.4.10 delivery | `381e432` | `codex/harness-recommended-project-skills` |
+| 13 | 2026-08-06 | Fix Grok local review verification | `efa5804` | `codex/harness-recommended-project-skills` |
 | 12 | 2026-09-06 | PR49 Windows process identity repair and verified source sync | `094ee383fbc3a5f5c0bf6c23f43e0d328b5b1403`, `2e6cf4640c5b2edd967e0b875b0fd4689aca6cc3`, `50f8aa0f9241af74609dc9e2857e10560f4002e0`, `1d8b1585287c7ed01506e3307a28aa0667991c33` | `codex/sync-cleanup-test-pid-collision` |
 | 11 | 2026-08-23 | Integrate preserved root evidence onto latest main | `da64875` | `codex/integrate-root-salvage` |
 | 10 | 2026-08-23 | 发布架构死代码与旧机制重审记录 | `df5f5ff1002e19932ede06f5655b7a1f8ca37966`, `8d775c4bd1f87707eff4d55ac8a5cf16614fb946`, `3115210d96c3f1398059388e811fc0b46318242d` | `codex/publish-audit-records` |

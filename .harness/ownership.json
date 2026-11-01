@@ -5,11 +5,11 @@
   "schemaSha256": "a8a4a6e802cc3d7625e7b21f735aa26f5a05f06f05aaba2a428aa644f789ad3a",
   "productManagerSchemaSha256": "5ee7d491645d37e17d6fe99ded51f849c3482e2409b1286c8ebd50e9ea2c5008",
   "policy": {
-    "policyVersion": 13,
+    "policyVersion": 14,
     "markerFormatVersion": 1,
     "sourcePath": ".harness/policies/collaboration-policy.md",
-    "sourceSha256": "7293f07dcc39e10a7c4e7e99bef8bcd22758329e3967a1f1b4f40e319160d5af",
-    "renderedBlockSha256": "ddfa45bfdf65f838cdf097d1d760cdc3662942984ced7b5874e78aa18ddde494"
+    "sourceSha256": "fd98609e86e218fc5ccba7974152340daa1aeadb4bba9bae9a9f549fe029e8bd",
+    "renderedBlockSha256": "1f0ac5a10c3de93f30027611caf423f0bfa5350ca69835e96f2cd838229f7211"
   },
   "managedPaths": [
     ".harness/ownership.json",
@@ -26,7 +26,7 @@
       "startMarker": "<!-- HARNESS-COLLABORATION:START -->",
       "endMarker": "<!-- HARNESS-COLLABORATION:END -->",
       "markerFormatVersion": 1,
-      "renderedBlockSha256": "ddfa45bfdf65f838cdf097d1d760cdc3662942984ced7b5874e78aa18ddde494"
+      "renderedBlockSha256": "1f0ac5a10c3de93f30027611caf423f0bfa5350ca69835e96f2cd838229f7211"
     }
   ],
   "thirdPartySourceManifestSha256": "748796e09774955811aa1d4a8ed165efb865d88643d493cd9cf211d835a34850",

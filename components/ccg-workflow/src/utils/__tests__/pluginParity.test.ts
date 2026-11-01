@@ -260,14 +260,17 @@ describe('Codex plugin release parity', () => {
     expect(executor).toContain('any status other than `approved`')
     expect(executor).toContain('pending, rejected, withdrawn, superseded')
     expect(executor).toContain('do not ask again')
-    expect(executor).toContain('SHA256 identifies reviewed bytes')
+    expect(executor).toContain('existing `reviewedArtifacts` references')
+    expect(executor).not.toContain('SHA256 identifies reviewed bytes')
     expect(executor).toContain('formatting, typos, line endings, checklist progress')
     expect(executor).toContain('substantive change')
     expect(executor).toContain('fresh explicit user response')
     expect(executor).toContain('presentation revision')
     expect(executor).toContain('Provider/network/paid calls')
     expect(executor).toContain('task.py start` does not itself validate approval')
-    expect(executor).toContain('/ccg:verify-security')
+    // Security gates are delegated to the shared rule rather than repeated here.
+    expect(executor).toContain('../../rules/ccg-quality-gates.md')
+    expect(fs.readFileSync(join(root, 'plugins', 'ccg', 'rules', 'ccg-quality-gates.md'), 'utf8')).toContain('/ccg:verify-security')
   })
 
   it('keeps search and product-manager companion routing on every affected skill surface', () => {
@@ -287,7 +290,9 @@ describe('Codex plugin release parity', () => {
 
     for (const skill of ['ccg-executor', 'ccg-plan']) {
       const content = fs.readFileSync(join(pluginRoot, 'skills', skill, 'SKILL.md'), 'utf8')
-      expect(content, skill).toMatch(/at\s+most two total attempts/)
+      // The executor defers to the routing rule above after the 2026-10-21 simplification.
+      if (skill === 'ccg-plan')
+        expect(content, skill).toMatch(/at\s+most two total attempts/)
       expect(content, skill).not.toContain('invoke `search` once')
       expect(content, skill).not.toContain('after two attempts')
       expect(content, skill).not.toContain('at most twice')

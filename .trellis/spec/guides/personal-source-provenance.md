@@ -13,6 +13,14 @@ The Harness is the combined Trellis workflow layer and the user's personal CCG i
 3. The original CCG repository is upstream provenance only and must never silently replace the personal tree.
 4. Trellis project assets must come from the version recorded in `harness.sources.json`.
 
+## Installed Trellis CLI
+
+- `harness.sources.json.trellis.version` identifies the bundled project assets; it does not pin an already-installed global Trellis CLI.
+- `scripts/doctor.ps1` reports the available CLI version and accepts a difference from the project-assets version. A missing or failing CLI remains an availability error.
+- `scripts/bootstrap.ps1` installs the recorded version only when Trellis is absent. An existing CLI is kept; a failing CLI reports an error instead of triggering reinstall or downgrade.
+- `scripts/install.ps1` verifies availability after setup and reads the final version line, ignoring startup update notices. Regression cases in `tests/doctor.test.mjs` and `tests/install-script.test.mjs` cover CLI 0.6.16 with project assets 0.6.9.
+- Do not infer installation permission or incompatibility solely from a version difference. Exact source-tree and manifest provenance checks below remain authoritative.
+
 ## Import and update rules
 
 - Import only tracked files from the clean current HEAD of the selected personal CCG checkout.

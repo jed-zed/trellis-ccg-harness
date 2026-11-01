@@ -32,10 +32,6 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-if ($env:CLAUDECODE -eq "1" -or $env:CCG_HOST -eq "claude") {
-  throw "Personal Harness mutations require the Codex host; explicit Claude host markers are rejected."
-}
-
 function Get-NormalizedPath {
   param([Parameter(Mandatory)][string]$Path)
 
@@ -165,7 +161,7 @@ function Get-CommandVersion {
     return $null
   }
   $match = [regex]::Match(
-    ($output -join " "),
+    ([string]($output | Select-Object -Last 1)),
     "(?<![0-9])(?<version>[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?)"
   )
   if (-not $match.Success) {
@@ -1342,8 +1338,8 @@ Write-Output (
 Write-Output "  User home: $HomeDir"
 Write-Output "  Physical Codex home: $CodexHome"
 Write-Output (
-  "  Trellis: install/verify $requiredTrellisVersion " +
-  "(current: $($currentTrellisVersion ?? 'missing'))"
+  "  Trellis: keep $($currentTrellisVersion ?? 'missing'); " +
+  "install $requiredTrellisVersion only when absent"
 )
 Write-Output (
   "  CCG CLI: build/package-install exact $requiredCcgVersion snapshot " +
@@ -1398,7 +1394,7 @@ if (-not $NonInteractive) {
     Confirm-SetupItem "$ccgCommand codex-mode install" $ApproveCodexMode.IsPresent
   }
   else {
-    Confirm-SetupItem "Trellis $requiredTrellisVersion" $ApproveTrellis.IsPresent
+    Confirm-SetupItem "Trellis availability; install $requiredTrellisVersion only when absent" $ApproveTrellis.IsPresent
     Confirm-SetupItem "CCG CLI $requiredCcgVersion" $ApproveCcgCli.IsPresent
     Confirm-SetupItem "Codex plugin $pluginId from the local snapshot" `
       $ApproveCcgPlugin.IsPresent
@@ -1477,11 +1473,8 @@ if (-not $NonInteractive) {
 
   $installedTrellisVersion = Get-CommandVersion "trellis"
   $installedCcgVersion = Get-CommandVersion $ccgCommand
-  if ($installedTrellisVersion -ne $requiredTrellisVersion) {
-    throw (
-      "Installed Trellis version mismatch: expected $requiredTrellisVersion, " +
-      "found $installedTrellisVersion."
-    )
+  if (-not $installedTrellisVersion) {
+    throw "Installed Trellis CLI could not be verified."
   }
   if ($installedCcgVersion -ne $requiredCcgVersion) {
     throw (

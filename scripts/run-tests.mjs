@@ -23,6 +23,9 @@ if (testFiles.length === 0) {
 // Windows runners may expose TEMP through an 8.3 alias (RUNNER~1). Fixtures
 // model physical roots, so give the test process a canonical temporary root.
 const testEnv = { ...process.env };
+// Results must not depend on the invoking host; host-specific tests set markers explicitly.
+delete testEnv.CLAUDECODE;
+delete testEnv.CCG_HOST;
 if (process.platform === "win32") {
   const physicalTemp = realpathSync.native(tmpdir());
   testEnv.TEMP = physicalTemp;

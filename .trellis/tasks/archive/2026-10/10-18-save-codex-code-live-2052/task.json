@@ -1,0 +1,29 @@
+{
+  "id": "save-codex-code-live-2052",
+  "name": "save-codex-code-live-2052",
+  "title": "Live save-codex code review acceptance",
+  "description": "",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "codex",
+  "assignee": "codex",
+  "createdAt": "2026-10-18",
+  "completedAt": "2026-10-18",
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "purpose": "isolated-synthetic-acceptance",
+    "authorizationSource": "user-2026-10-18T20:52Z"
+  }
+}

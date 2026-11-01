@@ -22,6 +22,208 @@
 > 管理。项目保留上游署名，但以个人仓库、固定来源清单和 Harness
 > 事务式更新器为唯一权威来源。
 
+<a id="mcpx-setup"></a>
+
+## 网页通过 MCPX 读写代码：安装与配置教程
+
+**启用 MCPX 模式前，必须先安装 MCPX、登记工作区，并在网页端配置可用的 MCPX 连接器。** CCG 不会替你安装服务、创建认证或开启隧道。网页使用 MCPX 读取输入、写入指定文件并执行指定测试；Codex 独立审核代码、检查工具证据并进行本地验证。默认 `read-write-execute` 是新任务的有界范围约定，仍须用户明确授权、精确文件与命令；它不授权任意操作。
+
+如果只需要网页返回完整代码块，再由 Codex 审核和落盘，显式选择 `summary` 即可，**无需安装 MCPX**。这种模式必须标注“网页未直接读取工作区”。不要把连接失败自动降级成 summary，或把模型自述当成访问证明。
+
+### 1. 固定版本并安装
+
+这里的 MCPX 是官方 [opentokenz/mcpx](https://github.com/opentokenz/mcpx)。本教程按实际验收的 [v0.9.18](https://github.com/opentokenz/mcpx/releases/tag/v0.9.18) 编写，源码固定为 [`d17e68a`](https://github.com/opentokenz/mcpx/tree/d17e68a59bbe63aa94bfec595957180422ca242f)。2026-10-20 查询时最新发布为 v0.9.19；本次验收没有覆盖它。不要混用其他同名 MCPX 项目。
+
+Windows AMD64 示例；所有目录、域名、工作区名及 ID 都是占位值，请改为自己的值。已有 MCPX 的用户先核对版本和现有连接，复用已支持的路径，勿覆盖正在运行的服务。
+
+```powershell
+$releaseRoot = 'https://github.com/opentokenz/mcpx/releases/download/v0.9.18'
+$archivePath = Join-Path $env:TEMP 'mcpx_0.9.18_windows_amd64.zip'
+Invoke-WebRequest "$releaseRoot/mcpx_0.9.18_windows_amd64.zip" -OutFile $archivePath
+Invoke-WebRequest "$releaseRoot/checksums.txt" -OutFile "$archivePath.checksums.txt"
+Get-FileHash -LiteralPath $archivePath -Algorithm SHA256
+Get-Content -LiteralPath "$archivePath.checksums.txt"
+# 核对清单中该 ZIP 的 SHA256 完全一致，再解压到新的版本目录。
+Expand-Archive -LiteralPath $archivePath -DestinationPath 'D:\Tools\MCPX\0.9.18'
+$mcpxExe = 'D:\Tools\MCPX\0.9.18\mcpx.exe'
+& $mcpxExe -version
+& $mcpxExe -h
+```
+
+macOS/Linux 请从同一 release 选择正确 CPU 的压缩包并验证摘要。源码构建需要 Go 1.26.1 或更新版本：固定上述 commit 后运行 `go build -o bin/mcpx ./cmd/mcpx-server`。参见[官方快速开始](https://github.com/opentokenz/mcpx/blob/d17e68a59bbe63aa94bfec595957180422ca242f/README.md#L111)。本节命令供用户配置时执行；CCG 的 configure/prepare 不会启动 MCPX。
+
+### 2. 配置文件、目录与安全策略
+
+默认全局配置是 `~/.mcpx/config.yaml`。`MCPX_HOME` 可更换其根目录；在同一 PowerShell 进程内设置，注册和启动命令都必须使用同一目录。新建独立实例可用：
+
+```powershell
+$env:MCPX_HOME = 'D:\MCPXData\ccg-demo'
+New-Item -ItemType Directory -Path $env:MCPX_HOME -Force | Out-Null
+# 在该目录创建 config.yaml，填入下面的真实字段并替换占位值。
+```
+
+已有配置先在本机备份。不要把含口令的文件、备份、OAuth 数据、SQLite 状态或原始会话提交 Git。以下配置先使用本机监听；OAuth 口令需自行生成并仅在本机填写。`server_url` 是准备提供给连接器的公开 HTTPS Origin，不带 `/mcp`。
+
+```yaml
+server:
+  host: 127.0.0.1
+  port: 9090
+  disable_localhost_protection: false
+  trust_proxy_headers: false
+auth:
+  mode: oauth
+  oauth:
+    password: "<仅在本机填写的强随机口令>"
+    server_url: "https://mcp.example.com"
+    token_ttl: 86400
+security:
+  commands:
+    default: confirm
+    auto_allow_readonly: false
+  files:
+    allow:
+      - '^demo/'
+    deny:
+      - '(^|/)\.git(/|$)'
+      - '(^|/)\.env($|\.)'
+      - '(^|/)(\.ssh|\.aws|\.codex)(/|$)'
+      - '(^|/)(auth\.json|credentials\.json|id_rsa)$'
+      - '(?i)\.(pem|key)$'
+workspaces:
+  - name: ccg-demo
+    path: 'D:\Projects\ccg-demo'
+    description: "仅供明确授权的 CCG 演示任务"
+```
+
+这个示例只允许工作区内 `demo/` 下的普通文件；先自行创建 `demo/spec.md`，写入无敏感信息的任务说明。文件规则是正则表达式，路径使用 `/`，不是 glob。`deny` 优先；一旦配置了任一 allow/confirm/deny 列表，未匹配路径默认需确认，而源码 `read` 只接受 Allow，所以不能只写 deny 却期望其余源码都可读。根据任务收窄 allow，而非为省事放开整个磁盘。字段和行为见[配置 schema](https://github.com/opentokenz/mcpx/blob/d17e68a59bbe63aa94bfec595957180422ca242f/internal/config/config.go#L20)及[规则实现](https://github.com/opentokenz/mcpx/blob/d17e68a59bbe63aa94bfec595957180422ca242f/internal/security/commands.go#L500)。
+
+项目 `.mcpx.yaml` 可以覆盖安全策略；审查它，不能宣称全局 deny 是项目无法削弱的 ACL。文件规则也不是执行进程的操作系统沙箱；命令仍具有 MCPX 进程的 OS 权限。只登记最小可信目录，不登记用户主目录、凭据目录或含私人项目的父目录。v0.9.18 的 `workspaces` 条目只有 `name/path/description`，不要编造 `read_only` 字段。
+
+### 3. 登记工作区并加载
+
+也可以用官方 CLI 登记现有目录：
+
+```powershell
+& $mcpxExe workspace register 'D:\Projects\ccg-demo'
+```
+
+此命令写全局 `config.yaml`，不启动服务，默认名称取目录 basename；核对同名条目，防止更新了另一条登记。显式填写上面的 YAML 可控制名称。检查完配置后，新实例可运行：
+
+```powershell
+& $mcpxExe -d
+```
+
+**运行中的 Runtime 在启动时加载配置和工作区注册。** 改完配置/登记后先确认没有在途任务，再在维护窗口对该实例执行 `& $mcpxExe stop`、`& $mcpxExe -d`。它会影响该 `MCPX_HOME` 下的服务；不要对不属于自己的共享实例盲目重启。没有 `mcpx reload` 或 `mcpx workspace list` 命令，Desktop 的刷新列表也不等于 Runtime 重载。随后刷新连接器工具，必要时建立新的客户端会话，再用模型侧 `workspace()` 核对名称和路径。[注册实现](https://github.com/opentokenz/mcpx/blob/d17e68a59bbe63aa94bfec595957180422ca242f/internal/config/load.go#L285)、[Runtime 加载](https://github.com/opentokenz/mcpx/blob/d17e68a59bbe63aa94bfec595957180422ca242f/internal/server/runtime.go#L149)。
+
+### 4. 连接器与已支持的 HTTPS 路径
+
+MCPX 仅提供 Streamable HTTP `/mcp`，不提供旧 `/sse`。远程 ChatGPT 连接器需要能访问 `https://mcp.example.com/mcp`，不能把远程服务指向你电脑的 `127.0.0.1`。优先复用现有已授权的连接器和隧道；隧道并不代替 OAuth。
+
+官方已有的方案如下，按实际环境选一种并完整遵循官方步骤：
+
+- Windows：`& $mcpxExe desktop`，在 Cloudflare 页面使用已配置 hostname 的 Named Tunnel；Quick Tunnel 域名临时变化，不适合稳定的 OAuth 连接器。Desktop 内置集成会检查认证、调整自己的 MCPX Host/proxy 配置并同步 OAuth Origin。参见[官方 Desktop/Cloudflare 说明](https://github.com/opentokenz/mcpx/blob/d17e68a59bbe63aa94bfec595957180422ca242f/README.md#L748)。
+- [FRP + Caddy 原生部署](https://github.com/opentokenz/mcpx/blob/d17e68a59bbe63aa94bfec595957180422ca242f/docs/frp-caddy-native.md)：在受信反代场景，按该文配置 `disable_localhost_protection`、`trust_proxy_headers`、TLS 与 OAuth Origin；这两个开关不能对不可信代理随意启用。
+- [FRP + Caddy Docker Compose](https://github.com/opentokenz/mcpx/blob/d17e68a59bbe63aa94bfec595957180422ca242f/docs/frp-caddy-docker-compose.md)：仅将代理容器化，MCPX 原生运行以访问本地项目。
+
+公网不要使用 `auth.mode: open`。域名、证书、代理、OAuth 配置必须一致。CCG 不会自动搭建上述设施，也不把创建隧道或变更认证视为普通代码任务的一部分。
+
+在有资格使用该功能的 ChatGPT 账号中启用 Developer Mode，进入 Apps 创建自定义 App，填写 `/mcp` URL、选择 OAuth，由用户在官方授权页面完成登录/授权，再 Scan Tools。界面名称和账号可用性可能变化，以[官方连接器教程](https://github.com/opentokenz/mcpx/blob/d17e68a59bbe63aa94bfec595957180422ca242f/docs/frp-caddy-native.md#L658)及当前界面为准。已有 App 先刷新，不复制本机 token/session，也不自动操作认证。MCPX 的 `oauth-register` 用于官方教程所述的特定 OAuth 客户端注册链接；不要随意填写或猜测回调 URL。
+
+### 5. 验证连接，再建立 CCG 有界范围
+
+依次检查：`-version` → MCP `initialize` → `tools/list` → `workspace()` → 打开指定工作区的 Remote Session → `runtime_read(view="capabilities")` → `read` 专用 `demo/spec.md`。以工具实际返回的完整 workspace/session ID、role、能力、revision/hash 为准；裸 GET `/mcp`、模型声称“已读”或本地 Codex 的文件读取都不能替代网页 MCPX 证据。
+
+CCG 控制端应从成功的现有 MCPX 工具结果生成私有 preflight JSON，真实字段为：`schemaVersion: 1`、`source: successful-existing-MCPX-tools`、`observedAtUtc`、`runtime.version`、`workspace.{name,path}`、`remoteSession.{id,status,role}`、`availableTools`、`sourceFiles`（每项 `path` 与 `revision` 或 `sha256`）。它不是要手工伪造的成功回执；configure 本身不会证明连接。prepare 时该回执必须在 5 分钟内，所有输入均已有成功读取和版本记录。
+
+有界 scope 文件示例（这是 **CCG JSON**，不是 MCPX YAML）：
+
+```json
+{
+  "workspaceId": "ccg-demo",
+  "remoteSessionId": "<现有工具返回的完整 ID>",
+  "browserProfileId": "<已批准浏览器绑定返回的 profile ID>",
+  "entrypoint": "demo/spec.md",
+  "allowedPaths": ["demo/spec.md"],
+  "authorizationConfirmed": true,
+  "taskDirectory": "demo",
+  "writePaths": ["demo/example.py", "demo/test_example.py"],
+  "allowedExecutions": [
+    {"argv": ["python", "-m", "unittest", "discover", "-s", "demo", "-v"], "shell": false}
+  ]
+}
+```
+
+只有用户确已授权该目标、这些输出和命令后才能写 `authorizationConfirmed: true`。省略 `permissionMode` 对新 scope 默认 `read-write-execute`；仅分析任务应明确写 `"permissionMode": "read-only"`，并移除写入和执行字段。输入与输出都须在 `taskDirectory` 下。执行工作目录固定为已登记工作区根目录，不能把 argv 悄悄改成 shell/script/task 方式。生产权限需真实 owner/editor 角色及 workspace/session/runtime_read/read/edit/execute/observe/progress 能力，CCG 不会提高服务端权限。
+
+从此源码 checkout 先解析 helper 的绝对路径，然后切到已登记的实际项目根目录运行；安装后请从同一个完整插件根目录解析脚本，勿混用缓存版本。`--workdir`、job 输入、scope/preflight 和任务账本必须对应同一项目：
+
+```powershell
+$bridgeScripts = Join-Path (Get-Location) 'plugins\ccg\skills\ccg-gptpro-bridge\scripts'
+$budget = Join-Path $bridgeScripts 'gptpro_budget.py'
+$workspaceRoot = 'D:\Projects\ccg-demo'
+Set-Location -LiteralPath $workspaceRoot
+$stateFile = '.ccg/tasks/demo/advice-budget.json'
+python $budget configure --state $stateFile --mode save-codex `
+  --codex-thread-id '<当前真实 thread UUID>' --evidence-access mcpx `
+  --mcpx-scope-file '.private/demo-scope.json' `
+  --mcpx-preflight-file '.private/demo-preflight.json'
+python $budget prepare --state $stateFile --workdir $workspaceRoot `
+  --job-file '.private/demo-job.json' --context-file '.private/demo-context.md' `
+  --thinking-mode Pro
+```
+
+`job` JSON 必须包含 `importance`（`step` 或 `critical`）和 `risk`（`low` 或 `high`），并提供非空 `goal`、`snapshot`。使用下面完整的 `.private/demo-job.json` 示例；`inputs` 是相对 `--workdir` 的实际输入，`complexity` 可选：
+
+```json
+{
+  "importance": "step",
+  "risk": "low",
+  "complexity": 2,
+  "goal": "按 demo/spec.md 生成 example.py 和 test_example.py",
+  "snapshot": "demo-spec-v1",
+  "acceptance": "实现符合说明，指定 unittest 命令退出码为 0",
+  "inputs": ["demo/spec.md"]
+}
+```
+
+`.private/demo-context.md` 可只写“读取已授权 demo/spec.md，按约定生成完整实现和测试”。先将 `.private/` 加入本机 Git 排除规则（例如 `.git/info/exclude`），不要提交真实 preflight/scope/session 回执。上下文只放目标和取证提示，源码由已授权 MCPX 路径获取。Trellis 任务将 state 放在已有任务的 `.ccg-evidence/` 中，不创建第二个任务。
+
+configure/prepare **不发送网页请求**。首次 prepare 返回能力检查请求，只读 entrypoint；按[桥接 Skill](./plugins/ccg/skills/ccg-gptpro-bridge/SKILL.md)绑定原请求、使用既有 RootWait 流程，验证能力后再 prepare 生产请求。两者都使用自己原始的请求身份，不得把未确定结果换目录重发。本次源码配套 sidebar 基线仅支持 Pro，因此示例明确指定 `Pro`。其他网页强度需要另行具备该能力的 sidebar，且按 profile/workspace/强度分别验证；不支持时保持阻塞，不静默切换。
+
+### 6. 执行确认、证据与验收
+
+若 MCPX 返回 `waiting_confirmation`，向用户展示实际命令、工作目录和用途，等待对该动作的明确确认。然后遵循工具返回的 action，保留原始业务参数、`idempotency_key`、精确 argv 和 `shell=false`，用 `user_confirmed=true` 续轮；不要使用已废弃的 `approval_manage`。确认只涵盖原命令，不允许扩展写入、开启隧道或操作其他目录。[实际 execute 确认实现](https://github.com/opentokenz/mcpx/blob/d17e68a59bbe63aa94bfec595957180422ca242f/internal/server/tools_command_execute.go#L133)。
+
+CCG `record` 要求正常导入的网页回复、独立获取且完整分页的 MCPX structured history，以及重新读取输入版本的 current receipt。执行确认续轮还需 `--mcpx-confirmation-dir` 指向已完成的原始 RootWait 证据；保留原请求标记、浏览器/会话、原 argv 和绝对截止时间。等待确认不是执行成功，最终仍需同一命令的成功事件、正确工作目录和数值退出码 `0`。历史失败保存在 `resultHistory`；两个证据时间窗之间的活动不能拿来补齐证明。
+
+代码提取必须读取属于该助手回复的完整 CodeMirror 文档，不能拼接虚拟化可见行充当完整代码。已完成回复的重提取使用 `reextract`，写入独立 sibling receipt，保留原始证据及时间戳。Codex 仍须独立审阅最终代码并本地复测；网页测试成功或导入成功不能直接代表验收。
+
+### 7. 常见故障与回退
+
+| 现象 | 检查与处理 |
+|---|---|
+| 看不到新登记目录 | 核对 MCPX_HOME、config.yaml 和路径；确认无在途任务后重启对应 Runtime，再刷新工具/客户端会话 |
+| 401 / OAuth 循环 | 核对 OAuth Origin、issuer/resource 与公开域名；由用户重新完成官方授权，不拷贝 token |
+| 404 / SSE 错误 | 使用 Streamable HTTP 的 `/mcp`，不是 `/sse`，检查反代路由 |
+| `read` 被拒绝 | 核对正则 allow/deny 与 `.mcpx.yaml`；仅有 deny 时普通文件也可能没有 Allow |
+| `MCPX_PREFLIGHT_STALE...` | 重新用现有只读工具取真实回执；不手改时间戳 |
+| `MODE_TOOLS_UNAVAILABLE` / `mcpx-blocked` | 检查真实能力、角色、profile、scope；保持阻塞，不自动升权、换强度或降级 |
+| `awaiting-mcpx-proof` | 补齐独立历史分页、每个输入的精确 read 路径、版本和最终 edit/execute 证据 |
+| 两个可见输入框 / 不完整代码文档 | 保持歧义或提取失败状态；隐藏布局副本可被唯一定位，两个可编辑可见节点不能取第一个 |
+| 发送结果不确定 | 保留原 evidence/idempotency 身份，仅观察与恢复；不换目录重发 |
+
+CCG 无 MCPX 回退必须由用户显式选择：
+
+```powershell
+python $budget configure --state $stateFile --mode save-codex --evidence-access summary
+python $budget prepare --state $stateFile --workdir $workspaceRoot `
+  --job-file '.private/demo-job.json' --context-file '.private/demo-summary.md' `
+  --thinking-mode Pro
+```
+
+summary 可请求完整实现和测试代码块，无需 MCPX。Codex 审核后落盘并本地测试，注明网页仅收到摘要。`configure --mode standard` 关闭可选分配但保留原账本。MCPX 二进制/配置回退则在无在途任务的维护窗口恢复本机保留的旧版本与备份；保留已有认证，不自动删除会话或重建隧道。官方[验证与排障](https://github.com/opentokenz/mcpx/blob/d17e68a59bbe63aa94bfec595957180422ca242f/README.md#L415)可辅助检查；该版本英文 README 含旧工具名，字段和确认协议以中文 README 与实际 Go 实现为准。
+
+
 ## ♥️ Sponsor
 
 [![Gamma Remover](assets/sponsors/gamma-remover.webp)](https://gammaremover.com/)

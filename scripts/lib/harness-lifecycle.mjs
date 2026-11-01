@@ -92,6 +92,10 @@ export function assertSparseExclusionsUnchanged(exclusions, changedPaths) {
   return [...exclusions];
 }
 
+// Build and test output the final CCG gates create inside the component; the
+// CCG .gitignore owns these roots (vitest uses cacheDir .vitest-cache).
+export const CCG_COMPONENT_GATE_OUTPUT_ROOTS = Object.freeze(["dist", "node_modules", ".vitest-cache"]);
+
 export function assertNoIgnoredComponentState(paths) {
   const ignored = [...new Set(
     (paths ?? [])

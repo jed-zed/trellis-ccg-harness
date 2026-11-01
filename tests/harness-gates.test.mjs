@@ -75,6 +75,21 @@ test("Go build output is removed when the build command fails", () => {
   }
 });
 
+test("CCG build runs before tests so CLI tests can load the built entrypoint", () => {
+  const checkout = mkdtempSync(path.join(tmpdir(), "harness-gates-order-"));
+  mkdirSync(path.join(checkout, "codeagent-wrapper"), { recursive: true });
+  const calls = [];
+
+  try {
+    runCcgGates(checkout, (command, args) => calls.push(`${command} ${args[0]}`));
+    const build = calls.indexOf("pnpm build");
+    assert.ok(build > calls.indexOf("pnpm typecheck"));
+    assert.ok(build < calls.findIndex((call) => call === "pnpm test" || call === "pnpm exec"));
+  } finally {
+    rmSync(checkout, { recursive: true, force: true });
+  }
+});
+
 test("Windows keeps every CCG test while allowing slow process-tree cleanup", () => {
   const checkout = mkdtempSync(path.join(tmpdir(), "harness-gates-windows-"));
   mkdirSync(path.join(checkout, "codeagent-wrapper"), { recursive: true });

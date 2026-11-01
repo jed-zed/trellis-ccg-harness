@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 
 import { readFileSync } from "node:fs";
-import { assertCodexMutationHost } from "../.agents/skills/harness-init/scripts/codex-host-boundary.mjs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -246,9 +245,6 @@ async function main() {
   const handler = COMMAND_HANDLERS.get(command);
   if (!handler) {
     throw new Error(`Unknown Harness adapter command: ${command}`);
-  }
-  if (command === "pm" && ["sync-plan", "review", "respond"].includes(args[0])) {
-    assertCodexMutationHost();
   }
   await handler(args);
 }

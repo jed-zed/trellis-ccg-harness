@@ -192,6 +192,14 @@ unclaimed path merely because an earlier observation matched.
   entrypoint, package/version identity, and file hashes for review, but Harness
   never starts the Provider CLI or writes an action receipt. This avoids the
   unattested dependency-tree and verify-to-spawn interval.
+- The Codex root resolver accepts a link only as the final `HomeDir/.codex`
+  entry (default or explicit, case-insensitive on Windows) so a profile
+  junction keeps working. Its ancestors, all other explicit roots and the
+  resolved physical chain must be real directories; realpath failures are not
+  swallowed and a volume-root or file target is rejected. Approvals, state,
+  ownership and rollback bind the physical root, so a retargeted link reads as
+  a root switch. This does not defend against concurrent path replacement
+  between resolution and use; downstream checks stay independent.
 - User-profile parent directories and catalog/project Skill trees reject
   symbolic links and reparse points; project copies are bounded by depth, file
   count, individual file size, and total size.

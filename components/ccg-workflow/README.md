@@ -22,6 +22,56 @@
 > It preserves upstream attribution while making the personal repository,
 > pinned source manifest, and transactional Harness updater authoritative.
 
+## MCPX workspace code production
+
+**Install and configure MCPX before enabling MCPX mode.** The complete, version-pinned
+[installation and configuration tutorial](./README.zh-CN.md#mcpx-setup) covers Windows
+release checksum verification, real YAML fields, workspace registration and restart,
+ChatGPT OAuth connectors, supported Cloudflare/FRP+Caddy routes, exact scope and execution
+confirmation, sensitive-file exclusion, validation, troubleshooting and rollback.
+
+This integration uses [opentokenz/mcpx v0.9.18](https://github.com/opentokenz/mcpx/releases/tag/v0.9.18),
+commit `d17e68a59bbe63aa94bfec595957180422ca242f`, as its accepted baseline. v0.9.19 was
+the latest release checked on 2026-10-20; it was not part of that acceptance.
+CCG does not install MCPX, alter authentication or create tunnels.
+
+| Mode | Prerequisites and behavior |
+|---|---|
+| `mcpx` | A working existing MCPX connector, registered workspace, exact session/profile/path scope and fresh successful tool receipt; webpage reads inputs, writes exact outputs and runs exact authorized argv |
+| `summary` | No MCPX required; webpage returns code blocks from the supplied summary, and Codex independently reviews, writes and tests them locally; label that the webpage did not read the workspace |
+
+New MCPX scopes default to `read-write-execute`. They still require explicit authorization,
+`authorizationConfirmed: true`, one relative task directory, exact output paths and bounded
+`argv` arrays with `shell: false`. This default does not authorize arbitrary actions or
+increase server roles. Explicit `permissionMode: read-only` remains supported. File deny
+rules are not an OS execution sandbox, and project `.mcpx.yaml` can override security rules.
+
+The budget helpers live in `plugins/ccg/skills/ccg-gptpro-bridge/scripts/` (or the complete
+installed plugin's corresponding directory). `configure` and `prepare` send no browser
+request. MCPX is the default evidence access; select `--evidence-access summary` explicitly
+for code generation without MCPX. The tutorial uses `--thinking-mode Pro` for the paired
+source sidebar baseline; other strengths require a separately capable sidebar and their
+own verified MCPX capability, with no silent downgrade.
+
+For `waiting_confirmation`, preserve the original command, cwd, idempotency key and exact
+argv; after explicit user confirmation, follow the server's continuation with
+`user_confirmed=true`. A waiting event is not execution success. CCG accepts only a later
+matching succeeded event with numeric exit code zero, retains historical blocked results,
+and validates disjoint original/confirmation evidence windows. Codex independently reviews
+the actual resulting code and reruns relevant tests. See the
+[runtime contract](./plugins/ccg/skills/ccg-gptpro-bridge/RUNTIME_CONTRACT.md).
+
+Quick operational checks: `mcpx -version`, MCP `initialize`, `tools/list`, `workspace()`,
+open the actual session, `runtime_read(view="capabilities")`, and read a dedicated harmless
+file. After config/registration changes, restart only the intended instance in a maintenance
+window and refresh connector tools/session. There is no v0.9.18 `reload` or CLI
+`workspace list` command, no `workspaces[].read_only` YAML field, and no `/sse` endpoint.
+Never fabricate a successful preflight receipt, overwrite uncertain send identities, or
+commit private configuration/session/browser evidence. Follow the
+[step-by-step tutorial](./README.zh-CN.md#mcpx-setup) before making a real webpage request.
+
+
+
 ## ♥️ Sponsor
 
 [![Gamma Remover](assets/sponsors/gamma-remover.webp)](https://gammaremover.com/)

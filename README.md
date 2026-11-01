@@ -12,6 +12,23 @@ this documentation installs a daily environment.
 
 这是 `jed-zed` 的 AI 开发 Harness：用 Trellis 管理任务、PRD、规范和工程记忆，用 Codex-only CCG 管理 Codex、Gemini、Grok、GPT Pro、外部证据和质量门禁。
 
+
+## Sidebar code extraction and optional MCPX
+
+The sidebar Skill now reads complete assistant-owned CodeMirror documents, preserves code
+indentation/fences, binds the sole visible editable composer, and permits read-only response
+observation when no composer is rendered. `reextract` writes a separate receipt for an already
+completed original reply, preserving its original files and completion timestamp. See the
+[Skill commands and verification](.agents/skills/chatgpt-pro-sidebar/SKILL.md).
+
+MCPX code production additionally requires the separately configured CCG MCPX budget helpers;
+this change does not update the frozen `components/ccg-workflow` snapshot or any installation.
+Follow the [CCG MCPX setup tutorial](https://github.com/jed-zed/ccg-gptpro-worflow/blob/codex/fix-mcpx-production-proof-20261020/README.zh-CN.md#mcpx-setup)
+for official MCPX installation, exact workspace scope, connector and confirmation requirements.
+Summary code drafting does not require MCPX. This source sidebar retains its existing Pro
+selection; no generic thinking-strength or attachment-upload support is added here.
+
+
 ## 来源与声明
 
 本仓库是独立维护的集成项目，组合并适配了 [Trellis](https://github.com/mindfold-ai/trellis) 与 [CCG](https://github.com/fengshao1227/ccg-workflow)，不是两者的官方发行版。其中，Trellis 上游项目采用 AGPL-3.0 许可证；CCG 上游代码采用 MIT 许可证，本仓库使用的 CCG 代码来自 `jed-zed` 的个人定制分支。上述许可证仅适用于对应第三方来源，不代表本仓库整体采用这些许可证；Harness 自有集成层仍为 `UNLICENSED`。上游版权、许可证副本及精确来源记录见 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) 和 [`harness.sources.json`](harness.sources.json)。

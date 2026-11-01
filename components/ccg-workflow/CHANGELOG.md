@@ -9,6 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.4.16-localarchive.7] - 2026-10-21
+
+### Added
+
+- **Scoped MCPX production and webpage strength** — Explicit GPT Pro webpage
+  thinking strength, budgeted opt-in `/ccg:save-codex` advice allocation and
+  scoped MCPX read/write/execute evidence with confirmation records.
+- **Upstream overlap doctor check** — `ccg-codex doctor` reports when upstream
+  CCG replaced `AGENTS.md`, injected its fast-context block or removed the
+  `grok-search` MCP server; it only reads.
+
+### Changed
+
+- **Rule simplification** — Risk-proportionate quality gates, verified review
+  findings without score tables, a soft GPT Pro review budget and natural
+  Chinese reporting; agent templates pin `gpt-6.1-sol`.
+- **Target-based host isolation** — Claude host markers no longer block
+  `ccg-codex` or the Grok engine; Claude-path overlap checks, the separate
+  package/executable and disabled legacy Claude commands remain.
+
 ## [3.4.15] - 2026-08-18
 
 ### Added

@@ -15,9 +15,6 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-if ($env:CLAUDECODE -eq "1" -or $env:CCG_HOST -eq "claude") {
-  throw "Personal Harness mutations require the Codex host; explicit Claude host markers are rejected."
-}
 $RepoRoot = [System.IO.Path]::GetFullPath($RepoRoot)
 & node (Join-Path $PSScriptRoot "lib/ccg-legacy-claim-guard.mjs") --repo-root $RepoRoot
 if ($LASTEXITCODE -ne 0) { throw "The fixed new control root refuses mutations of a retired legacy management root." }
@@ -91,8 +88,12 @@ $requiredTrellis = [string]$manifest.trellis.version
 $currentTrellis = $null
 if (Get-Command trellis -ErrorAction SilentlyContinue) {
   $currentTrellis = ((& trellis --version) | Select-Object -Last 1).Trim()
+  if ($LASTEXITCODE -ne 0 -or -not $currentTrellis) {
+    throw "Installed Trellis CLI is not usable."
+  }
 }
-$manageTrellis = $currentTrellis -ne $requiredTrellis
+# The recorded project-assets version is not a pin on an existing global CLI.
+$manageTrellis = -not $currentTrellis
 $manageCcg = [bool]$LinkCcg
 $lifecycleScript = Join-Path $PSScriptRoot "harness-lifecycle.mjs"
 $beginArguments = @(

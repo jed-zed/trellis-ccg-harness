@@ -90,7 +90,7 @@ test('reply extraction preserves a BR newline on the sanitized detached clone', 
     textContent: 'line oneline two',
     querySelectorAll: () => [],
   };
-  assert.deepEqual(boundedText({ cloneNode: () => clone }), {
+  assert.deepEqual(boundedText({ cloneNode: () => clone, querySelectorAll: () => [] }), {
     text: 'line one\nline two',
     truncated: false,
   });
@@ -102,19 +102,19 @@ test('both model matchers recognize localized controls and retain strict mode pr
   const matcher = pageSource.slice(pageSource.indexOf('  const composerRect ='), pageSource.indexOf('  // Read-only bounded structural'));
   const inspect = new Function('composers', 'composerForm', 'visibleAll', 'compactText', matcher + '\nreturn { count: modeControls.length, label: selectedModeLabel };');
   for (const ariaLabel of ['选择 ChatGPT 模型', 'Choose ChatGPT model', 'Select ChatGPT model']) {
-  for (const { text, expanded, duplicate, count, phase, foreignForm, wrongLabel, inMenu, far } of [
+  for (const { text, expanded, duplicate, count, pageCount = count, phase, foreignForm, wrongLabel, inMenu, far } of [
     { text: 'Medium', expanded: false, count: 1, phase: 'open-menu' },
     { text: '思考强度', expanded: true, count: 1, phase: 'select-pro' },
     { text: 'Thinking effort', expanded: true, count: 1, phase: 'select-pro' },
-    { text: '思考强度', expanded: false, count: 0, phase: undefined },
-    { text: 'Thinking effort', expanded: false, count: 0, phase: undefined },
+    { text: '思考强度', expanded: false, count: 0, pageCount: 1, phase: undefined },
+    { text: 'Thinking effort', expanded: false, count: 0, pageCount: 1, phase: undefined },
     { text: '思考强度', expanded: true, duplicate: true, count: 2, phase: undefined },
     { text: 'Medium', expanded: false, duplicate: true, count: 2 },
     { text: 'Medium', expanded: false, foreignForm: true, count: 0 },
     { text: 'Medium', expanded: false, wrongLabel: true, count: 0 },
     { text: 'Medium', expanded: false, inMenu: true, count: 0 },
     { text: 'Medium', expanded: false, far: true, count: 0 },
-    { text: 'GPT-5 Pro', expanded: false, count: 0 },
+    { text: 'GPT-5 Pro', expanded: false, count: 0, pageCount: 1 },
     { text: 'Pro', expanded: false, count: 1, phase: 'already-pro' },
   ]) {
     const form = {};
@@ -142,7 +142,7 @@ test('both model matchers recognize localized controls and retain strict mode pr
       : selector === 'button[aria-haspopup="menu"]' ? controls
       : selector === '[role="menuitemradio"]' ? [option] : [];
     assert.deepEqual(inspect([composer], form, query, node => node.innerText), {
-      count, label: count === 1 ? text : '',
+      count: pageCount, label: pageCount === 1 ? text : '',
     });
     const action = new Function('document', 'getComputedStyle', modeSource)(
       { querySelectorAll: query }, () => ({ display: 'block', visibility: 'visible' }),

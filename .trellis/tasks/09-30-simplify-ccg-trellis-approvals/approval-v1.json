@@ -1,0 +1,61 @@
+{
+  "status": "approved",
+  "taskId": "simplify-ccg-trellis-approvals",
+  "version": "v1",
+  "approvedAtUtc": "2026-09-30T17:23:41.118627+00:00",
+  "recordedAtUtc": "2026-09-30T17:23:41.118627+00:00",
+  "source": {
+    "kind": "explicit_user_reply_after_final_summary",
+    "quote": "批准",
+    "context": "Direct user reply to the previously presented v1 local implementation summary",
+    "messageId": null,
+    "sourceThreadId": "01a0f2ca-94cb-7468-8234-a2588ee4800a"
+  },
+  "reviewManifestBeforeApprovalSha256": "11bf09c1f816dbdf8de980d614bb510a91b7ba412943a2271c9c48e3bd57d4a2",
+  "reviewedArtifacts": [
+    {
+      "file": "prd.md",
+      "sha256": "fecb65253270486bb2bdfa3de3143e3e337f6cee119b9031ec51dd25a5b1a65b"
+    },
+    {
+      "file": "design.md",
+      "sha256": "00a51d38b3cb6183ca813588c8dc7a0faa889c6e0e91135e0b03ec1b1dcbb337"
+    },
+    {
+      "file": "implement.md",
+      "sha256": "c9046d8d60850a73347bdfabd3cfef84c81242216a40288063c069c0c0022743"
+    },
+    {
+      "file": "deployment-targets.md",
+      "sha256": "4741c4364e69a2515081890bbd1baec3cc5c6b35562fdaf4cb98576e4037dc82"
+    }
+  ],
+  "scope": [
+    "Trellis task-creation consent reuse and final-plan approval handoff rules",
+    "CCG native Skill Trellis-first canonical plan resolution and approval reuse",
+    "Existing task metadata approval-source records and necessary offline checks"
+  ],
+  "actions": [
+    "create_isolated_worktrees",
+    "edit_approved_local_source_paths",
+    "run_necessary_offline_checks",
+    "export_reviewable_diff"
+  ],
+  "excludedActions": [
+    "PR51 fix",
+    "model permission changes",
+    "Provider calls",
+    "legacy migration",
+    "global install or sync",
+    "commit",
+    "push",
+    "PR",
+    "merge",
+    "publish",
+    "archive"
+  ],
+  "sourceBaselines": {
+    "ccg": "87592d37578193bf36c8a074e5224a4803951ce3",
+    "harness": "b45c2ea72141bc0fa7f36232e102e8e5971602ed"
+  }
+}
