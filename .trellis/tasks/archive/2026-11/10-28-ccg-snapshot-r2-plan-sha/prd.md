@@ -20,8 +20,8 @@ Update components/ccg-workflow to CCG main after #59 and #55: drop the unused Cl
 - [x] `harness.sources.json` pins the CCG main commit and tree; the snapshot matches that tree.
 - [x] The snapshot has no `repair-wrapper-r2` files or R2 sync steps, and `codex-mode install` accepts `--agent-preservation-plan-sha256`.
 - [x] `harness:update` gates pass (CCG install/lint/typecheck/build/tests, Go, Harness tests); `verify-sources` and `conflicts` results recorded.
-- [ ] Harness CI passes on the PR.
-- [ ] `doctor.ps1` run from Codex before merge (installed-CLI check pending; see Verification).
+- [x] Harness CI passes on the PR.
+- [x] `doctor.ps1` run from Codex before merge (see Completion).
 
 ## Plan
 
@@ -36,3 +36,9 @@ Update components/ccg-workflow to CCG main after #59 and #55: drop the unused Cl
 - `verify-sources`: passed. `conflicts --ci`: 0 blocking, 0 warning, 14 passed.
 - Not valid: the doctor step inside `harness:update` ran under Claude Code with `CLAUDECODE`/`CCG_HOST` stripped so the global `ccg-codex --version` check would run. The global CLI is Codex-only, so that check must be rerun with `pwsh -NoProfile -File .\scripts\doctor.ps1` from Codex. No other step used the global CLI; the managed global smoke was skipped (no ownership record in the worktree).
 - Environment note: a resident process under `I:\ai\` holds directory handles, so the component rename failed with `EPERM` in an `I:\ai\...` worktree (transaction rolled back, no changes). The update ran in `G:\CodexWorktrees\ccg-snapshot-r2-plan-sha-harness`.
+
+## Completion
+
+- Outcome: Harness #60 merged as `33a01bf` on 2026-11-01. The snapshot pins CCG `af2f421` (tree `466b449`).
+- Checks: Harness CI passed on PR head `ae1c450` (run 40790244079) and on the merge commit (run 41345312789). The repository owner ran `scripts/doctor.ps1` from Codex on `ae1c450`: exit 0, no blocking items or warnings.
+- Limits: the doctor pass is the owner's report. A separate Claude Code run on the same head failed only the installed-CLI check, as expected, and does not count.
