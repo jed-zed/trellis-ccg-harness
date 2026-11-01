@@ -273,7 +273,8 @@ return (() => {
       const rect = element.getBoundingClientRect();
       const verticalGap = Math.max(composerRect.top - rect.bottom, rect.top - composerRect.bottom, 0);
       const horizontallyAdjacent = rect.right >= composerRect.left - 40 && rect.left <= composerRect.right + 40;
-      return !element.closest('[role="menu"]') && composerForm && element.closest('form') === composerForm && element.form === composerForm && isModelControl(element) &&
+      const modelControl = isModelControl(element);
+      return !element.closest('[role="menu"]') && composerForm && element.closest('form') === composerForm && element.form === composerForm && modelControl &&
         horizontallyAdjacent && verticalGap <= 40;
     })
     : [];
