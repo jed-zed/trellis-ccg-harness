@@ -16,7 +16,7 @@ return (() => {
   const visibleAll = selector => Array.from(document.querySelectorAll(selector)).filter(visible);
   const compactText = element => String(element?.innerText || element?.textContent || '')
     .trim().replace(/\s+/g, ' ');
-  const boundedText = (element, preserveUserSource = false) => {
+  const boundedText = (element, preserveUserSource = false, includeLegacyBaseline = false) => {
     const clone = element.cloneNode(true);
     // Read only code editors owned by this assistant body. Rendered lines may be virtualized.
     if (!preserveUserSource) {
@@ -46,9 +46,57 @@ return (() => {
         node.replaceWith(document.createTextNode(`\`${node.textContent || ''}\``));
       });
     }
-    const text = normalize(nodePlainText(clone));
-    return { text: text.slice(0, MAX_TEXT), truncated: text.length > MAX_TEXT };
+    const text = normalize(replyPlainText(clone).text);
+    const result = { text: text.slice(0, MAX_TEXT), truncated: text.length > MAX_TEXT };
+    if (includeLegacyBaseline) {
+      // Historical v1 hashes used this traversal of the same sanitized clone.
+      // Keep it separate from formatted output; never reconstruct it by
+      // stripping newlines, which would also erase original BR/code content.
+      const legacyText = normalize(nodePlainText(clone));
+      result.legacyText = legacyText.slice(0, MAX_TEXT);
+      result.legacyTruncated = legacyText.length > MAX_TEXT;
+    }
+    return result;
   };
+  // Detached clones have no layout. Carry structural entry/exit breaks through
+  // transparent wrappers instead of relying on innerText or direct siblings.
+  // Output remains plain text; inline adjacency and verbatim code are preserved.
+  const replyPlainText = node => {
+    if (node.nodeType === 3) return { text: node.nodeValue || '', before: 0, after: 0 };
+    if (node.nodeType !== 1) return { text: '', before: 0, after: 0 };
+    if (node.tagName === 'BR') return { text: '\n', before: 0, after: 0 };
+    // PRE must keep indentation and repeated blank lines, without interpreting
+    // its descendants as reply blocks. Composer uses this same verbatim helper.
+    if (node.tagName === 'PRE') return { text: nodePlainText(node), before: 2, after: 2 };
+    const blockBreak = /^(P|H[1-6]|LI|UL|OL|BLOCKQUOTE|DIV|SECTION|ARTICLE|TABLE|TR)$/.test(node.tagName)
+      ? (node.tagName === 'LI' || node.tagName === 'TR' ? 1 : 2) : 0;
+    // before/after describe gaps outside this subtree. Internal child gaps use
+    // previousAfter so a parent paragraph does not split its own inline spans.
+    let text = '', whitespace = '', before = blockBreak, after = blockBreak, previousAfter = 0;
+    for (const child of node.childNodes) {
+      const part = replyPlainText(child);
+      // Parsed HTML includes indentation between blocks. Defer only ASCII
+      // formatting whitespace: retain it between inline nodes, discard it at a
+      // structural break. NBSP and whitespace inside PRE remain content.
+      if (child.nodeType === 3 && /^[\t\r\n ]*$/.test(part.text)) {
+        whitespace += part.text; continue;
+      }
+      if (!part.text) continue;
+      if (text) {
+        const boundary = Math.max(previousAfter, part.before);
+        text += boundary ? '\n'.repeat(boundary) : whitespace;
+      } else {
+        before = Math.max(blockBreak, part.before);
+        if (!part.before) text += whitespace;
+      }
+      text += part.text;
+      whitespace = '';
+      previousAfter = part.after;
+      after = Math.max(blockBreak, part.after);
+    }
+    return { text: text + (after ? '' : whitespace), before, after };
+  };
+  // Composer callers retain their original paragraph joins and pre-click hash.
   const nodePlainText = node => {
     if (node.nodeType === 3) return node.nodeValue || '';
     if (node.nodeType !== 1) return '';
@@ -137,7 +185,7 @@ return (() => {
       if (seen.has(container)) continue;
       seen.add(container);
       transcriptBodies.push(body);
-      const content = boundedText(body, role === 'user');
+      const content = boundedText(body, role === 'user', true);
       if (content.issue) { failTurn(content.issue); continue; }
       if (!content.text) {
         if (!legacy && role === 'user') failTurn('UserMessageContentMissing');
@@ -148,6 +196,8 @@ return (() => {
         key: key || container.getAttribute('data-message-id') || container.getAttribute('data-testid') || `${role}-${turns.length}`,
         content: content.text,
         truncated: content.truncated,
+        legacyContent: content.legacyText,
+        legacyTruncated: content.legacyTruncated,
       });
       if (turns.length > MAX_TURNS) break;
     }
@@ -225,12 +275,16 @@ return (() => {
   const loginControls = visibleAll('a[data-testid="login-button"], button[data-testid="login-button"], form[action*="/auth/login"]');
   const challengeControls = visibleAll('input[type="password"], input[autocomplete="one-time-code"], iframe[src*="captcha" i], [data-testid*="captcha" i], [data-testid*="challenge" i]');
   const composerRect = composers.length === 1 ? composers[0].getBoundingClientRect() : null;
+  // A localized control name only identifies the same-form menu. It never
+  // proves selected Pro; uniqueness, adjacency and the exact visible label do.
+  const isModelControl = element => /^(选择 ChatGPT 模型|(?:Choose|Select) ChatGPT model)$/i
+    .test(String(element.getAttribute('aria-label') || '').trim().replace(/\s+/g, ' '));
   const modeControls = composerRect
     ? visibleAll('button[aria-haspopup="menu"]').filter(element => {
       const rect = element.getBoundingClientRect();
       const verticalGap = Math.max(composerRect.top - rect.bottom, rect.top - composerRect.bottom, 0);
       const horizontallyAdjacent = rect.right >= composerRect.left - 40 && rect.left <= composerRect.right + 40;
-      const modelControl = /^(\u9009\u62e9 ChatGPT \u6a21\u578b|(?:Choose|Select) ChatGPT model)$/i.test(String(element.getAttribute('aria-label') || '').trim());
+      const modelControl = isModelControl(element);
       return !element.closest('[role="menu"]') && composerForm && element.closest('form') === composerForm && element.form === composerForm && modelControl &&
         horizontallyAdjacent && verticalGap <= 40;
     })
@@ -315,7 +369,7 @@ return (() => {
   };
   const modelControlCandidates = composerForm ? Array.from(composerForm.querySelectorAll('button[aria-haspopup="menu"]')).filter(element =>
     element.closest('form') === composerForm && element.form === composerForm &&
-    /^(\u9009\u62e9 ChatGPT \u6a21\u578b|(?:Choose|Select) ChatGPT model)$/i.test(String(element.getAttribute('aria-label') || '').trim())) : [];
+    isModelControl(element)) : [];
   const linkedModelMenus = Array.from(document.querySelectorAll('[role="menu"]')).filter(menu => modelControlCandidates.some(control =>
     (menu.id && String(control.getAttribute('aria-controls') || '').split(/\s+/).includes(menu.id)) ||
     (control.id && String(menu.getAttribute('aria-labelledby') || '').split(/\s+/).includes(control.id))));
