@@ -11,6 +11,20 @@ and headings and line breaks for list items, and discards HTML indentation only
 at structural boundaries. Inline text stays adjacent and PRE whitespace stays
 verbatim. Composer traversal and its pre-click hashes keep their original joins.
 
+New rounds record `dom-agent-turn-v2` structural baseline hashes. Recovery of
+historical `dom-agent-turn-v1` rounds may compare the original sanitized plain
+text traversal of the same owned DOM clone. The earlier draft also recorded
+structural hashes as v1, so each retained ordered baseline must match wholly in
+one representation; per-turn mixtures are rejected. V2 never uses the legacy
+fallback, and unknown versions fail closed. Wait retains ordered-suffix checks;
+reextract requires the complete original prefix. Neither path rewrites saved
+hashes, relaxes ownership checks, resends, or changes formatted response output.
+Missing or truncated legacy text cannot prove a historical hash.
+Reextraction receipts record the observed representation that passed each
+historical prefix/prompt check, while the selected reply keeps its structural
+hash. Existing independent importers can therefore validate both the original
+baseline and the newly formatted response without relaxing either check.
+
 Composer eligibility requires one visible enabled editable node outside transcript,
 hidden and inert regions. An exact structural suffix has at most 64 numeric
 `:nth-child` steps and must match that same unique node. Send remains bound to

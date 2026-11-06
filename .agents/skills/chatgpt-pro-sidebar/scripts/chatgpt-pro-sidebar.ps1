@@ -48,7 +48,7 @@ $Script:ToolName = 'chatgpt-pro-sidebar'
 $Script:SchemaVersion = 1
 $Script:ExtractorVersion = 'uia-agent-turn-v2'
 $Script:AgentBrowserTransport = 'agent-browser-cli-v2'
-$Script:AgentBrowserExtractorVersion = 'dom-agent-turn-v1'
+$Script:AgentBrowserExtractorVersion = 'dom-agent-turn-v2'
 $Script:AgentBrowserCliCommand = 'agent-browser-cli'
 $Script:AgentBrowserComposerFallbackSelector = ':is(main, [role="main"]) form div.ProseMirror[role="textbox"][contenteditable="true"]:not([data-message-author-role], [data-message-author-role] *, article[data-testid^="conversation-turn-"] *)'
 $Script:AgentBrowserScriptPath = Join-Path $PSScriptRoot 'chatgpt-pro-agent-browser-v2.js'
@@ -1370,10 +1370,23 @@ function Assert-SendPreconditions {
     }
 }
 
+function Test-LegacyAgentBrowserBaseline {
+    param([Parameter(Mandatory = $true)]$State)
+    # v1 was also used by the pre-versioned structural-format draft. Accept
+    # either whole v1 baseline representation, never a per-turn mixture.
+    switch -CaseSensitive ([string](Get-ObjectProperty $State 'extractorVersion' 'dom-agent-turn-v1')) {
+        'dom-agent-turn-v1' { return $true }
+        'dom-agent-turn-v2' { return $false }
+        default { Throw-SidebarError -ExitCode $Script:ExitCodes.ResponseIsolation -Category 'BaselineExtractorVersionUnsupported' -Message 'The saved browser baseline extractor version is unsupported.' }
+    }
+}
+
 function Find-TurnBaselineSuffix {
     param(
         [Parameter(Mandatory = $true)][AllowEmptyCollection()][string[]]$BaselineHashes,
-        [Parameter(Mandatory = $true)][AllowEmptyCollection()][object[]]$CurrentTurns
+        [Parameter(Mandatory = $true)][AllowEmptyCollection()][object[]]$CurrentTurns,
+        [switch]$AllowLegacyContentHash,
+        [switch]$ExactPrefix
     )
 
     $currentHashes = @($CurrentTurns | ForEach-Object { [string](Get-ObjectProperty $_ 'ContentSha256' '') })
@@ -1386,24 +1399,31 @@ function Find-TurnBaselineSuffix {
         }
     }
 
-    for ($omitted = 0; $omitted -lt $BaselineHashes.Count; $omitted++) {
+    $hashSets = [ordered]@{ ContentSha256 = $currentHashes }
+    if ($AllowLegacyContentHash) {
+        $hashSets['LegacyContentSha256'] = @($CurrentTurns | ForEach-Object { [string](Get-ObjectProperty $_ 'LegacyContentSha256' '') })
+    }
+    $prefixLimit = if ($ExactPrefix) { 1 } else { $BaselineHashes.Count }
+    for ($omitted = 0; $omitted -lt $prefixLimit; $omitted++) {
         $retained = $BaselineHashes.Count - $omitted
-        if ($currentHashes.Count -lt $retained) {
+        if ($CurrentTurns.Count -lt $retained) {
             continue
         }
-        $matches = $true
-        for ($index = 0; $index -lt $retained; $index++) {
-            if ($currentHashes[$index] -cne $BaselineHashes[$omitted + $index]) {
-                $matches = $false
-                break
+        foreach ($currentHashes in $hashSets.Values) {
+            $matches = $true
+            for ($index = 0; $index -lt $retained; $index++) {
+                if ([string]::IsNullOrWhiteSpace($currentHashes[$index]) -or $currentHashes[$index] -cne $BaselineHashes[$omitted + $index]) {
+                    $matches = $false
+                    break
+                }
             }
-        }
-        if ($matches) {
-            return [pscustomobject]@{
-                CurrentHashes = $currentHashes
-                OmittedBaselinePrefixCount = $omitted
-                RetainedBaselineCount = $retained
-                NewCount = $currentHashes.Count - $retained
+            if ($matches) {
+                return [pscustomobject]@{
+                    CurrentHashes = $currentHashes
+                    OmittedBaselinePrefixCount = $omitted
+                    RetainedBaselineCount = $retained
+                    NewCount = $currentHashes.Count - $retained
+                }
             }
         }
     }
@@ -1413,10 +1433,11 @@ function Find-TurnBaselineSuffix {
 function Compare-ResponseBaseline {
     param(
         [Parameter(Mandatory = $true)][AllowEmptyCollection()][string[]]$BaselineHashes,
-        [Parameter(Mandatory = $true)][AllowEmptyCollection()][object[]]$CurrentResponses
+        [Parameter(Mandatory = $true)][AllowEmptyCollection()][object[]]$CurrentResponses,
+        [switch]$AllowLegacyContentHash
     )
 
-    $match = Find-TurnBaselineSuffix -BaselineHashes $BaselineHashes -CurrentTurns $CurrentResponses
+    $match = Find-TurnBaselineSuffix -BaselineHashes $BaselineHashes -CurrentTurns $CurrentResponses -AllowLegacyContentHash:$AllowLegacyContentHash
     if ($null -eq $match) {
         Throw-SidebarError -ExitCode $Script:ExitCodes.ResponseIsolation -Category 'ResponseBaselineMismatch' -Message 'Rendered assistant responses do not retain an unchanged ordered suffix of the recorded baseline.' -Details ([ordered]@{ baselineCount = $BaselineHashes.Count; currentCount = $CurrentResponses.Count })
     }
@@ -1666,7 +1687,8 @@ function Invoke-PollUntilCompleted {
         [Parameter(Mandatory = $true)][scriptblock]$UtcNowProvider,
         [Parameter(Mandatory = $true)][int]$TimeoutSeconds,
         [Parameter(Mandatory = $true)][int]$PollMilliseconds,
-        $AbsoluteDeadlineUtc = $null
+        $AbsoluteDeadlineUtc = $null,
+        [switch]$AllowLegacyContentHash
     )
 
     $deadline = if ($PSBoundParameters.ContainsKey('AbsoluteDeadlineUtc') -and $null -ne $AbsoluteDeadlineUtc) {
@@ -1693,7 +1715,7 @@ function Invoke-PollUntilCompleted {
         }
 
         try {
-            $comparison = Compare-ResponseBaseline -BaselineHashes $BaselineHashes -CurrentResponses @((Get-ObjectProperty $observation 'Responses' @()))
+            $comparison = Compare-ResponseBaseline -BaselineHashes $BaselineHashes -CurrentResponses @((Get-ObjectProperty $observation 'Responses' @())) -AllowLegacyContentHash:$AllowLegacyContentHash
             $baselineMismatchPolls = 0
         }
         catch {
@@ -4821,7 +4843,7 @@ function ConvertTo-AgentBrowserTurnRecords {
         if ([string]::IsNullOrWhiteSpace($content) -or $content.Length -gt 200000) {
             Throw-SidebarError -ExitCode $Script:ExitCodes.ResponseIsolation -Category 'ResponseContentInvalid' -Message 'A browser turn has missing or unbounded content.'
         }
-        $records += [pscustomobject]@{
+        $record = [pscustomobject]@{
             Ordinal = $index
             Content = $content
             ContentSha256 = Get-Sha256Text -Text $content
@@ -4829,6 +4851,12 @@ function ConvertTo-AgentBrowserTurnRecords {
             ControlTypeCounts = [ordered]@{ domTurn = 1 }
             ExtractorVersion = $Script:AgentBrowserExtractorVersion
         }
+        $legacyContent = Get-ObjectProperty $turn 'legacyContent' $null
+        if ($legacyContent -is [string] -and -not [string]::IsNullOrWhiteSpace($legacyContent) -and
+            $legacyContent.Length -le 200000 -and -not [bool](Get-ObjectProperty $turn 'legacyTruncated' $false)) {
+            $record | Add-Member -NotePropertyName 'LegacyContentSha256' -NotePropertyValue (Get-Sha256Text -Text (Normalize-TextForHash -Text $legacyContent))
+        }
+        $records += $record
     }
     return $records
 }
@@ -5384,10 +5412,11 @@ function Invoke-AgentBrowserNewChat {
 function Assert-AgentBrowserUserTurnAcknowledgement {
     param(
         [Parameter(Mandatory = $true)][AllowEmptyCollection()][string[]]$BaselineHashes,
-        [Parameter(Mandatory = $true)][AllowEmptyCollection()][object[]]$CurrentTurns
+        [Parameter(Mandatory = $true)][AllowEmptyCollection()][object[]]$CurrentTurns,
+        [switch]$AllowLegacyContentHash
     )
 
-    $match = Find-TurnBaselineSuffix -BaselineHashes $BaselineHashes -CurrentTurns $CurrentTurns
+    $match = Find-TurnBaselineSuffix -BaselineHashes $BaselineHashes -CurrentTurns $CurrentTurns -AllowLegacyContentHash:$AllowLegacyContentHash
     if ($null -eq $match) {
         Throw-SidebarError -ExitCode $Script:ExitCodes.ResponseIsolation -Category 'UserTurnBaselineMismatch' -Message 'Rendered user turns do not retain an unchanged ordered suffix of the pre-send baseline.'
     }
@@ -6337,6 +6366,7 @@ function Invoke-AgentBrowserWait {
     if ([string](Get-ObjectProperty $state 'transport' '') -ne $Script:AgentBrowserTransport) {
         Throw-SidebarError -ExitCode $Script:ExitCodes.SendUncertain -Category 'LegacyTransportNotResumable' -Message 'Incomplete windows-uia evidence is historical and cannot be resumed by the V2 transport. Automatic resend remains prohibited.'
     }
+    $allowLegacyContentHash = Test-LegacyAgentBrowserBaseline -State $state
     if (@('sent', 'send-intent', 'send-uncertain') -notcontains $phase) {
         Throw-SidebarError -ExitCode $Script:ExitCodes.SendUncertain -Category 'SendStateNotWaitable' -Message 'wait requires sent or an uncertain post-click phase. It never resubmits.' -Details ([ordered]@{ phase = $phase })
     }
@@ -6424,7 +6454,8 @@ function Invoke-AgentBrowserWait {
                     $baselineUserHashes = @((Get-ObjectProperty $state 'baselineUserTurnSha256' @()) | ForEach-Object { [string]$_ })
                     $submissionAcknowledged = Assert-AgentBrowserUserTurnAcknowledgement `
                         -BaselineHashes $baselineUserHashes `
-                        -CurrentTurns $observationState.Snapshot.UserTurns
+                        -CurrentTurns $observationState.Snapshot.UserTurns `
+                        -AllowLegacyContentHash:$allowLegacyContentHash
                     if ($submissionAcknowledged) {
                         Set-ObjectProperty -InputObject $state -Name 'submissionAcknowledged' -Value $true
                         Write-EvidenceState -Directory $EvidenceDirectory -State $state
@@ -6438,6 +6469,7 @@ function Invoke-AgentBrowserWait {
         TimeoutSeconds = $effectiveTimeoutSeconds
         PollMilliseconds = $PollMillisecondsValue
         AbsoluteDeadlineUtc = $absoluteDeadlineUtc
+        AllowLegacyContentHash = $allowLegacyContentHash
     }
     $result = Invoke-PollUntilCompleted @pollArguments
     $boundConversationUrl = [string]$observationState.BoundConversationUrl
@@ -6453,7 +6485,8 @@ function Invoke-AgentBrowserWait {
         $baselineUserHashes = @((Get-ObjectProperty $state 'baselineUserTurnSha256' @()) | ForEach-Object { [string]$_ })
         $null = Assert-AgentBrowserUserTurnAcknowledgement `
             -BaselineHashes $baselineUserHashes `
-            -CurrentTurns $latestSnapshot.UserTurns
+            -CurrentTurns $latestSnapshot.UserTurns `
+            -AllowLegacyContentHash:$allowLegacyContentHash
         $boundConversationUrl = [string]$latestSnapshot.Url
         Set-ObjectProperty -InputObject $state -Name 'conversationUrlBound' -Value $boundConversationUrl
         Set-ObjectProperty -InputObject $state -Name 'conversationUrlBoundAtUtc' -Value ([DateTime]::UtcNow.ToString('o'))
@@ -6496,22 +6529,33 @@ function Invoke-AgentBrowserWait {
 }
 
 function Select-ReextractionReply {
-    param([Parameter(Mandatory = $true)]$State, [Parameter(Mandatory = $true)]$Snapshot)
+    param([Parameter(Mandatory = $true)]$State, [Parameter(Mandatory = $true)]$Snapshot, [ref]$TranscriptProof)
+    $allowLegacyContentHash = Test-LegacyAgentBrowserBaseline -State $State
     Assert-ConversationUrlMatch -ExpectedUrl (Get-BoundConversationUrlFromState -State $State) -ActualUrl $Snapshot.Url
     if ($Snapshot.Generating) { throw 'Reextraction requires a stopped conversation; it never waits or sends.' }
     $users = @($Snapshot.UserTurns); $responses = @($Snapshot.Responses)
     $baselineUsers = @((Get-ObjectProperty $State 'baselineUserTurnSha256' @()))
     $baselineResponses = @((Get-ObjectProperty $State 'baselineResponseSha256' @()))
     if ($users.Count -le $baselineUsers.Count -or $responses.Count -le $baselineResponses.Count) { throw 'Reextraction transcript is incomplete.' }
-    for ($index = 0; $index -lt $baselineUsers.Count; $index++) {
-        if ($users[$index].ContentSha256 -cne $baselineUsers[$index]) { throw 'Reextraction user baseline changed.' }
-    }
-    for ($index = 0; $index -lt $baselineResponses.Count; $index++) {
-        if ($responses[$index].ContentSha256 -cne $baselineResponses[$index]) { throw 'Reextraction assistant baseline changed.' }
-    }
-    if ($users[$baselineUsers.Count].ContentSha256 -cne [string]$State.promptSha256) { throw 'Reextraction prompt does not match the original sent request.' }
+    $userMatch = Find-TurnBaselineSuffix -BaselineHashes $baselineUsers -CurrentTurns $users -ExactPrefix -AllowLegacyContentHash:$allowLegacyContentHash
+    if ($null -eq $userMatch) { throw 'Reextraction user baseline changed.' }
+    $responseMatch = Find-TurnBaselineSuffix -BaselineHashes $baselineResponses -CurrentTurns $responses -ExactPrefix -AllowLegacyContentHash:$allowLegacyContentHash
+    if ($null -eq $responseMatch) { throw 'Reextraction assistant baseline changed.' }
+    $promptMatch = Find-TurnBaselineSuffix -BaselineHashes @([string]$State.promptSha256) -CurrentTurns @($users[$baselineUsers.Count]) -ExactPrefix -AllowLegacyContentHash:$allowLegacyContentHash
+    if ($null -eq $promptMatch) { throw 'Reextraction prompt does not match the original sent request.' }
     $reply = $responses[$baselineResponses.Count]
     if ([bool](Get-ObjectProperty $reply 'Truncated' $false) -or [string]::IsNullOrWhiteSpace($reply.Content)) { throw 'Reextraction response is empty or truncated.' }
+    if ($null -ne $TranscriptProof) {
+        # The independent importer checks the historical prefix and the new
+        # response file separately. Record observed hashes that actually matched,
+        # never substitute saved State hashes or relabel the formatted reply.
+        $userHashes = @($users | ForEach-Object { $_.ContentSha256 })
+        $responseHashes = @($responses | ForEach-Object { $_.ContentSha256 })
+        for ($index = 0; $index -lt $baselineUsers.Count; $index++) { $userHashes[$index] = $userMatch.CurrentHashes[$index] }
+        for ($index = 0; $index -lt $baselineResponses.Count; $index++) { $responseHashes[$index] = $responseMatch.CurrentHashes[$index] }
+        $userHashes[$baselineUsers.Count] = $promptMatch.CurrentHashes[0]
+        $TranscriptProof.Value = [pscustomobject]@{ UserHashes = $userHashes; ResponseHashes = $responseHashes }
+    }
     return $reply
 }
 
@@ -6549,7 +6593,8 @@ function Invoke-AgentBrowserReextract {
     foreach ($field in @('browserId','profileId','origin')) {
         if ([string](Get-ObjectProperty $binding $field '') -cne [string](Get-ObjectProperty $state.targetBinding $field '')) { throw 'Reextraction browser/profile binding changed.' }
     }
-    $reply = Select-ReextractionReply -State $state -Snapshot $observation.Snapshot
+    $transcriptProof = $null
+    $reply = Select-ReextractionReply -State $state -Snapshot $observation.Snapshot -TranscriptProof ([ref]$transcriptProof)
     $currentHashes = Get-ReextractionSourceHashes -EvidenceDirectory $EvidenceDirectory
     foreach ($name in $sourceHashes.Keys) {
         if ($currentHashes[$name] -cne $sourceHashes[$name]) { throw 'Original evidence changed during reextraction.' }
@@ -6567,8 +6612,8 @@ function Invoke-AgentBrowserReextract {
             codexThreadId = $ThreadId; thinkingMode = [string](Get-ObjectProperty $state 'thinkingMode' 'Pro'); conversationUrl = $url
             originalTargetBinding = $state.targetBinding; observedTargetBinding = $binding
             promptSha256 = [string]$state.promptSha256; responseIndex = @($state.baselineResponseSha256).Count
-            observedUserTurnSha256 = @($observation.Snapshot.UserTurns | ForEach-Object { $_.ContentSha256 })
-            observedResponseSha256 = @($observation.Snapshot.Responses | ForEach-Object { $_.ContentSha256 })
+            observedUserTurnSha256 = @($transcriptProof.UserHashes)
+            observedResponseSha256 = @($transcriptProof.ResponseHashes)
             responseFile = 'response.md'; responseSha256 = Get-Sha256File -Path $responsePath
             observedAtUtc = [DateTime]::UtcNow.ToString('o'); originalCompletedAtUtc = Get-ReextractionOriginalTimestamp -EvidenceDirectory $EvidenceDirectory
             generating = $false; truncated = $false; automaticResendAllowed = $false; newWebRequests = 0

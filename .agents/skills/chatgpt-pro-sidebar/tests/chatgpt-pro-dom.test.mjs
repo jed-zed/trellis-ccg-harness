@@ -44,6 +44,40 @@ test('reply extraction retains its text limit', () => {
   assert.equal(result.truncated, true);
 });
 
+test('legacy baseline text keeps original BR and PRE newlines while omitting new block separators', () => {
+  const root = elementNode('DIV',
+    elementNode('P', textNode('first'), elementNode('BR'), textNode('line')),
+    elementNode('P', textNode('second')),
+    elementNode('PRE', elementNode('CODE', textNode('  code\n\nnext'))),
+  );
+  assert.deepEqual(boundedText(root, false, true), {
+    text: 'first\nline\n\nsecond\n\n  code\n\nnext', truncated: false,
+    legacyText: 'first\nlinesecond  code\n\nnext', legacyTruncated: false,
+  });
+});
+
+test('legacy comparison retains a separate bound and truncation signal', () => {
+  // Structural extraction discards inter-block HTML indentation; legacy did not.
+  const root = elementNode('DIV', elementNode('P', textNode('a')),
+    textNode(' '.repeat(200001)), elementNode('P', textNode('b')));
+  const result = boundedText(root, false, true);
+  assert.equal(result.text, 'a\n\nb');
+  assert.equal(result.truncated, false);
+  assert.equal(result.legacyText.length, 200000);
+  assert.equal(result.legacyTruncated, true);
+});
+
+test('legacy comparison uses the sanitized clone and cannot include removed controls', () => {
+  const control = elementNode('BUTTON', textNode('Copy'));
+  const clone = elementNode('DIV', elementNode('P', textNode('first')),
+    control, elementNode('P', textNode('second')));
+  control.remove = () => { clone.childNodes = clone.childNodes.filter(node => node !== control); };
+  clone.querySelectorAll = selector => selector.startsWith('button,') ? [control] : [];
+  const result = boundedText(clone, false, true);
+  assert.equal(result.text, 'first\n\nsecond');
+  assert.equal(result.legacyText, 'firstsecond');
+});
+
 test('reply extraction ignores HTML indentation at block boundaries and keeps inline spaces', () => {
   const root = elementNode('DIV', textNode('\n  '),
     elementNode('P', textNode('first')), textNode('\n'), textNode('  '),

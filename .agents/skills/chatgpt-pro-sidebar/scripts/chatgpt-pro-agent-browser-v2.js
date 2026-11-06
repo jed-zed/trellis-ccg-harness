@@ -16,7 +16,7 @@ return (() => {
   const visibleAll = selector => Array.from(document.querySelectorAll(selector)).filter(visible);
   const compactText = element => String(element?.innerText || element?.textContent || '')
     .trim().replace(/\s+/g, ' ');
-  const boundedText = (element, preserveUserSource = false) => {
+  const boundedText = (element, preserveUserSource = false, includeLegacyBaseline = false) => {
     const clone = element.cloneNode(true);
     // Read only code editors owned by this assistant body. Rendered lines may be virtualized.
     if (!preserveUserSource) {
@@ -47,7 +47,16 @@ return (() => {
       });
     }
     const text = normalize(replyPlainText(clone).text);
-    return { text: text.slice(0, MAX_TEXT), truncated: text.length > MAX_TEXT };
+    const result = { text: text.slice(0, MAX_TEXT), truncated: text.length > MAX_TEXT };
+    if (includeLegacyBaseline) {
+      // Historical v1 hashes used this traversal of the same sanitized clone.
+      // Keep it separate from formatted output; never reconstruct it by
+      // stripping newlines, which would also erase original BR/code content.
+      const legacyText = normalize(nodePlainText(clone));
+      result.legacyText = legacyText.slice(0, MAX_TEXT);
+      result.legacyTruncated = legacyText.length > MAX_TEXT;
+    }
+    return result;
   };
   // Detached clones have no layout. Carry structural entry/exit breaks through
   // transparent wrappers instead of relying on innerText or direct siblings.
@@ -176,7 +185,7 @@ return (() => {
       if (seen.has(container)) continue;
       seen.add(container);
       transcriptBodies.push(body);
-      const content = boundedText(body, role === 'user');
+      const content = boundedText(body, role === 'user', true);
       if (content.issue) { failTurn(content.issue); continue; }
       if (!content.text) {
         if (!legacy && role === 'user') failTurn('UserMessageContentMissing');
@@ -187,6 +196,8 @@ return (() => {
         key: key || container.getAttribute('data-message-id') || container.getAttribute('data-testid') || `${role}-${turns.length}`,
         content: content.text,
         truncated: content.truncated,
+        legacyContent: content.legacyText,
+        legacyTruncated: content.legacyTruncated,
       });
       if (turns.length > MAX_TURNS) break;
     }
